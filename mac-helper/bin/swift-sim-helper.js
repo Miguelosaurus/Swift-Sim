@@ -223,7 +223,20 @@ async function serve({ host, port }) {
         }
       }
 
-      const controlMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/control\/(home|lock|rotate)$/);
+      const typeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/type$/);
+      if (typeMatch && req.method === "POST") {
+        const [, sessionId] = typeMatch;
+        const session = store.get(sessionId);
+        if (!session) return notFound(res, "Unknown session.");
+        if (!tokenMatches(session, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        const body = await readJson(req);
+        const result = await typeIntoSimulator(session, body.text || "");
+        return json(res, 200, result);
+      }
+
+      const controlMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/control\/([a-z-]+)$/);
       if (controlMatch && req.method === "POST") {
         const [, sessionId, control] = controlMatch;
         const session = store.get(sessionId);
@@ -465,14 +478,36 @@ async function sendControl(session, control) {
     await adapter.button({ simulatorUDID: session.simulatorUDID, name: "home" });
   } else if (control === "lock") {
     await adapter.button({ simulatorUDID: session.simulatorUDID, name: "lock" });
-  } else if (control === "rotate") {
+  } else if (control === "rotate" || control === "rotate-right") {
+    const next = session.orientation === "landscape_right" ? "portrait" : "landscape_right";
+    await adapter.rotate({ simulatorUDID: session.simulatorUDID, orientation: next });
+    session.orientation = next;
+  } else if (control === "rotate-left") {
     const next = session.orientation === "landscape_left" ? "portrait" : "landscape_left";
     await adapter.rotate({ simulatorUDID: session.simulatorUDID, orientation: next });
     session.orientation = next;
+  } else if (control === "siri") {
+    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "siri" });
+  } else if (control === "side-button") {
+    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "side" });
+  } else if (control === "action-button") {
+    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "action" });
+  } else {
+    throw new Error(`Unsupported control: ${control}`);
   }
   session.logs.push(`control: ${control}`);
   store.save(session);
   return { ok: true, control };
+}
+
+async function typeIntoSimulator(session, typedText) {
+  if (!typedText || typeof typedText !== "string") {
+    throw new Error("Missing text.");
+  }
+  await adapter.type({ simulatorUDID: session.simulatorUDID, text: typedText });
+  session.logs.push(`typed ${typedText.length} characters`);
+  store.save(session);
+  return { ok: true };
 }
 
 function required(value, name) {

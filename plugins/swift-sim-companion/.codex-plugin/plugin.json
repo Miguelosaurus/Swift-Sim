@@ -1,13 +1,19 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260616201301",
   "description": "Teach Codex to start and hand off local Xcode Simulator sessions to the Swift Sim iOS companion app.",
   "author": {
     "name": "Swift Sim",
     "email": "local@example.com"
   },
   "license": "Apache-2.0",
-  "keywords": ["ios", "simulator", "codex", "swiftui", "tailscale"],
+  "keywords": [
+    "ios",
+    "simulator",
+    "codex",
+    "swiftui",
+    "tailscale"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Swift Sim Companion",
@@ -15,7 +21,10 @@
     "longDescription": "A Codex workflow companion skill that builds or reuses a Mac-hosted iOS Simulator session, starts the Swift Sim helper, and returns a native iOS companion link.",
     "developerName": "Swift Sim",
     "category": "Developer Tools",
-    "capabilities": ["Interactive", "Local"],
+    "capabilities": [
+      "Interactive",
+      "Local"
+    ],
     "defaultPrompt": [
       "Open this iOS app in Swift Sim Companion.",
       "Build and hand me a simulator companion link.",

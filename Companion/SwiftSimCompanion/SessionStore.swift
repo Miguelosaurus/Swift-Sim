@@ -39,6 +39,12 @@ final class SessionStore: ObservableObject {
         Task { await refresh() }
     }
 
+    func closeCurrentSession() {
+        currentSession = nil
+        isConnected = false
+        logs = []
+    }
+
     func refresh() async {
         guard let session = currentSession else { return }
         do {
@@ -73,6 +79,16 @@ final class SessionStore: ObservableObject {
         guard let session = currentSession else { return }
         var request = URLRequest(url: session.controlURL(control))
         request.httpMethod = "POST"
+        _ = try? await URLSession.shared.data(for: request)
+        await refresh()
+    }
+
+    func typeText(_ text: String) async {
+        guard let session = currentSession else { return }
+        var request = URLRequest(url: session.typeURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONEncoder().encode(["text": text])
         _ = try? await URLSession.shared.data(for: request)
         await refresh()
     }
@@ -267,6 +283,10 @@ struct SimulatorSession: Identifiable, Equatable {
 
     func controlURL(_ control: String) -> URL {
         baseURL.appending(path: "api/sessions/\(id)/control/\(control)").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var typeURL: URL {
+        baseURL.appending(path: "api/sessions/\(id)/type").appending(queryItems: [.init(name: "token", value: token)])
     }
 
     init?(url: URL) {
