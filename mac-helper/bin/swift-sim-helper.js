@@ -17,7 +17,7 @@ import {
   text,
   unauthorized,
 } from "../src/http.js";
-import { buildCompanionLinks, buildPairingLinks, publicSession } from "../src/links.js";
+import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../src/links.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -54,7 +54,7 @@ async function main() {
       args: rest,
       options: commonSessionOptions(),
     });
-    const session = await startOrReuseSession(values);
+    const session = await startOrReuseSession(values, { includeCodexMetadata: true });
     console.log(JSON.stringify(session, null, 2));
     return;
   }
@@ -248,7 +248,7 @@ async function serve({ host, port }) {
   });
 }
 
-async function startOrReuseSession(input) {
+async function startOrReuseSession(input, { includeCodexMetadata = false } = {}) {
   const simulatorUDID = required(input.simulator, "simulator");
   const existing = store.findReusable({
     project: input.project || "",
@@ -258,7 +258,7 @@ async function startOrReuseSession(input) {
   if (existing && existing.stream.state === "running") {
     existing.remoteBaseUrl = input["remote-base-url"] || existing.remoteBaseUrl;
     existing.updatedAt = new Date().toISOString();
-    return publicSession(existing);
+    return includeCodexMetadata ? codexSession(existing) : publicSession(existing);
   }
 
   const session = store.create({
@@ -283,7 +283,7 @@ async function startOrReuseSession(input) {
   };
   session.logs.push(...result.logs);
   store.save(session);
-  return publicSession(session);
+  return includeCodexMetadata ? codexSession(session) : publicSession(session);
 }
 
 async function stopSession(sessionId) {

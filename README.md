@@ -125,6 +125,9 @@ The command prints JSON. Look for:
 
 ```json
 {
+  "codex": {
+    "localPreviewUrl": "http://127.0.0.1:..."
+  },
   "links": {
     "universalLink": "https://your-mac.your-tailnet.ts.net/s/...",
     "customScheme": "swift-sim://session/..."
@@ -132,7 +135,7 @@ The command prints JSON. Look for:
 }
 ```
 
-Send the `universalLink` to your iPhone. If universal links are not configured yet, use the `customScheme` fallback.
+Codex should first open `codex.localPreviewUrl` in the Codex in-app browser to confirm the nested simulator is rendering. Then send the `universalLink` to your iPhone. Both views come from the same helper-managed `serve-sim` session for the same Simulator UDID. If universal links are not configured yet, use the `customScheme` fallback.
 
 ## Build The Companion App
 
@@ -227,6 +230,7 @@ $SWIFT_SIM_HOME/scripts/codex/open-simulator-session.sh \
 ```
 
 It starts the helper if needed, reuses existing sessions when possible, and prints the companion links as JSON.
+It also prints `codex.localPreviewUrl` for Codex-only local browser verification before the phone handoff.
 
 ### What Codex Should Do
 
@@ -246,6 +250,8 @@ Codex should end its response with:
 ```md
 [Open Simulator in Companion App](https://your-mac.your-tailnet.ts.net/s/...)
 ```
+
+Codex should not paste `codex.localPreviewUrl`, local ports, Simulator UDIDs, or project paths into the final message. Those are only for local verification.
 
 ## Security Model
 

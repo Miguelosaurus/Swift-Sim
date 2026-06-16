@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseServeSimOutput } from "../mac-helper/src/serveSimAdapter.js";
-import { buildCompanionLinks, buildPairingLinks, publicSession } from "../mac-helper/src/links.js";
+import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../mac-helper/src/links.js";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
 import { PairingStore } from "../mac-helper/src/pairingStore.js";
 
@@ -63,6 +63,29 @@ test("public session omits local simulator internals", () => {
   assert.equal(session.stream.localUrl, undefined);
   assert.equal(session.stream.port, undefined);
   assert.equal(session.stream.pid, undefined);
+});
+
+test("codex session includes local preview URL for nested browser verification", () => {
+  const session = codexSession({
+    id: "session",
+    token: "token",
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "SIM-UDID",
+    remoteBaseUrl: "https://mac.example.ts.net",
+    createdAt: "now",
+    updatedAt: "now",
+    build: { state: "ok" },
+    stream: {
+      state: "running",
+      localUrl: "http://127.0.0.1:3000",
+      port: 3000,
+      pid: 123,
+    },
+  });
+  assert.equal(session.codex.localPreviewUrl, "http://127.0.0.1:3000");
+  assert.equal(session.codex.simulatorUDID, "SIM-UDID");
+  assert.equal(session.stream.localUrl, undefined);
 });
 
 test("SessionStore persists sessions for CLI/server handoff", () => {

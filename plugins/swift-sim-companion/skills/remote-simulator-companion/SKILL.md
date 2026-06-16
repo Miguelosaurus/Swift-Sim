@@ -74,7 +74,7 @@ Expected iOS helper status lights:
    - Prefer XcodeBuildMCP screenshot or UI description.
    - If XcodeBuildMCP is unavailable, use normal `xcodebuild`/`simctl` verification.
 
-3. Start or reuse the Swift Sim session with the wrapper:
+3. Start or reuse the Swift Sim session with the wrapper for that exact same Simulator UDID:
 
    ```bash
    SWIFT_SIM_HOME="/path/to/Swift-Sim" \
@@ -87,7 +87,15 @@ Expected iOS helper status lights:
 
    The wrapper starts the helper if needed, keeps it bound to localhost, then asks the helper to start or reuse a `serve-sim` stream.
 
-4. Parse the returned JSON. Prefer:
+4. Parse the returned JSON. First use:
+
+   ```text
+   codex.localPreviewUrl
+   ```
+
+   Open that URL in the Codex in-app browser and verify the nested simulator renders a real frame. This URL is for local Codex verification only. Do not include it in the user-facing response.
+
+5. Confirm the phone companion link points at the same helper session:
 
    ```text
    links.universalLink
@@ -95,7 +103,7 @@ Expected iOS helper status lights:
 
    Use `links.customScheme` only as a fallback when `links.universalLink` is absent.
 
-5. End the Codex response with a Markdown link labeled exactly:
+6. End the Codex response with a Markdown link labeled exactly:
 
    ```text
    Open Simulator in Companion App
@@ -115,8 +123,9 @@ Use this sequence:
 2. Set defaults if needed.
 3. `build_run_sim`.
 4. Verify with screenshot or UI description.
-5. Run `scripts/codex/open-simulator-session.sh`.
-6. Return the companion link.
+5. Run `scripts/codex/open-simulator-session.sh` with the same Simulator UDID.
+6. Open `codex.localPreviewUrl` in the Codex in-app browser and verify the nested simulator frame.
+7. Return the companion link.
 
 ## If XcodeBuildMCP Is Not Available
 
@@ -131,6 +140,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 
 - Do not create or invoke a separate coding agent.
 - Do not expose project source paths, simulator UDIDs, local ports, or stream internals in the user-facing link.
+- `codex.localPreviewUrl` and `codex.simulatorUDID` are local workflow metadata only. Use them to prove the nested Codex simulator and the phone companion use the same Simulator session; never paste them into the final user message.
 - Keep the helper bound to localhost and expose it remotely through Tailscale Serve for v1.
 - Do not use Tailscale Funnel for default setup. Prefer private Tailnet access.
 - Never run an unscoped `serve-sim --kill`; stop only the session/UDID owned by this workflow.

@@ -14,6 +14,17 @@ export function publicSession(session) {
   };
 }
 
+export function codexSession(session) {
+  return {
+    ...publicSession(session),
+    codex: {
+      localPreviewUrl: session.stream.localUrl || "",
+      simulatorUDID: session.simulatorUDID || "",
+      note: "Open localPreviewUrl in the Codex in-app browser before sharing the companion link. Do not expose this field to users.",
+    },
+  };
+}
+
 export function buildCompanionLinks(session, remoteBaseUrl = "") {
   const base = normalizeBaseUrl(remoteBaseUrl);
   const universalLink = base
