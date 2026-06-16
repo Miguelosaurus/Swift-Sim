@@ -254,6 +254,8 @@ Codex should end its response with:
 - Pairing uses a helper token generated on your Mac.
 - Session links use opaque session ids and tokens.
 - Pairing tokens and session tokens are separate.
+- Remote session creation and adapter inspection require the pairing token.
+- Session status does not expose local stream URLs, local ports, process ids, project paths, or simulator UDIDs.
 - User project code is not sent to the iPhone companion for execution.
 - Stop only the specific simulator session you own; do not run unscoped `serve-sim --kill`.
 

@@ -4,15 +4,11 @@ export function publicSession(session) {
     id: session.id,
     project: session.project ? "set" : "",
     scheme: session.scheme,
-    simulatorUDID: session.simulatorUDID,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     build: session.build,
     stream: {
       state: session.stream.state,
-      localUrl: session.stream.localUrl,
-      port: session.stream.port,
-      pid: session.stream.pid,
     },
     links,
   };

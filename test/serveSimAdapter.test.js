@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseServeSimOutput } from "../mac-helper/src/serveSimAdapter.js";
-import { buildCompanionLinks, buildPairingLinks } from "../mac-helper/src/links.js";
+import { buildCompanionLinks, buildPairingLinks, publicSession } from "../mac-helper/src/links.js";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
 import { PairingStore } from "../mac-helper/src/pairingStore.js";
 
@@ -38,6 +38,31 @@ test("pairing links use helper token without session internals", () => {
   assert.equal(links.universalLink, "https://mac.example.ts.net/pair?token=pair-token");
   assert.equal(links.customScheme, "swift-sim://pair?token=pair-token&base=https%3A%2F%2Fmac.example.ts.net");
   assert.ok(!links.universalLink.includes("UDID"));
+});
+
+test("public session omits local simulator internals", () => {
+  const session = publicSession({
+    id: "session",
+    token: "token",
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "SIM-UDID",
+    remoteBaseUrl: "https://mac.example.ts.net",
+    createdAt: "now",
+    updatedAt: "now",
+    build: { state: "ok" },
+    stream: {
+      state: "running",
+      localUrl: "http://127.0.0.1:3000",
+      port: 3000,
+      pid: 123,
+    },
+  });
+  assert.equal(session.project, "set");
+  assert.equal(session.simulatorUDID, undefined);
+  assert.equal(session.stream.localUrl, undefined);
+  assert.equal(session.stream.port, undefined);
+  assert.equal(session.stream.pid, undefined);
 });
 
 test("SessionStore persists sessions for CLI/server handoff", () => {

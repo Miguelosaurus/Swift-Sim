@@ -136,8 +136,6 @@ async function serve({ host, port }) {
         return json(res, 200, {
           ok: true,
           helper: "swift-sim-helper",
-          sessions: store.list().length,
-          macName: pairingStore.current().macName,
         });
       }
 
@@ -146,6 +144,9 @@ async function serve({ host, port }) {
       }
 
       if (req.method === "GET" && url.pathname === "/api/serve-sim") {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
         return json(res, 200, await adapter.inspect());
       }
 
@@ -169,6 +170,9 @@ async function serve({ host, port }) {
       }
 
       if (req.method === "POST" && url.pathname === "/api/sessions/start") {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
         const body = await readJson(req);
         const session = await startOrReuseSession({
           project: body.project,
@@ -316,6 +320,12 @@ function required(value, name) {
 
 function ensureToken(session, token) {
   if (!tokenMatches(session, token)) throw new Error("Invalid session token.");
+}
+
+function pairingTokenMatches(req, url) {
+  const header = req.headers.authorization || "";
+  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
+  return pairingStore.tokenMatches(bearer || url.searchParams.get("token"));
 }
 
 function tokenMatches(session, token) {
