@@ -65,7 +65,24 @@ Keep this terminal running.
 
 ## Make It Reachable From Your Phone
 
-In a second terminal, expose the helper privately through Tailscale:
+In a second terminal, ask Swift Sim to check the Mac setup:
+
+```sh
+node mac-helper/bin/swift-sim-helper.js setup-status
+```
+
+If Tailscale is installed, connected, and already serving the helper, this prints:
+
+```json
+{
+  "ok": true,
+  "suggestedRemoteBaseUrl": "https://your-mac.your-tailnet.ts.net"
+}
+```
+
+Use `suggestedRemoteBaseUrl` as your `remote-base-url`.
+
+If the check says Tailscale Serve is missing, expose the helper privately:
 
 ```sh
 tailscale serve 47217
@@ -146,6 +163,8 @@ DEVELOPMENT_TEAM=YOURTEAMID \
 PRODUCT_BUNDLE_IDENTIFIER=com.yourname.SwiftSimCompanion \
 ./scripts/ios/run-on-device.sh
 ```
+
+Use the same `PRODUCT_BUNDLE_IDENTIFIER` every time you install locally. iOS treats a different bundle id as a different app and will show a second icon.
 
 If you have multiple devices connected:
 
@@ -231,6 +250,13 @@ $SWIFT_SIM_HOME/scripts/codex/open-simulator-session.sh \
 
 It starts the helper if needed, reuses existing sessions when possible, and prints the companion links as JSON.
 It also prints `codex.localPreviewUrl` for Codex-only local browser verification before the phone handoff.
+On first use, Codex should run:
+
+```sh
+node $SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js setup-status
+```
+
+If setup is ready, Codex should use `suggestedRemoteBaseUrl`. If not, it should follow the printed `nextSteps` instead of guessing a Tailscale URL.
 
 ### What Codex Should Do
 

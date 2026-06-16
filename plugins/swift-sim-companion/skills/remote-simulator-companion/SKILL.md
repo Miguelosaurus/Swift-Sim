@@ -23,10 +23,18 @@ You need:
 - Absolute project or workspace path.
 - Scheme.
 - Booted or selected Simulator UDID.
-- Remote base URL, normally the Tailscale Serve HTTPS URL for the Mac helper.
 - The Swift Sim checkout path in `SWIFT_SIM_HOME`, or a workspace that contains this repo.
+- Remote base URL, normally the Tailscale Serve HTTPS URL for the Mac helper. Discover it before asking the user.
 
-If the remote URL is not provided, check `SWIFT_SIM_REMOTE_BASE_URL`. If neither exists, ask the user for the Tailscale Serve URL or tell them to run:
+Before the first pairing or simulator handoff in a Codex session, check setup:
+
+```bash
+node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
+```
+
+If `ok` is true, use `suggestedRemoteBaseUrl` as the remote URL. If `ok` is false, follow `nextSteps` and explain only the missing pieces. This check is bounded and safe to run even when Tailscale or the helper is not ready.
+
+If `SWIFT_SIM_REMOTE_BASE_URL` is already set, use it after setup-status confirms the helper path is viable. If no remote URL can be discovered, ask the user for their Tailscale Serve URL or tell them to run:
 
 ```bash
 tailscale serve 47217
@@ -62,6 +70,8 @@ Expected iOS helper status lights:
 - yellow: the app is checking helper reachability.
 - green: helper reachable through the paired Tailscale URL.
 - red: helper unreachable. Check Tailscale, Tailscale Serve, helper process, and pairing URL.
+
+When setup is healthy and the app is unpaired, Codex should give the pairing link directly. When setup is not healthy, Codex should guide the user through the exact missing step first, for example installing/signing into Tailscale, starting the helper, or running `tailscale serve 47217`.
 
 ## Workflow
 
@@ -161,6 +171,7 @@ Use these branches when setup or links fail:
 - Missing remote URL: ask for the Tailscale Serve HTTPS URL or have the user run:
 
   ```bash
+  node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
   tailscale serve 47217
   ```
 

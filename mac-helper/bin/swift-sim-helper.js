@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
 import {
@@ -90,6 +91,21 @@ async function main() {
       macName: pairing.macName,
       links,
     }, null, 2));
+    return;
+  }
+
+  if (command === "setup-status") {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        port: { type: "string", short: "p" },
+        host: { type: "string" },
+      },
+    });
+    console.log(JSON.stringify(await setupStatus({
+      host: values.host || DEFAULT_HOST,
+      port: values.port ? Number(values.port) : DEFAULT_PORT,
+    }), null, 2));
     return;
   }
 
@@ -246,6 +262,154 @@ async function serve({ host, port }) {
     console.log(`swift-sim-helper listening at http://${host}:${port}`);
     console.log("Expose privately with: tailscale serve " + port);
   });
+}
+
+async function setupStatus({ host, port }) {
+  const [tailscale, serveStatus, helperHealth] = await Promise.all([
+    readTailscaleStatus(),
+    readTailscaleServeStatus(port),
+    readHelperHealth(host, port),
+  ]);
+  const remoteBaseUrl = tailscale.dnsName ? `https://${tailscale.dnsName.replace(/\.$/, "")}` : "";
+  const nextSteps = [];
+
+  if (!tailscale.available) {
+    nextSteps.push("Install Tailscale on the Mac and sign in to the same Tailnet as the iPhone.");
+  } else if (!tailscale.online) {
+    nextSteps.push("Open Tailscale on the Mac and connect it.");
+  }
+
+  if (!helperHealth.ok) {
+    nextSteps.push(`Start the Swift Sim helper: node mac-helper/bin/swift-sim-helper.js serve --host ${host} --port ${port}`);
+  }
+
+  if (tailscale.online && !serveStatus.configured) {
+    nextSteps.push(`Expose the helper privately: tailscale serve ${port}`);
+  }
+
+  if (remoteBaseUrl && helperHealth.ok && serveStatus.configured) {
+    nextSteps.push(`Generate an iPhone pairing link: node mac-helper/bin/swift-sim-helper.js pair --remote-base-url ${remoteBaseUrl}`);
+  }
+
+  return {
+    ok: tailscale.online && helperHealth.ok && serveStatus.configured,
+    helper: helperHealth,
+    tailscale,
+    tailscaleServe: serveStatus,
+    suggestedRemoteBaseUrl: remoteBaseUrl,
+    nextSteps,
+  };
+}
+
+async function readTailscaleStatus() {
+  const result = await runCommand("tailscale", ["status", "--json"], { timeoutMs: 2500 });
+  if (result.error) {
+    const timedOut = result.error.includes("timed out");
+    return {
+      available: timedOut,
+      online: false,
+      backendState: "",
+      dnsName: "",
+      error: result.error,
+    };
+  }
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return {
+      available: true,
+      online: Boolean(parsed.Self?.Online),
+      backendState: parsed.BackendState || "",
+      dnsName: parsed.Self?.DNSName || "",
+      tailnet: parsed.CurrentTailnet?.Name || "",
+    };
+  } catch (error) {
+    return {
+      available: true,
+      online: false,
+      backendState: "",
+      dnsName: "",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function readTailscaleServeStatus(port) {
+  const result = await runCommand("tailscale", ["serve", "status"], { timeoutMs: 2500 });
+  if (result.error) {
+    return {
+      configured: false,
+      error: result.error,
+      raw: "",
+    };
+  }
+  return {
+    configured: result.stdout.includes(String(port)),
+    raw: result.stdout.trim(),
+  };
+}
+
+async function readHelperHealth(host, port) {
+  try {
+    const response = await fetchWithTimeout(`http://${host}:${port}/health`, 1200);
+    return {
+      ok: response.ok,
+      url: `http://${host}:${port}`,
+      status: response.status,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      url: `http://${host}:${port}`,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function runCommand(command, args, { timeoutMs }) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      resolve({ code: null, stdout, stderr, error: `${command} ${args.join(" ")} timed out` });
+    }, timeoutMs);
+
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code: null, stdout, stderr, error: error.message });
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        code,
+        stdout,
+        stderr,
+        error: code === 0 ? "" : (stderr || stdout || `${command} exited with code ${code}`),
+      });
+    });
+  });
+}
+
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function startOrReuseSession(input, { includeCodexMetadata = false } = {}) {
