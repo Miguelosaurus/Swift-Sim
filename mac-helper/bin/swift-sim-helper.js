@@ -311,10 +311,26 @@ async function serve({ host, port }) {
     }
   });
 
-  server.listen(port, host, () => {
-    console.log(`swift-sim-helper listening at http://${host}:${port}`);
-    console.log("Expose privately with: tailscale serve " + port);
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      console.log(`swift-sim-helper listening at http://${host}:${port}`);
+      console.log("Expose privately with: tailscale serve " + port);
+      resolve();
+    });
   });
+
+  const keepAlive = setInterval(() => {}, 60 * 60 * 1000);
+  process.once("SIGTERM", () => {
+    clearInterval(keepAlive);
+    server.close(() => process.exit(0));
+  });
+  process.once("SIGINT", () => {
+    clearInterval(keepAlive);
+    server.close(() => process.exit(0));
+  });
+  await new Promise(() => {});
 }
 
 async function setupStatus({ host, port }) {
