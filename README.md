@@ -180,10 +180,41 @@ If universal links are not working yet, the `swift-sim://` custom scheme still o
 
 ## Codex Workflow
 
+### Install The Codex Plugin
+
+This repo includes a Codex plugin/skill at:
+
+```text
+plugins/swift-sim-companion
+```
+
+For Miguel's local setup, the plugin is also linked into the personal Codex plugin marketplace:
+
+```text
+~/plugins/swift-sim-companion
+~/.agents/plugins/marketplace.json
+```
+
+After installing/enabling **Swift Sim Companion** in Codex, future Codex sessions can use the `remote-simulator-companion` skill whenever they need to hand a Mac Simulator session to the iOS companion app.
+
+The stable command used by the skill is:
+
+```sh
+./scripts/codex/open-simulator-session.sh \
+  --project /absolute/path/to/YourApp.xcodeproj \
+  --scheme YourApp \
+  --simulator YOUR-SIMULATOR-UDID \
+  --remote-base-url https://your-mac.your-tailnet.ts.net
+```
+
+It starts the helper if needed, reuses existing sessions when possible, and prints the companion links as JSON.
+
+### What Codex Should Do
+
 After Codex successfully builds and launches your SwiftUI app on the Mac Simulator, it should run:
 
 ```sh
-node /path/to/Swift-Sim/mac-helper/bin/swift-sim-helper.js start-session \
+/path/to/Swift-Sim/scripts/codex/open-simulator-session.sh \
   --project "<absolute-project-or-workspace-path>" \
   --scheme "<scheme>" \
   --simulator "<simulator-udid>" \
