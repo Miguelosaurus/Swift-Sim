@@ -20,6 +20,7 @@ private struct HomeView: View {
     @EnvironmentObject private var sessionStore: SessionStore
     @State private var searchText = ""
     @State private var showingMacSettings = false
+    @State private var showingPasteLink = false
 
     private var filteredSessions: [RecentSession] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -48,6 +49,12 @@ private struct HomeView: View {
         .sheet(isPresented: $showingMacSettings) {
             MacSettingsSheet()
                 .environmentObject(sessionStore)
+        }
+        .sheet(isPresented: $showingPasteLink) {
+            PasteLinkSheet()
+                .environmentObject(sessionStore)
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -182,16 +189,16 @@ private struct HomeView: View {
             .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
 
             Button {
-                Task { await sessionStore.refresh() }
+                showingPasteLink = true
             } label: {
-                Label("Scan", systemImage: "dot.radiowaves.left.and.right")
+                Label("Paste Link", systemImage: "link.badge.plus")
                     .labelStyle(.iconOnly)
                     .font(.system(size: 22, weight: .semibold))
                     .frame(width: 58, height: 58)
             }
             .buttonStyle(.plain)
             .liquidGlassCircle(tint: Color.blue.opacity(0.16), interactive: true)
-            .accessibilityLabel("Scan for sessions")
+            .accessibilityLabel("Paste simulator link")
         }
         .padding(.horizontal, 18)
         .padding(.top, 14)
@@ -207,6 +214,81 @@ private struct HomeView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea()
+        }
+    }
+}
+
+private struct PasteLinkSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: SessionStore
+    @State private var linkText = ""
+    @State private var errorText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Open Session")
+                    .font(.title2.weight(.bold))
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 17, weight: .bold))
+                        .frame(width: 42, height: 42)
+                }
+                .buttonStyle(.plain)
+                .liquidGlassCircle(tint: Color.white.opacity(0.18), interactive: true)
+            }
+
+            HStack(spacing: 12) {
+                Image(systemName: "link")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                TextField("Paste Swift Sim link", text: $linkText)
+                    .font(.body.weight(.medium))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 58)
+            .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
+
+            if !errorText.isEmpty {
+                Text(errorText)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.red)
+            }
+
+            Button {
+                openLink()
+            } label: {
+                Label("Open in Swift Sim", systemImage: "play.fill")
+                    .font(.headline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
+            .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Text("Use this if ChatGPT opens the setup page in a browser instead of switching apps.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(22)
+    }
+
+    private func openLink() {
+        let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed) else {
+            errorText = "That link is not valid."
+            return
+        }
+        if sessionStore.open(url) {
+            dismiss()
+        } else {
+            errorText = "That is not a Swift Sim session or pairing link."
         }
     }
 }

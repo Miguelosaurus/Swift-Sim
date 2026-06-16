@@ -12,6 +12,7 @@
 		000000000000000000000103 /* SimulatorSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000203 /* SimulatorSessionView.swift */; };
 		000000000000000000000104 /* SimulatorWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000204 /* SimulatorWebView.swift */; };
 		000000000000000000000105 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000205 /* SessionStore.swift */; };
+		000000000000000000000106 /* SimulatorStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000208 /* SimulatorStreamView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +24,7 @@
 		000000000000000000000205 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		000000000000000000000206 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000207 /* SwiftSimCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SwiftSimCompanion.entitlements; sourceTree = "<group>"; };
+		000000000000000000000208 /* SimulatorStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorStreamView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,6 +53,7 @@
 				000000000000000000000202 /* ContentView.swift */,
 				000000000000000000000203 /* SimulatorSessionView.swift */,
 				000000000000000000000204 /* SimulatorWebView.swift */,
+				000000000000000000000208 /* SimulatorStreamView.swift */,
 				000000000000000000000205 /* SessionStore.swift */,
 				000000000000000000000206 /* Info.plist */,
 				000000000000000000000207 /* SwiftSimCompanion.entitlements */,
@@ -139,6 +142,7 @@
 				000000000000000000000102 /* ContentView.swift in Sources */,
 				000000000000000000000103 /* SimulatorSessionView.swift in Sources */,
 				000000000000000000000104 /* SimulatorWebView.swift in Sources */,
+				000000000000000000000106 /* SimulatorStreamView.swift in Sources */,
 				000000000000000000000105 /* SessionStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

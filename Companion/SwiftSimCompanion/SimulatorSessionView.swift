@@ -122,7 +122,11 @@ struct SimulatorSessionView: View {
                 }
                 .shadow(color: .black.opacity(0.12), radius: 34, x: 0, y: 24)
 
-            SimulatorWebView(url: session.webURL)
+            SimulatorStreamView(url: session.streamURL) { x, y in
+                Task {
+                    await sessionStore.tapSimulator(x: x, y: y)
+                }
+            }
                 .background(Color.black)
                 .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
                 .padding(8)

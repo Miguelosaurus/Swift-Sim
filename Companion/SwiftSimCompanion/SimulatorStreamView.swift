@@ -1,0 +1,113 @@
+import SwiftUI
+import UIKit
+
+struct SimulatorStreamView: UIViewRepresentable {
+    let url: URL
+    let tap: (Double, Double) -> Void
+
+    func makeUIView(context: Context) -> UIImageView {
+        let imageView = UIImageView()
+        imageView.backgroundColor = .black
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        imageView.isUserInteractionEnabled = true
+        imageView.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:))))
+        context.coordinator.onTap = tap
+        context.coordinator.start(url: url, imageView: imageView)
+        return imageView
+    }
+
+    func updateUIView(_ imageView: UIImageView, context: Context) {
+        context.coordinator.onTap = tap
+        context.coordinator.start(url: url, imageView: imageView)
+    }
+
+    func dismantleUIView(_ imageView: UIImageView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, URLSessionDataDelegate {
+        private var imageView: UIImageView?
+        private var session: URLSession?
+        private var task: URLSessionDataTask?
+        private var currentURL: URL?
+        private var buffer = Data()
+        var onTap: ((Double, Double) -> Void)?
+
+        func start(url: URL, imageView: UIImageView) {
+            self.imageView = imageView
+            guard currentURL != url else { return }
+            stop()
+            currentURL = url
+            buffer.removeAll(keepingCapacity: true)
+            let configuration = URLSessionConfiguration.default
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+            configuration.timeoutIntervalForRequest = 20
+            session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            task = session?.dataTask(with: URLRequest(url: url))
+            task?.resume()
+        }
+
+        func stop() {
+            task?.cancel()
+            session?.invalidateAndCancel()
+            task = nil
+            session = nil
+            currentURL = nil
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            buffer.append(data)
+            while let imageData = nextJPEGFrame() {
+                guard let image = UIImage(data: imageData) else { continue }
+                DispatchQueue.main.async { [weak self] in
+                    self?.imageView?.image = image
+                }
+            }
+            if buffer.count > 2_000_000 {
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let imageView, let image = imageView.image else { return }
+            let point = recognizer.location(in: imageView)
+            let rect = imageRect(for: image, in: imageView.bounds)
+            guard rect.contains(point) else { return }
+            let x = (point.x - rect.minX) / max(rect.width, 1)
+            let y = (point.y - rect.minY) / max(rect.height, 1)
+            onTap?(min(max(x, 0), 1), min(max(y, 0), 1))
+        }
+
+        private func nextJPEGFrame() -> Data? {
+            guard let start = buffer.firstRange(of: Data([0xff, 0xd8]))?.lowerBound,
+                  let endRange = buffer[start...].firstRange(of: Data([0xff, 0xd9])) else {
+                return nil
+            }
+            let end = endRange.upperBound
+            let imageData = buffer[start..<end]
+            buffer.removeSubrange(0..<end)
+            return Data(imageData)
+        }
+
+        private func imageRect(for image: UIImage, in bounds: CGRect) -> CGRect {
+            let imageSize = image.size
+            guard imageSize.width > 0, imageSize.height > 0, bounds.width > 0, bounds.height > 0 else {
+                return bounds
+            }
+            let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+            let width = imageSize.width * scale
+            let height = imageSize.height * scale
+            return CGRect(
+                x: bounds.midX - width / 2,
+                y: bounds.midY - height / 2,
+                width: width,
+                height: height
+            )
+        }
+    }
+}

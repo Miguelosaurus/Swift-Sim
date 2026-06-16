@@ -152,7 +152,7 @@ The command prints JSON. Look for:
 }
 ```
 
-Codex should first open `codex.localPreviewUrl` in the Codex in-app browser to confirm the nested simulator is rendering. Then send the `universalLink` to your iPhone. Both views come from the same helper-managed `serve-sim` session for the same Simulator UDID. If universal links are not configured yet, use the `customScheme` fallback.
+Codex should first open `codex.localPreviewUrl` in the Codex in-app browser/sidebar to confirm the nested simulator is rendering. Then send the companion link to your iPhone. Both views come from the same helper-managed `serve-sim` session for the same Simulator UDID. For Tailscale-first v1, include the `customScheme` fallback because it is the most reliable direct-open path into the native iOS app.
 
 ## Build The Companion App
 
@@ -218,6 +218,16 @@ node mac-helper/bin/swift-sim-helper.js serve
 
 If universal links are not working yet, the `swift-sim://` custom scheme still opens the app.
 
+For public/TestFlight builds, the `swift-sim://` custom scheme is the reliable direct-open path for per-user Tailscale hosts. Universal links require the iOS app to be signed with an Associated Domains entitlement for the exact host that serves the AASA file. A single public build cannot include every user's private `*.ts.net` host, so universal links are best for a fixed Swift Sim domain or for local developer builds where you set your own Tailscale host in entitlements.
+
+When the iOS app opens a session, it loads the helper's authenticated stream endpoint directly:
+
+```text
+/api/sessions/<session-id>/stream
+```
+
+The `/s/<session-id>` route is only a browser fallback page for people who do not have the app installed or whose universal-link association is not active.
+
 Universal links support both:
 
 ```text
@@ -276,6 +286,8 @@ Codex should end its response with:
 ```md
 [Open Simulator in Companion App](https://your-mac.your-tailnet.ts.net/s/...)
 ```
+
+For Tailscale-first sessions, Codex should also include the `swift-sim://session/...` fallback. If the ChatGPT app opens the HTTPS link in a browser, paste the fallback into Swift Sim's **Paste Link** sheet.
 
 Codex should not paste `codex.localPreviewUrl`, local ports, Simulator UDIDs, or project paths into the final message. Those are only for local verification.
 

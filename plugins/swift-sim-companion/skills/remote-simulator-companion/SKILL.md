@@ -103,7 +103,7 @@ When setup is healthy and the app is unpaired, Codex should give the pairing lin
    codex.localPreviewUrl
    ```
 
-   Open that URL in the Codex in-app browser and verify the nested simulator renders a real frame. This URL is for local Codex verification only. Do not include it in the user-facing response.
+   Open that URL in the Codex in-app browser/sidebar and verify the nested simulator renders a real frame. This URL is for local Codex verification only. Do not include it in the user-facing response.
 
 5. Confirm the phone companion link points at the same helper session:
 
@@ -111,7 +111,7 @@ When setup is healthy and the app is unpaired, Codex should give the pairing lin
    links.universalLink
    ```
 
-   Use `links.customScheme` only as a fallback when `links.universalLink` is absent.
+   Also keep `links.customScheme` available. For Tailscale-first v1 it is often the most reliable direct-open link into the native iOS app, because universal links require the app to be signed for the exact associated domain.
 
 6. End the Codex response with a Markdown link labeled exactly:
 
@@ -124,6 +124,8 @@ When setup is healthy and the app is unpaired, Codex should give the pairing lin
    ```md
    [Open Simulator in Companion App](https://example.ts.net/s/opaque-session?token=opaque-token)
    ```
+
+   If the session uses a per-user Tailscale host, also include the `swift-sim://session/...` fallback link or code block. Tell the user to paste that fallback into Swift Sim's Paste Link sheet if ChatGPT opens the HTTPS link in a browser.
 
 ## If XcodeBuildMCP Is Available
 
@@ -153,6 +155,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - `codex.localPreviewUrl` and `codex.simulatorUDID` are local workflow metadata only. Use them to prove the nested Codex simulator and the phone companion use the same Simulator session; never paste them into the final user message.
 - Keep the helper bound to localhost and expose it remotely through Tailscale Serve for v1.
 - Do not use Tailscale Funnel for default setup. Prefer private Tailnet access.
+- Do not imply that universal links work automatically for every Tailscale host. A public iOS build cannot be pre-entitled for arbitrary `*.ts.net` hosts; use `swift-sim://` as the reliable v1 direct-open fallback.
 - Never run an unscoped `serve-sim --kill`; stop only the session/UDID owned by this workflow.
 - The iPhone companion only views and controls the Mac Simulator. It does not execute project code.
 - If the helper fails, report the helper log path: `~/.swift-sim/helper.log`.
@@ -194,6 +197,8 @@ Use these branches when setup or links fail:
 - iOS app shows red / offline: verify Tailscale is connected on both Mac and iPhone, run `tailscale serve status` on the Mac, confirm the helper is running, then generate a fresh pairing link.
 
 - Universal link opens Safari instead of the app: universal links are not configured for the installed build, or iOS has not associated the app yet. Give the `swift-sim://...` fallback link. Also check the app entitlement host and `SWIFT_SIM_IOS_APP_ID`.
+
+- HTTPS link opens the browser fallback page inside ChatGPT: this is expected when the companion app is not associated with that host. Tell the user to tap the page's open button or paste the `swift-sim://session/...` fallback into the Swift Sim app.
 
 - Session link says unauthorized, expired, or unknown session: create a fresh session by rerunning `scripts/codex/open-simulator-session.sh`, then return the new **Open Simulator in Companion App** link.
 

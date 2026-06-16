@@ -18,19 +18,21 @@ final class SessionStore: ObservableObject {
         Task { await refreshHelperStatus() }
     }
 
-    func open(_ url: URL) {
+    @discardableResult
+    func open(_ url: URL) -> Bool {
         if let pairing = PairedMac(url: url) {
             pairedMac = pairing
             savePairedMac()
             helperStatus = .checking
             Task { await refreshHelperStatus() }
-            return
+            return true
         }
 
-        guard let session = SimulatorSession(url: url) else { return }
+        guard let session = SimulatorSession(url: url) else { return false }
         currentSession = session
         upsertRecentSession(RecentSession(session: session, displayName: nil))
         Task { await refresh() }
+        return true
     }
 
     func reopen(_ recent: RecentSession) {
@@ -91,6 +93,18 @@ final class SessionStore: ObservableObject {
         request.httpBody = try? JSONEncoder().encode(["text": text])
         _ = try? await URLSession.shared.data(for: request)
         await refresh()
+    }
+
+    func tapSimulator(x: Double, y: Double) async {
+        guard let session = currentSession else { return }
+        var request = URLRequest(url: session.tapURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONEncoder().encode([
+            "x": min(max(x, 0), 1),
+            "y": min(max(y, 0), 1),
+        ])
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     func refreshHelperStatus() async {
@@ -269,8 +283,12 @@ struct SimulatorSession: Identifiable, Equatable {
         self.baseURL = baseURL
     }
 
-    var webURL: URL {
+    var fallbackWebURL: URL {
         baseURL.appending(path: "s/\(id)").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var streamURL: URL {
+        baseURL.appending(path: "api/sessions/\(id)/stream").appending(queryItems: [.init(name: "token", value: token)])
     }
 
     var statusURL: URL {
@@ -287,6 +305,10 @@ struct SimulatorSession: Identifiable, Equatable {
 
     var typeURL: URL {
         baseURL.appending(path: "api/sessions/\(id)/type").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var tapURL: URL {
+        baseURL.appending(path: "api/sessions/\(id)/tap").appending(queryItems: [.init(name: "token", value: token)])
     }
 
     init?(url: URL) {

@@ -250,6 +250,19 @@ async function serve({ host, port }) {
         return json(res, 200, result);
       }
 
+      const tapMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/tap$/);
+      if (tapMatch && req.method === "POST") {
+        const [, sessionId] = tapMatch;
+        const session = store.get(sessionId);
+        if (!session) return notFound(res, "Unknown session.");
+        if (!tokenMatches(session, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        const body = await readJson(req);
+        const result = await tapSimulator(session, body.x, body.y);
+        return json(res, 200, result);
+      }
+
       const controlMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/control\/([a-z-]+)$/);
       if (controlMatch && req.method === "POST") {
         const [, sessionId, control] = controlMatch;
@@ -589,6 +602,24 @@ async function typeIntoSimulator(session, typedText) {
   return { ok: true };
 }
 
+async function tapSimulator(session, x, y) {
+  const normalizedX = Number(x);
+  const normalizedY = Number(y);
+  if (!Number.isFinite(normalizedX) || !Number.isFinite(normalizedY)) {
+    throw new Error("Missing tap coordinates.");
+  }
+  const clampedX = Math.max(0, Math.min(1, normalizedX));
+  const clampedY = Math.max(0, Math.min(1, normalizedY));
+  await adapter.tap({
+    simulatorUDID: session.simulatorUDID,
+    x: clampedX,
+    y: clampedY,
+  });
+  session.logs.push(`tap: ${clampedX.toFixed(3)}, ${clampedY.toFixed(3)}`);
+  store.save(session);
+  return { ok: true, x: clampedX, y: clampedY };
+}
+
 function required(value, name) {
   if (!value || typeof value !== "string") {
     throw new Error(`Missing required ${name}.`);
@@ -612,7 +643,6 @@ function tokenMatches(session, token) {
 
 function sessionFallbackHtml(session) {
   const links = buildCompanionLinks(session, session.remoteBaseUrl);
-  const streamUrl = `/api/sessions/${encodeURIComponent(session.id)}/stream?token=${encodeURIComponent(session.token)}`;
   return `<!doctype html>
 <html>
 <head>
@@ -620,21 +650,26 @@ function sessionFallbackHtml(session) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Swift Sim Session</title>
   <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #101214; color: #f5f7fa; }
-    main { max-width: 720px; margin: 0 auto; padding: 32px 20px; }
-    a { color: #8fc7ff; }
-    .frame { margin-top: 24px; overflow: hidden; border: 1px solid #2a3138; border-radius: 16px; background: #050607; }
-    img, iframe { display: block; width: 100%; height: 72vh; border: 0; object-fit: contain; }
-    code { color: #c8d5e2; word-break: break-all; }
+    :root { color-scheme: light dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f7fafc; color: #0f1115; }
+    main { width: min(520px, calc(100vw - 36px)); padding: 28px; border-radius: 34px; background: rgba(255,255,255,.78); box-shadow: 0 24px 70px rgba(31,44,64,.12); }
+    h1 { margin: 0 0 8px; font-size: 34px; line-height: 1.04; }
+    p { color: #626b76; font-size: 17px; line-height: 1.4; }
+    a.button { display: block; margin-top: 18px; padding: 16px 18px; border-radius: 999px; color: white; background: #1683ff; text-align: center; text-decoration: none; font-weight: 800; }
+    code { display: block; margin-top: 16px; padding: 14px; border-radius: 18px; background: rgba(128,128,128,.12); color: #5b6570; word-break: break-all; font-size: 13px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #05070a; color: #f5f7fa; }
+      main { background: rgba(28,31,36,.82); }
+    }
   </style>
 </head>
 <body>
   <main>
     <h1>Swift Sim</h1>
-    <p>Open this session in the companion app:</p>
-    <p><a href="${escapeHtml(links.customScheme)}">Open Simulator in Companion App</a></p>
-    <p><code>${escapeHtml(links.universalLink || links.customScheme)}</code></p>
-    <div class="frame"><img src="${escapeHtml(streamUrl)}" alt="Live simulator stream"></div>
+    <p>This browser page is only a fallback. Open the native companion app to view and control the live Mac Simulator.</p>
+    <a class="button" href="${escapeHtml(links.customScheme)}">Open Simulator in Companion App</a>
+    <p>If that button does not switch apps, paste this link into Swift Sim:</p>
+    <code>${escapeHtml(links.customScheme)}</code>
   </main>
 </body>
 </html>`;
