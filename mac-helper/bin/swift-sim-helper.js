@@ -2,6 +2,7 @@
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
 import {
@@ -223,6 +224,17 @@ async function serve({ host, port }) {
         }
       }
 
+      const streamMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
+      if (streamMatch && req.method === "GET") {
+        const [, sessionId] = streamMatch;
+        const session = store.get(sessionId);
+        if (!session) return notFound(res, "Unknown session.");
+        if (!tokenMatches(session, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        return proxyStream(res, session);
+      }
+
       const typeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/type$/);
       if (typeMatch && req.method === "POST") {
         const [, sessionId] = typeMatch;
@@ -425,6 +437,22 @@ async function fetchWithTimeout(url, timeoutMs) {
   }
 }
 
+async function proxyStream(res, session) {
+  const streamUrl = session.stream.localUrl || "";
+  if (!streamUrl) {
+    return badRequest(res, 404, "Stream is not ready.");
+  }
+  const upstream = await fetch(streamUrl);
+  if (!upstream.ok || !upstream.body) {
+    return badRequest(res, 502, `Stream upstream failed with status ${upstream.status}.`);
+  }
+  res.writeHead(200, {
+    "content-type": upstream.headers.get("content-type") || "application/octet-stream",
+    "cache-control": "no-store",
+  });
+  Readable.fromWeb(upstream.body).pipe(res);
+}
+
 async function startOrReuseSession(input, { includeCodexMetadata = false } = {}) {
   const simulatorUDID = required(input.simulator, "simulator");
   const existing = store.findReusable({
@@ -533,7 +561,7 @@ function tokenMatches(session, token) {
 
 function sessionFallbackHtml(session) {
   const links = buildCompanionLinks(session, session.remoteBaseUrl);
-  const streamUrl = session.stream.localUrl || "";
+  const streamUrl = `/api/sessions/${encodeURIComponent(session.id)}/stream?token=${encodeURIComponent(session.token)}`;
   return `<!doctype html>
 <html>
 <head>
@@ -545,7 +573,7 @@ function sessionFallbackHtml(session) {
     main { max-width: 720px; margin: 0 auto; padding: 32px 20px; }
     a { color: #8fc7ff; }
     .frame { margin-top: 24px; overflow: hidden; border: 1px solid #2a3138; border-radius: 16px; background: #050607; }
-    iframe { display: block; width: 100%; height: 72vh; border: 0; }
+    img, iframe { display: block; width: 100%; height: 72vh; border: 0; object-fit: contain; }
     code { color: #c8d5e2; word-break: break-all; }
   </style>
 </head>
@@ -555,7 +583,7 @@ function sessionFallbackHtml(session) {
     <p>Open this session in the companion app:</p>
     <p><a href="${escapeHtml(links.customScheme)}">Open Simulator in Companion App</a></p>
     <p><code>${escapeHtml(links.universalLink || links.customScheme)}</code></p>
-    ${streamUrl ? `<div class="frame"><iframe src="${escapeHtml(streamUrl)}"></iframe></div>` : ""}
+    <div class="frame"><img src="${escapeHtml(streamUrl)}" alt="Live simulator stream"></div>
   </main>
 </body>
 </html>`;

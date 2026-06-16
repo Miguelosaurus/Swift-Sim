@@ -119,7 +119,7 @@ function parseFirstJson(text) {
 
 function findUrl(value) {
   if (!value || typeof value !== "object") return "";
-  for (const key of ["url", "previewUrl", "serverUrl", "href"]) {
+  for (const key of ["streamUrl", "previewUrl", "url", "serverUrl", "href"]) {
     if (typeof value[key] === "string" && value[key].startsWith("http")) return value[key];
   }
   for (const nested of Object.values(value)) {

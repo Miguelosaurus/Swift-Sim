@@ -15,6 +15,12 @@ test("parseServeSimOutput reads JSON URL without depending on exact key", () => 
   assert.equal(parsed.pid, 1234);
 });
 
+test("parseServeSimOutput prefers stream URL when serve-sim separates page and stream", () => {
+  const parsed = parseServeSimOutput('{"url":"http://127.0.0.1:3100","streamUrl":"http://127.0.0.1:3100/stream.mjpeg"}\n', "");
+  assert.equal(parsed.previewUrl, "http://127.0.0.1:3100/stream.mjpeg");
+  assert.equal(parsed.port, 3100);
+});
+
 test("parseServeSimOutput falls back to human-readable URL", () => {
   const parsed = parseServeSimOutput("Preview at http://localhost:3200\n", "");
   assert.equal(parsed.previewUrl, "http://localhost:3200");
