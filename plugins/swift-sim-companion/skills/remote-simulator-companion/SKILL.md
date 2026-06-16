@@ -24,6 +24,7 @@ You need:
 - Scheme.
 - Booted or selected Simulator UDID.
 - Remote base URL, normally the Tailscale Serve HTTPS URL for the Mac helper.
+- The Swift Sim checkout path in `SWIFT_SIM_HOME`, or a workspace that contains this repo.
 
 If the remote URL is not provided, check `SWIFT_SIM_REMOTE_BASE_URL`. If neither exists, ask the user for the Tailscale Serve URL or tell them to run:
 
@@ -45,7 +46,8 @@ tailscale serve 47217
 3. Start or reuse the Swift Sim session with the wrapper:
 
    ```bash
-   /Users/miguel/Documents/Swift-Sim/scripts/codex/open-simulator-session.sh \
+   SWIFT_SIM_HOME="/path/to/Swift-Sim" \
+   "$SWIFT_SIM_HOME/scripts/codex/open-simulator-session.sh" \
      --project "<absolute-project-or-workspace-path>" \
      --scheme "<scheme>" \
      --simulator "<simulator-udid>" \
@@ -108,13 +110,13 @@ Use the repo's normal build/run script if it has one. Otherwise:
 Inspect the current `serve-sim` adapter capability:
 
 ```bash
-node /Users/miguel/Documents/Swift-Sim/mac-helper/bin/swift-sim-helper.js serve-sim-info
+node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" serve-sim-info
 ```
 
 Manually start the helper:
 
 ```bash
-node /Users/miguel/Documents/Swift-Sim/mac-helper/bin/swift-sim-helper.js serve
+node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" serve
 ```
 
 Check helper health:

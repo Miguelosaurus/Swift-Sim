@@ -5,10 +5,24 @@ final class SessionStore: ObservableObject {
     @Published var currentSession: SimulatorSession?
     @Published var isConnected = false
     @Published var logs: [String] = []
+    @Published private(set) var recentSessions: [RecentSession] = []
+
+    private let recentSessionsKey = "recentSessions"
+
+    init() {
+        loadRecentSessions()
+    }
 
     func open(_ url: URL) {
         guard let session = SimulatorSession(url: url) else { return }
         currentSession = session
+        upsertRecentSession(RecentSession(session: session, displayName: nil))
+        Task { await refresh() }
+    }
+
+    func reopen(_ recent: RecentSession) {
+        currentSession = recent.session
+        upsertRecentSession(recent.touch())
         Task { await refresh() }
     }
 
@@ -20,7 +34,10 @@ final class SessionStore: ObservableObject {
                 isConnected = false
                 return
             }
-            _ = data
+            if let status = try? JSONDecoder().decode(SessionStatus.self, from: data) {
+                let name = status.scheme.isEmpty ? nil : status.scheme
+                upsertRecentSession(RecentSession(session: session, displayName: name))
+            }
             isConnected = true
             await fetchLogs()
         } catch {
@@ -46,12 +63,39 @@ final class SessionStore: ObservableObject {
         _ = try? await URLSession.shared.data(for: request)
         await refresh()
     }
+
+    private func loadRecentSessions() {
+        guard let data = UserDefaults.standard.data(forKey: recentSessionsKey),
+              let decoded = try? JSONDecoder().decode([RecentSession].self, from: data) else {
+            recentSessions = []
+            return
+        }
+        recentSessions = decoded.sorted { $0.lastOpened > $1.lastOpened }
+    }
+
+    private func saveRecentSessions() {
+        guard let data = try? JSONEncoder().encode(recentSessions) else { return }
+        UserDefaults.standard.set(data, forKey: recentSessionsKey)
+    }
+
+    private func upsertRecentSession(_ recent: RecentSession) {
+        var next = recentSessions.filter { $0.id != recent.id }
+        next.insert(recent, at: 0)
+        recentSessions = Array(next.prefix(8))
+        saveRecentSessions()
+    }
 }
 
 struct SimulatorSession: Identifiable, Equatable {
     let id: String
     let token: String
     let baseURL: URL
+
+    init(id: String, token: String, baseURL: URL) {
+        self.id = id
+        self.token = token
+        self.baseURL = baseURL
+    }
 
     var webURL: URL {
         baseURL.appending(path: "s/\(id)").appending(queryItems: [.init(name: "token", value: token)])
@@ -97,6 +141,53 @@ struct SimulatorSession: Identifiable, Equatable {
         guard let baseURL = baseComponents.url else { return nil }
         self.baseURL = baseURL
     }
+}
+
+struct RecentSession: Identifiable, Codable, Equatable {
+    let id: String
+    let token: String
+    let baseURLString: String
+    let displayName: String
+    let lastOpened: Date
+
+    var session: SimulatorSession {
+        SimulatorSession(id: id, token: token, baseURL: URL(string: baseURLString)!)
+    }
+
+    var hostDisplayName: String {
+        URL(string: baseURLString)?.host ?? baseURLString
+    }
+
+    var initials: String {
+        let pieces = displayName.split(separator: " ")
+        let letters = pieces.prefix(2).compactMap { $0.first }
+        let result = String(letters).uppercased()
+        return result.isEmpty ? "SS" : result
+    }
+
+    init(session: SimulatorSession, displayName: String?) {
+        self.id = session.id
+        self.token = session.token
+        self.baseURLString = session.baseURL.absoluteString
+        self.displayName = displayName ?? "Session \(session.id.prefix(6))"
+        self.lastOpened = Date()
+    }
+
+    private init(id: String, token: String, baseURLString: String, displayName: String, lastOpened: Date) {
+        self.id = id
+        self.token = token
+        self.baseURLString = baseURLString
+        self.displayName = displayName
+        self.lastOpened = lastOpened
+    }
+
+    func touch() -> RecentSession {
+        RecentSession(id: id, token: token, baseURLString: baseURLString, displayName: displayName, lastOpened: Date())
+    }
+}
+
+private struct SessionStatus: Decodable {
+    let scheme: String
 }
 
 private struct SessionLogs: Decodable {

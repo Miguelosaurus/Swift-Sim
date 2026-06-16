@@ -10,9 +10,8 @@ LOCK_ROOT="$ROOT_DIR/.build/locks"
 LOCK_DIR="$LOCK_ROOT/run-on-device.lock"
 XCODE_BUILD_JOBS="${XCODE_BUILD_JOBS:-4}"
 
-# These defaults are Miguel's local SEA & SEA setup. Override them for your own team/app id.
-DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-F5786NY22N}"
-PRODUCT_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER:-app.rork.swift-sim-companion}"
+DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
+PRODUCT_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER:-}"
 
 DEVICE_UDID="${DEVICE_UDID:-}"
 
@@ -32,6 +31,13 @@ if [[ -z "$DEVICE_UDID" ]]; then
   echo "Tip: connect once over USB, trust this Mac, then retry." >&2
   echo "You can also set DEVICE_UDID explicitly: DEVICE_UDID=<udid> $0" >&2
   exit 1
+fi
+
+if [[ -z "$DEVELOPMENT_TEAM" || -z "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
+  echo "ERROR: DEVELOPMENT_TEAM and PRODUCT_BUNDLE_IDENTIFIER are required for device installs." >&2
+  echo "Example:" >&2
+  echo "  DEVELOPMENT_TEAM=YOURTEAMID PRODUCT_BUNDLE_IDENTIFIER=com.yourname.SwiftSimCompanion $0" >&2
+  exit 2
 fi
 
 mkdir -p "$LOCK_ROOT"

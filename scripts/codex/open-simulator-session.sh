@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT_DIR="${SWIFT_SIM_HOME:-$SCRIPT_ROOT}"
 HELPER="$ROOT_DIR/mac-helper/bin/swift-sim-helper.js"
 DEFAULT_PORT="${SWIFT_SIM_PORT:-47217}"
 HOST="${SWIFT_SIM_HOST:-127.0.0.1}"

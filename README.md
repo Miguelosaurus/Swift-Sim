@@ -115,12 +115,6 @@ Send the `universalLink` to your iPhone. If universal links are not configured y
 Fast path from the terminal:
 
 ```sh
-./scripts/ios/run-on-device.sh
-```
-
-The script builds, signs, installs, and launches the companion app on the first connected iPhone/iPad. For your own Apple Developer team, override:
-
-```sh
 DEVELOPMENT_TEAM=YOURTEAMID \
 PRODUCT_BUNDLE_IDENTIFIER=com.yourname.SwiftSimCompanion \
 ./scripts/ios/run-on-device.sh
@@ -188,19 +182,13 @@ This repo includes a Codex plugin/skill at:
 plugins/swift-sim-companion
 ```
 
-For Miguel's local setup, the plugin is also linked into the personal Codex plugin marketplace:
-
-```text
-~/plugins/swift-sim-companion
-~/.agents/plugins/marketplace.json
-```
-
 After installing/enabling **Swift Sim Companion** in Codex, future Codex sessions can use the `remote-simulator-companion` skill whenever they need to hand a Mac Simulator session to the iOS companion app.
 
 The stable command used by the skill is:
 
 ```sh
-./scripts/codex/open-simulator-session.sh \
+SWIFT_SIM_HOME=/path/to/Swift-Sim \
+$SWIFT_SIM_HOME/scripts/codex/open-simulator-session.sh \
   --project /absolute/path/to/YourApp.xcodeproj \
   --scheme YourApp \
   --simulator YOUR-SIMULATOR-UDID \
@@ -214,7 +202,8 @@ It starts the helper if needed, reuses existing sessions when possible, and prin
 After Codex successfully builds and launches your SwiftUI app on the Mac Simulator, it should run:
 
 ```sh
-/path/to/Swift-Sim/scripts/codex/open-simulator-session.sh \
+SWIFT_SIM_HOME=/path/to/Swift-Sim \
+$SWIFT_SIM_HOME/scripts/codex/open-simulator-session.sh \
   --project "<absolute-project-or-workspace-path>" \
   --scheme "<scheme>" \
   --simulator "<simulator-udid>" \
