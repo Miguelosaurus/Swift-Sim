@@ -358,6 +358,8 @@ struct SimulatorGestureEvent: Encodable {
     let type: String
     let x: Double
     let y: Double
+    var scale: Double?
+    var velocity: Double?
 }
 
 struct RecentSession: Identifiable, Codable, Equatable {

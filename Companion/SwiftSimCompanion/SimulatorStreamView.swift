@@ -5,6 +5,8 @@ struct SimulatorStreamView: UIViewRepresentable {
     let url: URL
     let tap: (Double, Double) -> Void
     let gesture: (SimulatorGestureEvent) -> Void
+    let frameUpdate: (CGSize) -> Void
+    let streamState: (StreamRenderState) -> Void
 
     func makeUIView(context: Context) -> UIImageView {
         let imageView = UIImageView()
@@ -14,11 +16,17 @@ struct SimulatorStreamView: UIViewRepresentable {
         imageView.isUserInteractionEnabled = true
         let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         let panRecognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        let pinchRecognizer = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         panRecognizer.maximumNumberOfTouches = 1
+        panRecognizer.delegate = context.coordinator
+        pinchRecognizer.delegate = context.coordinator
         imageView.addGestureRecognizer(tapRecognizer)
         imageView.addGestureRecognizer(panRecognizer)
+        imageView.addGestureRecognizer(pinchRecognizer)
         context.coordinator.onTap = tap
         context.coordinator.onGesture = gesture
+        context.coordinator.onFrame = frameUpdate
+        context.coordinator.onState = streamState
         context.coordinator.start(url: url, imageView: imageView)
         return imageView
     }
@@ -26,6 +34,8 @@ struct SimulatorStreamView: UIViewRepresentable {
     func updateUIView(_ imageView: UIImageView, context: Context) {
         context.coordinator.onTap = tap
         context.coordinator.onGesture = gesture
+        context.coordinator.onFrame = frameUpdate
+        context.coordinator.onState = streamState
         context.coordinator.start(url: url, imageView: imageView)
     }
 
@@ -37,7 +47,7 @@ struct SimulatorStreamView: UIViewRepresentable {
         Coordinator()
     }
 
-    final class Coordinator: NSObject, URLSessionDataDelegate {
+    final class Coordinator: NSObject, URLSessionDataDelegate, UIGestureRecognizerDelegate {
         private var imageView: UIImageView?
         private var session: URLSession?
         private var task: URLSessionDataTask?
@@ -45,12 +55,15 @@ struct SimulatorStreamView: UIViewRepresentable {
         private var buffer = Data()
         var onTap: ((Double, Double) -> Void)?
         var onGesture: ((SimulatorGestureEvent) -> Void)?
+        var onFrame: ((CGSize) -> Void)?
+        var onState: ((StreamRenderState) -> Void)?
 
         func start(url: URL, imageView: UIImageView) {
             self.imageView = imageView
             guard currentURL != url else { return }
             stop()
             currentURL = url
+            onState?(.connecting)
             buffer.removeAll(keepingCapacity: true)
             let configuration = URLSessionConfiguration.default
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -74,10 +87,19 @@ struct SimulatorStreamView: UIViewRepresentable {
                 guard let image = UIImage(data: imageData) else { continue }
                 DispatchQueue.main.async { [weak self] in
                     self?.imageView?.image = image
+                    self?.onFrame?(image.size)
+                    self?.onState?(.streaming)
                 }
             }
             if buffer.count > 2_000_000 {
                 buffer.removeAll(keepingCapacity: true)
+            }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            guard let error else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.onState?(.failed(error.localizedDescription))
             }
         }
 
@@ -100,6 +122,35 @@ struct SimulatorStreamView: UIViewRepresentable {
                 return
             }
             onGesture?(SimulatorGestureEvent(type: type, x: x, y: y))
+        }
+
+        @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            guard let (x, y) = normalizedPoint(for: recognizer.location(in: imageView), in: imageView) else { return }
+            let type: String
+            switch recognizer.state {
+            case .began:
+                type = "pinch-begin"
+            case .changed:
+                type = "pinch-move"
+            case .ended, .cancelled, .failed:
+                type = "pinch-end"
+            default:
+                return
+            }
+            onGesture?(
+                SimulatorGestureEvent(
+                    type: type,
+                    x: x,
+                    y: y,
+                    scale: Double(recognizer.scale),
+                    velocity: Double(recognizer.velocity)
+                )
+            )
+            recognizer.scale = 1
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
         }
 
         private func normalizedPoint(for point: CGPoint, in imageView: UIImageView?) -> (Double, Double)? {
@@ -138,4 +189,10 @@ struct SimulatorStreamView: UIViewRepresentable {
             )
         }
     }
+}
+
+enum StreamRenderState: Equatable {
+    case connecting
+    case streaming
+    case failed(String)
 }

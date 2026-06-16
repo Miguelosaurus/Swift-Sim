@@ -81,6 +81,14 @@ export class ServeSimAdapter {
     return this.run(["--yes", this.packageName, "ui", ...args, "-d", simulatorUDID]);
   }
 
+  async caDebug({ simulatorUDID, option, state }) {
+    return this.run(["--yes", this.packageName, "ca-debug", option, state, "-d", simulatorUDID]);
+  }
+
+  async memoryWarning({ simulatorUDID }) {
+    return this.run(["--yes", this.packageName, "memory-warning", "-d", simulatorUDID]);
+  }
+
   async run(args, { allowFailure = false } = {}) {
     const child = spawn(this.command, args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -108,6 +116,7 @@ export function parseServeSimOutput(stdout = "", stderr = "") {
   const previewUrl = urlFromJson || urlFromText || "";
   return {
     previewUrl,
+    wsUrl: findWsUrl(json) || combined.match(/wss?:\/\/[^\s"'<>]+/)?.[0] || "",
     port: previewUrl ? Number(new URL(previewUrl).port || defaultPort(new URL(previewUrl).protocol)) : undefined,
     pid: findPid(json),
   };
@@ -133,6 +142,18 @@ function findUrl(value) {
   }
   for (const nested of Object.values(value)) {
     const result = findUrl(nested);
+    if (result) return result;
+  }
+  return "";
+}
+
+function findWsUrl(value) {
+  if (!value || typeof value !== "object") return "";
+  for (const key of ["wsUrl", "webSocketUrl", "websocketUrl"]) {
+    if (typeof value[key] === "string" && value[key].startsWith("ws")) return value[key];
+  }
+  for (const nested of Object.values(value)) {
+    const result = findWsUrl(nested);
     if (result) return result;
   }
   return "";

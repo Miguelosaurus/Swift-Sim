@@ -575,6 +575,7 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
   session.stream = {
     state: "running",
     localUrl: result.previewUrl,
+    wsUrl: result.wsUrl,
     port: result.port,
     pid: result.pid,
     raw: result.raw,
@@ -596,27 +597,47 @@ async function stopSession(sessionId) {
 
 async function sendControl(session, control) {
   if (control === "home") {
-    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "home" });
+    await sendButton(session, "home");
   } else if (control === "lock") {
-    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "lock" });
+    await sendButton(session, "lock");
   } else if (control === "rotate" || control === "rotate-right") {
     const next = session.orientation === "landscape_right" ? "portrait" : "landscape_right";
-    await adapter.rotate({ simulatorUDID: session.simulatorUDID, orientation: next });
+    await sendRotation(session, next);
     session.orientation = next;
   } else if (control === "rotate-left") {
     const next = session.orientation === "landscape_left" ? "portrait" : "landscape_left";
-    await adapter.rotate({ simulatorUDID: session.simulatorUDID, orientation: next });
+    await sendRotation(session, next);
     session.orientation = next;
   } else if (control === "siri") {
-    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "siri" });
+    await sendButton(session, "siri");
   } else if (control === "side-button") {
-    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "side" });
+    await sendButton(session, "side");
   } else if (control === "action-button") {
-    await adapter.button({ simulatorUDID: session.simulatorUDID, name: "action" });
+    await sendButton(session, "action");
   } else if (control === "text-size-increment") {
     await adapter.ui({ simulatorUDID: session.simulatorUDID, args: ["text-size", "increment"] });
+  } else if (control === "text-size-decrement") {
+    await adapter.ui({ simulatorUDID: session.simulatorUDID, args: ["text-size", "decrement"] });
   } else if (control === "increase-contrast") {
     await toggleSimulatorUI(session.simulatorUDID, "increase-contrast");
+  } else if (control === "reduce-motion") {
+    await toggleSimulatorUI(session.simulatorUDID, "reduce-motion");
+  } else if (control === "reduce-transparency") {
+    await toggleSimulatorUI(session.simulatorUDID, "reduce-transparency");
+  } else if (control === "show-borders") {
+    await toggleSimulatorUI(session.simulatorUDID, "show-borders");
+  } else if (control === "appearance-light") {
+    await adapter.ui({ simulatorUDID: session.simulatorUDID, args: ["appearance", "light"] });
+  } else if (control === "appearance-dark") {
+    await adapter.ui({ simulatorUDID: session.simulatorUDID, args: ["appearance", "dark"] });
+  } else if (control === "liquid-glass-clear") {
+    await adapter.ui({ simulatorUDID: session.simulatorUDID, args: ["liquid-glass", "clear"] });
+  } else if (control === "liquid-glass-tinted") {
+    await adapter.ui({ simulatorUDID: session.simulatorUDID, args: ["liquid-glass", "tinted"] });
+  } else if (control === "memory-warning") {
+    await sendMemoryWarning(session);
+  } else if (control === "slow-animations") {
+    await toggleCADebug(session, "slow-animations");
   } else {
     throw new Error(`Unsupported control: ${control}`);
   }
@@ -629,6 +650,15 @@ async function toggleSimulatorUI(simulatorUDID, option) {
   const current = await adapter.ui({ simulatorUDID, args: [option] });
   const next = String(current.stdout || "").trim().toLowerCase() === "on" ? "off" : "on";
   await adapter.ui({ simulatorUDID, args: [option, next] });
+}
+
+const caDebugStates = new Map();
+
+async function toggleCADebug(session, option) {
+  const key = `${session.simulatorUDID}:${option}`;
+  const next = caDebugStates.get(key) === "on" ? "off" : "on";
+  await sendCADebug(session, option, next === "on");
+  caDebugStates.set(key, next);
 }
 
 async function typeIntoSimulator(session, typedText) {
@@ -649,11 +679,9 @@ async function tapSimulator(session, x, y) {
   }
   const clampedX = Math.max(0, Math.min(1, normalizedX));
   const clampedY = Math.max(0, Math.min(1, normalizedY));
-  await adapter.tap({
-    simulatorUDID: session.simulatorUDID,
-    x: clampedX,
-    y: clampedY,
-  });
+  await sendTouch(session, { type: "begin", x: clampedX, y: clampedY });
+  await sleep(40);
+  await sendTouch(session, { type: "end", x: clampedX, y: clampedY });
   session.logs.push(`tap: ${clampedX.toFixed(3)}, ${clampedY.toFixed(3)}`);
   store.save(session);
   return { ok: true, x: clampedX, y: clampedY };
@@ -661,13 +689,88 @@ async function tapSimulator(session, x, y) {
 
 async function sendGesture(session, event) {
   const normalized = normalizeGestureEvent(event);
-  await adapter.gesture({
-    simulatorUDID: session.simulatorUDID,
-    event: normalized,
-  });
+  await sendTouch(session, normalized);
   session.logs.push(`gesture: ${normalized.type} ${normalized.x.toFixed(3)}, ${normalized.y.toFixed(3)}`);
   store.save(session);
   return { ok: true, event: normalized };
+}
+
+async function sendTouch(session, payload) {
+  await sendServeSimMessage(session, 3, payload);
+}
+
+async function sendButton(session, button) {
+  await sendServeSimMessage(session, 4, { button });
+}
+
+async function sendRotation(session, orientation) {
+  await sendServeSimMessage(session, 7, { orientation });
+}
+
+async function sendCADebug(session, option, enabled) {
+  const options = {
+    "slow-animations": "debug_slow_animations",
+  };
+  await sendServeSimMessage(session, 8, { option: options[option] || option, enabled });
+}
+
+async function sendMemoryWarning(session) {
+  await sendServeSimMessage(session, 9);
+}
+
+function sessionWsUrl(session) {
+  if (session.stream?.wsUrl) return session.stream.wsUrl;
+  const raw = `${session.stream?.raw?.stdout || ""}\n${session.stream?.raw?.stderr || ""}`;
+  const rawWsUrl = raw.match(/wss?:\/\/[^\s"'<>]+/)?.[0];
+  if (rawWsUrl) return rawWsUrl;
+  if (session.stream?.port) return `ws://127.0.0.1:${session.stream.port}/ws`;
+  if (session.stream?.localUrl) {
+    try {
+      const localUrl = new URL(session.stream.localUrl);
+      localUrl.protocol = localUrl.protocol === "https:" ? "wss:" : "ws:";
+      localUrl.pathname = "/ws";
+      localUrl.search = "";
+      return localUrl.toString();
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function sendServeSimMessage(session, opcode, payload) {
+  const wsUrl = sessionWsUrl(session);
+  if (!wsUrl) {
+    return Promise.reject(new Error("Missing serve-sim WebSocket URL."));
+  }
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(wsUrl);
+    const timeout = setTimeout(() => {
+      try { socket.close(); } catch {}
+      reject(new Error("Timed out sending simulator control."));
+    }, 3_000);
+    socket.binaryType = "arraybuffer";
+    socket.onopen = () => {
+      const encoded = payload === undefined ? new Uint8Array() : new TextEncoder().encode(JSON.stringify(payload));
+      const message = new Uint8Array(1 + encoded.length);
+      message[0] = opcode;
+      message.set(encoded, 1);
+      socket.send(message);
+      setTimeout(() => {
+        clearTimeout(timeout);
+        try { socket.close(); } catch {}
+        resolve();
+      }, 50);
+    };
+    socket.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to connect to serve-sim WebSocket at ${wsUrl}.`));
+    };
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeGestureEvent(event) {
@@ -675,7 +778,7 @@ function normalizeGestureEvent(event) {
     throw new Error("Missing gesture event.");
   }
   const type = String(event.type || "");
-  if (!["begin", "move", "end"].includes(type)) {
+  if (!["begin", "move", "end", "pinch-begin", "pinch-move", "pinch-end"].includes(type)) {
     throw new Error("Unsupported gesture type.");
   }
   const x = Number(event.x);
@@ -683,11 +786,20 @@ function normalizeGestureEvent(event) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     throw new Error("Missing gesture coordinates.");
   }
-  return {
+  const normalized = {
     type,
     x: Math.max(0, Math.min(1, x)),
     y: Math.max(0, Math.min(1, y)),
   };
+  if (event.scale !== undefined) {
+    const scale = Number(event.scale);
+    if (Number.isFinite(scale)) normalized.scale = Math.max(0.1, Math.min(10, scale));
+  }
+  if (event.velocity !== undefined) {
+    const velocity = Number(event.velocity);
+    if (Number.isFinite(velocity)) normalized.velocity = Math.max(-20, Math.min(20, velocity));
+  }
+  return normalized;
 }
 
 function required(value, name) {
@@ -713,6 +825,7 @@ function tokenMatches(session, token) {
 
 function sessionFallbackHtml(session) {
   const links = buildCompanionLinks(session, session.remoteBaseUrl);
+  const customSchemeScript = JSON.stringify(links.customScheme);
   return `<!doctype html>
 <html>
 <head>
@@ -720,23 +833,27 @@ function sessionFallbackHtml(session) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Swift Sim Session</title>
   <style>
-    :root { color-scheme: light dark; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f7fafc; color: #0f1115; }
-    main { width: min(520px, calc(100vw - 36px)); padding: 28px; border-radius: 34px; background: rgba(255,255,255,.78); box-shadow: 0 24px 70px rgba(31,44,64,.12); }
-    h1 { margin: 0 0 8px; font-size: 34px; line-height: 1.04; }
+    :root { color-scheme: light; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #fbfcff; color: #0f1115; }
+    main { width: min(480px, calc(100vw - 36px)); padding: 28px; border-radius: 34px; background: rgba(255,255,255,.82); box-shadow: 0 24px 70px rgba(31,44,64,.12); border: 1px solid rgba(20,30,45,.08); }
+    .status { display: inline-flex; align-items: center; gap: 8px; color: #65707c; font-size: 15px; font-weight: 700; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #34c759; display: inline-block; }
+    h1 { margin: 12px 0 8px; font-size: 34px; line-height: 1.04; }
     p { color: #626b76; font-size: 17px; line-height: 1.4; }
     a.button { display: block; margin-top: 18px; padding: 16px 18px; border-radius: 999px; color: white; background: #1683ff; text-align: center; text-decoration: none; font-weight: 800; }
     code { display: block; margin-top: 16px; padding: 14px; border-radius: 18px; background: rgba(128,128,128,.12); color: #5b6570; word-break: break-all; font-size: 13px; }
-    @media (prefers-color-scheme: dark) {
-      body { background: #05070a; color: #f5f7fa; }
-      main { background: rgba(28,31,36,.82); }
-    }
   </style>
+  <script>
+    window.addEventListener("load", () => {
+      setTimeout(() => { window.location.href = ${customSchemeScript}; }, 250);
+    });
+  </script>
 </head>
 <body>
   <main>
+    <div class="status"><span class="dot"></span>Opening native companion</div>
     <h1>Swift Sim</h1>
-    <p>This browser page is only a fallback. Open the native companion app to view and control the live Mac Simulator.</p>
+    <p>Safari is only the fallback handoff page. The simulator stream belongs in the native Swift Sim app.</p>
     <a class="button" href="${escapeHtml(links.customScheme)}">Open Simulator in Companion App</a>
     <p>If that button does not switch apps, paste this link into Swift Sim:</p>
     <code>${escapeHtml(links.customScheme)}</code>
