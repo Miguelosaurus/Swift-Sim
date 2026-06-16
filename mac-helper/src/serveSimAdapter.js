@@ -26,6 +26,7 @@ export class ServeSimAdapter {
         list: has(help.stdout, "--list"),
         kill: has(help.stdout, "--kill"),
         tap: has(help.stdout, "tap [options]"),
+        gesture: has(help.stdout, "gesture [options]"),
         type: has(help.stdout, "type [options]"),
         rotate: has(help.stdout, "rotate [options]"),
       },
@@ -60,6 +61,10 @@ export class ServeSimAdapter {
     return this.run(["--yes", this.packageName, "tap", String(x), String(y), "-d", simulatorUDID]);
   }
 
+  async gesture({ simulatorUDID, event }) {
+    return this.run(["--yes", this.packageName, "gesture", JSON.stringify(event), "-d", simulatorUDID]);
+  }
+
   async type({ simulatorUDID, text }) {
     return this.run(["--yes", this.packageName, "type", text, "-d", simulatorUDID]);
   }
@@ -70,6 +75,10 @@ export class ServeSimAdapter {
 
   async button({ simulatorUDID, name = "home" }) {
     return this.run(["--yes", this.packageName, "button", name, "-d", simulatorUDID]);
+  }
+
+  async ui({ simulatorUDID, args = [] }) {
+    return this.run(["--yes", this.packageName, "ui", ...args, "-d", simulatorUDID]);
   }
 
   async run(args, { allowFailure = false } = {}) {

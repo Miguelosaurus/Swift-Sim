@@ -156,6 +156,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - Keep the helper bound to localhost and expose it remotely through Tailscale Serve for v1.
 - Do not use Tailscale Funnel for default setup. Prefer private Tailnet access.
 - Do not imply that universal links work automatically for every Tailscale host. A public iOS build cannot be pre-entitled for arbitrary `*.ts.net` hosts; use `swift-sim://` as the reliable v1 direct-open fallback.
+- For v1 input, expect tap plus one-finger drag/swipe through the installed `serve-sim gesture` command. Do not promise complete multi-touch pinch/zoom unless `serve-sim-info` or a later adapter proves the installed `serve-sim` supports stable multi-touch gesture JSON.
 - Never run an unscoped `serve-sim --kill`; stop only the session/UDID owned by this workflow.
 - The iPhone companion only views and controls the Mac Simulator. It does not execute project code.
 - If the helper fails, report the helper log path: `~/.swift-sim/helper.log`.

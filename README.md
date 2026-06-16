@@ -228,6 +228,13 @@ When the iOS app opens a session, it loads the helper's authenticated stream end
 
 The `/s/<session-id>` route is only a browser fallback page for people who do not have the app installed or whose universal-link association is not active.
 
+V1 simulator input is routed through the installed `serve-sim` command:
+
+- Taps use normalized simulator coordinates.
+- One-finger drag and swipe gestures use `serve-sim gesture` events.
+- Hardware controls, rotation, typing, Dynamic Type, and contrast controls use scoped helper routes.
+- Multi-touch gestures such as pinch-to-zoom depend on `serve-sim` exposing stable multi-touch gesture JSON. If the installed `serve-sim` version does not support multi-touch, Swift Sim should fall back to future ScreenCaptureKit/WebRTC or another lower-level control layer instead of pretending pinch is complete.
+
 Universal links support both:
 
 ```text

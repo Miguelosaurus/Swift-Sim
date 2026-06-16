@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseServeSimOutput } from "../mac-helper/src/serveSimAdapter.js";
+import { ServeSimAdapter, parseServeSimOutput } from "../mac-helper/src/serveSimAdapter.js";
 import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../mac-helper/src/links.js";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
 import { PairingStore } from "../mac-helper/src/pairingStore.js";
@@ -25,6 +25,26 @@ test("parseServeSimOutput falls back to human-readable URL", () => {
   const parsed = parseServeSimOutput("Preview at http://localhost:3200\n", "");
   assert.equal(parsed.previewUrl, "http://localhost:3200");
   assert.equal(parsed.port, 3200);
+});
+
+test("ServeSimAdapter sends gesture JSON through the current serve-sim command", async () => {
+  class RecordingAdapter extends ServeSimAdapter {
+    calls = [];
+    async run(args) {
+      this.calls.push(args);
+      return { code: 0, stdout: "", stderr: "" };
+    }
+  }
+  const adapter = new RecordingAdapter({ packageName: "serve-sim@test" });
+  await adapter.gesture({ simulatorUDID: "SIM-1", event: { type: "move", x: 0.25, y: 0.75 } });
+  assert.deepEqual(adapter.calls[0], [
+    "--yes",
+    "serve-sim@test",
+    "gesture",
+    "{\"type\":\"move\",\"x\":0.25,\"y\":0.75}",
+    "-d",
+    "SIM-1",
+  ]);
 });
 
 test("companion links use opaque id and token", () => {

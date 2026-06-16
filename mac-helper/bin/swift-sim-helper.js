@@ -263,6 +263,19 @@ async function serve({ host, port }) {
         return json(res, 200, result);
       }
 
+      const gestureMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/gesture$/);
+      if (gestureMatch && req.method === "POST") {
+        const [, sessionId] = gestureMatch;
+        const session = store.get(sessionId);
+        if (!session) return notFound(res, "Unknown session.");
+        if (!tokenMatches(session, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        const body = await readJson(req);
+        const result = await sendGesture(session, body);
+        return json(res, 200, result);
+      }
+
       const controlMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/control\/([a-z-]+)$/);
       if (controlMatch && req.method === "POST") {
         const [, sessionId, control] = controlMatch;
@@ -584,12 +597,22 @@ async function sendControl(session, control) {
     await adapter.button({ simulatorUDID: session.simulatorUDID, name: "side" });
   } else if (control === "action-button") {
     await adapter.button({ simulatorUDID: session.simulatorUDID, name: "action" });
+  } else if (control === "text-size-increment") {
+    await adapter.ui({ simulatorUDID: session.simulatorUDID, args: ["text-size", "increment"] });
+  } else if (control === "increase-contrast") {
+    await toggleSimulatorUI(session.simulatorUDID, "increase-contrast");
   } else {
     throw new Error(`Unsupported control: ${control}`);
   }
   session.logs.push(`control: ${control}`);
   store.save(session);
   return { ok: true, control };
+}
+
+async function toggleSimulatorUI(simulatorUDID, option) {
+  const current = await adapter.ui({ simulatorUDID, args: [option] });
+  const next = String(current.stdout || "").trim().toLowerCase() === "on" ? "off" : "on";
+  await adapter.ui({ simulatorUDID, args: [option, next] });
 }
 
 async function typeIntoSimulator(session, typedText) {
@@ -618,6 +641,37 @@ async function tapSimulator(session, x, y) {
   session.logs.push(`tap: ${clampedX.toFixed(3)}, ${clampedY.toFixed(3)}`);
   store.save(session);
   return { ok: true, x: clampedX, y: clampedY };
+}
+
+async function sendGesture(session, event) {
+  const normalized = normalizeGestureEvent(event);
+  await adapter.gesture({
+    simulatorUDID: session.simulatorUDID,
+    event: normalized,
+  });
+  session.logs.push(`gesture: ${normalized.type} ${normalized.x.toFixed(3)}, ${normalized.y.toFixed(3)}`);
+  store.save(session);
+  return { ok: true, event: normalized };
+}
+
+function normalizeGestureEvent(event) {
+  if (!event || typeof event !== "object") {
+    throw new Error("Missing gesture event.");
+  }
+  const type = String(event.type || "");
+  if (!["begin", "move", "end"].includes(type)) {
+    throw new Error("Unsupported gesture type.");
+  }
+  const x = Number(event.x);
+  const y = Number(event.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error("Missing gesture coordinates.");
+  }
+  return {
+    type,
+    x: Math.max(0, Math.min(1, x)),
+    y: Math.max(0, Math.min(1, y)),
+  };
 }
 
 function required(value, name) {

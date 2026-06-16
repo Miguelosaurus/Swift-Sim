@@ -107,6 +107,15 @@ final class SessionStore: ObservableObject {
         _ = try? await URLSession.shared.data(for: request)
     }
 
+    func sendGesture(_ event: SimulatorGestureEvent) async {
+        guard let session = currentSession else { return }
+        var request = URLRequest(url: session.gestureURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONEncoder().encode(event)
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
     func refreshHelperStatus() async {
         guard let mac = pairedMac else {
             helperStatus = .notPaired
@@ -311,6 +320,10 @@ struct SimulatorSession: Identifiable, Equatable {
         baseURL.appending(path: "api/sessions/\(id)/tap").appending(queryItems: [.init(name: "token", value: token)])
     }
 
+    var gestureURL: URL {
+        baseURL.appending(path: "api/sessions/\(id)/gesture").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
     init?(url: URL) {
         if url.scheme == "swift-sim" {
             guard url.host == "session" else { return nil }
@@ -339,6 +352,12 @@ struct SimulatorSession: Identifiable, Equatable {
         guard let baseURL = baseComponents.url else { return nil }
         self.baseURL = baseURL
     }
+}
+
+struct SimulatorGestureEvent: Encodable {
+    let type: String
+    let x: Double
+    let y: Double
 }
 
 struct RecentSession: Identifiable, Codable, Equatable {

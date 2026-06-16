@@ -14,18 +14,18 @@ struct SimulatorSessionView: View {
 
             VStack(spacing: 0) {
                 topControls
-                    .padding(.horizontal, 28)
-                    .padding(.top, 18)
+                    .padding(.horizontal, 26)
+                    .padding(.top, 16)
 
-                Spacer(minLength: 22)
+                Spacer(minLength: 18)
 
-                simulatorFrame
-                    .padding(.horizontal, 30)
+                simulatorSurface
+                    .padding(.horizontal, 22)
 
-                Spacer(minLength: 20)
+                Spacer(minLength: 18)
 
                 bottomControls
-                    .padding(.bottom, 26)
+                    .padding(.bottom, 22)
             }
         }
         .task {
@@ -37,28 +37,15 @@ struct SimulatorSessionView: View {
             }
             .presentationDetents([.fraction(0.55), .large])
             .presentationDragIndicator(.visible)
+            .presentationCornerRadius(42)
         }
-        .confirmationDialog("Simulator Options", isPresented: $showingOptions, titleVisibility: .visible) {
-            Button("Rotate Left") {
-                Task { await sessionStore.sendControl("rotate-left") }
+        .sheet(isPresented: $showingOptions) {
+            SimulatorOptionsSheet { control in
+                Task { await sessionStore.sendControl(control) }
             }
-            Button("Rotate Right") {
-                Task { await sessionStore.sendControl("rotate-right") }
-            }
-            Button("Lock") {
-                Task { await sessionStore.sendControl("lock") }
-            }
-            Button("Siri") {
-                Task { await sessionStore.sendControl("siri") }
-            }
-            Button("Press Side Button") {
-                Task { await sessionStore.sendControl("side-button") }
-            }
-            Button("Press Action Button") {
-                Task { await sessionStore.sendControl("action-button") }
-            }
-        } message: {
-            Text("Hardware and accessibility controls")
+            .presentationDetents([.height(560), .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(42)
         }
         .sheet(isPresented: $showingKeyboard) {
             KeyboardSheet(text: $keyboardText) { text in
@@ -66,133 +53,199 @@ struct SimulatorSessionView: View {
             }
             .presentationDetents([.height(220)])
             .presentationDragIndicator(.visible)
+            .presentationCornerRadius(36)
         }
     }
 
     private var topControls: some View {
-        HStack {
-            Button {
-                sessionStore.closeCurrentSession()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 27, weight: .semibold))
-                    .frame(width: 70, height: 70)
+        ZStack {
+            VStack(spacing: 4) {
+                Text("Live Simulator")
+                    .font(.headline.weight(.bold))
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(sessionStore.isConnected ? .green : .orange)
+                        .frame(width: 7, height: 7)
+                    Text(sessionStore.isConnected ? "Connected" : "Reconnecting")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.plain)
-            .liquidGlassCircle(tint: Color.white.opacity(0.22), interactive: true)
-            .accessibilityLabel("Back")
 
-            Spacer()
-
-            HStack(spacing: 18) {
+            HStack {
                 Button {
-                    Task { await sessionStore.refresh() }
+                    sessionStore.closeCurrentSession()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 26, weight: .semibold))
-                        .frame(width: 42, height: 56)
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 23, weight: .semibold))
+                        .frame(width: 56, height: 56)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Refresh simulator")
+                .liquidGlassCircle(tint: Color(.systemBackground).opacity(0.24), interactive: true)
+                .accessibilityLabel("Back")
 
-                Button {
-                    showingConsole = true
-                } label: {
-                    Image(systemName: "list.bullet.rectangle")
-                        .font(.system(size: 25, weight: .semibold))
-                        .frame(width: 42, height: 56)
+                Spacer()
+
+                HStack(spacing: 14) {
+                    Button {
+                        Task { await sessionStore.refresh() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 23, weight: .semibold))
+                            .frame(width: 42, height: 52)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Refresh simulator")
+
+                    Button {
+                        showingConsole = true
+                    } label: {
+                        Image(systemName: "list.bullet.rectangle")
+                            .font(.system(size: 22, weight: .semibold))
+                            .frame(width: 42, height: 52)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Console")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Console")
+                .padding(.horizontal, 14)
+                .frame(height: 56)
+                .liquidGlassCapsule(tint: Color(.systemBackground).opacity(0.24), interactive: true)
             }
-            .padding(.horizontal, 18)
-            .frame(height: 70)
-            .liquidGlassCapsule(tint: Color.white.opacity(0.22), interactive: true)
         }
         .foregroundStyle(.primary)
     }
 
-    private var simulatorFrame: some View {
-        ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 44, style: .continuous)
-                .fill(Color.white.opacity(0.54))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 44, style: .continuous)
-                        .stroke(.white.opacity(0.82), lineWidth: 1.2)
-                }
-                .shadow(color: .black.opacity(0.12), radius: 34, x: 0, y: 24)
-
-            SimulatorStreamView(url: session.streamURL) { x, y in
-                Task {
-                    await sessionStore.tapSimulator(x: x, y: y)
-                }
+    private var simulatorSurface: some View {
+        SimulatorStreamView(url: session.streamURL) { x, y in
+            Task {
+                await sessionStore.tapSimulator(x: x, y: y)
             }
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
-                .padding(8)
-
-            connectionBadge
-                .padding(.top, 18)
-                .padding(.trailing, 18)
+        } gesture: { event in
+            Task {
+                await sessionStore.sendGesture(event)
+            }
         }
         .aspectRatio(0.49, contentMode: .fit)
-        .frame(maxHeight: 620)
+        .frame(maxWidth: 430, maxHeight: 650)
         .accessibilityElement(children: .contain)
     }
 
-    private var connectionBadge: some View {
-        Circle()
-            .fill(Color.white.opacity(0.72))
-            .frame(width: 50, height: 50)
-            .overlay {
-                Image(systemName: sessionStore.isConnected ? "antenna.radiowaves.left.and.right" : "exclamationmark.triangle")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(sessionStore.isConnected ? .green : .orange)
-            }
-            .liquidGlassCircle(tint: Color.white.opacity(0.2), interactive: false)
-            .accessibilityLabel(sessionStore.isConnected ? "Simulator connected" : "Simulator reconnecting")
+    private func bottomControl(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 25, weight: .semibold))
+                .frame(width: 48, height: 54)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private var bottomControls: some View {
-        HStack(spacing: 24) {
-            Button {
+        HStack(spacing: 20) {
+            bottomControl("house.fill", label: "Home") {
                 Task { await sessionStore.sendControl("home") }
-            } label: {
-                Image(systemName: "house.fill")
-                    .frame(width: 42, height: 52)
             }
-            .accessibilityLabel("Home")
 
-            Button {
+            bottomControl("rectangle.portrait.rotate", label: "Rotate") {
                 Task { await sessionStore.sendControl("rotate-right") }
-            } label: {
-                Image(systemName: "rectangle.portrait.rotate")
-                    .frame(width: 42, height: 52)
             }
-            .accessibilityLabel("Rotate")
 
-            Button {
+            bottomControl("keyboard", label: "Keyboard") {
                 showingKeyboard = true
-            } label: {
-                Image(systemName: "keyboard")
-                    .frame(width: 42, height: 52)
             }
-            .accessibilityLabel("Keyboard")
 
-            Button {
+            bottomControl("ellipsis", label: "Simulator options") {
                 showingOptions = true
-            } label: {
-                Image(systemName: "ellipsis")
-                    .frame(width: 42, height: 52)
             }
-            .accessibilityLabel("Simulator options")
         }
-        .font(.system(size: 30, weight: .semibold))
         .foregroundStyle(.primary)
+        .padding(.horizontal, 20)
+        .frame(height: 66)
+        .liquidGlassCapsule(tint: Color(.systemBackground).opacity(0.24), interactive: true)
+    }
+}
+
+private struct SimulatorOptionsSheet: View {
+    let send: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Text("Simulator")
+                        .font(.title2.weight(.bold))
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18, weight: .bold))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .liquidGlassCircle(tint: Color.white.opacity(0.18), interactive: true)
+                }
+
+                VStack(spacing: 0) {
+                    optionRow("rectangle.portrait.rotate", "Rotate Left", control: "rotate-left")
+                    Divider().padding(.leading, 54)
+                    optionRow("rectangle.portrait.rotate", "Rotate Right", control: "rotate-right")
+                }
+                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+
+                Text("Hardware Buttons")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+
+                VStack(spacing: 0) {
+                    optionRow("lock", "Lock", control: "lock")
+                    Divider().padding(.leading, 54)
+                    optionRow("sparkles", "Siri", control: "siri")
+                    Divider().padding(.leading, 54)
+                    optionRow("iphone.gen3.side.left", "Press Side Button", control: "side-button")
+                    Divider().padding(.leading, 54)
+                    optionRow("button.programmable", "Press Action Button", control: "action-button")
+                }
+                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+
+                Text("Accessibility")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+
+                VStack(spacing: 0) {
+                    optionRow("textformat.size", "Dynamic Type Larger", control: "text-size-increment")
+                    Divider().padding(.leading, 54)
+                    optionRow("circle.lefthalf.filled", "Toggle Increase Contrast", control: "increase-contrast")
+                }
+                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func optionRow(_ systemName: String, _ title: String, control: String) -> some View {
+        Button {
+            send(control)
+            dismiss()
+        } label: {
+            HStack(spacing: 16) {
+                Image(systemName: systemName)
+                    .font(.system(size: 21, weight: .medium))
+                    .frame(width: 32)
+                Text(title)
+                    .font(.title3.weight(.medium))
+                Spacer()
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .frame(height: 58)
+        }
         .buttonStyle(.plain)
-        .padding(.horizontal, 22)
-        .frame(height: 74)
-        .liquidGlassCapsule(tint: Color.white.opacity(0.24), interactive: true)
     }
 }
 
@@ -344,18 +397,7 @@ private struct ConsoleSheet: View {
 
 private struct SimulatorStageBackground: View {
     var body: some View {
-        ZStack {
-            Color(.systemBackground)
-            LinearGradient(
-                colors: [
-                    Color.white,
-                    Color(.systemBackground),
-                    Color.cyan.opacity(0.07)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
+        Color(.systemBackground)
         .ignoresSafeArea()
     }
 }

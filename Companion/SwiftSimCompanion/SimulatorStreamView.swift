@@ -4,21 +4,28 @@ import UIKit
 struct SimulatorStreamView: UIViewRepresentable {
     let url: URL
     let tap: (Double, Double) -> Void
+    let gesture: (SimulatorGestureEvent) -> Void
 
     func makeUIView(context: Context) -> UIImageView {
         let imageView = UIImageView()
-        imageView.backgroundColor = .black
+        imageView.backgroundColor = .clear
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = true
         imageView.isUserInteractionEnabled = true
-        imageView.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:))))
+        let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        let panRecognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        panRecognizer.maximumNumberOfTouches = 1
+        imageView.addGestureRecognizer(tapRecognizer)
+        imageView.addGestureRecognizer(panRecognizer)
         context.coordinator.onTap = tap
+        context.coordinator.onGesture = gesture
         context.coordinator.start(url: url, imageView: imageView)
         return imageView
     }
 
     func updateUIView(_ imageView: UIImageView, context: Context) {
         context.coordinator.onTap = tap
+        context.coordinator.onGesture = gesture
         context.coordinator.start(url: url, imageView: imageView)
     }
 
@@ -37,6 +44,7 @@ struct SimulatorStreamView: UIViewRepresentable {
         private var currentURL: URL?
         private var buffer = Data()
         var onTap: ((Double, Double) -> Void)?
+        var onGesture: ((SimulatorGestureEvent) -> Void)?
 
         func start(url: URL, imageView: UIImageView) {
             self.imageView = imageView
@@ -74,13 +82,33 @@ struct SimulatorStreamView: UIViewRepresentable {
         }
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-            guard let imageView, let image = imageView.image else { return }
-            let point = recognizer.location(in: imageView)
+            guard let (x, y) = normalizedPoint(for: recognizer.location(in: imageView), in: imageView) else { return }
+            onTap?(min(max(x, 0), 1), min(max(y, 0), 1))
+        }
+
+        @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            guard let (x, y) = normalizedPoint(for: recognizer.location(in: imageView), in: imageView) else { return }
+            let type: String
+            switch recognizer.state {
+            case .began:
+                type = "begin"
+            case .changed:
+                type = "move"
+            case .ended, .cancelled, .failed:
+                type = "end"
+            default:
+                return
+            }
+            onGesture?(SimulatorGestureEvent(type: type, x: x, y: y))
+        }
+
+        private func normalizedPoint(for point: CGPoint, in imageView: UIImageView?) -> (Double, Double)? {
+            guard let imageView, let image = imageView.image else { return nil }
             let rect = imageRect(for: image, in: imageView.bounds)
-            guard rect.contains(point) else { return }
+            guard rect.contains(point) else { return nil }
             let x = (point.x - rect.minX) / max(rect.width, 1)
             let y = (point.y - rect.minY) / max(rect.height, 1)
-            onTap?(min(max(x, 0), 1), min(max(y, 0), 1))
+            return (Double(min(max(x, 0), 1)), Double(min(max(y, 0), 1)))
         }
 
         private func nextJPEGFrame() -> Data? {
