@@ -1,0 +1,19 @@
+{
+  "name": "swift-sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote Codex Simulator Companion helper and native iOS companion.",
+  "bin": {
+    "swift-sim-helper": "./mac-helper/bin/swift-sim-helper.js"
+  },
+  "scripts": {
+    "start": "node mac-helper/bin/swift-sim-helper.js serve",
+    "check": "node --check mac-helper/bin/swift-sim-helper.js && node --test",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {}
+}
