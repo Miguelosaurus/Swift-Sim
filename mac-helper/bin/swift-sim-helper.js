@@ -3,6 +3,8 @@ import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
 import {
@@ -295,7 +297,8 @@ async function setupStatus({ host, port }) {
     readTailscaleServeStatus(port),
     readHelperHealth(host, port),
   ]);
-  const remoteBaseUrl = tailscale.dnsName ? `https://${tailscale.dnsName.replace(/\.$/, "")}` : "";
+  const defaultRemoteBaseUrl = tailscale.dnsName ? `https://${tailscale.dnsName.replace(/\.$/, "")}` : "";
+  const remoteBaseUrl = serveStatus.remoteBaseUrl || defaultRemoteBaseUrl;
   const nextSteps = [];
 
   if (!tailscale.available) {
@@ -309,7 +312,7 @@ async function setupStatus({ host, port }) {
   }
 
   if (tailscale.online && !serveStatus.configured) {
-    nextSteps.push(`Expose the helper privately: tailscale serve ${port}`);
+    nextSteps.push(`Expose the helper privately: ${tailscaleServeCommand(tailscale.mode, port)}`);
   }
 
   if (remoteBaseUrl && helperHealth.ok && serveStatus.configured) {
@@ -327,7 +330,7 @@ async function setupStatus({ host, port }) {
 }
 
 async function readTailscaleStatus() {
-  const result = await runCommand("tailscale", ["status", "--json"], { timeoutMs: 2500 });
+  const { result, mode } = await runTailscale(["status", "--json"]);
   if (result.error) {
     const timedOut = result.error.includes("timed out");
     return {
@@ -336,6 +339,7 @@ async function readTailscaleStatus() {
       backendState: "",
       dnsName: "",
       error: result.error,
+      mode,
     };
   }
   try {
@@ -346,6 +350,7 @@ async function readTailscaleStatus() {
       backendState: parsed.BackendState || "",
       dnsName: parsed.Self?.DNSName || "",
       tailnet: parsed.CurrentTailnet?.Name || "",
+      mode,
     };
   } catch (error) {
     return {
@@ -354,23 +359,68 @@ async function readTailscaleStatus() {
       backendState: "",
       dnsName: "",
       error: error instanceof Error ? error.message : String(error),
+      mode,
     };
   }
 }
 
 async function readTailscaleServeStatus(port) {
-  const result = await runCommand("tailscale", ["serve", "status"], { timeoutMs: 2500 });
+  const { result, mode } = await runTailscale(["serve", "status"]);
   if (result.error) {
     return {
       configured: false,
       error: result.error,
       raw: "",
+      mode,
     };
   }
   return {
     configured: result.stdout.includes(String(port)),
+    remoteBaseUrl: parseServeRemoteBaseUrl(result.stdout, port),
     raw: result.stdout.trim(),
+    mode,
   };
+}
+
+async function runTailscale(args) {
+  let fallback = { result: { error: "tailscale not checked", stdout: "", stderr: "", code: null }, mode: "default" };
+  for (const candidate of tailscaleCandidates()) {
+    const result = await runCommand("tailscale", [...candidate.args, ...args], { timeoutMs: 2500 });
+    if (!result.error) return { result, mode: candidate.mode };
+    fallback = { result, mode: candidate.mode };
+  }
+  return fallback;
+}
+
+function tailscaleCandidates() {
+  const candidates = [{ mode: "default", args: [] }];
+  const userspaceSocket = `${homedir()}/.tailscale-userspace/tailscaled.sock`;
+  if (existsSync(userspaceSocket)) {
+    candidates.push({ mode: "userspace", args: [`--socket=${userspaceSocket}`] });
+  }
+  return candidates;
+}
+
+function tailscaleServeCommand(mode, port) {
+  if (mode === "userspace") {
+    return `tailscale --socket ~/.tailscale-userspace/tailscaled.sock serve ${port}`;
+  }
+  return `tailscale serve ${port}`;
+}
+
+function parseServeRemoteBaseUrl(output, port) {
+  let currentUrl = "";
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("https://")) {
+      currentUrl = trimmed.split(/\s+/)[0].replace(/\/$/, "");
+      continue;
+    }
+    if (currentUrl && trimmed.includes(`proxy http://127.0.0.1:${port}`)) {
+      return currentUrl;
+    }
+  }
+  return "";
 }
 
 async function readHelperHealth(host, port) {
