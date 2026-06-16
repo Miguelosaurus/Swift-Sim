@@ -8,6 +8,7 @@ import {
   ServeSimError,
 } from "../src/serveSimAdapter.js";
 import { SessionStore } from "../src/sessionStore.js";
+import { PairingStore } from "../src/pairingStore.js";
 import {
   badRequest,
   json,
@@ -16,12 +17,13 @@ import {
   text,
   unauthorized,
 } from "../src/http.js";
-import { buildCompanionLinks, publicSession } from "../src/links.js";
+import { buildCompanionLinks, buildPairingLinks, publicSession } from "../src/links.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
 
 const store = new SessionStore();
+const pairingStore = new PairingStore();
 const adapter = new ServeSimAdapter();
 
 main().catch((error) => {
@@ -74,6 +76,23 @@ async function main() {
     return;
   }
 
+  if (command === "pair") {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        "remote-base-url": { type: "string" },
+        rotate: { type: "boolean" },
+      },
+    });
+    const pairing = values.rotate ? pairingStore.rotate() : pairingStore.current();
+    const links = buildPairingLinks(pairing, values["remote-base-url"]);
+    console.log(JSON.stringify({
+      macName: pairing.macName,
+      links,
+    }, null, 2));
+    return;
+  }
+
   if (command === "stop-session") {
     const { values } = parseArgs({
       args: rest,
@@ -114,7 +133,12 @@ async function serve({ host, port }) {
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
       if (req.method === "GET" && url.pathname === "/health") {
-        return json(res, 200, { ok: true, sessions: store.list().length });
+        return json(res, 200, {
+          ok: true,
+          helper: "swift-sim-helper",
+          sessions: store.list().length,
+          macName: pairingStore.current().macName,
+        });
       }
 
       if (req.method === "GET" && url.pathname === "/.well-known/apple-app-site-association") {
@@ -123,6 +147,25 @@ async function serve({ host, port }) {
 
       if (req.method === "GET" && url.pathname === "/api/serve-sim") {
         return json(res, 200, await adapter.inspect());
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/pairing/status") {
+        if (!pairingStore.tokenMatches(url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        return json(res, 200, pairingStore.status());
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/pairing/rotate") {
+        if (!pairingStore.tokenMatches(url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        const pairing = pairingStore.rotate();
+        const remoteBaseUrl = url.searchParams.get("remoteBaseUrl") || "";
+        return json(res, 200, {
+          macName: pairing.macName,
+          links: buildPairingLinks(pairing, remoteBaseUrl),
+        });
       }
 
       if (req.method === "POST" && url.pathname === "/api/sessions/start") {
@@ -180,6 +223,12 @@ async function serve({ host, port }) {
           return unauthorized(res);
         }
         return text(res, 200, sessionFallbackHtml(session), "text/html; charset=utf-8");
+      }
+
+      if (req.method === "GET" && url.pathname === "/pair") {
+        const token = url.searchParams.get("token") || "";
+        const base = `${url.protocol}//${url.host}`;
+        return text(res, 200, pairingFallbackHtml({ token, base }), "text/html; charset=utf-8");
       }
 
       return notFound(res, "Not found.");
@@ -303,6 +352,32 @@ function sessionFallbackHtml(session) {
 </html>`;
 }
 
+function pairingFallbackHtml({ token, base }) {
+  const customScheme = `swift-sim://pair?token=${encodeURIComponent(token)}&base=${encodeURIComponent(base)}`;
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pair Swift Sim</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f8fbff; color: #121417; }
+    main { max-width: 560px; margin: 0 auto; padding: 40px 22px; }
+    a.button { display: inline-block; margin-top: 18px; padding: 14px 18px; border-radius: 999px; color: white; background: #1677ff; text-decoration: none; font-weight: 700; }
+    code { display: block; margin-top: 18px; padding: 14px; border-radius: 14px; background: white; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Pair Swift Sim</h1>
+    <p>Open this link on your iPhone to pair the companion app with this Mac helper over your private Tailscale connection.</p>
+    <a class="button" href="${escapeHtml(customScheme)}">Open Swift Sim Companion</a>
+    <code>${escapeHtml(customScheme)}</code>
+  </main>
+</body>
+</html>`;
+}
+
 function appleAppSiteAssociation() {
   const appId = process.env.SWIFT_SIM_IOS_APP_ID || "TEAMID.dev.local.SwiftSimCompanion";
   return {
@@ -315,6 +390,10 @@ function appleAppSiteAssociation() {
             {
               "/": "/s/*",
               comment: "Open Swift Sim companion sessions.",
+            },
+            {
+              "/": "/pair",
+              comment: "Pair Swift Sim companion with this Mac helper.",
             },
           ],
         },

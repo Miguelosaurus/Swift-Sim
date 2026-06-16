@@ -29,6 +29,17 @@ export function buildCompanionLinks(session, remoteBaseUrl = "") {
   };
 }
 
+export function buildPairingLinks(pairing, remoteBaseUrl = "") {
+  const base = normalizeBaseUrl(remoteBaseUrl);
+  const universalLink = base
+    ? `${base}/pair?token=${encodeURIComponent(pairing.token)}`
+    : "";
+  return {
+    universalLink,
+    customScheme: `swift-sim://pair?token=${encodeURIComponent(pairing.token)}${base ? `&base=${encodeURIComponent(base)}` : ""}`,
+  };
+}
+
 function normalizeBaseUrl(value) {
   if (!value) return "";
   return String(value).replace(/\/+$/, "");

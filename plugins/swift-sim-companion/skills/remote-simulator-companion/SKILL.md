@@ -107,6 +107,15 @@ Use the repo's normal build/run script if it has one. Otherwise:
 
 ## Useful Commands
 
+Generate a setup/relink URL for the native iOS companion:
+
+```bash
+node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" pair \
+  --remote-base-url "<tailscale-serve-url>"
+```
+
+Give the user the returned `links.universalLink` when they need to pair the phone with the Mac helper. This is separate from simulator session links.
+
 Inspect the current `serve-sim` adapter capability:
 
 ```bash

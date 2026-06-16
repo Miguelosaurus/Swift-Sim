@@ -4,8 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseServeSimOutput } from "../mac-helper/src/serveSimAdapter.js";
-import { buildCompanionLinks } from "../mac-helper/src/links.js";
+import { buildCompanionLinks, buildPairingLinks } from "../mac-helper/src/links.js";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
+import { PairingStore } from "../mac-helper/src/pairingStore.js";
 
 test("parseServeSimOutput reads JSON URL without depending on exact key", () => {
   const parsed = parseServeSimOutput('{"previewUrl":"http://127.0.0.1:3200","pid":1234}\n', "");
@@ -27,6 +28,15 @@ test("companion links use opaque id and token", () => {
   }, "https://mac.example.ts.net/");
   assert.equal(links.universalLink, "https://mac.example.ts.net/s/opaque-session?token=secret-token");
   assert.equal(links.customScheme, "swift-sim://session/opaque-session?token=secret-token&base=https%3A%2F%2Fmac.example.ts.net");
+  assert.ok(!links.universalLink.includes("UDID"));
+});
+
+test("pairing links use helper token without session internals", () => {
+  const links = buildPairingLinks({
+    token: "pair-token",
+  }, "https://mac.example.ts.net/");
+  assert.equal(links.universalLink, "https://mac.example.ts.net/pair?token=pair-token");
+  assert.equal(links.customScheme, "swift-sim://pair?token=pair-token&base=https%3A%2F%2Fmac.example.ts.net");
   assert.ok(!links.universalLink.includes("UDID"));
 });
 
@@ -52,6 +62,26 @@ test("SessionStore persists sessions for CLI/server handoff", () => {
       scheme: "App",
       simulatorUDID: "SIM-1",
     }).id, session.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("PairingStore persists and rotates helper tokens", () => {
+  const dir = mkdtempSync(join(tmpdir(), "swift-sim-pair-test-"));
+  try {
+    const path = join(dir, "pairing.json");
+    const writer = new PairingStore({ path });
+    const first = writer.current();
+    assert.equal(writer.tokenMatches(first.token), true);
+
+    const reader = new PairingStore({ path });
+    assert.equal(reader.tokenMatches(first.token), true);
+
+    const second = reader.rotate();
+    assert.notEqual(second.token, first.token);
+    assert.equal(reader.tokenMatches(first.token), false);
+    assert.equal(reader.tokenMatches(second.token), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

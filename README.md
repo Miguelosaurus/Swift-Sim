@@ -79,6 +79,30 @@ https://your-mac.your-tailnet.ts.net
 
 Use that as your `remote-base-url`.
 
+## Pair The iOS Companion
+
+Swift Sim does not require an account or login for v1. Pairing is private to your Tailnet:
+
+1. Keep the Mac helper running.
+2. Keep Tailscale connected on both the Mac and iPhone.
+3. Generate a pairing link:
+
+   ```sh
+   node mac-helper/bin/swift-sim-helper.js pair \
+     --remote-base-url https://your-mac.your-tailnet.ts.net
+   ```
+
+4. Open the printed `universalLink` on your iPhone.
+
+The iOS app stores the paired Mac URL and helper token locally. The Mac Helper panel in the app shows:
+
+- green: helper reachable
+- yellow: checking
+- red: helper unreachable
+- gray: no Mac paired
+
+Tap the Mac Helper panel to test the connection, relink with a new pairing URL, or forget the Mac.
+
 ## Start A Simulator Session
 
 Boot a simulator and copy its UDID:
@@ -172,6 +196,13 @@ node mac-helper/bin/swift-sim-helper.js serve
 
 If universal links are not working yet, the `swift-sim://` custom scheme still opens the app.
 
+Universal links support both:
+
+```text
+/pair
+/s/*
+```
+
 ## Codex Workflow
 
 ### Install The Codex Plugin
@@ -220,7 +251,9 @@ Codex should end its response with:
 
 - The helper binds to localhost by default.
 - Remote access is private through Tailscale.
+- Pairing uses a helper token generated on your Mac.
 - Session links use opaque session ids and tokens.
+- Pairing tokens and session tokens are separate.
 - User project code is not sent to the iPhone companion for execution.
 - Stop only the specific simulator session you own; do not run unscoped `serve-sim --kill`.
 

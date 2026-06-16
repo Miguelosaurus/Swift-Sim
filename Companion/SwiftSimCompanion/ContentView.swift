@@ -47,6 +47,7 @@ private struct HomeView: View {
         }
         .sheet(isPresented: $showingMacSettings) {
             MacSettingsSheet()
+                .environmentObject(sessionStore)
         }
     }
 
@@ -76,52 +77,61 @@ private struct HomeView: View {
     }
 
     private var macStatusPanel: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.blue, Color.cyan],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+        Button {
+            showingMacSettings = true
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue, Color.cyan],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                Image(systemName: "macbook.and.iphone")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 58, height: 58)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Paired Mac")
-                    .font(.headline.weight(.semibold))
-                    .lineLimit(1)
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 8, height: 8)
-                    Text("Tailscale private access ready")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    Image(systemName: "macbook.and.iphone")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
-            }
+                .frame(width: 58, height: 58)
 
-            Spacer(minLength: 8)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(sessionStore.pairedMac?.displayName ?? "Pair a Mac")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 8, height: 8)
+                        Text(sessionStore.helperStatus.detail)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
 
-            Button {
-                showingMacSettings = true
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 44, height: 44)
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.tertiary)
             }
-            .buttonStyle(.plain)
-            .liquidGlassCircle(tint: .white.opacity(0.2), interactive: true)
-            .accessibilityLabel("Mac settings")
         }
+        .buttonStyle(.plain)
         .padding(14)
-        .liquidGlassPanel(cornerRadius: 30, tint: Color.white.opacity(0.18), interactive: false)
+        .liquidGlassPanel(cornerRadius: 30, tint: Color.white.opacity(0.18), interactive: true)
+        .accessibilityLabel("Mac helper settings")
+    }
+
+    private var statusColor: Color {
+        switch sessionStore.helperStatus {
+        case .notPaired: .gray
+        case .checking: .yellow
+        case .online: .green
+        case .offline: .red
+        }
     }
 
     private var sessionBoard: some View {
@@ -287,14 +297,62 @@ private struct AppBadge: View {
 
 private struct MacSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sessionStore: SessionStore
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Mac") {
-                    Label("Paired Mac", systemImage: "macbook")
-                    Label("Tailscale private access", systemImage: "lock.shield")
-                    Label("Xcode Simulator runtime", systemImage: "iphone.gen3")
+                Section("Status") {
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 11, height: 11)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(sessionStore.helperStatus.title)
+                                .font(.headline)
+                            Text(sessionStore.helperStatus.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let mac = sessionStore.pairedMac {
+                        Label(mac.displayName, systemImage: "macbook")
+                        Label(mac.hostDisplayName, systemImage: "network")
+                    } else {
+                        Label("No Mac paired", systemImage: "link.badge.plus")
+                    }
+                }
+
+                Section("Actions") {
+                    Button {
+                        Task { await sessionStore.refreshHelperStatus() }
+                    } label: {
+                        Label("Test Connection", systemImage: "wave.3.right")
+                    }
+
+                    if sessionStore.pairedMac != nil {
+                        Button(role: .destructive) {
+                            sessionStore.forgetPairedMac()
+                        } label: {
+                            Label("Forget This Mac", systemImage: "xmark.circle")
+                        }
+                    }
+                }
+
+                Section("Pair Or Relink") {
+                    Text("On your Mac, start the helper and expose it with Tailscale Serve. Then run the pairing command and open the printed link on this iPhone.")
+                        .foregroundStyle(.secondary)
+
+                    Text("node mac-helper/bin/swift-sim-helper.js pair --remote-base-url https://your-mac.your-tailnet.ts.net")
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+
+                Section("Checks") {
+                    Label("Tailscale connected on Mac and iPhone", systemImage: "lock.shield")
+                    Label("Helper reachable through private HTTPS", systemImage: "server.rack")
+                    Label("Session links still use separate one-time tokens", systemImage: "key")
                 }
             }
             .navigationTitle("Mac Helper")
@@ -306,6 +364,15 @@ private struct MacSettingsSheet: View {
                     }
                 }
             }
+        }
+    }
+
+    private var statusColor: Color {
+        switch sessionStore.helperStatus {
+        case .notPaired: .gray
+        case .checking: .yellow
+        case .online: .green
+        case .offline: .red
         }
     }
 }
