@@ -513,6 +513,7 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
   if (existing && existing.stream.state === "running") {
     existing.remoteBaseUrl = input["remote-base-url"] || existing.remoteBaseUrl;
     existing.updatedAt = new Date().toISOString();
+    store.save(existing);
     return includeCodexMetadata ? codexSession(existing) : publicSession(existing);
   }
 
