@@ -112,6 +112,28 @@ Send the `universalLink` to your iPhone. If universal links are not configured y
 
 ## Build The Companion App
 
+Fast path from the terminal:
+
+```sh
+./scripts/ios/run-on-device.sh
+```
+
+The script builds, signs, installs, and launches the companion app on the first connected iPhone/iPad. For your own Apple Developer team, override:
+
+```sh
+DEVELOPMENT_TEAM=YOURTEAMID \
+PRODUCT_BUNDLE_IDENTIFIER=com.yourname.SwiftSimCompanion \
+./scripts/ios/run-on-device.sh
+```
+
+If you have multiple devices connected:
+
+```sh
+DEVICE_UDID=YOUR-DEVICE-UDID ./scripts/ios/run-on-device.sh
+```
+
+Manual Xcode path:
+
 Open:
 
 ```text
