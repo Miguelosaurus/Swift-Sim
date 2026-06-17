@@ -12,6 +12,7 @@ Important transport reality:
 - `serve-sim` supplies the headless CoreSimulator framebuffer, VideoToolbox H.264 encoder, and simulator control channel.
 - `native-companion` is the default phone transport. It proxies `serve-sim`'s `/stream.avcc` endpoint and decodes H.264 natively in the iOS app.
 - MJPEG remains the Codex sidebar preview and compatibility fallback.
+- The helper resolves Xcode's model-specific CoreSimulator `framebufferMask`; the companion applies it to the stream instead of drawing a hardcoded phone border.
 - If setup-status reports `activeForPhone: "serve-sim"`, tell the user they are on the fallback path. Do not promise Bitrig-grade latency, pinch, or full gesture fidelity on that path.
 
 Use this skill when:
@@ -162,6 +163,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 
 - Do not create or invoke a separate coding agent.
 - Do not expose project source paths, simulator UDIDs, local ports, or stream internals in the user-facing link.
+- Keep the framebuffer-mask endpoint behind the same opaque session token. Do not expose its source path from Xcode's device profile.
 - `codex.localPreviewUrl` and `codex.simulatorUDID` are local workflow metadata only. Use them to prove the nested Codex simulator and the phone companion use the same Simulator session; never paste them into the final user message.
 - Keep the helper bound to localhost and expose it remotely through Tailscale Serve for v1.
 - Do not use Tailscale Funnel for default setup. Prefer private Tailnet access.

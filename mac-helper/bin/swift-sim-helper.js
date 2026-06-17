@@ -15,6 +15,7 @@ import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
 import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
 import { SessionStore } from "../src/sessionStore.js";
 import { PairingStore } from "../src/pairingStore.js";
+import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
 import {
   badRequest,
   json,
@@ -30,6 +31,7 @@ const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
 
 const store = new SessionStore();
 const pairingStore = new PairingStore();
+const simulatorProfiles = new SimulatorProfileResolver();
 const adapter = new ServeSimAdapter();
 const transports = {
   "serve-sim": new ServeSimTransport({ adapter }),
@@ -253,6 +255,26 @@ async function serve({ host, port }) {
           return unauthorized(res);
         }
         return proxyStream(res, session);
+      }
+
+      const frameMaskMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/frame-mask$/);
+      if (frameMaskMatch && req.method === "GET") {
+        const [, sessionId] = frameMaskMatch;
+        const session = store.get(sessionId);
+        if (!session) return notFound(res, "Unknown session.");
+        if (!tokenMatches(session, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        const mask = simulatorProfiles.readMask(session.simulatorUDID);
+        if (!mask) return notFound(res, "Simulator frame mask is unavailable.");
+        res.writeHead(200, {
+          "content-type": mask.contentType,
+          "content-length": mask.data.length,
+          "cache-control": "private, max-age=86400",
+          "x-swift-sim-frame-width": mask.width,
+          "x-swift-sim-frame-height": mask.height,
+        });
+        return res.end(mask.data);
       }
 
       const typeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/type$/);

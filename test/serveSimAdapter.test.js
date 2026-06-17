@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ServeSimAdapter, parseServeSimOutput } from "../mac-helper/src/serveSimAdapter.js";
@@ -8,6 +8,7 @@ import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } f
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
 import { PairingStore } from "../mac-helper/src/pairingStore.js";
 import { NativeCompanionTransport } from "../mac-helper/src/transports/nativeCompanionTransport.js";
+import { SimulatorProfileResolver } from "../mac-helper/src/simulatorProfile.js";
 
 test("parseServeSimOutput reads JSON URL without depending on exact key", () => {
   const parsed = parseServeSimOutput('{"previewUrl":"http://127.0.0.1:3200","pid":1234}\n', "");
@@ -178,6 +179,40 @@ test("native companion rejects serve-sim versions without AVCC", async () => {
     transport.start({ simulatorUDID: "SIM-1" }),
     /upgrade to 0\.1\.41 or newer/,
   );
+});
+
+test("simulator profile resolver serves the CoreSimulator framebuffer mask", () => {
+  const dir = mkdtempSync(join(tmpdir(), "swift-sim-profile-test-"));
+  try {
+    const resources = join(dir, "iPhone Test.simdevicetype", "Contents", "Resources");
+    mkdirSync(resources, { recursive: true });
+    writeFileSync(join(resources, "mask-id.pdf"), "mask-data");
+    const resolver = new SimulatorProfileResolver({
+      run(command, args) {
+        if (command === "xcrun" && args.includes("devices")) {
+          return JSON.stringify({
+            devices: { runtime: [{ udid: "SIM-1", name: "iPhone Test", deviceTypeIdentifier: "test.iphone" }] },
+          });
+        }
+        if (command === "xcrun" && args.includes("devicetypes")) {
+          return JSON.stringify({
+            devicetypes: [{ identifier: "test.iphone", name: "iPhone Test", modelIdentifier: "iPhone1,1", bundlePath: join(dir, "iPhone Test.simdevicetype") }],
+          });
+        }
+        if (command === "plutil") {
+          return JSON.stringify({ framebufferMask: "mask-id", mainScreenWidth: 100, mainScreenHeight: 200 });
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      },
+    });
+    const mask = resolver.readMask("SIM-1");
+    assert.equal(mask.deviceName, "iPhone Test");
+    assert.equal(mask.width, 100);
+    assert.equal(mask.height, 200);
+    assert.equal(mask.data.toString(), "mask-data");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("SessionStore persists sessions for CLI/server handoff", () => {

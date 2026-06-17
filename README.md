@@ -162,6 +162,8 @@ Swift Sim has a stable session/link API, but two different transport roles:
 - `native-companion`: default phone transport. Current `serve-sim` captures the CoreSimulator framebuffer headlessly and hardware-encodes H.264 with VideoToolbox. Swift Sim proxies its `/stream.avcc` endpoint and renders it natively with `AVSampleBufferDisplayLayer`.
 - `serve-sim`: compatibility fallback and Codex sidebar preview using MJPEG. It uses more bandwidth and should not be the normal iPhone path.
 
+The companion does not guess device corner radii. The helper resolves the selected simulator's CoreSimulator device profile and serves its model-specific `framebufferMask` asset through the authenticated session API. The iOS app applies that vector mask to the live video, so supported simulator screens keep the same silhouette Xcode uses.
+
 Check what your helper supports:
 
 ```sh
@@ -241,6 +243,14 @@ When the iOS app opens a session, it loads the helper's authenticated stream end
 ```text
 /api/sessions/<session-id>/stream
 ```
+
+The model-specific screen mask is available at:
+
+```text
+/api/sessions/<session-id>/frame-mask
+```
+
+Both endpoints require the same opaque session token. The mask response never exposes the simulator UDID or Xcode's local device-profile path.
 
 The `/s/<session-id>` route is only a browser fallback page for people who do not have the app installed or whose universal-link association is not active.
 

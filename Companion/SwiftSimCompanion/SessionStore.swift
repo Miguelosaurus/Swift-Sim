@@ -305,6 +305,10 @@ struct SimulatorSession: Identifiable, Equatable {
         baseURL.appending(path: "api/sessions/\(id)/stream").appending(queryItems: [.init(name: "token", value: token)])
     }
 
+    var frameMaskURL: URL {
+        baseURL.appending(path: "api/sessions/\(id)/frame-mask").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
     var statusURL: URL {
         baseURL.appending(path: "api/sessions/\(id)").appending(queryItems: [.init(name: "token", value: token)])
     }

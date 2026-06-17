@@ -5,13 +5,14 @@ import CoreMedia
 
 struct SimulatorStreamView: UIViewRepresentable {
     let url: URL
+    let maskURL: URL
     let tap: (Double, Double) -> Void
     let gesture: (SimulatorGestureEvent) -> Void
     let frameUpdate: (CGSize) -> Void
     let streamState: (StreamRenderState) -> Void
 
-    func makeUIView(context: Context) -> UIImageView {
-        let imageView = UIImageView()
+    func makeUIView(context: Context) -> MaskedSimulatorImageView {
+        let imageView = MaskedSimulatorImageView()
         imageView.backgroundColor = .clear
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = true
@@ -26,19 +27,19 @@ struct SimulatorStreamView: UIViewRepresentable {
         context.coordinator.onGesture = gesture
         context.coordinator.onFrame = frameUpdate
         context.coordinator.onState = streamState
-        context.coordinator.start(url: url, imageView: imageView)
+        context.coordinator.start(url: url, maskURL: maskURL, imageView: imageView)
         return imageView
     }
 
-    func updateUIView(_ imageView: UIImageView, context: Context) {
+    func updateUIView(_ imageView: MaskedSimulatorImageView, context: Context) {
         context.coordinator.onTap = tap
         context.coordinator.onGesture = gesture
         context.coordinator.onFrame = frameUpdate
         context.coordinator.onState = streamState
-        context.coordinator.start(url: url, imageView: imageView)
+        context.coordinator.start(url: url, maskURL: maskURL, imageView: imageView)
     }
 
-    func dismantleUIView(_ imageView: UIImageView, coordinator: Coordinator) {
+    func dismantleUIView(_ imageView: MaskedSimulatorImageView, coordinator: Coordinator) {
         coordinator.stop()
     }
 
@@ -47,21 +48,27 @@ struct SimulatorStreamView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, URLSessionDataDelegate, UIGestureRecognizerDelegate {
-        private var imageView: UIImageView?
+        private weak var imageView: MaskedSimulatorImageView?
         private var session: URLSession?
         private var task: URLSessionDataTask?
         private var currentURL: URL?
+        private var currentMaskURL: URL?
+        private var maskTask: URLSessionDataTask?
         private var buffer = Data()
         var onTap: ((Double, Double) -> Void)?
         var onGesture: ((SimulatorGestureEvent) -> Void)?
         var onFrame: ((CGSize) -> Void)?
         var onState: ((StreamRenderState) -> Void)?
 
-        func start(url: URL, imageView: UIImageView) {
+        func start(url: URL, maskURL: URL, imageView: MaskedSimulatorImageView) {
             self.imageView = imageView
-            guard currentURL != url else { return }
+            guard currentURL != url else {
+                loadMask(from: maskURL)
+                return
+            }
             stop()
             currentURL = url
+            loadMask(from: maskURL)
             onState?(.connecting)
             buffer.removeAll(keepingCapacity: true)
             let configuration = URLSessionConfiguration.default
@@ -77,10 +84,21 @@ struct SimulatorStreamView: UIViewRepresentable {
 
         func stop() {
             task?.cancel()
+            maskTask?.cancel()
             session?.invalidateAndCancel()
             task = nil
             session = nil
             currentURL = nil
+            currentMaskURL = nil
+        }
+
+        private func loadMask(from url: URL) {
+            guard currentMaskURL != url else { return }
+            currentMaskURL = url
+            maskTask?.cancel()
+            maskTask = SimulatorFrameMaskLoader.load(from: url) { [weak self] image in
+                self?.imageView?.setFrameMask(image)
+            }
         }
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
@@ -177,6 +195,7 @@ enum StreamRenderState: Equatable {
 
 struct NativeH264StreamView: UIViewRepresentable {
     let url: URL
+    let maskURL: URL
     let tap: (Double, Double) -> Void
     let gesture: (SimulatorGestureEvent) -> Void
     let frameUpdate: (CGSize) -> Void
@@ -197,7 +216,7 @@ struct NativeH264StreamView: UIViewRepresentable {
             frameUpdate: frameUpdate,
             streamState: streamState
         )
-        context.coordinator.start(url: url)
+        context.coordinator.start(url: url, maskURL: maskURL)
         return view
     }
 
@@ -209,7 +228,7 @@ struct NativeH264StreamView: UIViewRepresentable {
             frameUpdate: frameUpdate,
             streamState: streamState
         )
-        context.coordinator.start(url: url)
+        context.coordinator.start(url: url, maskURL: maskURL)
     }
 
     func dismantleUIView(_ view: NativeVideoSurfaceView, coordinator: Coordinator) {
@@ -225,6 +244,8 @@ struct NativeH264StreamView: UIViewRepresentable {
         private var session: URLSession?
         private var task: URLSessionDataTask?
         private var currentURL: URL?
+        private var currentMaskURL: URL?
+        private var maskTask: URLSessionDataTask?
         private var buffer = Data()
         private var formatDescription: CMVideoFormatDescription?
         private var frameIndex: Int64 = 0
@@ -249,10 +270,14 @@ struct NativeH264StreamView: UIViewRepresentable {
             self.onState = streamState
         }
 
-        func start(url: URL) {
-            guard currentURL != url else { return }
+        func start(url: URL, maskURL: URL) {
+            guard currentURL != url else {
+                loadMask(from: maskURL)
+                return
+            }
             stop()
             currentURL = url
+            loadMask(from: maskURL)
             buffer.removeAll(keepingCapacity: true)
             formatDescription = nil
             frameIndex = 0
@@ -274,12 +299,23 @@ struct NativeH264StreamView: UIViewRepresentable {
 
         func stop() {
             task?.cancel()
+            maskTask?.cancel()
             session?.invalidateAndCancel()
             task = nil
             session = nil
             currentURL = nil
+            currentMaskURL = nil
             DispatchQueue.main.async { [weak self] in
                 self?.view?.reset()
+            }
+        }
+
+        private func loadMask(from url: URL) {
+            guard currentMaskURL != url else { return }
+            currentMaskURL = url
+            maskTask?.cancel()
+            maskTask = SimulatorFrameMaskLoader.load(from: url) { [weak self] image in
+                self?.view?.setFrameMask(image)
             }
         }
 
@@ -463,6 +499,8 @@ struct NativeH264StreamView: UIViewRepresentable {
 final class NativeVideoSurfaceView: UIView {
     let displayLayer = AVSampleBufferDisplayLayer()
     let seedImageView = UIImageView()
+    private let frameMaskLayer = CALayer()
+    private var frameMask: UIImage?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -484,6 +522,7 @@ final class NativeVideoSurfaceView: UIView {
         super.layoutSubviews()
         seedImageView.frame = bounds
         displayLayer.frame = bounds
+        updateFrameMask()
     }
 
     func showSeed(_ image: UIImage) {
@@ -499,6 +538,110 @@ final class NativeVideoSurfaceView: UIView {
         seedImageView.image = nil
         seedImageView.isHidden = false
         displayLayer.flushAndRemoveImage()
+    }
+
+    func setFrameMask(_ image: UIImage?) {
+        frameMask = image
+        updateFrameMask()
+    }
+
+    private func updateFrameMask() {
+        guard let frameMask else {
+            layer.mask = nil
+            return
+        }
+        let image = frameMask.orientedFor(bounds: bounds)
+        frameMaskLayer.frame = bounds
+        frameMaskLayer.contents = image.cgImage
+        frameMaskLayer.contentsGravity = .resizeAspectFill
+        layer.mask = frameMaskLayer
+    }
+}
+
+final class MaskedSimulatorImageView: UIImageView {
+    private let frameMaskLayer = CALayer()
+    private var frameMask: UIImage?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateFrameMask()
+    }
+
+    func setFrameMask(_ image: UIImage?) {
+        frameMask = image
+        updateFrameMask()
+    }
+
+    private func updateFrameMask() {
+        guard let frameMask else {
+            layer.mask = nil
+            return
+        }
+        let image = frameMask.orientedFor(bounds: bounds)
+        frameMaskLayer.frame = bounds
+        frameMaskLayer.contents = image.cgImage
+        frameMaskLayer.contentsGravity = .resizeAspectFill
+        layer.mask = frameMaskLayer
+    }
+}
+
+private enum SimulatorFrameMaskLoader {
+    private static let cache = NSCache<NSURL, UIImage>()
+
+    static func load(from url: URL, completion: @escaping (UIImage?) -> Void) -> URLSessionDataTask? {
+        if let cached = cache.object(forKey: url as NSURL) {
+            DispatchQueue.main.async { completion(cached) }
+            return nil
+        }
+        let task = URLSession.shared.dataTask(with: url) { data, response, _ in
+            guard let data,
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let image = renderPDF(data) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            cache.setObject(image, forKey: url as NSURL)
+            DispatchQueue.main.async { completion(image) }
+        }
+        task.resume()
+        return task
+    }
+
+    private static func renderPDF(_ data: Data) -> UIImage? {
+        guard let provider = CGDataProvider(data: data as CFData),
+              let document = CGPDFDocument(provider),
+              let page = document.page(at: 1) else { return nil }
+        let mediaBox = page.getBoxRect(.mediaBox)
+        guard mediaBox.width > 0, mediaBox.height > 0 else { return nil }
+        let scale = min(1, 1600 / max(mediaBox.width, mediaBox.height))
+        let size = CGSize(width: mediaBox.width * scale, height: mediaBox.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+            let context = renderer.cgContext
+            context.clear(CGRect(origin: .zero, size: size))
+            context.translateBy(x: 0, y: size.height)
+            context.scaleBy(x: scale, y: -scale)
+            context.drawPDFPage(page)
+        }
+    }
+}
+
+private extension UIImage {
+    func orientedFor(bounds: CGRect) -> UIImage {
+        let boundsIsLandscape = bounds.width > bounds.height
+        let imageIsLandscape = size.width > size.height
+        guard bounds.width > 0, bounds.height > 0, boundsIsLandscape != imageIsLandscape else { return self }
+        guard let cgImage else { return self }
+        let oriented = UIImage(cgImage: cgImage, scale: 1, orientation: .right)
+        let outputSize = CGSize(width: size.height, height: size.width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: outputSize, format: format).image { _ in
+            oriented.draw(in: CGRect(origin: .zero, size: outputSize))
+        }
     }
 }
 

@@ -193,6 +193,7 @@ struct SimulatorSessionView: View {
         } else if sessionStore.activeTransport?.transport == "native-companion" {
             NativeH264StreamView(
                 url: streamURL,
+                maskURL: session.frameMaskURL,
                 tap: handleTap,
                 gesture: handleGesture,
                 frameUpdate: handleFrameUpdate,
@@ -201,6 +202,7 @@ struct SimulatorSessionView: View {
         } else {
             SimulatorStreamView(
                 url: streamURL,
+                maskURL: session.frameMaskURL,
                 tap: handleTap,
                 gesture: handleGesture,
                 frameUpdate: handleFrameUpdate,
