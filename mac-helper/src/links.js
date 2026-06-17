@@ -21,7 +21,7 @@ export function codexSession(session) {
   return {
     ...publicSession(session),
     codex: {
-      localPreviewUrl: session.stream.localUrl || "",
+      localPreviewUrl: session.stream.previewUrl || session.stream.localUrl || "",
       simulatorUDID: session.simulatorUDID || "",
       note: "Open localPreviewUrl in the Codex in-app browser before sharing the companion link. Do not expose this field to users.",
     },

@@ -15,7 +15,7 @@ Your app code never runs on the iPhone companion. The iPhone only views and cont
 ## What Is Included
 
 - `mac-helper/`  
-  A lightweight local helper/server for Mac. It tracks sessions, returns companion links, and has a transport boundary. Today it uses `serve-sim` for Codex preview and fallback streaming; the primary phone transport is being moved to a native low-latency path.
+  A lightweight local helper/server for Mac. It tracks sessions, returns companion links, and wraps the current `serve-sim` capture/control foundation behind a transport boundary. Codex preview uses MJPEG; the native phone path uses its headless VideoToolbox H.264 stream.
 
 - `Companion/`  
   A native SwiftUI iOS app that opens Swift Sim links, shows the simulator stream, exposes controls, and displays logs/status.
@@ -159,8 +159,8 @@ Codex should first open `codex.localPreviewUrl` in the Codex in-app browser/side
 
 Swift Sim has a stable session/link API, but two different transport roles:
 
-- `serve-sim`: working fallback and Codex sidebar preview. It is useful for proving the loop, but it can be laggy over cellular and does not guarantee full multi-touch.
-- `native-companion`: intended primary phone transport. This is the path Swift Sim should use for product-quality remote testing. It needs Mac-side ScreenCaptureKit window capture, VideoToolbox H.264/HEVC encoding, a low-latency media transport such as WebRTC, and a persistent control channel.
+- `native-companion`: default phone transport. Current `serve-sim` captures the CoreSimulator framebuffer headlessly and hardware-encodes H.264 with VideoToolbox. Swift Sim proxies its `/stream.avcc` endpoint and renders it natively with `AVSampleBufferDisplayLayer`.
+- `serve-sim`: compatibility fallback and Codex sidebar preview using MJPEG. It uses more bandwidth and should not be the normal iPhone path.
 
 Check what your helper supports:
 
@@ -168,7 +168,7 @@ Check what your helper supports:
 node mac-helper/bin/swift-sim-helper.js setup-status
 ```
 
-The `transport` section reports the active phone path. If it says `serve-sim`, you are on the fallback stream.
+The `transport` section reports the active phone path. A healthy current setup reports `native-companion`. If it says `serve-sim`, upgrade `serve-sim` or inspect the helper log to see why AVCC startup fell back.
 
 ## Build The Companion App
 
@@ -244,12 +244,12 @@ When the iOS app opens a session, it loads the helper's authenticated stream end
 
 The `/s/<session-id>` route is only a browser fallback page for people who do not have the app installed or whose universal-link association is not active.
 
-Fallback simulator input is routed through the installed `serve-sim` command:
+Simulator input is routed through the installed `serve-sim` control channel:
 
 - Taps use normalized simulator coordinates.
 - One-finger drag and swipe gestures use `serve-sim gesture` events.
 - Hardware controls, rotation, typing, Dynamic Type, and contrast controls use scoped helper routes.
-- Multi-touch gestures such as pinch-to-zoom depend on `serve-sim` exposing stable multi-touch gesture JSON. If the installed `serve-sim` version does not support multi-touch, Swift Sim should use the native companion transport instead of pretending pinch is complete.
+- H.264 improves video latency and bandwidth; it does not by itself add missing input capabilities. Multi-touch gestures such as pinch-to-zoom still depend on `serve-sim` exposing stable multi-touch gesture events.
 
 Universal links support both:
 
@@ -328,8 +328,9 @@ Codex should not paste `codex.localPreviewUrl`, local ports, Simulator UDIDs, or
 
 ## Current V1 Limits
 
-- Streaming uses `serve-sim` through an adapter.
-- ScreenCaptureKit/WebRTC is intentionally deferred.
+- Headless simulator capture, H.264 encoding, and input use `serve-sim` through adapters.
+- The iOS companion decodes H.264 natively; MJPEG remains a compatibility fallback.
+- WebRTC remains a later upgrade only if the AVCC-over-Tailscale path needs stronger congestion control or recovery.
 - Universal links require your own Apple team, bundle id, and Tailscale host.
 - The Codex plugin is currently a repo-local workflow skill, not a packaged marketplace install.
 

@@ -7,6 +7,7 @@ import { ServeSimAdapter, parseServeSimOutput } from "../mac-helper/src/serveSim
 import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../mac-helper/src/links.js";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
 import { PairingStore } from "../mac-helper/src/pairingStore.js";
+import { NativeCompanionTransport } from "../mac-helper/src/transports/nativeCompanionTransport.js";
 
 test("parseServeSimOutput reads JSON URL without depending on exact key", () => {
   const parsed = parseServeSimOutput('{"previewUrl":"http://127.0.0.1:3200","pid":1234}\n', "");
@@ -115,6 +116,68 @@ test("codex session includes local preview URL for nested browser verification",
   assert.equal(session.codex.localPreviewUrl, "http://127.0.0.1:3000");
   assert.equal(session.codex.simulatorUDID, "SIM-UDID");
   assert.equal(session.stream.localUrl, undefined);
+});
+
+test("codex session prefers the dedicated MJPEG preview for native sessions", () => {
+  const session = codexSession({
+    id: "session",
+    token: "token",
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "SIM-UDID",
+    remoteBaseUrl: "https://mac.example.ts.net",
+    createdAt: "now",
+    updatedAt: "now",
+    build: { state: "ok" },
+    stream: {
+      state: "running",
+      transport: "native-companion",
+      quality: "native-h264",
+      localUrl: "http://127.0.0.1:3100/stream.avcc",
+      previewUrl: "http://127.0.0.1:3100/stream.mjpeg",
+    },
+  });
+  assert.equal(session.codex.localPreviewUrl, "http://127.0.0.1:3100/stream.mjpeg");
+  assert.equal(session.stream.transport, "native-companion");
+  assert.equal(session.stream.localUrl, undefined);
+});
+
+test("native companion wraps serve-sim AVCC without changing its adapter contract", async () => {
+  const adapter = {
+    async inspect() {
+      return { version: "0.1.41" };
+    },
+    async start() {
+      return {
+        previewUrl: "http://127.0.0.1:3100/stream.mjpeg",
+        wsUrl: "ws://127.0.0.1:3100/ws",
+        port: 3100,
+        pid: 123,
+        raw: {},
+        logs: [],
+      };
+    },
+  };
+  const transport = new NativeCompanionTransport({ adapter });
+  const stream = await transport.start({ simulatorUDID: "SIM-1" });
+  assert.equal(stream.localUrl, "http://127.0.0.1:3100/stream.avcc");
+  assert.equal(stream.previewUrl, "http://127.0.0.1:3100/stream.mjpeg");
+  assert.equal(stream.transport, "native-companion");
+  assert.equal(stream.quality, "native-h264");
+});
+
+test("native companion rejects serve-sim versions without AVCC", async () => {
+  const transport = new NativeCompanionTransport({
+    adapter: {
+      async inspect() {
+        return { version: "0.1.40" };
+      },
+    },
+  });
+  await assert.rejects(
+    transport.start({ simulatorUDID: "SIM-1" }),
+    /upgrade to 0\.1\.41 or newer/,
+  );
 });
 
 test("SessionStore persists sessions for CLI/server handoff", () => {

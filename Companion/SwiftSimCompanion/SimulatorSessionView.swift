@@ -130,19 +130,7 @@ struct SimulatorSessionView: View {
             let height = width / streamAspectRatio
 
             ZStack {
-                SimulatorStreamView(url: streamURL) { x, y in
-                    Task {
-                        await sessionStore.tapSimulator(x: x, y: y)
-                    }
-                } gesture: { event in
-                    Task {
-                        await sessionStore.sendGesture(event)
-                    }
-                } frameUpdate: { size in
-                    streamFrameSize = size
-                } streamState: { state in
-                    streamRenderState = state
-                }
+                simulatorStream
 
                 switch streamRenderState {
                 case .connecting:
@@ -196,6 +184,45 @@ struct SimulatorSessionView: View {
 
     private var streamURL: URL {
         session.streamURL.appending(queryItems: [.init(name: "r", value: String(streamRefreshID))])
+    }
+
+    @ViewBuilder
+    private var simulatorStream: some View {
+        if sessionStore.activeTransport == nil {
+            Color.clear
+        } else if sessionStore.activeTransport?.transport == "native-companion" {
+            NativeH264StreamView(
+                url: streamURL,
+                tap: handleTap,
+                gesture: handleGesture,
+                frameUpdate: handleFrameUpdate,
+                streamState: handleStreamState
+            )
+        } else {
+            SimulatorStreamView(
+                url: streamURL,
+                tap: handleTap,
+                gesture: handleGesture,
+                frameUpdate: handleFrameUpdate,
+                streamState: handleStreamState
+            )
+        }
+    }
+
+    private func handleTap(_ x: Double, _ y: Double) {
+        Task { await sessionStore.tapSimulator(x: x, y: y) }
+    }
+
+    private func handleGesture(_ event: SimulatorGestureEvent) {
+        Task { await sessionStore.sendGesture(event) }
+    }
+
+    private func handleFrameUpdate(_ size: CGSize) {
+        streamFrameSize = size
+    }
+
+    private func handleStreamState(_ state: StreamRenderState) {
+        streamRenderState = state
     }
 
     private var streamAspectRatio: CGFloat {

@@ -31,6 +31,7 @@ final class SessionStore: ObservableObject {
 
         guard let session = SimulatorSession(url: url) else { return false }
         currentSession = session
+        activeTransport = nil
         upsertRecentSession(RecentSession(session: session, displayName: nil))
         Task { await refresh() }
         return true
@@ -38,6 +39,7 @@ final class SessionStore: ObservableObject {
 
     func reopen(_ recent: RecentSession) {
         currentSession = recent.session
+        activeTransport = nil
         upsertRecentSession(recent.touch())
         Task { await refresh() }
     }

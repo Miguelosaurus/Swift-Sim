@@ -1,40 +1,78 @@
-import { platform, release } from "node:os";
-
 export class NativeCompanionTransport {
-  constructor() {
+  constructor({ adapter }) {
     this.id = "native-companion";
-    this.label = "Native companion transport";
+    this.label = "Native H.264 companion transport";
+    this.adapter = adapter;
   }
 
   async inspect() {
+    const serveSim = await this.adapter.inspect();
+    const available = versionAtLeast(serveSim.version, "0.1.41");
     return {
       id: this.id,
       label: this.label,
-      available: false,
+      available,
       role: "primary-phone-companion",
-      quality: "target",
-      platform: platform(),
-      osRelease: release(),
-      requirements: [
-        "Mac-side ScreenCaptureKit window capture for the tracked Simulator.",
-        "VideoToolbox H.264 or HEVC encoding.",
-        "Low-latency media transport, preferably WebRTC.",
-        "Persistent control channel for touch, drag, keyboard, hardware buttons, and rotation.",
-      ],
-      reason: "The native low-latency transport is not implemented in this checkout yet. serve-sim remains the fallback transport.",
+      quality: "native-h264",
+      capture: "headless CoreSimulator framebuffer through serve-sim",
+      media: "VideoToolbox H.264 AVCC",
+      reason: available
+        ? "serve-sim exposes the headless H.264 /stream.avcc endpoint required by the native companion."
+        : `serve-sim ${serveSim.version || "unknown"} does not advertise the required AVCC transport; upgrade to 0.1.41 or newer.`,
+      serveSim,
     };
   }
 
-  async start() {
+  async start({ simulatorUDID, port }) {
     const info = await this.inspect();
-    throw new Error(info.reason);
+    if (!info.available) throw new Error(info.reason);
+    const result = await this.adapter.start({ simulatorUDID, port });
+    return {
+      state: "running",
+      transport: this.id,
+      quality: "native-h264",
+      localUrl: avccUrl(result.previewUrl),
+      previewUrl: result.previewUrl,
+      wsUrl: result.wsUrl,
+      port: result.port,
+      pid: result.pid,
+      raw: result.raw,
+      limitations: [],
+      logs: ["native companion uses serve-sim headless H.264 AVCC stream", ...result.logs],
+    };
   }
 
-  async restart() {
-    return this.start();
+  async restart(session) {
+    await this.adapter.kill(session.simulatorUDID);
+    return this.start({
+      simulatorUDID: session.simulatorUDID,
+      port: session.stream.port,
+    });
   }
 
-  async stop() {
-    return;
+  async stop(session) {
+    await this.adapter.kill(session.simulatorUDID);
   }
+}
+
+function avccUrl(previewUrl) {
+  const url = new URL(previewUrl);
+  url.pathname = "/stream.avcc";
+  url.search = "";
+  return url.toString();
+}
+
+function versionAtLeast(value, minimum) {
+  const read = (input) => String(input || "")
+    .match(/\d+\.\d+\.\d+/)?.[0]
+    .split(".")
+    .map(Number) || [];
+  const current = read(value);
+  const target = read(minimum);
+  if (current.length !== 3 || target.length !== 3) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (current[index] > target[index]) return true;
+    if (current[index] < target[index]) return false;
+  }
+  return true;
 }

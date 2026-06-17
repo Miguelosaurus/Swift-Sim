@@ -27,6 +27,7 @@ export class SessionStore {
         transport: input.transport || "serve-sim",
         quality: "fallback",
         localUrl: "",
+        previewUrl: "",
         wsUrl: "",
         port: undefined,
         pid: undefined,

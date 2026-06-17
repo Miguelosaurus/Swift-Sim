@@ -9,8 +9,9 @@ Codex remains the only coding agent. This skill starts or reuses the lightweight
 
 Important transport reality:
 
-- `serve-sim` is the working Codex sidebar preview and fallback phone stream.
-- The product-quality phone path is `native-companion`, which requires Mac-side ScreenCaptureKit/VideoToolbox/WebRTC-style streaming and a persistent control channel.
+- `serve-sim` supplies the headless CoreSimulator framebuffer, VideoToolbox H.264 encoder, and simulator control channel.
+- `native-companion` is the default phone transport. It proxies `serve-sim`'s `/stream.avcc` endpoint and decodes H.264 natively in the iOS app.
+- MJPEG remains the Codex sidebar preview and compatibility fallback.
 - If setup-status reports `activeForPhone: "serve-sim"`, tell the user they are on the fallback path. Do not promise Bitrig-grade latency, pinch, or full gesture fidelity on that path.
 
 Use this skill when:
@@ -104,7 +105,7 @@ When setup is healthy and the app is unpaired, Codex should give the pairing lin
      --transport auto
    ```
 
-   The wrapper starts the helper if needed, keeps it bound to localhost, then asks the helper to start or reuse the best available transport. Today `auto` resolves to `serve-sim` unless a native companion transport has been enabled.
+   The wrapper starts the helper if needed, keeps it bound to localhost, then asks the helper to start or reuse the best available transport. With `serve-sim` 0.1.41 or newer, `auto` resolves to `native-companion`; otherwise it falls back to MJPEG.
 
 4. Parse the returned JSON. First use:
 
@@ -165,7 +166,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - Keep the helper bound to localhost and expose it remotely through Tailscale Serve for v1.
 - Do not use Tailscale Funnel for default setup. Prefer private Tailnet access.
 - Do not imply that universal links work automatically for every Tailscale host. A public iOS build cannot be pre-entitled for arbitrary `*.ts.net` hosts; use `swift-sim://` as the reliable v1 direct-open fallback.
-- For fallback input, expect tap plus one-finger drag/swipe through the installed `serve-sim gesture` command. Do not promise complete multi-touch pinch/zoom unless the native companion transport is active or `serve-sim-info` proves the installed `serve-sim` supports stable multi-touch gesture JSON.
+- Input uses the installed `serve-sim` control channel on both video transports. Do not promise complete multi-touch pinch/zoom unless `serve-sim-info` proves the installed version supports stable multi-touch gesture JSON.
 - Never run an unscoped `serve-sim --kill`; stop only the session/UDID owned by this workflow.
 - The iPhone companion only views and controls the Mac Simulator. It does not execute project code.
 - If the helper fails, report the helper log path: `~/.swift-sim/helper.log`.

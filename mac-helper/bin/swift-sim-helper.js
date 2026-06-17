@@ -33,7 +33,7 @@ const pairingStore = new PairingStore();
 const adapter = new ServeSimAdapter();
 const transports = {
   "serve-sim": new ServeSimTransport({ adapter }),
-  "native-companion": new NativeCompanionTransport(),
+  "native-companion": new NativeCompanionTransport({ adapter }),
 };
 
 main().catch((error) => {
@@ -634,11 +634,25 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
   });
   session.logs.push(`starting ${session.stream.transport} transport for ${simulatorUDID}`);
 
-  const transport = transportForSession(session);
-  const stream = await transport.start({
-    simulatorUDID,
-    port: input.port ? Number(input.port) : undefined,
-  });
+  let transport = transportForSession(session);
+  let stream;
+  try {
+    stream = await transport.start({
+      simulatorUDID,
+      port: input.port ? Number(input.port) : undefined,
+    });
+  } catch (error) {
+    if (transportPreference !== "auto" || session.stream.transport !== "native-companion") {
+      throw error;
+    }
+    session.logs.push(`native companion unavailable; using serve-sim fallback: ${error instanceof Error ? error.message : String(error)}`);
+    session.stream.transport = "serve-sim";
+    transport = transportForSession(session);
+    stream = await transport.start({
+      simulatorUDID,
+      port: input.port ? Number(input.port) : undefined,
+    });
+  }
   session.stream = publicStream(stream);
   session.logs.push(...(stream.logs || []));
   store.save(session);
@@ -662,7 +676,7 @@ function transportMatches(session, preference) {
 
 function resolveTransportPreference(preference = "auto") {
   if (preference === "auto") {
-    return process.env.SWIFT_SIM_NATIVE_TRANSPORT === "1" ? "native-companion" : "serve-sim";
+    return process.env.SWIFT_SIM_DISABLE_NATIVE_TRANSPORT === "1" ? "serve-sim" : "native-companion";
   }
   if (transports[preference]) return preference;
   throw new Error(`Unknown transport: ${preference}`);
@@ -681,6 +695,7 @@ function publicStream(stream) {
     transport: stream.transport,
     quality: stream.quality,
     localUrl: stream.localUrl || "",
+    previewUrl: stream.previewUrl || stream.localUrl || "",
     wsUrl: stream.wsUrl || "",
     port: stream.port,
     pid: stream.pid,

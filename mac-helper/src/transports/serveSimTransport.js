@@ -29,6 +29,7 @@ export class ServeSimTransport {
       transport: this.id,
       quality: "fallback",
       localUrl: result.previewUrl,
+      previewUrl: result.previewUrl,
       wsUrl: result.wsUrl,
       port: result.port,
       pid: result.pid,
