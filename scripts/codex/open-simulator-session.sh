@@ -13,11 +13,12 @@ PROJECT=""
 SCHEME=""
 SIMULATOR=""
 REMOTE_BASE_URL="${SWIFT_SIM_REMOTE_BASE_URL:-}"
+TRANSPORT="${SWIFT_SIM_TRANSPORT:-auto}"
 
 usage() {
   cat <<'USAGE'
 Usage:
-  open-simulator-session.sh --project <path> --scheme <scheme> --simulator <udid> --remote-base-url <https-url>
+  open-simulator-session.sh --project <path> --scheme <scheme> --simulator <udid> --remote-base-url <https-url> [--transport auto|serve-sim|native-companion]
 
 Starts/reuses the Swift Sim helper and prints session JSON with:
   links.universalLink
@@ -27,6 +28,7 @@ Environment:
   SWIFT_SIM_PORT             Helper port. Default: 47217
   SWIFT_SIM_HOST             Helper bind host. Default: 127.0.0.1
   SWIFT_SIM_REMOTE_BASE_URL  Default remote URL if --remote-base-url is omitted
+  SWIFT_SIM_TRANSPORT        Transport preference. Default: auto
 USAGE
 }
 
@@ -46,6 +48,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --remote-base-url)
       REMOTE_BASE_URL="${2:-}"
+      shift 2
+      ;;
+    --transport)
+      TRANSPORT="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -91,4 +97,5 @@ node "$HELPER" start-session \
   --project "$PROJECT" \
   --scheme "$SCHEME" \
   --simulator "$SIMULATOR" \
-  --remote-base-url "$REMOTE_BASE_URL"
+  --remote-base-url "$REMOTE_BASE_URL" \
+  --transport "$TRANSPORT"

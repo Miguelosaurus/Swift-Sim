@@ -84,12 +84,13 @@ struct SimulatorSessionView: View {
                     Circle()
                         .fill(sessionStore.isConnected ? .green : .orange)
                         .frame(width: 6, height: 6)
-                    Text(sessionStore.isConnected ? "Connected" : "Reconnecting")
+                    Text(transportSubtitle)
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .frame(minWidth: 112, maxWidth: 140)
+            .frame(minWidth: 132, maxWidth: 162)
 
             Spacer(minLength: 4)
 
@@ -166,6 +167,24 @@ struct SimulatorSessionView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(.secondarySystemBackground).opacity(0.26))
                 }
+
+                if sessionStore.activeTransport?.isFallback == true, streamRenderState == .streaming {
+                    VStack {
+                        HStack(spacing: 6) {
+                            Image(systemName: "speedometer")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Fallback stream")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .liquidGlassCapsule(tint: Color(.systemBackground).opacity(0.18), interactive: false)
+                        .padding(.top, 10)
+
+                        Spacer()
+                    }
+                }
             }
             .frame(width: width, height: height)
             .clipped()
@@ -184,6 +203,11 @@ struct SimulatorSessionView: View {
             return 368.0 / 800.0
         }
         return streamFrameSize.width / streamFrameSize.height
+    }
+
+    private var transportSubtitle: String {
+        guard sessionStore.isConnected else { return "Reconnecting" }
+        return sessionStore.activeTransport?.displayName ?? "Connected"
     }
 
     private func restartStream() {

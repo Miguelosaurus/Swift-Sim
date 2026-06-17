@@ -6,7 +6,7 @@ The idea is simple:
 
 1. Codex edits your iOS app on your Mac.
 2. Codex builds and launches the app in the Mac's local Xcode Simulator.
-3. Swift Sim starts or reuses a simulator stream.
+3. Swift Sim starts or reuses a simulator session.
 4. Codex gives you an **Open Simulator in Companion App** link.
 5. You tap the link on your iPhone and control the live Mac Simulator from the native companion app.
 
@@ -15,7 +15,7 @@ Your app code never runs on the iPhone companion. The iPhone only views and cont
 ## What Is Included
 
 - `mac-helper/`  
-  A lightweight local helper/server for Mac. It wraps the current `serve-sim` command behind an adapter, tracks sessions, and returns companion links.
+  A lightweight local helper/server for Mac. It tracks sessions, returns companion links, and has a transport boundary. Today it uses `serve-sim` for Codex preview and fallback streaming; the primary phone transport is being moved to a native low-latency path.
 
 - `Companion/`  
   A native SwiftUI iOS app that opens Swift Sim links, shows the simulator stream, exposes controls, and displays logs/status.
@@ -135,7 +135,8 @@ node mac-helper/bin/swift-sim-helper.js start-session \
   --project /absolute/path/to/YourApp.xcodeproj \
   --scheme YourApp \
   --simulator YOUR-SIMULATOR-UDID \
-  --remote-base-url https://your-mac.your-tailnet.ts.net
+  --remote-base-url https://your-mac.your-tailnet.ts.net \
+  --transport auto
 ```
 
 The command prints JSON. Look for:
@@ -152,7 +153,22 @@ The command prints JSON. Look for:
 }
 ```
 
-Codex should first open `codex.localPreviewUrl` in the Codex in-app browser/sidebar to confirm the nested simulator is rendering. Then send the companion link to your iPhone. Both views come from the same helper-managed `serve-sim` session for the same Simulator UDID. For Tailscale-first v1, include the `customScheme` fallback because it is the most reliable direct-open path into the native iOS app.
+Codex should first open `codex.localPreviewUrl` in the Codex in-app browser/sidebar to confirm the nested simulator is rendering. Then send the companion link to your iPhone. Both views target the same Simulator UDID. For Tailscale-first v1, include the `customScheme` fallback because it is the most reliable direct-open path into the native iOS app.
+
+## Transport Status
+
+Swift Sim has a stable session/link API, but two different transport roles:
+
+- `serve-sim`: working fallback and Codex sidebar preview. It is useful for proving the loop, but it can be laggy over cellular and does not guarantee full multi-touch.
+- `native-companion`: intended primary phone transport. This is the path Swift Sim should use for product-quality remote testing. It needs Mac-side ScreenCaptureKit window capture, VideoToolbox H.264/HEVC encoding, a low-latency media transport such as WebRTC, and a persistent control channel.
+
+Check what your helper supports:
+
+```sh
+node mac-helper/bin/swift-sim-helper.js setup-status
+```
+
+The `transport` section reports the active phone path. If it says `serve-sim`, you are on the fallback stream.
 
 ## Build The Companion App
 
@@ -228,12 +244,12 @@ When the iOS app opens a session, it loads the helper's authenticated stream end
 
 The `/s/<session-id>` route is only a browser fallback page for people who do not have the app installed or whose universal-link association is not active.
 
-V1 simulator input is routed through the installed `serve-sim` command:
+Fallback simulator input is routed through the installed `serve-sim` command:
 
 - Taps use normalized simulator coordinates.
 - One-finger drag and swipe gestures use `serve-sim gesture` events.
 - Hardware controls, rotation, typing, Dynamic Type, and contrast controls use scoped helper routes.
-- Multi-touch gestures such as pinch-to-zoom depend on `serve-sim` exposing stable multi-touch gesture JSON. If the installed `serve-sim` version does not support multi-touch, Swift Sim should fall back to future ScreenCaptureKit/WebRTC or another lower-level control layer instead of pretending pinch is complete.
+- Multi-touch gestures such as pinch-to-zoom depend on `serve-sim` exposing stable multi-touch gesture JSON. If the installed `serve-sim` version does not support multi-touch, Swift Sim should use the native companion transport instead of pretending pinch is complete.
 
 Universal links support both:
 

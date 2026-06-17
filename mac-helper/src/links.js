@@ -9,6 +9,9 @@ export function publicSession(session) {
     build: session.build,
     stream: {
       state: session.stream.state,
+      transport: session.stream.transport || "serve-sim",
+      quality: session.stream.quality || "fallback",
+      limitations: session.stream.limitations || [],
     },
     links,
   };

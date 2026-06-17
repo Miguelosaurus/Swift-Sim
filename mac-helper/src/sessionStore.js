@@ -22,7 +22,17 @@ export class SessionStore {
       createdAt: now,
       updatedAt: now,
       build: { state: "external-or-not-run" },
-      stream: { state: "starting", localUrl: "", port: undefined, pid: undefined, raw: {} },
+      stream: {
+        state: "starting",
+        transport: input.transport || "serve-sim",
+        quality: "fallback",
+        localUrl: "",
+        wsUrl: "",
+        port: undefined,
+        pid: undefined,
+        raw: {},
+        limitations: [],
+      },
       logs: [],
     };
     this.save(session);

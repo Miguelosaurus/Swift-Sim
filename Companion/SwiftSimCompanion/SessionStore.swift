@@ -5,6 +5,7 @@ final class SessionStore: ObservableObject {
     @Published var currentSession: SimulatorSession?
     @Published var isConnected = false
     @Published var logs: [String] = []
+    @Published var activeTransport: SessionTransport?
     @Published private(set) var pairedMac: PairedMac?
     @Published private(set) var helperStatus: HelperConnectionStatus = .notPaired
     @Published private(set) var recentSessions: [RecentSession] = []
@@ -44,6 +45,7 @@ final class SessionStore: ObservableObject {
     func closeCurrentSession() {
         currentSession = nil
         isConnected = false
+        activeTransport = nil
         logs = []
     }
 
@@ -57,6 +59,7 @@ final class SessionStore: ObservableObject {
             }
             if let status = try? JSONDecoder().decode(SessionStatus.self, from: data) {
                 let name = status.scheme.isEmpty ? nil : status.scheme
+                activeTransport = status.stream
                 upsertRecentSession(RecentSession(session: session, displayName: name))
             }
             isConnected = true
@@ -405,8 +408,31 @@ struct RecentSession: Identifiable, Codable, Equatable {
     }
 }
 
+struct SessionTransport: Decodable, Equatable {
+    let state: String
+    let transport: String
+    let quality: String
+    let limitations: [String]
+
+    var isFallback: Bool {
+        transport == "serve-sim" || quality == "fallback"
+    }
+
+    var displayName: String {
+        switch transport {
+        case "native-companion":
+            "Native stream"
+        case "serve-sim":
+            "Fallback stream"
+        default:
+            transport
+        }
+    }
+}
+
 private struct SessionStatus: Decodable {
     let scheme: String
+    let stream: SessionTransport
 }
 
 private struct SessionLogs: Decodable {

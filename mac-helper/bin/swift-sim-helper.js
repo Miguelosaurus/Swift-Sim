@@ -11,6 +11,8 @@ import {
   ServeSimAdapter,
   ServeSimError,
 } from "../src/serveSimAdapter.js";
+import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
+import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
 import { SessionStore } from "../src/sessionStore.js";
 import { PairingStore } from "../src/pairingStore.js";
 import {
@@ -29,6 +31,10 @@ const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
 const store = new SessionStore();
 const pairingStore = new PairingStore();
 const adapter = new ServeSimAdapter();
+const transports = {
+  "serve-sim": new ServeSimTransport({ adapter }),
+  "native-companion": new NativeCompanionTransport(),
+};
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -143,6 +149,7 @@ function commonSessionOptions() {
     simulator: { type: "string" },
     "remote-base-url": { type: "string" },
     port: { type: "string" },
+    transport: { type: "string" },
   };
 }
 
@@ -167,6 +174,16 @@ async function serve({ host, port }) {
           return unauthorized(res);
         }
         return json(res, 200, await adapter.inspect());
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/transports") {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
+        return json(res, 200, {
+          default: defaultTransportPreference(),
+          transports: await inspectTransports(),
+        });
       }
 
       if (req.method === "GET" && url.pathname === "/api/pairing/status") {
@@ -199,6 +216,7 @@ async function serve({ host, port }) {
           simulator: body.simulatorUDID || body.simulator,
           "remote-base-url": body.remoteBaseUrl,
           port: body.port,
+          transport: body.transport,
         });
         return json(res, 201, session);
       }
@@ -334,10 +352,11 @@ async function serve({ host, port }) {
 }
 
 async function setupStatus({ host, port }) {
-  const [tailscale, serveStatus, helperHealth] = await Promise.all([
+  const [tailscale, serveStatus, helperHealth, transportInfo] = await Promise.all([
     readTailscaleStatus(),
     readTailscaleServeStatus(port),
     readHelperHealth(host, port),
+    inspectTransports(),
   ]);
   const defaultRemoteBaseUrl = tailscale.dnsName ? `https://${tailscale.dnsName.replace(/\.$/, "")}` : "";
   const remoteBaseUrl = serveStatus.remoteBaseUrl || defaultRemoteBaseUrl;
@@ -366,9 +385,31 @@ async function setupStatus({ host, port }) {
     helper: helperHealth,
     tailscale,
     tailscaleServe: serveStatus,
+    transport: {
+      default: defaultTransportPreference(),
+      activeForPhone: preferredPhoneTransport(transportInfo),
+      transports: transportInfo,
+    },
     suggestedRemoteBaseUrl: remoteBaseUrl,
     nextSteps,
   };
+}
+
+async function inspectTransports() {
+  return Object.fromEntries(await Promise.all(
+    Object.entries(transports).map(async ([id, transport]) => [id, await transport.inspect()])
+  ));
+}
+
+function defaultTransportPreference() {
+  return process.env.SWIFT_SIM_TRANSPORT || "auto";
+}
+
+function preferredPhoneTransport(info) {
+  if (info["native-companion"]?.available) {
+    return "native-companion";
+  }
+  return "serve-sim";
 }
 
 async function readTailscaleStatus() {
@@ -560,32 +601,23 @@ async function proxyStream(res, session) {
 }
 
 async function restartStream(session) {
-  await adapter.kill(session.simulatorUDID);
-  const result = await adapter.start({
-    simulatorUDID: session.simulatorUDID,
-    port: session.stream.port,
-  });
-  session.stream = {
-    state: "running",
-    localUrl: result.previewUrl,
-    wsUrl: result.wsUrl,
-    port: result.port,
-    pid: result.pid,
-    raw: result.raw,
-  };
-  session.logs.push("restarted serve-sim stream");
-  session.logs.push(...result.logs);
+  const transport = transportForSession(session);
+  const stream = await transport.restart(session);
+  session.stream = publicStream(stream);
+  session.logs.push(`restarted ${session.stream.transport} stream`);
+  session.logs.push(...(stream.logs || []));
   store.save(session);
 }
 
 async function startOrReuseSession(input, { includeCodexMetadata = false } = {}) {
   const simulatorUDID = required(input.simulator, "simulator");
+  const transportPreference = input.transport || defaultTransportPreference();
   const existing = store.findReusable({
     project: input.project || "",
     scheme: input.scheme || "",
     simulatorUDID,
   });
-  if (existing && existing.stream.state === "running") {
+  if (existing && existing.stream.state === "running" && transportMatches(existing, transportPreference)) {
     existing.remoteBaseUrl = input["remote-base-url"] || existing.remoteBaseUrl;
     existing.updatedAt = new Date().toISOString();
     store.save(existing);
@@ -598,22 +630,17 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
     simulatorUDID,
     token: randomBytes(24).toString("base64url"),
     remoteBaseUrl: input["remote-base-url"] || "",
+    transport: resolveTransportPreference(transportPreference),
   });
-  session.logs.push(`starting serve-sim for ${simulatorUDID}`);
+  session.logs.push(`starting ${session.stream.transport} transport for ${simulatorUDID}`);
 
-  const result = await adapter.start({
+  const transport = transportForSession(session);
+  const stream = await transport.start({
     simulatorUDID,
     port: input.port ? Number(input.port) : undefined,
   });
-  session.stream = {
-    state: "running",
-    localUrl: result.previewUrl,
-    wsUrl: result.wsUrl,
-    port: result.port,
-    pid: result.pid,
-    raw: result.raw,
-  };
-  session.logs.push(...result.logs);
+  session.stream = publicStream(stream);
+  session.logs.push(...(stream.logs || []));
   store.save(session);
   return includeCodexMetadata ? codexSession(session) : publicSession(session);
 }
@@ -621,11 +648,45 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
 async function stopSession(sessionId) {
   const session = store.get(sessionId);
   if (!session) return;
-  session.logs.push(`stopping serve-sim for ${session.simulatorUDID}`);
-  await adapter.kill(session.simulatorUDID);
+  session.logs.push(`stopping ${session.stream.transport || "serve-sim"} for ${session.simulatorUDID}`);
+  await transportForSession(session).stop(session);
   session.stream.state = "stopped";
   session.updatedAt = new Date().toISOString();
   store.save(session);
+}
+
+function transportMatches(session, preference) {
+  const resolved = resolveTransportPreference(preference);
+  return (session.stream.transport || "serve-sim") === resolved;
+}
+
+function resolveTransportPreference(preference = "auto") {
+  if (preference === "auto") {
+    return process.env.SWIFT_SIM_NATIVE_TRANSPORT === "1" ? "native-companion" : "serve-sim";
+  }
+  if (transports[preference]) return preference;
+  throw new Error(`Unknown transport: ${preference}`);
+}
+
+function transportForSession(session) {
+  const id = session.stream.transport || "serve-sim";
+  const transport = transports[id];
+  if (!transport) throw new Error(`Unknown session transport: ${id}`);
+  return transport;
+}
+
+function publicStream(stream) {
+  return {
+    state: stream.state,
+    transport: stream.transport,
+    quality: stream.quality,
+    localUrl: stream.localUrl || "",
+    wsUrl: stream.wsUrl || "",
+    port: stream.port,
+    pid: stream.pid,
+    raw: stream.raw || {},
+    limitations: stream.limitations || [],
+  };
 }
 
 async function sendControl(session, control) {

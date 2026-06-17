@@ -90,6 +90,8 @@ test("public session omits local simulator internals", () => {
   assert.equal(session.stream.localUrl, undefined);
   assert.equal(session.stream.port, undefined);
   assert.equal(session.stream.pid, undefined);
+  assert.equal(session.stream.transport, "serve-sim");
+  assert.equal(session.stream.quality, "fallback");
 });
 
 test("codex session includes local preview URL for nested browser verification", () => {
