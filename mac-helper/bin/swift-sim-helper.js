@@ -534,7 +534,21 @@ async function proxyStream(res, session) {
   if (!streamUrl) {
     return badRequest(res, 404, "Stream is not ready.");
   }
-  const upstream = await fetch(streamUrl);
+  let upstream;
+  try {
+    upstream = await fetchWithTimeout(streamUrl, 5_000);
+  } catch (error) {
+    session.logs.push(`stream proxy failed; restarting serve-sim: ${error instanceof Error ? error.message : String(error)}`);
+    store.save(session);
+    await restartStream(session);
+    upstream = await fetchWithTimeout(session.stream.localUrl, 8_000);
+  }
+  if (!upstream.ok || !upstream.body) {
+    session.logs.push(`stream upstream failed with status ${upstream.status}; restarting serve-sim`);
+    store.save(session);
+    await restartStream(session);
+    upstream = await fetchWithTimeout(session.stream.localUrl, 8_000);
+  }
   if (!upstream.ok || !upstream.body) {
     return badRequest(res, 502, `Stream upstream failed with status ${upstream.status}.`);
   }
@@ -543,6 +557,25 @@ async function proxyStream(res, session) {
     "cache-control": "no-store",
   });
   Readable.fromWeb(upstream.body).pipe(res);
+}
+
+async function restartStream(session) {
+  await adapter.kill(session.simulatorUDID);
+  const result = await adapter.start({
+    simulatorUDID: session.simulatorUDID,
+    port: session.stream.port,
+  });
+  session.stream = {
+    state: "running",
+    localUrl: result.previewUrl,
+    wsUrl: result.wsUrl,
+    port: result.port,
+    pid: result.pid,
+    raw: result.raw,
+  };
+  session.logs.push("restarted serve-sim stream");
+  session.logs.push(...result.logs);
+  store.save(session);
 }
 
 async function startOrReuseSession(input, { includeCodexMetadata = false } = {}) {

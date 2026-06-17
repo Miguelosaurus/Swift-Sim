@@ -16,13 +16,10 @@ struct SimulatorStreamView: UIViewRepresentable {
         imageView.isUserInteractionEnabled = true
         let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         let panRecognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
-        let pinchRecognizer = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         panRecognizer.maximumNumberOfTouches = 1
         panRecognizer.delegate = context.coordinator
-        pinchRecognizer.delegate = context.coordinator
         imageView.addGestureRecognizer(tapRecognizer)
         imageView.addGestureRecognizer(panRecognizer)
-        imageView.addGestureRecognizer(pinchRecognizer)
         context.coordinator.onTap = tap
         context.coordinator.onGesture = gesture
         context.coordinator.onFrame = frameUpdate
@@ -67,9 +64,12 @@ struct SimulatorStreamView: UIViewRepresentable {
             buffer.removeAll(keepingCapacity: true)
             let configuration = URLSessionConfiguration.default
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            configuration.timeoutIntervalForRequest = 20
+            configuration.timeoutIntervalForRequest = 7 * 24 * 60 * 60
+            configuration.timeoutIntervalForResource = 7 * 24 * 60 * 60
             session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-            task = session?.dataTask(with: URLRequest(url: url))
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 7 * 24 * 60 * 60
+            task = session?.dataTask(with: request)
             task?.resume()
         }
 
@@ -98,6 +98,7 @@ struct SimulatorStreamView: UIViewRepresentable {
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
             guard let error else { return }
+            guard (error as NSError).code != NSURLErrorCancelled else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.onState?(.failed(error.localizedDescription))
             }
@@ -122,31 +123,6 @@ struct SimulatorStreamView: UIViewRepresentable {
                 return
             }
             onGesture?(SimulatorGestureEvent(type: type, x: x, y: y))
-        }
-
-        @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
-            guard let (x, y) = normalizedPoint(for: recognizer.location(in: imageView), in: imageView) else { return }
-            let type: String
-            switch recognizer.state {
-            case .began:
-                type = "pinch-begin"
-            case .changed:
-                type = "pinch-move"
-            case .ended, .cancelled, .failed:
-                type = "pinch-end"
-            default:
-                return
-            }
-            onGesture?(
-                SimulatorGestureEvent(
-                    type: type,
-                    x: x,
-                    y: y,
-                    scale: Double(recognizer.scale),
-                    velocity: Double(recognizer.velocity)
-                )
-            )
-            recognizer.scale = 1
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {

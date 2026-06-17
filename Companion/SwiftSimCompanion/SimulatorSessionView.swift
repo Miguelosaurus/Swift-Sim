@@ -9,6 +9,7 @@ struct SimulatorSessionView: View {
     @State private var keyboardText = ""
     @State private var streamFrameSize: CGSize?
     @State private var streamRenderState: StreamRenderState = .connecting
+    @State private var streamRefreshID = 0
 
     var body: some View {
         ZStack {
@@ -17,7 +18,7 @@ struct SimulatorSessionView: View {
             VStack(spacing: 0) {
                 topControls
                     .padding(.horizontal, 18)
-                    .padding(.top, 0)
+                    .padding(.top, 4)
 
                 Spacer(minLength: 10)
 
@@ -94,7 +95,7 @@ struct SimulatorSessionView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    Task { await sessionStore.refresh() }
+                    restartStream()
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 20, weight: .semibold))
@@ -123,11 +124,12 @@ struct SimulatorSessionView: View {
 
     private var simulatorSurface: some View {
         GeometryReader { proxy in
-            let width = min(proxy.size.width, 430)
-            let height = min(proxy.size.height, width / streamAspectRatio)
+            let maxHeight = max(420, UIScreen.main.bounds.height - 220)
+            let width = min(proxy.size.width, 430, maxHeight * streamAspectRatio)
+            let height = width / streamAspectRatio
 
             ZStack {
-                SimulatorStreamView(url: session.streamURL) { x, y in
+                SimulatorStreamView(url: streamURL) { x, y in
                     Task {
                         await sessionStore.tapSimulator(x: x, y: y)
                     }
@@ -166,10 +168,15 @@ struct SimulatorSessionView: View {
                 }
             }
             .frame(width: width, height: height)
+            .clipped()
             .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
             .accessibilityElement(children: .contain)
         }
         .frame(maxWidth: 430, maxHeight: 660)
+    }
+
+    private var streamURL: URL {
+        session.streamURL.appending(queryItems: [.init(name: "r", value: String(streamRefreshID))])
     }
 
     private var streamAspectRatio: CGFloat {
@@ -177,6 +184,13 @@ struct SimulatorSessionView: View {
             return 368.0 / 800.0
         }
         return streamFrameSize.width / streamFrameSize.height
+    }
+
+    private func restartStream() {
+        streamFrameSize = nil
+        streamRenderState = .connecting
+        streamRefreshID += 1
+        Task { await sessionStore.refresh() }
     }
 
     private func bottomControl(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
