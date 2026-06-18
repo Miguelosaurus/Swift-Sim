@@ -1,6 +1,6 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.1.0+codex.20260618100425",
+  "version": "0.1.0+codex.20260618103353",
   "description": "Teach Codex to start and hand off local Xcode Simulator sessions to the Swift Sim iOS companion app.",
   "author": {
     "name": "Swift Sim",

@@ -173,6 +173,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - The iPhone companion only views and controls the Mac Simulator. It does not execute project code.
 - If the helper fails, report the helper log path: `~/.swift-sim/helper.log`.
 - Treat pairing tokens and session tokens as secrets. Do not paste them into public issues, PRs, logs, or docs.
+- Session tokens do not currently expire automatically. Treat links as durable credentials; Stop ends the tracked stream but is not complete token revocation in V1.
 
 ## Troubleshooting
 
@@ -213,7 +214,7 @@ Use these branches when setup or links fail:
 
 - HTTPS link opens the browser fallback page inside ChatGPT: this is expected when the companion app is not associated with that host. Tell the user to tap the page's open button or paste the `swift-sim://session/...` fallback into the Swift Sim app.
 
-- Session link says unauthorized, expired, or unknown session: create a fresh session by rerunning `scripts/codex/open-simulator-session.sh`, then return the new **Open Simulator in Companion App** link.
+- Session link says unauthorized or unknown session: create a fresh session by rerunning `scripts/codex/open-simulator-session.sh`, then return the new **Open Simulator in Companion App** link.
 
 - Stream is blank, zoomed, slow, or controls do not work: run `setup-status` and check `transport.activeForPhone`. If it is `serve-sim`, treat the issue as fallback-transport quality unless local `serve-sim` is obviously dead. On `native-companion`, leave the link open for several seconds first: the app reconnects its decoder and the helper restarts a tracked `serve-sim` encoder that accepts input but emits no media. If it still fails, inspect `~/.swift-sim/helper.log`, create a fresh session, and never use an unscoped `serve-sim --kill`.
 
