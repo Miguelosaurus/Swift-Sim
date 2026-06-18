@@ -104,7 +104,7 @@ private struct HomeView: View {
                 .frame(width: 58, height: 58)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(sessionStore.pairedMac?.displayName ?? "Pair a Mac")
+                    Text(simulatorStatusTitle)
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -112,7 +112,7 @@ private struct HomeView: View {
                         Circle()
                             .fill(statusColor)
                             .frame(width: 8, height: 8)
-                        Text(sessionStore.helperStatus.detail)
+                        Text(simulatorStatusDetail)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -129,16 +129,22 @@ private struct HomeView: View {
         .buttonStyle(.plain)
         .padding(14)
         .liquidGlassPanel(cornerRadius: 30, tint: Color.white.opacity(0.18), interactive: true)
-        .accessibilityLabel("Mac helper settings")
+        .accessibilityLabel("Simulator connection details")
+    }
+
+    private var simulatorStatusTitle: String {
+        sessionStore.recentSessions.isEmpty ? "Set Up Simulator" : "Simulator Paired"
+    }
+
+    private var simulatorStatusDetail: String {
+        let count = sessionStore.recentSessions.count
+        guard count > 0 else { return "Open a Swift Sim session link to begin" }
+        return count == 1 ? "1 recent project ready to open" : "\(count) recent projects ready to open"
     }
 
     private var statusColor: Color {
-        switch sessionStore.helperStatus {
-        case .notPaired: .gray
-        case .checking: .yellow
-        case .online: .green
-        case .offline: .red
-        }
+        guard !sessionStore.recentSessions.isEmpty else { return .gray }
+        return .green
     }
 
     private var sessionBoard: some View {
@@ -160,12 +166,15 @@ private struct HomeView: View {
             } else {
                 VStack(spacing: 12) {
                     ForEach(filteredSessions) { recent in
-                        Button {
-                            sessionStore.reopen(recent)
-                        } label: {
+                        SwipeToDeleteRow {
                             SessionRow(recent: recent)
+                        } onOpen: {
+                            sessionStore.reopen(recent)
+                        } onDelete: {
+                            withAnimation {
+                                sessionStore.removeRecentSession(recent)
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -328,6 +337,81 @@ private struct SessionRow: View {
     }
 }
 
+private struct SwipeToDeleteRow<Content: View>: View {
+    private let actionWidth: CGFloat = 82
+
+    @State private var offset: CGFloat = 0
+    @State private var isOpen = false
+
+    @ViewBuilder let content: () -> Content
+    let onOpen: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                VStack(spacing: 5) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Delete")
+                        .font(.caption2.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(width: actionWidth)
+                .frame(maxHeight: .infinity)
+            }
+            .buttonStyle(.plain)
+            .background(.red)
+            .frame(width: max(-offset, 0), alignment: .trailing)
+            .clipped()
+            .allowsHitTesting(isOpen)
+
+            content()
+                .offset(x: offset)
+                .contentShape(Rectangle())
+                .simultaneousGesture(rowGesture)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    onOpen()
+                }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+
+    private var rowGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let restingOffset = isOpen ? -actionWidth : 0
+                offset = min(0, max(-actionWidth, restingOffset + value.translation.width))
+            }
+            .exclusively(before: TapGesture())
+            .onEnded { value in
+                switch value {
+                case .first(let drag):
+                    guard abs(drag.translation.width) > abs(drag.translation.height) else { return }
+                    let restingOffset = isOpen ? -actionWidth : 0
+                    let shouldOpen = restingOffset + drag.predictedEndTranslation.width < -actionWidth / 2
+                    isOpen = shouldOpen
+                    withAnimation(.snappy(duration: 0.22)) {
+                        offset = shouldOpen ? -actionWidth : 0
+                    }
+                case .second:
+                    if isOpen {
+                        isOpen = false
+                        withAnimation(.snappy(duration: 0.22)) {
+                            offset = 0
+                        }
+                    } else {
+                        onOpen()
+                    }
+                }
+            }
+    }
+}
+
 private struct EmptySessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -384,10 +468,56 @@ private struct MacSettingsSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Status") {
+                Section {
+                    ConnectionRequirementRow(
+                        icon: "iphone.gen3.radiowaves.left.and.right",
+                        tint: .blue,
+                        title: hasSavedSimulator ? "Simulator paired" : "No simulator added",
+                        detail: simulatorSummary,
+                        check: sessionStore.simulatorCheck
+                    )
+
+                    Button {
+                        Task { await sessionStore.refreshConnectionChecks() }
+                    } label: {
+                        Label("Check Connection", systemImage: "arrow.clockwise")
+                    }
+                } footer: {
+                    Text("A saved simulator session can be reopened directly. Mac helper linking is a separate setup tool and is not required to open recent projects.")
+                }
+
+                Section {
+                    ConnectionRequirementRow(
+                        icon: "lock.shield.fill",
+                        tint: .blue,
+                        title: "1. Tailscale",
+                        detail: "The Mac and iPhone must be signed in to the same Tailnet. They do not need to share Wi-Fi.",
+                        check: sessionStore.tailscaleCheck
+                    )
+                    ConnectionRequirementRow(
+                        icon: "server.rack",
+                        tint: .blue,
+                        title: "2. Mac helper",
+                        detail: helperRequirementDetail,
+                        check: sessionStore.macHelperCheck
+                    )
+                    ConnectionRequirementRow(
+                        icon: "play.rectangle.on.rectangle.fill",
+                        tint: .blue,
+                        title: "3. Simulator session",
+                        detail: "Codex builds and launches the app on a Mac Simulator, then sends this iPhone a private session link.",
+                        check: sessionStore.simulatorCheck
+                    )
+                } header: {
+                    Text("What Swift Sim Needs")
+                } footer: {
+                    Text("Tailscale Serve exposes only the local helper over private HTTPS. Do not use Tailscale Funnel.")
+                }
+
+                Section("Mac Helper Access") {
                     HStack(spacing: 12) {
                         Circle()
-                            .fill(statusColor)
+                            .fill(helperStatusColor)
                             .frame(width: 11, height: 11)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(sessionStore.helperStatus.title)
@@ -401,44 +531,30 @@ private struct MacSettingsSheet: View {
                     if let mac = sessionStore.pairedMac {
                         Label(mac.displayName, systemImage: "macbook")
                         Label(mac.hostDisplayName, systemImage: "network")
-                    } else {
-                        Label("No Mac paired", systemImage: "link.badge.plus")
-                    }
-                }
 
-                Section("Actions") {
-                    Button {
-                        Task { await sessionStore.refreshHelperStatus() }
-                    } label: {
-                        Label("Test Connection", systemImage: "wave.3.right")
-                    }
+                        Button {
+                            Task { await sessionStore.refreshHelperStatus() }
+                        } label: {
+                            Label("Test Mac Helper", systemImage: "wave.3.right")
+                        }
 
-                    if sessionStore.pairedMac != nil {
                         Button(role: .destructive) {
                             sessionStore.forgetPairedMac()
                         } label: {
-                            Label("Forget This Mac", systemImage: "xmark.circle")
+                            Label("Forget Mac Helper", systemImage: "xmark.circle")
                         }
+                    } else {
+                        Text("Optional: open a Mac helper link to enable connection diagnostics. Your saved simulator sessions remain available without it.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
-
-                Section("Pair Or Relink") {
-                    Text("On your Mac, start the helper and expose it with Tailscale Serve. Then run the pairing command and open the printed link on this iPhone.")
-                        .foregroundStyle(.secondary)
-
-                    Text("node mac-helper/bin/swift-sim-helper.js pair --remote-base-url https://your-mac.your-tailnet.ts.net")
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
-                }
-
-                Section("Checks") {
-                    Label("Tailscale connected on Mac and iPhone", systemImage: "lock.shield")
-                    Label("Helper reachable through private HTTPS", systemImage: "server.rack")
-                    Label("Session links still use separate one-time tokens", systemImage: "key")
-                }
             }
-            .navigationTitle("Mac Helper")
+            .navigationTitle("Simulator Connection")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                await sessionStore.refreshConnectionChecks()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
@@ -449,12 +565,103 @@ private struct MacSettingsSheet: View {
         }
     }
 
-    private var statusColor: Color {
+    private var hasSavedSimulator: Bool {
+        !sessionStore.recentSessions.isEmpty
+    }
+
+    private var simulatorSummary: String {
+        let count = sessionStore.recentSessions.count
+        guard count > 0 else { return "Open a session link from Codex to add your first simulator." }
+        return count == 1 ? "1 recent project is ready to open." : "\(count) recent projects are ready to open."
+    }
+
+    private var helperRequirementDetail: String {
+        if let mac = sessionStore.pairedMac {
+            return "The helper is linked to \(mac.displayName) and must be running with Tailscale Serve on port 47217."
+        }
+        return "The helper must be running on the Mac, with Tailscale Serve privately exposing port 47217."
+    }
+
+    private var helperStatusColor: Color {
         switch sessionStore.helperStatus {
         case .notPaired: .gray
         case .checking: .yellow
         case .online: .green
         case .offline: .red
+        }
+    }
+}
+
+private struct ConnectionRequirementRow: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let detail: String
+    let check: ConnectionCheck
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 13) {
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.headline)
+                    Spacer(minLength: 8)
+                    ConnectionStatusLight(check: check)
+                }
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(check.detail)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(check.state == .issue ? .red : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct ConnectionStatusLight: View {
+    let check: ConnectionCheck
+
+    var body: some View {
+        Group {
+            if check.state == .checking {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Circle()
+                    .fill(color)
+                    .overlay {
+                        Circle().stroke(.white.opacity(0.7), lineWidth: 1)
+                    }
+            }
+        }
+        .frame(width: 12, height: 12)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var color: Color {
+        switch check.state {
+        case .notConfigured: .gray
+        case .checking: .yellow
+        case .ready: .green
+        case .issue: .red
+        }
+    }
+
+    private var accessibilityLabel: String {
+        switch check.state {
+        case .notConfigured: "Not configured"
+        case .checking: "Checking"
+        case .ready: "Ready"
+        case .issue: "Needs attention"
         }
     }
 }

@@ -1,6 +1,18 @@
-# Swift Sim
+<p align="center">
+  <img src="Companion/SwiftSimCompanion/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="180" alt="Swift Sim app icon">
+</p>
 
-Swift Sim lets you view and control a Mac-hosted Xcode Simulator from an iPhone while Codex works on the project remotely.
+<h1 align="center">Swift Sim</h1>
+
+<p align="center">
+  View and control a Mac-hosted Xcode Simulator from your iPhone while Codex works on the project.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%2B%20iOS-lightgrey.svg" alt="macOS and iOS">
+  <img src="https://img.shields.io/badge/SwiftUI-native-orange.svg" alt="Native SwiftUI companion">
+</p>
 
 Codex remains the only coding agent. Project code builds and runs on the Mac; the iPhone companion is only a secure simulator viewer and controller.
 
@@ -112,4 +124,4 @@ Read [Security](docs/SECURITY.md) before exposing the helper through anything ot
 
 ## License
 
-Swift Sim is open source under the [MIT License](LICENSE).
+Swift Sim is open source under the [Apache License 2.0](LICENSE).

@@ -30,7 +30,7 @@ tailscale serve 47217
 
 Do not bind the helper to `0.0.0.0`, open the port on a router, use Tailscale Funnel, or place it behind a public reverse proxy unless you have independently reviewed and hardened the deployment.
 
-The companion currently permits arbitrary App Transport Security loads so local development sessions can use the Mac helper over HTTP. The supported remote path is still private Tailscale HTTPS. Narrow the ATS exception before a public/TestFlight release rather than treating the current development setting as a production security guarantee.
+The public companion build uses App Transport Security defaults and connects to the Mac helper through private Tailscale HTTPS. Plain HTTP helper URLs are intentionally unsupported in public builds.
 
 ## Tokens
 
@@ -95,4 +95,4 @@ Never run an unscoped `serve-sim --kill` from Swift Sim automation. It can termi
 
 ## Reporting A Security Issue
 
-Do not open a public issue containing a live pairing link, session link, Tailnet hostname, or helper log. Reproduce with redacted values and contact the maintainer privately when disclosure would expose a working credential.
+Use GitHub's [private vulnerability reporting](https://github.com/Miguelosaurus/Swift-Sim/security/advisories/new) for security-sensitive reports. Do not open a public issue containing a live pairing link, session link, Tailnet hostname, or helper log. Redact credentials and local machine details from all reports.

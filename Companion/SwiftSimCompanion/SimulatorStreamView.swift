@@ -8,6 +8,7 @@ struct SimulatorStreamView: UIViewRepresentable {
     let maskURL: URL
     let tap: (Double, Double) -> Void
     let gesture: (SimulatorGestureEvent) -> Void
+    let multiTouch: (SimulatorMultiTouchEvent) -> Void
     let frameUpdate: (CGSize) -> Void
     let streamState: (StreamRenderState) -> Void
 
@@ -19,12 +20,16 @@ struct SimulatorStreamView: UIViewRepresentable {
         imageView.isUserInteractionEnabled = true
         let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         let panRecognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        let pinchRecognizer = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         panRecognizer.maximumNumberOfTouches = 1
         panRecognizer.delegate = context.coordinator
+        pinchRecognizer.delegate = context.coordinator
         imageView.addGestureRecognizer(tapRecognizer)
         imageView.addGestureRecognizer(panRecognizer)
+        imageView.addGestureRecognizer(pinchRecognizer)
         context.coordinator.onTap = tap
         context.coordinator.onGesture = gesture
+        context.coordinator.onMultiTouch = multiTouch
         context.coordinator.onFrame = frameUpdate
         context.coordinator.onState = streamState
         context.coordinator.start(url: url, maskURL: maskURL, imageView: imageView)
@@ -34,6 +39,7 @@ struct SimulatorStreamView: UIViewRepresentable {
     func updateUIView(_ imageView: MaskedSimulatorImageView, context: Context) {
         context.coordinator.onTap = tap
         context.coordinator.onGesture = gesture
+        context.coordinator.onMultiTouch = multiTouch
         context.coordinator.onFrame = frameUpdate
         context.coordinator.onState = streamState
         context.coordinator.start(url: url, maskURL: maskURL, imageView: imageView)
@@ -57,8 +63,10 @@ struct SimulatorStreamView: UIViewRepresentable {
         private var buffer = Data()
         var onTap: ((Double, Double) -> Void)?
         var onGesture: ((SimulatorGestureEvent) -> Void)?
+        var onMultiTouch: ((SimulatorMultiTouchEvent) -> Void)?
         var onFrame: ((CGSize) -> Void)?
         var onState: ((StreamRenderState) -> Void)?
+        private var lastMultiTouch: SimulatorMultiTouchEvent?
 
         func start(url: URL, maskURL: URL, imageView: MaskedSimulatorImageView) {
             self.imageView = imageView
@@ -145,6 +153,21 @@ struct SimulatorStreamView: UIViewRepresentable {
             onGesture?(SimulatorGestureEvent(type: type, x: x, y: y))
         }
 
+        @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            let type = gesturePhase(for: recognizer.state)
+            guard let type else { return }
+            if recognizer.numberOfTouches >= 2,
+               let first = normalizedPoint(for: recognizer.location(ofTouch: 0, in: imageView), in: imageView),
+               let second = normalizedPoint(for: recognizer.location(ofTouch: 1, in: imageView), in: imageView) {
+                let event = SimulatorMultiTouchEvent(type: type, x1: first.0, y1: first.1, x2: second.0, y2: second.1)
+                lastMultiTouch = event
+                onMultiTouch?(event)
+            } else if type == "end", let lastMultiTouch {
+                onMultiTouch?(lastMultiTouch.ending())
+            }
+            if type == "end" { lastMultiTouch = nil }
+        }
+
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
             true
         }
@@ -198,6 +221,7 @@ struct NativeH264StreamView: UIViewRepresentable {
     let maskURL: URL
     let tap: (Double, Double) -> Void
     let gesture: (SimulatorGestureEvent) -> Void
+    let multiTouch: (SimulatorMultiTouchEvent) -> Void
     let frameUpdate: (CGSize) -> Void
     let streamState: (StreamRenderState) -> Void
 
@@ -205,14 +229,18 @@ struct NativeH264StreamView: UIViewRepresentable {
         let view = NativeVideoSurfaceView()
         let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         let panRecognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        let pinchRecognizer = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         panRecognizer.maximumNumberOfTouches = 1
         panRecognizer.delegate = context.coordinator
+        pinchRecognizer.delegate = context.coordinator
         view.addGestureRecognizer(tapRecognizer)
         view.addGestureRecognizer(panRecognizer)
+        view.addGestureRecognizer(pinchRecognizer)
         context.coordinator.configure(
             view: view,
             tap: tap,
             gesture: gesture,
+            multiTouch: multiTouch,
             frameUpdate: frameUpdate,
             streamState: streamState
         )
@@ -225,6 +253,7 @@ struct NativeH264StreamView: UIViewRepresentable {
             view: view,
             tap: tap,
             gesture: gesture,
+            multiTouch: multiTouch,
             frameUpdate: frameUpdate,
             streamState: streamState
         )
@@ -262,21 +291,27 @@ struct NativeH264StreamView: UIViewRepresentable {
         private var reconnectAttempts = 0
         private var lastPacketAt = Date.distantPast
         private var watchdog: Timer?
+        private let maximumPendingSampleCount = 45
+        private let maximumDecoderLatency: TimeInterval = 0.75
         private var onTap: ((Double, Double) -> Void)?
         private var onGesture: ((SimulatorGestureEvent) -> Void)?
+        private var onMultiTouch: ((SimulatorMultiTouchEvent) -> Void)?
         private var onFrame: ((CGSize) -> Void)?
         private var onState: ((StreamRenderState) -> Void)?
+        private var lastMultiTouch: SimulatorMultiTouchEvent?
 
         func configure(
             view: NativeVideoSurfaceView,
             tap: @escaping (Double, Double) -> Void,
             gesture: @escaping (SimulatorGestureEvent) -> Void,
+            multiTouch: @escaping (SimulatorMultiTouchEvent) -> Void,
             frameUpdate: @escaping (CGSize) -> Void,
             streamState: @escaping (StreamRenderState) -> Void
         ) {
             self.view = view
             self.onTap = tap
             self.onGesture = gesture
+            self.onMultiTouch = multiTouch
             self.onFrame = frameUpdate
             self.onState = streamState
         }
@@ -386,6 +421,21 @@ struct NativeH264StreamView: UIViewRepresentable {
             onGesture?(SimulatorGestureEvent(type: type, x: point.x, y: point.y))
         }
 
+        @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            let type = gesturePhase(for: recognizer.state)
+            guard let type else { return }
+            if recognizer.numberOfTouches >= 2,
+               let first = normalizedPoint(recognizer.location(ofTouch: 0, in: view)),
+               let second = normalizedPoint(recognizer.location(ofTouch: 1, in: view)) {
+                let event = SimulatorMultiTouchEvent(type: type, x1: first.x, y1: first.y, x2: second.x, y2: second.y)
+                lastMultiTouch = event
+                onMultiTouch?(event)
+            } else if type == "end", let lastMultiTouch {
+                onMultiTouch?(lastMultiTouch.ending())
+            }
+            if type == "end" { lastMultiTouch = nil }
+        }
+
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
             true
         }
@@ -459,7 +509,8 @@ struct NativeH264StreamView: UIViewRepresentable {
 
         private var decoderBacklogIsStale: Bool {
             guard let oldest = pendingSamples.first else { return false }
-            return pendingSamples.count > 12 || Date().timeIntervalSince(oldest.receivedAt) > 0.25
+            return pendingSamples.count > maximumPendingSampleCount
+                || Date().timeIntervalSince(oldest.receivedAt) > maximumDecoderLatency
         }
 
         private func startWatchdog() {
@@ -595,6 +646,15 @@ struct NativeH264StreamView: UIViewRepresentable {
                 Double(min(max((point.y - rect.minY) / rect.height, 0), 1))
             )
         }
+    }
+}
+
+private func gesturePhase(for state: UIGestureRecognizer.State) -> String? {
+    switch state {
+    case .began: "begin"
+    case .changed: "move"
+    case .ended, .cancelled, .failed: "end"
+    default: nil
     }
 }
 

@@ -115,7 +115,7 @@ Use the same bundle identifier for future builds. Changing it creates a second a
 5. Select the connected iPhone as the run destination.
 6. Build and run.
 
-The placeholder Associated Domain does not block the custom URL scheme. See [Universal Links](#universal-links) before configuring it.
+The custom URL scheme works without an Associated Domain. See [Universal Links](#universal-links) if you want to configure one for your own signed build.
 
 ## 5. Pair The iPhone With The Mac
 
@@ -162,9 +162,9 @@ Open either companion link on the iPhone. The companion displays the same Mac Si
 
 The `swift-sim://` custom scheme works without Associated Domains and is the reliable V1 path for arbitrary private Tailnet hosts.
 
-To enable an HTTPS universal link for your own signed build:
+Public/TestFlight builds intentionally omit Associated Domains because they cannot declare every user's private hostname. To enable an HTTPS universal link for your own signed source build:
 
-1. Replace `applinks:YOUR-TAILSCALE-HOST.ts.net` in `Companion/SwiftSimCompanion/SwiftSimCompanion.entitlements` with the exact helper hostname.
+1. Add the Associated Domains capability to the `SwiftSimCompanion` target and add `applinks:YOUR-TAILSCALE-HOST.ts.net`, replacing the placeholder with the exact helper hostname.
 2. Start the helper with the matching signed application identifier:
 
    ```sh

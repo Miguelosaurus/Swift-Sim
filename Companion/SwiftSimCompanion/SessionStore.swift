@@ -9,6 +9,9 @@ final class SessionStore: ObservableObject {
     @Published private(set) var pairedMac: PairedMac?
     @Published private(set) var helperStatus: HelperConnectionStatus = .notPaired
     @Published private(set) var recentSessions: [RecentSession] = []
+    @Published private(set) var tailscaleCheck = ConnectionCheck.notConfigured("Add a simulator session before checking the private route")
+    @Published private(set) var macHelperCheck = ConnectionCheck.notConfigured("No Mac helper address is available yet")
+    @Published private(set) var simulatorCheck = ConnectionCheck.notConfigured("Open a session link from Codex to add a simulator")
 
     private let recentSessionsKey = "recentSessions"
     private let pairedMacKey = "pairedMac"
@@ -63,7 +66,13 @@ final class SessionStore: ObservableObject {
             if let status = try? JSONDecoder().decode(SessionStatus.self, from: data) {
                 let name = status.scheme.isEmpty ? nil : status.scheme
                 activeTransport = status.stream
-                upsertRecentSession(RecentSession(session: session, displayName: name))
+                upsertRecentSession(
+                    RecentSession(
+                        session: session,
+                        displayName: name,
+                        recentProjectID: status.recentProjectID
+                    )
+                )
             }
             isConnected = true
             await fetchLogs()
@@ -138,6 +147,15 @@ final class SessionStore: ObservableObject {
         _ = try? await URLSession.shared.data(for: request)
     }
 
+    func sendMultiTouch(_ event: SimulatorMultiTouchEvent) async {
+        guard let session = currentSession else { return }
+        var request = URLRequest(url: session.multiTouchURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONEncoder().encode(event)
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
     func refreshHelperStatus() async {
         guard let mac = pairedMac else {
             helperStatus = .notPaired
@@ -160,10 +178,78 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    func refreshConnectionChecks() async {
+        guard let baseURL = recentSessions.first?.session.baseURL ?? pairedMac?.baseURL else {
+            tailscaleCheck = .notConfigured("Add a simulator session before checking the private route")
+            macHelperCheck = .notConfigured("No Mac helper address is available yet")
+            simulatorCheck = .notConfigured("Open a session link from Codex to add a simulator")
+            return
+        }
+
+        tailscaleCheck = .checking("Checking the private Tailnet route")
+        macHelperCheck = .checking("Contacting the Mac helper")
+        simulatorCheck = recentSessions.isEmpty
+            ? .notConfigured("Open a session link from Codex to add a simulator")
+            : .checking("Checking saved simulator sessions")
+
+        var healthRequest = URLRequest(url: baseURL.appending(path: "health"))
+        healthRequest.timeoutInterval = 8
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: healthRequest)
+            if (response as? HTTPURLResponse)?.statusCode == 200 {
+                tailscaleCheck = .ready("Private HTTPS route is reachable from this iPhone")
+                macHelperCheck = .ready("Mac helper responded successfully")
+            } else {
+                tailscaleCheck = .issue("Private route responded unexpectedly; check Tailscale Serve")
+                macHelperCheck = .issue("Helper health check failed")
+            }
+        } catch {
+            tailscaleCheck = .issue("Cannot reach the Mac through Tailscale")
+            macHelperCheck = .issue("Start the helper and confirm Tailscale Serve is running")
+        }
+
+        guard !recentSessions.isEmpty else { return }
+
+        let availableSession = await withTaskGroup(of: RecentSession?.self) { group in
+            for recent in recentSessions {
+                group.addTask {
+                    var request = URLRequest(url: recent.session.statusURL)
+                    request.timeoutInterval = 8
+                    guard let (_, response) = try? await URLSession.shared.data(for: request),
+                          (response as? HTTPURLResponse)?.statusCode == 200 else {
+                        return Optional<RecentSession>.none
+                    }
+                    return Optional.some(recent)
+                }
+            }
+
+            for await recent in group {
+                if let recent {
+                    group.cancelAll()
+                    return Optional.some(recent)
+                }
+            }
+            return Optional<RecentSession>.none
+        }
+
+        if let availableSession {
+            simulatorCheck = .ready("\(availableSession.displayName) is available to open")
+            return
+        }
+
+        simulatorCheck = .issue("Saved sessions are unavailable; ask Codex to open a fresh simulator session")
+    }
+
     func forgetPairedMac() {
         pairedMac = nil
         helperStatus = .notPaired
         UserDefaults.standard.removeObject(forKey: pairedMacKey)
+    }
+
+    func removeRecentSession(_ recent: RecentSession) {
+        recentSessions.removeAll { $0.id == recent.id }
+        saveRecentSessions()
     }
 
     private func loadRecentSessions() {
@@ -172,7 +258,15 @@ final class SessionStore: ObservableObject {
             recentSessions = []
             return
         }
-        recentSessions = decoded.sorted { $0.lastOpened > $1.lastOpened }
+        var seenLegacyProjects = Set<String>()
+        recentSessions = decoded
+            .sorted { $0.lastOpened > $1.lastOpened }
+            .filter { recent in
+                guard recent.recentProjectID == nil else { return true }
+                let legacyKey = "\(recent.baseURLString)\u{0}\(recent.displayName)"
+                return seenLegacyProjects.insert(legacyKey).inserted
+            }
+        saveRecentSessions()
     }
 
     private func saveRecentSessions() {
@@ -181,7 +275,22 @@ final class SessionStore: ObservableObject {
     }
 
     private func upsertRecentSession(_ recent: RecentSession) {
-        var next = recentSessions.filter { $0.id != recent.id }
+        var next = recentSessions.filter { existing in
+            if existing.id == recent.id { return false }
+            if let identity = recent.recentProjectID,
+               existing.recentProjectID == identity {
+                return false
+            }
+
+            // Remove duplicate records created by older app versions once the
+            // helper supplies the stable identity for this project.
+            if existing.recentProjectID == nil,
+               existing.baseURLString == recent.baseURLString,
+               existing.displayName == recent.displayName {
+                return false
+            }
+            return true
+        }
         next.insert(recent, at: 0)
         recentSessions = Array(next.prefix(8))
         saveRecentSessions()
@@ -213,20 +322,48 @@ enum HelperConnectionStatus {
 
     var title: String {
         switch self {
-        case .notPaired: "Not paired"
-        case .checking: "Checking"
-        case .online: "Online"
-        case .offline: "Offline"
+        case .notPaired: "Mac helper not linked"
+        case .checking: "Checking Mac helper"
+        case .online: "Mac helper connected"
+        case .offline: "Mac helper unavailable"
         }
     }
 
     var detail: String {
         switch self {
-        case .notPaired: "Open a pairing link from the Mac helper"
-        case .checking: "Testing helper connection"
-        case .online: "Private access ready"
-        case .offline: "Open Tailscale or relink this Mac"
+        case .notPaired: "Recent simulator sessions can still be opened"
+        case .checking: "Testing the private Tailscale connection"
+        case .online: "Private helper access is ready"
+        case .offline: "Check Tailscale Serve and the helper process"
         }
+    }
+}
+
+struct ConnectionCheck: Equatable {
+    enum State: Equatable {
+        case notConfigured
+        case checking
+        case ready
+        case issue
+    }
+
+    let state: State
+    let detail: String
+
+    static func notConfigured(_ detail: String) -> Self {
+        Self(state: .notConfigured, detail: detail)
+    }
+
+    static func checking(_ detail: String) -> Self {
+        Self(state: .checking, detail: detail)
+    }
+
+    static func ready(_ detail: String) -> Self {
+        Self(state: .ready, detail: detail)
+    }
+
+    static func issue(_ detail: String) -> Self {
+        Self(state: .issue, detail: detail)
     }
 }
 
@@ -354,6 +491,10 @@ struct SimulatorSession: Identifiable, Equatable {
         baseURL.appending(path: "api/sessions/\(id)/gesture").appending(queryItems: [.init(name: "token", value: token)])
     }
 
+    var multiTouchURL: URL {
+        baseURL.appending(path: "api/sessions/\(id)/multitouch").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
     init?(url: URL) {
         if url.scheme == "swift-sim" {
             guard url.host == "session" else { return nil }
@@ -392,12 +533,25 @@ struct SimulatorGestureEvent: Encodable {
     var velocity: Double?
 }
 
+struct SimulatorMultiTouchEvent: Encodable {
+    let type: String
+    let x1: Double
+    let y1: Double
+    let x2: Double
+    let y2: Double
+
+    func ending() -> Self {
+        Self(type: "end", x1: x1, y1: y1, x2: x2, y2: y2)
+    }
+}
+
 struct RecentSession: Identifiable, Codable, Equatable {
     let id: String
     let token: String
     let baseURLString: String
     let displayName: String
     let lastOpened: Date
+    let recentProjectID: String?
 
     var session: SimulatorSession {
         SimulatorSession(id: id, token: token, baseURL: URL(string: baseURLString)!)
@@ -414,24 +568,33 @@ struct RecentSession: Identifiable, Codable, Equatable {
         return result.isEmpty ? "SS" : result
     }
 
-    init(session: SimulatorSession, displayName: String?) {
+    init(session: SimulatorSession, displayName: String?, recentProjectID: String? = nil) {
         self.id = session.id
         self.token = session.token
         self.baseURLString = session.baseURL.absoluteString
         self.displayName = displayName ?? "Session \(session.id.prefix(6))"
         self.lastOpened = Date()
+        self.recentProjectID = recentProjectID
     }
 
-    private init(id: String, token: String, baseURLString: String, displayName: String, lastOpened: Date) {
+    private init(id: String, token: String, baseURLString: String, displayName: String, lastOpened: Date, recentProjectID: String?) {
         self.id = id
         self.token = token
         self.baseURLString = baseURLString
         self.displayName = displayName
         self.lastOpened = lastOpened
+        self.recentProjectID = recentProjectID
     }
 
     func touch() -> RecentSession {
-        RecentSession(id: id, token: token, baseURLString: baseURLString, displayName: displayName, lastOpened: Date())
+        RecentSession(
+            id: id,
+            token: token,
+            baseURLString: baseURLString,
+            displayName: displayName,
+            lastOpened: Date(),
+            recentProjectID: recentProjectID
+        )
     }
 }
 
@@ -460,6 +623,7 @@ struct SessionTransport: Decodable, Equatable {
 private struct SessionStatus: Decodable {
     let scheme: String
     let stream: SessionTransport
+    let recentProjectID: String?
 }
 
 private struct SessionLogs: Decodable {

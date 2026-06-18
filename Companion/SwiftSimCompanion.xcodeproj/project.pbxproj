@@ -13,6 +13,8 @@
 		000000000000000000000104 /* SimulatorWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000204 /* SimulatorWebView.swift */; };
 		000000000000000000000105 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000205 /* SessionStore.swift */; };
 		000000000000000000000106 /* SimulatorStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000208 /* SimulatorStreamView.swift */; };
+		000000000000000000000107 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000209 /* Assets.xcassets */; };
+		000000000000000000000108 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000210 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +27,8 @@
 		000000000000000000000206 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000207 /* SwiftSimCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SwiftSimCompanion.entitlements; sourceTree = "<group>"; };
 		000000000000000000000208 /* SimulatorStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorStreamView.swift; sourceTree = "<group>"; };
+		000000000000000000000209 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		000000000000000000000210 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +61,8 @@
 				000000000000000000000205 /* SessionStore.swift */,
 				000000000000000000000206 /* Info.plist */,
 				000000000000000000000207 /* SwiftSimCompanion.entitlements */,
+				000000000000000000000209 /* Assets.xcassets */,
+				000000000000000000000210 /* PrivacyInfo.xcprivacy */,
 			);
 			path = SwiftSimCompanion;
 			sourceTree = "<group>";
@@ -128,6 +134,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				000000000000000000000107 /* Assets.xcassets in Resources */,
+				000000000000000000000108 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -283,7 +291,7 @@
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -307,7 +315,7 @@
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

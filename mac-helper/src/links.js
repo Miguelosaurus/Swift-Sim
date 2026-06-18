@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
+
 export function publicSession(session) {
   const links = buildCompanionLinks(session, session.remoteBaseUrl);
   return {
     id: session.id,
+    recentProjectID: recentProjectID(session),
     project: session.project ? "set" : "",
     scheme: session.scheme,
     createdAt: session.createdAt,
@@ -15,6 +18,16 @@ export function publicSession(session) {
     },
     links,
   };
+}
+
+function recentProjectID(session) {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      session.project || "",
+      session.scheme || "",
+      session.simulatorUDID || "",
+    ]))
+    .digest("hex");
 }
 
 export function codexSession(session) {

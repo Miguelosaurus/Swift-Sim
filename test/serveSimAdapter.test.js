@@ -104,12 +104,37 @@ test("public session omits local simulator internals", () => {
     },
   });
   assert.equal(session.project, "set");
+  assert.match(session.recentProjectID, /^[a-f0-9]{64}$/);
   assert.equal(session.simulatorUDID, undefined);
   assert.equal(session.stream.localUrl, undefined);
   assert.equal(session.stream.port, undefined);
   assert.equal(session.stream.pid, undefined);
   assert.equal(session.stream.transport, "serve-sim");
   assert.equal(session.stream.quality, "fallback");
+});
+
+test("public sessions use a stable recent-project identity", () => {
+  const input = {
+    id: "first-session",
+    token: "first-token",
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "SIM-UDID",
+    remoteBaseUrl: "https://mac.example.ts.net",
+    createdAt: "now",
+    updatedAt: "now",
+    build: { state: "ok" },
+    stream: { state: "running" },
+  };
+
+  const first = publicSession(input);
+  const replacement = publicSession({ ...input, id: "new-session", token: "new-token" });
+  const otherProject = publicSession({ ...input, project: "/tmp/Other.xcodeproj" });
+
+  assert.equal(first.recentProjectID, replacement.recentProjectID);
+  assert.notEqual(first.recentProjectID, otherProject.recentProjectID);
+  assert.ok(!JSON.stringify(first).includes("SIM-UDID"));
+  assert.ok(!JSON.stringify(first).includes("/tmp/App.xcodeproj"));
 });
 
 test("codex session includes local preview URL for nested browser verification", () => {

@@ -27,7 +27,7 @@ struct SimulatorSessionView: View {
                 Spacer(minLength: 10)
 
                 bottomControls
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 4)
             }
         }
         .preferredColorScheme(.light)
@@ -196,6 +196,7 @@ struct SimulatorSessionView: View {
                 maskURL: session.frameMaskURL,
                 tap: handleTap,
                 gesture: handleGesture,
+                multiTouch: handleMultiTouch,
                 frameUpdate: handleFrameUpdate,
                 streamState: handleStreamState
             )
@@ -205,6 +206,7 @@ struct SimulatorSessionView: View {
                 maskURL: session.frameMaskURL,
                 tap: handleTap,
                 gesture: handleGesture,
+                multiTouch: handleMultiTouch,
                 frameUpdate: handleFrameUpdate,
                 streamState: handleStreamState
             )
@@ -217,6 +219,10 @@ struct SimulatorSessionView: View {
 
     private func handleGesture(_ event: SimulatorGestureEvent) {
         Task { await sessionStore.sendGesture(event) }
+    }
+
+    private func handleMultiTouch(_ event: SimulatorMultiTouchEvent) {
+        Task { await sessionStore.sendMultiTouch(event) }
     }
 
     private func handleFrameUpdate(_ size: CGSize) {

@@ -330,6 +330,19 @@ async function serve({ host, port }) {
         return json(res, 200, result);
       }
 
+      const multiTouchMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/multitouch$/);
+      if (multiTouchMatch && req.method === "POST") {
+        const [, sessionId] = multiTouchMatch;
+        const session = store.get(sessionId);
+        if (!session) return notFound(res, "Unknown session.");
+        if (!tokenMatches(session, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        const body = await readJson(req);
+        const result = await sendMultiTouch(session, body);
+        return json(res, 200, result);
+      }
+
       const controlMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/control\/([a-z-]+)$/);
       if (controlMatch && req.method === "POST") {
         const [, sessionId, control] = controlMatch;
@@ -936,6 +949,14 @@ async function sendGesture(session, event) {
   return { ok: true, event: normalized };
 }
 
+async function sendMultiTouch(session, event) {
+  const normalized = normalizeMultiTouchEvent(event);
+  await sendServeSimMessage(session, 5, normalized);
+  session.logs.push(`multitouch: ${normalized.type}`);
+  store.save(session);
+  return { ok: true, event: normalized };
+}
+
 async function sendTouch(session, payload) {
   await sendServeSimMessage(session, 3, payload);
 }
@@ -1079,7 +1100,7 @@ function normalizeGestureEvent(event) {
     throw new Error("Missing gesture event.");
   }
   const type = String(event.type || "");
-  if (!["begin", "move", "end", "pinch-begin", "pinch-move", "pinch-end"].includes(type)) {
+  if (!["begin", "move", "end"].includes(type)) {
     throw new Error("Unsupported gesture type.");
   }
   const x = Number(event.x);
@@ -1101,6 +1122,22 @@ function normalizeGestureEvent(event) {
     if (Number.isFinite(velocity)) normalized.velocity = Math.max(-20, Math.min(20, velocity));
   }
   return normalized;
+}
+
+function normalizeMultiTouchEvent(event) {
+  if (!event || typeof event !== "object") {
+    throw new Error("Missing multi-touch event.");
+  }
+  const type = String(event.type || "");
+  if (!["begin", "move", "end"].includes(type)) {
+    throw new Error("Unsupported multi-touch type.");
+  }
+  const coordinates = [event.x1, event.y1, event.x2, event.y2].map(Number);
+  if (!coordinates.every(Number.isFinite)) {
+    throw new Error("Missing multi-touch coordinates.");
+  }
+  const [x1, y1, x2, y2] = coordinates.map((value) => Math.max(0, Math.min(1, value)));
+  return { type, x1, y1, x2, y2 };
 }
 
 function required(value, name) {

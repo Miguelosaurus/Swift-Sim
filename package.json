@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Remote Codex Simulator Companion helper and native iOS companion.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Miguelosaurus/Swift-Sim.git"
+  },
+  "homepage": "https://github.com/Miguelosaurus/Swift-Sim#readme",
+  "bugs": {
+    "url": "https://github.com/Miguelosaurus/Swift-Sim/issues"
+  },
   "bin": {
     "swift-sim-helper": "./mac-helper/bin/swift-sim-helper.js"
   },
