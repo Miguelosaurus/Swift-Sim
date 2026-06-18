@@ -251,7 +251,12 @@ struct NativeH264StreamView: UIViewRepresentable {
         private var frameIndex: Int64 = 0
         private var videoSize: CGSize?
         private var didRenderVideo = false
-        private var pendingSamples: [CMSampleBuffer] = []
+        private struct QueuedSample {
+            let buffer: CMSampleBuffer
+            let receivedAt: Date
+        }
+
+        private var pendingSamples: [QueuedSample] = []
         private var drainScheduled = false
         private var reconnectScheduled = false
         private var reconnectAttempts = 0
@@ -297,15 +302,20 @@ struct NativeH264StreamView: UIViewRepresentable {
             lastPacketAt = Date()
             if reportConnecting { onState?(.connecting) }
 
-            let configuration = URLSessionConfiguration.default
-            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.urlCache = nil
+            configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
             configuration.timeoutIntervalForRequest = 7 * 24 * 60 * 60
             configuration.timeoutIntervalForResource = 7 * 24 * 60 * 60
+            configuration.httpMaximumConnectionsPerHost = 1
             let queue = OperationQueue()
             queue.maxConcurrentOperationCount = 1
             session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
             var request = URLRequest(url: url)
             request.timeoutInterval = 7 * 24 * 60 * 60
+            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            request.networkServiceType = .responsiveData
+            request.setValue("no-cache, no-transform", forHTTPHeaderField: "Cache-Control")
             task = session?.dataTask(with: request)
             task?.resume()
             startWatchdog()
@@ -412,11 +422,7 @@ struct NativeH264StreamView: UIViewRepresentable {
 
         private func enqueue(_ sampleBuffer: CMSampleBuffer) {
             guard currentURL != nil else { return }
-            pendingSamples.append(sampleBuffer)
-            if pendingSamples.count > 90 {
-                scheduleReconnect(reason: "Decoder fell behind")
-                return
-            }
+            pendingSamples.append(QueuedSample(buffer: sampleBuffer, receivedAt: Date()))
             drainSamples()
         }
 
@@ -427,8 +433,13 @@ struct NativeH264StreamView: UIViewRepresentable {
                 return
             }
 
+            if decoderBacklogIsStale {
+                scheduleReconnect(reason: "Decoder latency exceeded budget")
+                return
+            }
+
             while view.displayLayer.isReadyForMoreMediaData, !pendingSamples.isEmpty {
-                view.displayLayer.enqueue(pendingSamples.removeFirst())
+                view.displayLayer.enqueue(pendingSamples.removeFirst().buffer)
                 reconnectAttempts = 0
                 if !didRenderVideo {
                     didRenderVideo = true
@@ -439,11 +450,16 @@ struct NativeH264StreamView: UIViewRepresentable {
 
             guard !pendingSamples.isEmpty, !drainScheduled else { return }
             drainScheduled = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.012) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { [weak self] in
                 guard let self else { return }
                 drainScheduled = false
                 drainSamples()
             }
+        }
+
+        private var decoderBacklogIsStale: Bool {
+            guard let oldest = pendingSamples.first else { return false }
+            return pendingSamples.count > 12 || Date().timeIntervalSince(oldest.receivedAt) > 0.25
         }
 
         private func startWatchdog() {

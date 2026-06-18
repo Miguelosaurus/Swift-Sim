@@ -627,30 +627,44 @@ async function proxyStream(res, session) {
 
   res.writeHead(200, {
     "content-type": source.contentType,
-    "cache-control": "no-store",
+    "cache-control": "no-store, no-transform",
+    "x-accel-buffering": "no",
   });
-  await writeChunk(res, source.firstChunk);
+  res.socket?.setNoDelay(true);
 
-  while (!res.destroyed && !res.writableEnded) {
-    try {
-      const result = await readStreamChunk(source.reader, 5_000);
-      if (result.done) throw new Error("Simulator stream ended.");
-      await writeChunk(res, result.value);
-    } catch (error) {
-      try { await source.reader.cancel(); } catch {}
-      session.logs.push(`stream stalled; recovering tracked simulator: ${error instanceof Error ? error.message : String(error)}`);
-      store.save(session);
+  const cancelActiveSource = () => {
+    source?.reader.cancel().catch(() => {});
+  };
+  res.once("close", cancelActiveSource);
+
+  try {
+    await writeChunk(res, source.firstChunk);
+
+    while (!res.destroyed && !res.writableEnded) {
       try {
-        await restartStreamOnce(session);
-        source = await openStreamingSource(session, 8_000);
-        await writeChunk(res, source.firstChunk);
-      } catch (recoveryError) {
-        session.logs.push(`stream recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
+        const result = await readStreamChunk(source.reader, 5_000);
+        if (result.done) throw new Error("Simulator stream ended.");
+        await writeChunk(res, result.value);
+      } catch (error) {
+        try { await source.reader.cancel(); } catch {}
+        if (res.destroyed || res.writableEnded) return;
+        session.logs.push(`stream stalled; recovering tracked simulator: ${error instanceof Error ? error.message : String(error)}`);
         store.save(session);
-        res.destroy(recoveryError instanceof Error ? recoveryError : undefined);
-        return;
+        try {
+          await restartStreamOnce(session);
+          source = await openStreamingSource(session, 8_000);
+          await writeChunk(res, source.firstChunk);
+        } catch (recoveryError) {
+          session.logs.push(`stream recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
+          store.save(session);
+          res.destroy(recoveryError instanceof Error ? recoveryError : undefined);
+          return;
+        }
       }
     }
+  } finally {
+    res.off("close", cancelActiveSource);
+    try { await source?.reader.cancel(); } catch {}
   }
 }
 
