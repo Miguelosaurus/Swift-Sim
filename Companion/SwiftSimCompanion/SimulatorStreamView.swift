@@ -251,6 +251,12 @@ struct NativeH264StreamView: UIViewRepresentable {
         private var frameIndex: Int64 = 0
         private var videoSize: CGSize?
         private var didRenderVideo = false
+        private var pendingSamples: [CMSampleBuffer] = []
+        private var drainScheduled = false
+        private var reconnectScheduled = false
+        private var reconnectAttempts = 0
+        private var lastPacketAt = Date.distantPast
+        private var watchdog: Timer?
         private var onTap: ((Double, Double) -> Void)?
         private var onGesture: ((SimulatorGestureEvent) -> Void)?
         private var onFrame: ((CGSize) -> Void)?
@@ -278,11 +284,18 @@ struct NativeH264StreamView: UIViewRepresentable {
             stop()
             currentURL = url
             loadMask(from: maskURL)
+            beginConnection(to: url, reportConnecting: true)
+        }
+
+        private func beginConnection(to url: URL, reportConnecting: Bool) {
             buffer.removeAll(keepingCapacity: true)
             formatDescription = nil
             frameIndex = 0
             didRenderVideo = false
-            onState?(.connecting)
+            pendingSamples.removeAll(keepingCapacity: true)
+            drainScheduled = false
+            lastPacketAt = Date()
+            if reportConnecting { onState?(.connecting) }
 
             let configuration = URLSessionConfiguration.default
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -295,9 +308,12 @@ struct NativeH264StreamView: UIViewRepresentable {
             request.timeoutInterval = 7 * 24 * 60 * 60
             task = session?.dataTask(with: request)
             task?.resume()
+            startWatchdog()
         }
 
         func stop() {
+            watchdog?.invalidate()
+            watchdog = nil
             task?.cancel()
             maskTask?.cancel()
             session?.invalidateAndCancel()
@@ -305,6 +321,10 @@ struct NativeH264StreamView: UIViewRepresentable {
             session = nil
             currentURL = nil
             currentMaskURL = nil
+            pendingSamples.removeAll()
+            drainScheduled = false
+            reconnectScheduled = false
+            reconnectAttempts = 0
             DispatchQueue.main.async { [weak self] in
                 self?.view?.reset()
             }
@@ -320,7 +340,9 @@ struct NativeH264StreamView: UIViewRepresentable {
         }
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            guard session === self.session else { return }
             buffer.append(data)
+            DispatchQueue.main.async { [weak self] in self?.lastPacketAt = Date() }
             while let packet = nextPacket() {
                 handle(packet)
             }
@@ -330,10 +352,10 @@ struct NativeH264StreamView: UIViewRepresentable {
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-            guard let error else { return }
-            guard (error as NSError).code != NSURLErrorCancelled else { return }
+            guard session === self.session else { return }
+            if let error, (error as NSError).code == NSURLErrorCancelled { return }
             DispatchQueue.main.async { [weak self] in
-                self?.onState?(.failed(error.localizedDescription))
+                self?.scheduleReconnect(reason: error?.localizedDescription ?? "Stream ended")
             }
         }
 
@@ -374,17 +396,7 @@ struct NativeH264StreamView: UIViewRepresentable {
                 guard let formatDescription,
                       let sampleBuffer = makeSampleBuffer(packet.payload, formatDescription: formatDescription) else { return }
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, let view else { return }
-                    if view.displayLayer.status == .failed {
-                        view.displayLayer.flushAndRemoveImage()
-                    }
-                    guard view.displayLayer.isReadyForMoreMediaData else { return }
-                    view.displayLayer.enqueue(sampleBuffer)
-                    if !didRenderVideo {
-                        didRenderVideo = true
-                        view.showVideo()
-                    }
-                    onState?(.streaming)
+                    self?.enqueue(sampleBuffer)
                 }
             case 0x04:
                 guard let image = UIImage(data: packet.payload) else { return }
@@ -395,6 +407,80 @@ struct NativeH264StreamView: UIViewRepresentable {
                 }
             default:
                 break
+            }
+        }
+
+        private func enqueue(_ sampleBuffer: CMSampleBuffer) {
+            guard currentURL != nil else { return }
+            pendingSamples.append(sampleBuffer)
+            if pendingSamples.count > 90 {
+                scheduleReconnect(reason: "Decoder fell behind")
+                return
+            }
+            drainSamples()
+        }
+
+        private func drainSamples() {
+            guard let view, currentURL != nil else { return }
+            if view.displayLayer.status == .failed {
+                scheduleReconnect(reason: view.displayLayer.error?.localizedDescription ?? "Decoder failed")
+                return
+            }
+
+            while view.displayLayer.isReadyForMoreMediaData, !pendingSamples.isEmpty {
+                view.displayLayer.enqueue(pendingSamples.removeFirst())
+                reconnectAttempts = 0
+                if !didRenderVideo {
+                    didRenderVideo = true
+                    view.showVideo()
+                }
+                onState?(.streaming)
+            }
+
+            guard !pendingSamples.isEmpty, !drainScheduled else { return }
+            drainScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.012) { [weak self] in
+                guard let self else { return }
+                drainScheduled = false
+                drainSamples()
+            }
+        }
+
+        private func startWatchdog() {
+            watchdog?.invalidate()
+            watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                guard let self, currentURL != nil else { return }
+                if Date().timeIntervalSince(lastPacketAt) > 4 {
+                    scheduleReconnect(reason: "Stream stalled")
+                } else if view?.displayLayer.status == .failed {
+                    scheduleReconnect(reason: view?.displayLayer.error?.localizedDescription ?? "Decoder failed")
+                }
+            }
+        }
+
+        private func scheduleReconnect(reason: String) {
+            guard !reconnectScheduled, let url = currentURL else { return }
+            reconnectScheduled = true
+            reconnectAttempts += 1
+            if reconnectAttempts > 6 {
+                reconnectScheduled = false
+                onState?(.failed(reason))
+                return
+            }
+
+            watchdog?.invalidate()
+            task?.cancel()
+            session?.invalidateAndCancel()
+            task = nil
+            session = nil
+            pendingSamples.removeAll(keepingCapacity: true)
+            drainScheduled = false
+            view?.prepareForReconnect()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                guard let self, currentURL == url else { return }
+                reconnectScheduled = false
+                beginConnection(to: url, reportConnecting: false)
             }
         }
 
@@ -538,6 +624,11 @@ final class NativeVideoSurfaceView: UIView {
         seedImageView.image = nil
         seedImageView.isHidden = false
         displayLayer.flushAndRemoveImage()
+    }
+
+    func prepareForReconnect() {
+        displayLayer.flushAndRemoveImage()
+        seedImageView.isHidden = seedImageView.image == nil
     }
 
     func setFrameMask(_ image: UIImage?) {

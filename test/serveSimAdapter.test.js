@@ -9,6 +9,22 @@ import { SessionStore } from "../mac-helper/src/sessionStore.js";
 import { PairingStore } from "../mac-helper/src/pairingStore.js";
 import { NativeCompanionTransport } from "../mac-helper/src/transports/nativeCompanionTransport.js";
 import { SimulatorProfileResolver } from "../mac-helper/src/simulatorProfile.js";
+import { namedKeyEvents, textToKeyEvents } from "../mac-helper/src/keyboard.js";
+
+test("keyboard text becomes USB HID events without invoking a CLI", () => {
+  assert.deepEqual(textToKeyEvents("aA!\n"), [
+    { type: "down", usage: 4 }, { type: "up", usage: 4 },
+    { type: "down", usage: 225 }, { type: "down", usage: 4 },
+    { type: "up", usage: 4 }, { type: "up", usage: 225 },
+    { type: "down", usage: 225 }, { type: "down", usage: 30 },
+    { type: "up", usage: 30 }, { type: "up", usage: 225 },
+    { type: "down", usage: 40 }, { type: "up", usage: 40 },
+  ]);
+  assert.deepEqual(namedKeyEvents("backspace"), [
+    { type: "down", usage: 42 },
+    { type: "up", usage: 42 },
+  ]);
+});
 
 test("parseServeSimOutput reads JSON URL without depending on exact key", () => {
   const parsed = parseServeSimOutput('{"previewUrl":"http://127.0.0.1:3200","pid":1234}\n', "");

@@ -164,6 +164,8 @@ Swift Sim has a stable session/link API, but two different transport roles:
 
 The companion does not guess device corner radii. The helper resolves the selected simulator's CoreSimulator device profile and serves its model-specific `framebufferMask` asset through the authenticated session API. The iOS app applies that vector mask to the live video, so supported simulator screens keep the same silhouette Xcode uses.
 
+The native path is self-healing. The iOS decoder preserves H.264 frame order and reconnects for a fresh keyframe if decoding stalls. The Mac helper also watches for a `serve-sim` process that still accepts input but has stopped emitting media; it restarts only that tracked simulator stream and continues the existing companion response.
+
 Check what your helper supports:
 
 ```sh
@@ -258,7 +260,8 @@ Simulator input is routed through the installed `serve-sim` control channel:
 
 - Taps use normalized simulator coordinates.
 - One-finger drag and swipe gestures use `serve-sim gesture` events.
-- Hardware controls, rotation, typing, Dynamic Type, and contrast controls use scoped helper routes.
+- Hardware controls, rotation, Dynamic Type, and contrast controls use scoped helper routes.
+- The companion keyboard forwards each key immediately as USB HID events over a persistent simulator control channel. It does not collect a message and paste it as one batch.
 - H.264 improves video latency and bandwidth; it does not by itself add missing input capabilities. Multi-touch gestures such as pinch-to-zoom still depend on `serve-sim` exposing stable multi-touch gesture events.
 
 Universal links support both:
@@ -340,6 +343,7 @@ Codex should not paste `codex.localPreviewUrl`, local ports, Simulator UDIDs, or
 
 - Headless simulator capture, H.264 encoding, and input use `serve-sim` through adapters.
 - The iOS companion decodes H.264 natively; MJPEG remains a compatibility fallback.
+- Native H.264 and the helper include bounded stall recovery, but reconnection can still produce a brief visual pause on a poor cellular path.
 - WebRTC remains a later upgrade only if the AVCC-over-Tailscale path needs stronger congestion control or recovery.
 - Universal links require your own Apple team, bundle id, and Tailscale host.
 - The Codex plugin is currently a repo-local workflow skill, not a packaged marketplace install.

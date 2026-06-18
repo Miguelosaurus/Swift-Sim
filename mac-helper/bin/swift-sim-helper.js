@@ -2,7 +2,7 @@
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { Readable } from "node:stream";
+import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { URL } from "node:url";
@@ -16,6 +16,7 @@ import { NativeCompanionTransport } from "../src/transports/nativeCompanionTrans
 import { SessionStore } from "../src/sessionStore.js";
 import { PairingStore } from "../src/pairingStore.js";
 import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
+import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";
 import {
   badRequest,
   json,
@@ -287,6 +288,19 @@ async function serve({ host, port }) {
         }
         const body = await readJson(req);
         const result = await typeIntoSimulator(session, body.text || "");
+        return json(res, 200, result);
+      }
+
+      const keyMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/key$/);
+      if (keyMatch && req.method === "POST") {
+        const [, sessionId] = keyMatch;
+        const session = store.get(sessionId);
+        if (!session) return notFound(res, "Unknown session.");
+        if (!tokenMatches(session, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        const body = await readJson(req);
+        const result = await sendNamedKey(session, body.key || "");
         return json(res, 200, result);
       }
 
@@ -593,36 +607,105 @@ async function fetchWithTimeout(url, timeoutMs) {
 }
 
 async function proxyStream(res, session) {
-  const streamUrl = session.stream.localUrl || "";
-  if (!streamUrl) {
+  if (!session.stream.localUrl) {
     return badRequest(res, 404, "Stream is not ready.");
   }
-  let upstream;
+
+  let source;
   try {
-    upstream = await fetchWithTimeout(streamUrl, 5_000);
+    source = await openStreamingSource(session);
   } catch (error) {
-    session.logs.push(`stream proxy failed; restarting serve-sim: ${error instanceof Error ? error.message : String(error)}`);
+    session.logs.push(`stream produced no media; restarting serve-sim: ${error instanceof Error ? error.message : String(error)}`);
     store.save(session);
-    await restartStream(session);
-    upstream = await fetchWithTimeout(session.stream.localUrl, 8_000);
+    await restartStreamOnce(session);
+    try {
+      source = await openStreamingSource(session, 8_000);
+    } catch (retryError) {
+      return badRequest(res, 502, retryError instanceof Error ? retryError.message : String(retryError));
+    }
   }
-  if (!upstream.ok || !upstream.body) {
-    session.logs.push(`stream upstream failed with status ${upstream.status}; restarting serve-sim`);
-    store.save(session);
-    await restartStream(session);
-    upstream = await fetchWithTimeout(session.stream.localUrl, 8_000);
-  }
-  if (!upstream.ok || !upstream.body) {
-    return badRequest(res, 502, `Stream upstream failed with status ${upstream.status}.`);
-  }
+
   res.writeHead(200, {
-    "content-type": upstream.headers.get("content-type") || "application/octet-stream",
+    "content-type": source.contentType,
     "cache-control": "no-store",
   });
-  Readable.fromWeb(upstream.body).pipe(res);
+  await writeChunk(res, source.firstChunk);
+
+  while (!res.destroyed && !res.writableEnded) {
+    try {
+      const result = await readStreamChunk(source.reader, 5_000);
+      if (result.done) throw new Error("Simulator stream ended.");
+      await writeChunk(res, result.value);
+    } catch (error) {
+      try { await source.reader.cancel(); } catch {}
+      session.logs.push(`stream stalled; recovering tracked simulator: ${error instanceof Error ? error.message : String(error)}`);
+      store.save(session);
+      try {
+        await restartStreamOnce(session);
+        source = await openStreamingSource(session, 8_000);
+        await writeChunk(res, source.firstChunk);
+      } catch (recoveryError) {
+        session.logs.push(`stream recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
+        store.save(session);
+        res.destroy(recoveryError instanceof Error ? recoveryError : undefined);
+        return;
+      }
+    }
+  }
+}
+
+async function openStreamingSource(session, timeoutMs = 5_000) {
+  const upstream = await fetchWithTimeout(session.stream.localUrl, timeoutMs);
+  if (!upstream.ok || !upstream.body) {
+    throw new Error(`Stream upstream failed with status ${upstream.status}.`);
+  }
+  const reader = upstream.body.getReader();
+  const first = await readStreamChunk(reader, timeoutMs);
+  if (first.done || !first.value?.byteLength) {
+    try { await reader.cancel(); } catch {}
+    throw new Error("Simulator stream returned no media bytes.");
+  }
+  return {
+    reader,
+    firstChunk: first.value,
+    contentType: upstream.headers.get("content-type") || "application/octet-stream",
+  };
+}
+
+function readStreamChunk(reader, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Simulator media timed out.")), timeoutMs);
+    reader.read().then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function writeChunk(res, chunk) {
+  if (!chunk?.byteLength || res.destroyed || res.writableEnded) return;
+  if (!res.write(Buffer.from(chunk))) await once(res, "drain");
+}
+
+const streamRestarts = new Map();
+
+function restartStreamOnce(session) {
+  const key = session.simulatorUDID;
+  const current = streamRestarts.get(key);
+  if (current) return current;
+  const restart = restartStream(session).finally(() => streamRestarts.delete(key));
+  streamRestarts.set(key, restart);
+  return restart;
 }
 
 async function restartStream(session) {
+  closeInputChannel(session);
   const transport = transportForSession(session);
   const stream = await transport.restart(session);
   session.stream = publicStream(stream);
@@ -686,6 +769,7 @@ async function stopSession(sessionId) {
   if (!session) return;
   session.logs.push(`stopping ${session.stream.transport || "serve-sim"} for ${session.simulatorUDID}`);
   await transportForSession(session).stop(session);
+  closeInputChannel(session);
   session.stream.state = "stopped";
   session.updatedAt = new Date().toISOString();
   store.save(session);
@@ -796,10 +880,22 @@ async function typeIntoSimulator(session, typedText) {
   if (!typedText || typeof typedText !== "string") {
     throw new Error("Missing text.");
   }
-  await adapter.type({ simulatorUDID: session.simulatorUDID, text: typedText });
+  await sendKeyboardEvents(session, textToKeyEvents(typedText));
   session.logs.push(`typed ${typedText.length} characters`);
   store.save(session);
   return { ok: true };
+}
+
+async function sendNamedKey(session, key) {
+  await sendKeyboardEvents(session, namedKeyEvents(key));
+  return { ok: true, key };
+}
+
+async function sendKeyboardEvents(session, events) {
+  for (const event of events) {
+    await sendServeSimMessage(session, 6, event);
+    await sleep(4);
+  }
 }
 
 async function tapSimulator(session, x, y) {
@@ -869,35 +965,95 @@ function sessionWsUrl(session) {
   return "";
 }
 
+const inputChannels = new Map();
+
 function sendServeSimMessage(session, opcode, payload) {
   const wsUrl = sessionWsUrl(session);
   if (!wsUrl) {
     return Promise.reject(new Error("Missing serve-sim WebSocket URL."));
   }
-  return new Promise((resolve, reject) => {
-    const socket = new WebSocket(wsUrl);
-    const timeout = setTimeout(() => {
-      try { socket.close(); } catch {}
-      reject(new Error("Timed out sending simulator control."));
-    }, 3_000);
-    socket.binaryType = "arraybuffer";
-    socket.onopen = () => {
+  let channel = inputChannels.get(wsUrl);
+  if (!channel) {
+    channel = new ServeSimInputChannel(wsUrl);
+    inputChannels.set(wsUrl, channel);
+  }
+  return channel.send(opcode, payload);
+}
+
+function closeInputChannel(session) {
+  const wsUrl = sessionWsUrl(session);
+  const channel = inputChannels.get(wsUrl);
+  channel?.close();
+  inputChannels.delete(wsUrl);
+}
+
+class ServeSimInputChannel {
+  constructor(url) {
+    this.url = url;
+    this.socket = null;
+    this.connecting = null;
+    this.pending = Promise.resolve();
+  }
+
+  send(opcode, payload) {
+    const operation = this.pending.then(async () => {
+      const socket = await this.connect();
       const encoded = payload === undefined ? new Uint8Array() : new TextEncoder().encode(JSON.stringify(payload));
       const message = new Uint8Array(1 + encoded.length);
       message[0] = opcode;
       message.set(encoded, 1);
       socket.send(message);
-      setTimeout(() => {
-        clearTimeout(timeout);
+    });
+    this.pending = operation.catch(() => {});
+    return operation;
+  }
+
+  connect() {
+    if (this.socket?.readyState === 1) return Promise.resolve(this.socket);
+    if (this.connecting) return this.connecting;
+    this.connecting = new Promise((resolve, reject) => {
+      const socket = new WebSocket(this.url);
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.socket = null;
+        this.connecting = null;
         try { socket.close(); } catch {}
-        resolve();
-      }, 50);
-    };
-    socket.onerror = () => {
-      clearTimeout(timeout);
-      reject(new Error(`Failed to connect to serve-sim WebSocket at ${wsUrl}.`));
-    };
-  });
+        reject(new Error("Timed out connecting simulator controls."));
+      }, 3_000);
+      socket.binaryType = "arraybuffer";
+      socket.onopen = () => {
+        if (settled) {
+          try { socket.close(); } catch {}
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        this.socket = socket;
+        this.connecting = null;
+        resolve(socket);
+      };
+      socket.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.socket = null;
+        this.connecting = null;
+        reject(new Error(`Failed to connect to serve-sim WebSocket at ${this.url}.`));
+      };
+      socket.onclose = () => {
+        if (this.socket === socket) this.socket = null;
+      };
+    });
+    return this.connecting;
+  }
+
+  close() {
+    try { this.socket?.close(); } catch {}
+    this.socket = null;
+    this.connecting = null;
+  }
 }
 
 function sleep(ms) {

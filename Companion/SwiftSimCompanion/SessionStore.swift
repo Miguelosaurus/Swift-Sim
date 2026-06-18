@@ -12,6 +12,7 @@ final class SessionStore: ObservableObject {
 
     private let recentSessionsKey = "recentSessions"
     private let pairedMacKey = "pairedMac"
+    private var keyboardTail: Task<Void, Never>?
 
     init() {
         loadRecentSessions()
@@ -90,14 +91,30 @@ final class SessionStore: ObservableObject {
         await refresh()
     }
 
-    func typeText(_ text: String) async {
+    func typeText(_ text: String) {
         guard let session = currentSession else { return }
         var request = URLRequest(url: session.typeURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try? JSONEncoder().encode(["text": text])
-        _ = try? await URLSession.shared.data(for: request)
-        await refresh()
+        enqueueKeyboardRequest(request)
+    }
+
+    func sendKey(_ key: String) {
+        guard let session = currentSession else { return }
+        var request = URLRequest(url: session.keyURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONEncoder().encode(["key": key])
+        enqueueKeyboardRequest(request)
+    }
+
+    private func enqueueKeyboardRequest(_ request: URLRequest) {
+        let previous = keyboardTail
+        keyboardTail = Task {
+            await previous?.value
+            _ = try? await URLSession.shared.data(for: request)
+        }
     }
 
     func tapSimulator(x: Double, y: Double) async {
@@ -323,6 +340,10 @@ struct SimulatorSession: Identifiable, Equatable {
 
     var typeURL: URL {
         baseURL.appending(path: "api/sessions/\(id)/type").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var keyURL: URL {
+        baseURL.appending(path: "api/sessions/\(id)/key").appending(queryItems: [.init(name: "token", value: token)])
     }
 
     var tapURL: URL {

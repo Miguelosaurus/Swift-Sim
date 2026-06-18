@@ -6,7 +6,6 @@ struct SimulatorSessionView: View {
     @State private var showingConsole = false
     @State private var showingOptions = false
     @State private var showingKeyboard = false
-    @State private var keyboardText = ""
     @State private var streamFrameSize: CGSize?
     @State private var streamRenderState: StreamRenderState = .connecting
     @State private var streamRefreshID = 0
@@ -52,10 +51,11 @@ struct SimulatorSessionView: View {
             .presentationCornerRadius(42)
         }
         .sheet(isPresented: $showingKeyboard) {
-            KeyboardSheet(text: $keyboardText) { text in
-                Task { await sessionStore.typeText(text) }
-            }
-            .presentationDetents([.height(220)])
+            LiveKeyboardSheet(
+                type: sessionStore.typeText,
+                key: sessionStore.sendKey
+            )
+            .presentationDetents([.height(150)])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(36)
         }
@@ -401,54 +401,102 @@ private struct SimulatorOptionsSheet: View {
     }
 }
 
-private struct KeyboardSheet: View {
-    @Binding var text: String
-    let send: (String) -> Void
+private struct LiveKeyboardSheet: View {
+    let type: (String) -> Void
+    let key: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 18) {
-            Capsule()
-                .fill(.tertiary)
-                .frame(width: 46, height: 5)
+        HStack(spacing: 14) {
+            Image(systemName: "keyboard")
+                .font(.system(size: 22, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .liquidGlassCircle(tint: Color.blue.opacity(0.12), interactive: false)
 
-            HStack(spacing: 12) {
-                Image(systemName: "keyboard")
-                    .font(.system(size: 22, weight: .semibold))
-                TextField("Type into simulator", text: $text)
-                    .font(.title3.weight(.medium))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.send)
-                    .onSubmit {
-                        submit()
-                    }
-            }
-            .padding(.horizontal, 18)
-            .frame(height: 64)
-            .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
-
-            Button {
-                submit()
-            } label: {
-                Label("Send Text", systemImage: "paperplane.fill")
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Live Keyboard")
                     .font(.headline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
+                Text("Keys forward immediately")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            LiveKeyboardInput(type: type, key: key)
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+
+            Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Text("Done")
+                    .font(.headline.weight(.semibold))
+                    .frame(height: 44)
+                    .padding(.horizontal, 18)
             }
             .buttonStyle(.plain)
-            .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
-            .disabled(text.isEmpty)
+            .liquidGlassCapsule(tint: Color(.systemBackground).opacity(0.2), interactive: true)
         }
         .padding(.horizontal, 22)
-        .padding(.top, 10)
+        .padding(.vertical, 18)
+    }
+}
+
+private struct LiveKeyboardInput: UIViewRepresentable {
+    let type: (String) -> Void
+    let key: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(type: type, key: key)
     }
 
-    private func submit() {
-        guard !text.isEmpty else { return }
-        send(text)
-        text = ""
-        dismiss()
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.delegate = context.coordinator
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.smartQuotesType = .no
+        field.smartDashesType = .no
+        field.spellCheckingType = .no
+        field.returnKeyType = .default
+        DispatchQueue.main.async { field.becomeFirstResponder() }
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.type = type
+        context.coordinator.key = key
+        if !field.isFirstResponder {
+            DispatchQueue.main.async { field.becomeFirstResponder() }
+        }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var type: (String) -> Void
+        var key: (String) -> Void
+
+        init(type: @escaping (String) -> Void, key: @escaping (String) -> Void) {
+            self.type = type
+            self.key = key
+        }
+
+        func textField(
+            _ textField: UITextField,
+            shouldChangeCharactersIn range: NSRange,
+            replacementString string: String
+        ) -> Bool {
+            if string.isEmpty {
+                key("backspace")
+            } else {
+                type(string)
+            }
+            return false
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            key("enter")
+            return false
+        }
     }
 }
 
