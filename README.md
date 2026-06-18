@@ -106,6 +106,7 @@ test/                          Node helper tests
 - [Codex Workflow](docs/CODEX_WORKFLOW.md): plugin installation and expected Codex behavior
 - [Architecture](docs/ARCHITECTURE.md): components, transports, recovery, and session API
 - [Security](docs/SECURITY.md): trust boundaries, tokens, and current limitations
+- [Privacy](docs/PRIVACY.md): data handling, retention, deletion, and third-party services
 - [Troubleshooting](docs/TROUBLESHOOTING.md): symptom-based recovery steps
 - [Development](docs/DEVELOPMENT.md): tests, builds, validation, and contribution notes
 

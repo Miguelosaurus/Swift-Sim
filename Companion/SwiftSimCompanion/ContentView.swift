@@ -488,24 +488,31 @@ private struct MacSettingsSheet: View {
 
                 Section {
                     ConnectionRequirementRow(
+                        icon: "sparkles.rectangle.stack.fill",
+                        tint: .blue,
+                        title: "1. Codex + plugin",
+                        detail: "Install the bundled Swift Sim companion plugin in the Codex desktop app on the Mac.",
+                        check: .notConfigured("Required on the Mac")
+                    )
+                    ConnectionRequirementRow(
                         icon: "lock.shield.fill",
                         tint: .blue,
-                        title: "1. Tailscale",
+                        title: "2. Tailscale",
                         detail: "The Mac and iPhone must be signed in to the same Tailnet. They do not need to share Wi-Fi.",
                         check: sessionStore.tailscaleCheck
                     )
                     ConnectionRequirementRow(
                         icon: "server.rack",
                         tint: .blue,
-                        title: "2. Mac helper",
+                        title: "3. Mac helper",
                         detail: helperRequirementDetail,
                         check: sessionStore.macHelperCheck
                     )
                     ConnectionRequirementRow(
                         icon: "play.rectangle.on.rectangle.fill",
                         tint: .blue,
-                        title: "3. Simulator session",
-                        detail: "Codex builds and launches the app on a Mac Simulator, then sends this iPhone a private session link.",
+                        title: "4. Simulator session",
+                        detail: "Ask Codex to build and launch the app, then use the plugin to send this iPhone a private simulator session link.",
                         check: sessionStore.simulatorCheck
                     )
                 } header: {
@@ -547,6 +554,15 @@ private struct MacSettingsSheet: View {
                         Text("Optional: open a Mac helper link to enable connection diagnostics. Your saved simulator sessions remain available without it.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("About") {
+                    Link(destination: URL(string: "https://github.com/Miguelosaurus/Swift-Sim/blob/main/docs/PRIVACY.md")!) {
+                        Label("Privacy Policy", systemImage: "hand.raised.fill")
+                    }
+                    Link(destination: URL(string: "https://github.com/Miguelosaurus/Swift-Sim/blob/main/docs/SETUP.md")!) {
+                        Label("Setup & Support", systemImage: "questionmark.circle.fill")
                     }
                 }
             }
