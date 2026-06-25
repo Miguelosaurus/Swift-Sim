@@ -1,6 +1,6 @@
 # Setup
 
-This guide takes a new checkout from zero to a simulator session on an iPhone.
+This guide takes a new checkout from zero to simulator preview and real iPhone installs. Swift Sim has no account system in V1; pairing is just your iPhone learning the private helper URL and token from your Mac.
 
 ## 1. Install The Mac Prerequisites
 
@@ -157,6 +157,48 @@ The command prints JSON containing:
 - `links.customScheme`: reliable iOS app fallback
 
 Open either companion link on the iPhone. The companion displays the same Mac Simulator selected by `--simulator`.
+
+## 7. Build A Real App To The iPhone
+
+Device builds are separate from simulator preview. The Mac archives and signs your app, Swift Sim serves a temporary install page, and the iPhone installs the real `.ipa`.
+
+Requirements:
+
+- Your app must build for `generic/platform=iOS`.
+- Xcode signing must be configured for your Apple Developer team.
+- The iPhone must be registered in that team or included by the development/ad-hoc provisioning profile.
+- Use the same bundle identifier and signing team to update an existing install without losing app data.
+
+Run a first build manually:
+
+```sh
+scripts/codex/build-device.sh \
+  --project /absolute/path/to/YourApp.xcodeproj \
+  --scheme YourApp \
+  --remote-base-url https://your-mac.your-tailnet.ts.net \
+  --allow-provisioning-updates
+```
+
+Use `--workspace /absolute/path/to/YourApp.xcworkspace` instead of `--project` for workspace-based apps.
+
+The command prints JSON with:
+
+- `state`: `ready` means the IPA and install page are available.
+- `links.universalLink`: opens Swift Sim or the browser fallback page.
+- `links.customScheme`: opens Swift Sim directly.
+- `links.installURL`: opens iOS installation directly from the manifest.
+
+Open the install link on the iPhone. If iOS asks for confirmation, accept it from the Home Screen.
+
+Swift Sim does not uninstall your app by default. iOS performs an update when the bundle identifier, team, and entitlements match the existing app, so logins and app data stay in place. Changing those values installs a different app or can break access to previous data.
+
+For Codex, say:
+
+```text
+Build this to my iPhone with Swift Sim
+```
+
+Codex should use the same device-build lane and end with an **Install on iPhone** link.
 
 ## Universal Links
 

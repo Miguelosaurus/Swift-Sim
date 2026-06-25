@@ -1,11 +1,14 @@
 ---
 name: remote-simulator-companion
-description: Use when Codex has built or launched an iOS app on the local Mac Simulator and should hand the live simulator session to the Swift Sim native iOS companion app.
+description: Use when Codex should preview an iOS app in a Mac Simulator through Swift Sim or build a signed real-device install for the Swift Sim native iOS companion app.
 ---
 
 # Remote Simulator Companion
 
-Codex remains the only coding agent. This skill starts or reuses the lightweight Swift Sim helper so the user can open and control the Mac-hosted Xcode Simulator from the native Swift Sim iOS companion app.
+Codex remains the only coding agent. This skill uses the lightweight Swift Sim helper for two workflows:
+
+- Preview an app in the Mac-hosted Xcode Simulator from the native Swift Sim iOS companion app.
+- Build, sign, and serve a real iPhone `.ipa` install/update from the Mac.
 
 Important transport reality:
 
@@ -19,10 +22,25 @@ Use this skill when:
 
 - The user asks to test an iOS/SwiftUI change remotely from their phone.
 - The user asks for the simulator companion link.
+- The user asks to build, install, or update the app on their iPhone.
 - Codex has just built or launched an iOS app in Simulator and should hand off the live session.
 - The user says “open simulator in companion app,” “Swift Sim,” “remote simulator,” or similar.
 
-Do not use this skill to create a second AI agent. The helper is only a simulator/session server.
+Do not use this skill to create a second AI agent. The helper is only a simulator/session and device-build server.
+
+## Choose The Correct Lane
+
+Use the simulator lane when the user asks to preview UI, interact with a running simulator, see logs, or test a quick SwiftUI change.
+
+Use the device-build lane when the user says:
+
+- build to my phone
+- install on iPhone
+- update the app on my phone
+- test real device APIs
+- TestFlight is too slow for this loop
+
+Do not uninstall the user's app for the device-build lane. Swift Sim's default path preserves app data by installing over the existing app. Warn the user if bundle identifier, signing team, or entitlements changed.
 
 ## Required Inputs
 
@@ -138,6 +156,62 @@ When setup is healthy and the app is unpaired, Codex should give the pairing lin
 
    If the session uses a per-user Tailscale host, also include the `swift-sim://session/...` fallback link or code block. Tell the user to paste that fallback into Swift Sim's Paste Link sheet if ChatGPT opens the HTTPS link in a browser.
 
+## Device Build Workflow
+
+This lane creates a real signed iPhone app install. It does not use simulator streaming.
+
+Required inputs:
+
+- Absolute project or workspace path.
+- Scheme.
+- Remote base URL for the helper.
+- A valid Apple Developer signing setup in Xcode.
+
+Before building, run setup-status as usual. For V1, direct install pages are served by the helper, so a reachable helper URL is still required. Future hosted artifact adapters may remove the Tailscale requirement for this lane.
+
+Run:
+
+```bash
+"$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
+  --project "<absolute-project-path>" \
+  --scheme "<scheme>" \
+  --remote-base-url "<helper-url>" \
+  --allow-provisioning-updates
+```
+
+Use `--workspace "<absolute-workspace-path>"` instead of `--project` for `.xcworkspace` apps.
+
+Parse the returned JSON:
+
+- `state` must be `ready` before telling the user it can install.
+- `links.universalLink` is the user-facing install page.
+- `links.customScheme` opens the build in Swift Sim directly.
+- `links.installURL` can launch the OTA install directly.
+- `signing.warnings` should be summarized if present.
+
+End the Codex response with a Markdown link labeled exactly:
+
+```text
+Install on iPhone
+```
+
+Example:
+
+```md
+[Install on iPhone](https://example.ts.net/d/opaque-build?token=opaque-token)
+```
+
+Also include the `swift-sim://device-build/...` fallback if the HTTPS link opens in a browser.
+
+Update preservation rules:
+
+- Same bundle identifier, team, and compatible entitlements: iOS updates the app and preserves the app container.
+- Different bundle identifier: installs as a separate app and does not preserve the old app container.
+- Different team or keychain/app-group entitlements: warn that login/keychain/shared-container data may not remain available.
+- Never pass `--replace-app-data` unless the user explicitly asks for a clean install.
+
+If signing fails, explain the exact Xcode error and the likely missing setup: developer team, registered device, App ID capability, provisioning profile, or bundle identifier ownership.
+
 ## If XcodeBuildMCP Is Available
 
 Use this sequence:
@@ -163,6 +237,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 
 - Do not create or invoke a separate coding agent.
 - Do not expose project source paths, simulator UDIDs, local ports, or stream internals in the user-facing link.
+- Do not expose IPA paths, archive paths, signing file paths, device UDIDs, or Apple team IDs in the user-facing link.
 - Keep the framebuffer-mask endpoint behind the same opaque session token. Do not expose its source path from Xcode's device profile.
 - `codex.localPreviewUrl` and `codex.simulatorUDID` are local workflow metadata only. Use them to prove the nested Codex simulator and the phone companion use the same Simulator session; never paste them into the final user message.
 - Keep the helper bound to localhost and expose it remotely through Tailscale Serve for v1.
@@ -173,7 +248,9 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - The iPhone companion only views and controls the Mac Simulator. It does not execute project code.
 - If the helper fails, report the helper log path: `~/.swift-sim/helper.log`.
 - Treat pairing tokens and session tokens as secrets. Do not paste them into public issues, PRs, logs, or docs.
+- Treat device-build tokens as secrets. A build link can download a signed IPA until revoked or expired.
 - Session tokens do not currently expire automatically. Treat links as durable credentials; Stop ends the tracked stream but is not complete token revocation in V1.
+- Device-build pages are temporary, but local IPA artifacts remain under `~/.swift-sim/device-builds/` until deleted.
 
 ## Troubleshooting
 
@@ -222,6 +299,12 @@ Use these branches when setup or links fail:
 
 - User asks whether login is required: no account is required for v1. The trust boundary is the user's Tailnet plus opaque pairing/session tokens generated by the Mac helper.
 
+- Device build fails signing: check that Xcode has the team selected, the bundle identifier belongs to the team, the iPhone is registered, capabilities are enabled, and try `--allow-provisioning-updates`.
+
+- Device build installs as a second app: the bundle identifier changed. Tell the user to keep the same bundle identifier to preserve app data.
+
+- Device build updates but login/keychain data is missing: signing team or keychain/access-group entitlements likely changed.
+
 ## Useful Commands
 
 Generate a setup/relink URL for the native iOS companion:
@@ -249,4 +332,14 @@ Check helper health:
 
 ```bash
 curl http://127.0.0.1:47217/health
+```
+
+Build a real device install:
+
+```bash
+"$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
+  --project "<absolute-project-path>" \
+  --scheme "<scheme>" \
+  --remote-base-url "<helper-url>" \
+  --allow-provisioning-updates
 ```

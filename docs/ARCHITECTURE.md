@@ -12,6 +12,8 @@ Codex edits the user's project, builds it, launches it on a selected Mac Simulat
 
 - discovers the installed `serve-sim` capability through an adapter
 - starts, reuses, restarts, and stops scoped simulator streams
+- archives and exports signed iPhone `.ipa` builds
+- creates temporary OTA install manifests and install pages
 - stores pairing and session metadata under `~/.swift-sim`
 - proxies authenticated media and device-mask responses
 - forwards touch, keyboard, hardware, rotation, and accessibility controls
@@ -29,8 +31,9 @@ The native SwiftUI app:
 - applies Xcode's model-specific CoreSimulator framebuffer mask
 - forwards normalized input to the helper
 - presents build status, logs, reconnect state, and simulator controls
+- opens device-build links and launches real iPhone installs
 
-It never builds or executes the user's project.
+It never builds the user's project. Simulator sessions execute on the Mac Simulator; device builds execute as normal installed iOS apps after iOS installs them.
 
 ## Transport Paths
 
@@ -53,6 +56,23 @@ Input travels in the opposite direction through authenticated helper routes and 
 Codex uses the local MJPEG preview supplied by `serve-sim`. The iPhone may also use this compatibility path when native AVCC support is unavailable, but it has higher bandwidth and lower interaction quality.
 
 `setup-status` reports the selected phone transport at `transport.activeForPhone`.
+
+## Device Build Path
+
+Device builds are artifact delivery, not streaming.
+
+```text
+User project on Mac
+  -> xcodebuild archive
+  -> xcodebuild -exportArchive
+  -> signed .ipa under ~/.swift-sim/device-builds/<id>
+  -> helper authenticated manifest + install page
+  -> iPhone OTA install
+```
+
+The helper signs with the user's existing Xcode/Apple Developer setup. Direct installs use development or ad-hoc signing, so iOS only accepts devices included by the provisioning profile.
+
+Swift Sim preserves app data by default because it does not uninstall before installing. iOS treats the build as an update when the bundle identifier, signing team, and entitlements are compatible.
 
 ## Stream Recovery
 
@@ -98,6 +118,21 @@ Public session responses omit the project path, Simulator UDID, local stream URL
 
 Matching running sessions are reused by project, scheme, and Simulator UDID.
 
+## Device Build Model
+
+A device build tracks:
+
+- opaque build ID and token
+- project or workspace path
+- scheme and configuration
+- export method
+- app name, bundle identifier, version, build, and team ID
+- signing warnings and update-safety status
+- archive, IPA, and manifest paths
+- expiry timestamp and build logs
+
+Public device-build responses omit archive paths, IPA paths, local filesystem details, and signing file locations.
+
 ## HTTP Surface
 
 Unauthenticated local health:
@@ -133,11 +168,24 @@ POST /api/sessions/<id>/key
 POST /api/sessions/<id>/control/<control>
 ```
 
+Device-build routes:
+
+```text
+GET  /api/device-builds
+POST /api/device-builds/start
+GET  /api/device-builds/<id>
+GET  /api/device-builds/<id>/logs
+GET  /api/device-builds/<id>/links
+GET  /api/device-builds/<id>/artifact/manifest
+GET  /api/device-builds/<id>/artifact/ipa
+```
+
 Browser fallback and link entry points:
 
 ```text
 GET /pair
 GET /s/<id>
+GET /d/<id>
 ```
 
 ## Persistence
@@ -147,6 +195,8 @@ The helper stores local state in:
 ```text
 ~/.swift-sim/pairing.json
 ~/.swift-sim/sessions.json
+~/.swift-sim/device-builds.json
+~/.swift-sim/device-builds/
 ~/.swift-sim/helper.log
 ```
 

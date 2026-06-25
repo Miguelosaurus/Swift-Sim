@@ -1,6 +1,6 @@
 # Codex Workflow
 
-Swift Sim does not add another AI agent. Codex is the only coding agent; the Mac helper only manages simulator sessions, media, and input.
+Swift Sim does not add another AI agent. Codex is the only coding agent; the Mac helper manages simulator sessions, media, input, and signed device-build artifacts. The iOS app has no Swift Sim account requirement; it trusts a Mac only after opening a pairing link from that Mac helper.
 
 ## Install The Plugin
 
@@ -12,7 +12,7 @@ plugins/swift-sim-companion
 
 Install or enable **Swift Sim Companion** from the local Codex marketplace used by your checkout. Start a new Codex thread after installing an updated plugin so the thread loads the current skill version.
 
-The plugin contains the `remote-simulator-companion` skill. It activates when the user asks Codex to open, test, or hand off an iOS Simulator session through Swift Sim.
+The plugin contains the `remote-simulator-companion` skill. It activates when the user asks Codex to preview an iOS Simulator session or build a real iPhone install through Swift Sim.
 
 ## First Use In A Thread
 
@@ -38,7 +38,20 @@ node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" pair \
 
 Pairing links and simulator-session links are different. A valid session link does not pair the Mac status panel automatically.
 
-## Build And Handoff Contract
+## Choose The Right Lane
+
+Use **Preview in Simulator** when the user asks to see or interact with the app quickly, verify layout, inspect logs, or iterate on normal SwiftUI UI.
+
+Use **Build to iPhone** when the user asks to install on their phone, test real-device APIs, use camera/Bluetooth/push/HealthKit/widgets, or validate an update on the actual app.
+
+Do not build to phone by uninstalling first. The default behavior must preserve app data by installing over the existing app. Warn the user when bundle identifier, signing team, or entitlements changed.
+
+When Codex is unsure which lane the user wants, prefer:
+
+- simulator preview for fast visual/UI iteration
+- device build for real hardware behavior or "install/update on my phone"
+
+## Simulator Handoff Contract
 
 Codex should use one exact Simulator UDID from build through handoff:
 
@@ -81,7 +94,38 @@ The user-facing response should end with:
 
 For a per-user Tailscale host, Codex should also provide `links.customScheme`. If ChatGPT opens the HTTPS page in a browser, the user can paste the custom link into Swift Sim.
 
-Treat both pairing and session links as secrets. Do not paste them into commits, public issues, PR descriptions, or documentation examples with real values.
+## Device Build Contract
+
+Device builds archive/export a real `.ipa` on the Mac, signed with the user's own Apple development signing. The iPhone only downloads and installs the artifact; it does not build project code.
+
+Run:
+
+```sh
+"$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
+  --project "<absolute project path>" \
+  --scheme "<scheme>" \
+  --remote-base-url "<helper URL>" \
+  --allow-provisioning-updates
+```
+
+Use `--workspace` instead of `--project` for `.xcworkspace` apps.
+
+Codex should parse the JSON and return:
+
+```md
+[Install on iPhone](https://your-private-host/d/opaque-build?token=opaque-token)
+```
+
+Also include `links.customScheme` if the HTTPS link opens in a browser. The native app can display build status and launch the install URL.
+
+Update rules:
+
+- Same bundle ID + same team + compatible entitlements: safe update, app data should remain.
+- Different bundle ID: new app, no existing app data.
+- Different team or access groups: warn that keychain/app-group data may not carry over.
+- Never pass `--replace-app-data` unless the user explicitly asks for a clean install.
+
+Treat pairing, session, and device-build links as secrets. Do not paste them into commits, public issues, PR descriptions, or documentation examples with real values.
 
 ## Recovery Behavior
 

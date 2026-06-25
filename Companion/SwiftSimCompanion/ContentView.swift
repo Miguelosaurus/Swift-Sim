@@ -9,6 +9,8 @@ struct ContentView: View {
 
             if let session = sessionStore.currentSession {
                 SimulatorSessionView(session: session)
+            } else if let build = sessionStore.currentDeviceBuild {
+                DeviceBuildView(build: build)
             } else {
                 HomeView()
             }
@@ -37,6 +39,7 @@ private struct HomeView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     header
                     macStatusPanel
+                    deviceBuildBoard
                     sessionBoard
                 }
                 .padding(.horizontal, 22)
@@ -63,7 +66,7 @@ private struct HomeView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Swift Sim")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
-                Text("Remote simulator sessions")
+                Text("Simulator preview and iPhone installs")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
             }
@@ -181,6 +184,40 @@ private struct HomeView: View {
         }
     }
 
+    private var deviceBuildBoard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Device Builds")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                Text("\(sessionStore.recentDeviceBuilds.count)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .liquidGlassCapsule(tint: .white.opacity(0.24), interactive: false)
+            }
+
+            if sessionStore.recentDeviceBuilds.isEmpty {
+                EmptyDeviceBuildCard()
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(sessionStore.recentDeviceBuilds) { build in
+                        SwipeToDeleteRow {
+                            DeviceBuildRow(build: build)
+                        } onOpen: {
+                            sessionStore.reopen(build)
+                        } onDelete: {
+                            withAnimation {
+                                sessionStore.removeRecentDeviceBuild(build)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private var commandDock: some View {
         HStack(spacing: 12) {
             HStack(spacing: 10) {
@@ -281,7 +318,7 @@ private struct PasteLinkSheet: View {
             .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
             .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            Text("Use this if ChatGPT opens the setup page in a browser instead of switching apps.")
+            Text("Use this if ChatGPT opens a simulator, build, or setup page in a browser instead of switching apps.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -297,8 +334,249 @@ private struct PasteLinkSheet: View {
         if sessionStore.open(url) {
             dismiss()
         } else {
-            errorText = "That is not a Swift Sim session or pairing link."
+            errorText = "That is not a Swift Sim session, device build, or pairing link."
         }
+    }
+}
+
+private struct DeviceBuildView: View {
+    @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var sessionStore: SessionStore
+    let build: DeviceBuildSession
+
+    private var status: DeviceBuildStatus? {
+        sessionStore.deviceBuildStatus
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            HomeCanvas()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    topBar
+                    buildHero
+                    updateSafety
+                    logsPanel
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 18)
+                .padding(.bottom, 120)
+            }
+
+            installDock
+        }
+        .task {
+            await sessionStore.refreshDeviceBuild()
+        }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Button {
+                sessionStore.closeCurrentSession()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 25, weight: .bold))
+                    .frame(width: 56, height: 56)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCircle(tint: Color(.systemBackground).opacity(0.24), interactive: true)
+
+            Spacer()
+
+            VStack(spacing: 3) {
+                Text("Device Build")
+                    .font(.headline.weight(.bold))
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                    Text(statusLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Button {
+                Task { await sessionStore.refreshDeviceBuild() }
+            } label: {
+                Image(systemName: "arrow.trianglehead.clockwise")
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 56, height: 56)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCircle(tint: Color(.systemBackground).opacity(0.24), interactive: true)
+        }
+    }
+
+    private var buildHero: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            AppBadge(text: appInitials, isEmpty: false)
+                .frame(width: 78, height: 78)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text(status?.app.name.isEmpty == false ? status!.app.name : "iPhone Build")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .lineLimit(2)
+                Text(status?.app.bundleIdentifier.isEmpty == false ? status!.app.bundleIdentifier : "Waiting for signing details")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(spacing: 10) {
+                BuildFactChip(title: "Signing", value: status?.signing.method.capitalized ?? "Checking")
+                BuildFactChip(title: "Data", value: status?.preserveData == false ? "Replace" : "Preserve")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(22)
+        .liquidGlassPanel(cornerRadius: 34, tint: Color.white.opacity(0.18), interactive: false)
+    }
+
+    private var updateSafety: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Update Safety", systemImage: "externaldrive.badge.checkmark")
+                .font(.headline.weight(.bold))
+
+            Text("Swift Sim installs over the existing app by default. Your login and app data stay in place when the bundle identifier, signing team, and entitlements match the installed app.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            if let warnings = status?.signing.warnings, !warnings.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(warnings, id: \.self) { warning in
+                        Label(warning, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.14), interactive: false)
+    }
+
+    private var logsPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Build Log")
+                .font(.headline.weight(.bold))
+
+            if sessionStore.deviceBuildLogs.isEmpty {
+                Text("Waiting for build output.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(sessionStore.deviceBuildLogs.suffix(8), id: \.self) { line in
+                    Text(line)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.14), interactive: false)
+    }
+
+    private var installDock: some View {
+        VStack(spacing: 10) {
+            Button {
+                let statusInstallURL: URL?
+                if let installURLString = status?.links?.installURL {
+                    statusInstallURL = URL(string: installURLString)
+                } else {
+                    statusInstallURL = nil
+                }
+                if let installURL = statusInstallURL ?? build.installURL {
+                    openURL(installURL)
+                } else {
+                    openURL(build.installPageURL)
+                }
+            } label: {
+                Label(status?.isReady == true ? "Install on iPhone" : "Build Not Ready", systemImage: "iphone.and.arrow.forward")
+                    .font(.headline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCapsule(tint: status?.isReady == true ? Color.blue.opacity(0.2) : Color.gray.opacity(0.12), interactive: status?.isReady == true)
+            .disabled(status?.isReady != true)
+
+            if let expiry = status?.expiryDate {
+                Text("Install page expires \(expiry.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color(.systemBackground).opacity(0),
+                    Color(.systemBackground).opacity(0.92),
+                    Color(.systemBackground)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private var appInitials: String {
+        let name = status?.app.name ?? "iPhone Build"
+        let letters = name.split(separator: " ").prefix(2).compactMap(\.first)
+        let text = String(letters).uppercased()
+        return text.isEmpty ? "IB" : text
+    }
+
+    private var statusLabel: String {
+        switch status?.state ?? "loading" {
+        case "queued": "Queued"
+        case "preparing": "Preparing"
+        case "archiving": "Archiving"
+        case "exporting": "Exporting"
+        case "ready": "Ready"
+        case "failed": "Failed"
+        default: "Checking"
+        }
+    }
+
+    private var statusColor: Color {
+        switch status?.state {
+        case "ready": .green
+        case "failed": .red
+        case "queued", "preparing", "archiving", "exporting": .yellow
+        default: .gray
+        }
+    }
+}
+
+private struct BuildFactChip: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 10)
+        .liquidGlassPanel(cornerRadius: 18, tint: Color.white.opacity(0.12), interactive: false)
     }
 }
 
@@ -334,6 +612,48 @@ private struct SessionRow: View {
         }
         .padding(14)
         .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
+    }
+}
+
+private struct DeviceBuildRow: View {
+    let build: RecentDeviceBuild
+
+    var body: some View {
+        HStack(spacing: 14) {
+            AppBadge(text: initials, isEmpty: false)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(build.displayName)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    Label(build.state.capitalized, systemImage: "iphone.and.arrow.forward")
+                    if !build.bundleIdentifier.isEmpty {
+                        Text(build.bundleIdentifier)
+                            .lineLimit(1)
+                    }
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Image(systemName: build.state == "ready" ? "arrow.down.circle.fill" : "clock.fill")
+                .font(.system(size: 31, weight: .semibold))
+                .foregroundStyle(build.state == "ready" ? .blue : .secondary)
+        }
+        .padding(14)
+        .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
+    }
+
+    private var initials: String {
+        let pieces = build.displayName.split(separator: " ")
+        let letters = pieces.prefix(2).compactMap { $0.first }
+        let result = String(letters).uppercased()
+        return result.isEmpty ? "IB" : result
     }
 }
 
@@ -429,6 +749,26 @@ private struct EmptySessionCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .liquidGlassPanel(cornerRadius: 30, tint: Color.cyan.opacity(0.08), interactive: false)
+    }
+}
+
+private struct EmptyDeviceBuildCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            AppBadge(text: nil, isEmpty: true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No iPhone builds yet")
+                    .font(.title3.weight(.bold))
+                Text("Ask Codex to build to your phone. Swift Sim will install updates over the existing app when signing and bundle ID stay the same.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .liquidGlassPanel(cornerRadius: 30, tint: Color.blue.opacity(0.08), interactive: false)
     }
 }
 

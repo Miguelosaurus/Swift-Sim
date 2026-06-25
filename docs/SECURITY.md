@@ -10,9 +10,10 @@ The intended boundary is:
 2. Tailscale Serve exposes it to authenticated devices in the same Tailnet.
 3. Pairing routes require an opaque pairing token.
 4. Session routes require a separate opaque session token.
-5. The iPhone only receives simulator media and sends simulator controls.
+5. Device-build routes require a separate opaque build token.
+6. The iPhone only receives simulator media, sends simulator controls, or installs signed IPA artifacts.
 
-The user's project source and build products remain on the Mac. The companion does not execute project code.
+The user's project source remains on the Mac. Simulator build products remain on the Mac. Device-build `.ipa` artifacts are served temporarily by the helper so iOS can install them.
 
 ## Network Exposure
 
@@ -38,6 +39,7 @@ Pairing and sessions use different random tokens:
 
 - pairing token: authorizes helper setup inspection, token rotation, and session creation
 - session token: authorizes one session's status, media, logs, links, and controls
+- device-build token: authorizes one build's status, logs, install manifest, and IPA download
 
 Tokens appear in URLs because iOS deep links need to carry the session credential. Treat the entire link as a secret.
 
@@ -54,7 +56,9 @@ Pairing tokens rotate when the app relinks through the helper's rotate route.
 
 Session tokens do not currently expire automatically. They remain valid in the stored session record across helper restarts. Stopping a session ends its tracked stream, but V1 does not yet provide a per-session record-deletion route; do not describe Stop as complete token revocation.
 
-If a session link is exposed, stop the helper, remove the affected session from `~/.swift-sim/sessions.json` or remove that file to revoke every stored session, then restart the helper and create fresh sessions. Rotate pairing separately if the pairing link was exposed. Automatic expiry and first-class per-session revocation are future hardening work.
+Device-build install pages have an expiry timestamp and should be treated as temporary. The local IPA file remains on the Mac under `~/.swift-sim/device-builds/` until deleted.
+
+If a session or device-build link is exposed, stop the helper, remove the affected record from `~/.swift-sim/sessions.json` or `~/.swift-sim/device-builds.json`, delete the matching artifact directory if needed, then restart the helper and create a fresh link. Rotate pairing separately if the pairing link was exposed. Automatic cleanup and first-class revocation are future hardening work.
 
 ## Information Minimization
 
@@ -69,7 +73,26 @@ Public session responses do not return:
 
 The model-specific framebuffer mask is served through the same authenticated session token.
 
+Public device-build responses do not return:
+
+- archive paths
+- IPA paths
+- provisioning profile paths
+- certificate/keychain details
+- absolute source paths
+
 Local state under `~/.swift-sim` contains more detail and must remain private to the Mac user account.
+
+## Device Build Signing
+
+Direct installs use the user's Apple development or ad-hoc signing. Swift Sim does not bypass iOS signing rules:
+
+- only devices included by the provisioning profile can install
+- changing bundle identifier installs a different app
+- changing team ID or access-group entitlements can break access to existing keychain or app-group data
+- Swift Sim does not uninstall first unless explicitly asked
+
+This default update path is what preserves app data.
 
 ## Universal Links
 
@@ -90,6 +113,7 @@ Never run an unscoped `serve-sim --kill` from Swift Sim automation. It can termi
 - Restrict Tailnet membership and remove lost devices promptly.
 - Rotate pairing after a phone is replaced or a link is exposed.
 - Stop old streams, and remove exposed session records as described above.
+- Delete old device-build artifacts from `~/.swift-sim/device-builds/` when they are no longer needed.
 - Review `~/.swift-sim/helper.log` before sharing it because logs may contain local metadata.
 - Keep the repository free of personal signing IDs, device UDIDs, hostnames, and real tokens.
 

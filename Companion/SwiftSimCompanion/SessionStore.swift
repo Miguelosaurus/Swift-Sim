@@ -3,22 +3,28 @@ import Foundation
 @MainActor
 final class SessionStore: ObservableObject {
     @Published var currentSession: SimulatorSession?
+    @Published var currentDeviceBuild: DeviceBuildSession?
     @Published var isConnected = false
+    @Published var deviceBuildStatus: DeviceBuildStatus?
+    @Published var deviceBuildLogs: [String] = []
     @Published var logs: [String] = []
     @Published var activeTransport: SessionTransport?
     @Published private(set) var pairedMac: PairedMac?
     @Published private(set) var helperStatus: HelperConnectionStatus = .notPaired
     @Published private(set) var recentSessions: [RecentSession] = []
+    @Published private(set) var recentDeviceBuilds: [RecentDeviceBuild] = []
     @Published private(set) var tailscaleCheck = ConnectionCheck.notConfigured("Add a simulator session before checking the private route")
     @Published private(set) var macHelperCheck = ConnectionCheck.notConfigured("No Mac helper address is available yet")
     @Published private(set) var simulatorCheck = ConnectionCheck.notConfigured("Open a session link from Codex to add a simulator")
 
     private let recentSessionsKey = "recentSessions"
+    private let recentDeviceBuildsKey = "recentDeviceBuilds"
     private let pairedMacKey = "pairedMac"
     private var keyboardTail: Task<Void, Never>?
 
     init() {
         loadRecentSessions()
+        loadRecentDeviceBuilds()
         loadPairedMac()
         Task { await refreshHelperStatus() }
     }
@@ -33,8 +39,18 @@ final class SessionStore: ObservableObject {
             return true
         }
 
+        if let build = DeviceBuildSession(url: url) {
+            currentDeviceBuild = build
+            currentSession = nil
+            deviceBuildStatus = nil
+            upsertRecentDeviceBuild(RecentDeviceBuild(session: build, displayName: nil, bundleIdentifier: nil))
+            Task { await refreshDeviceBuild() }
+            return true
+        }
+
         guard let session = SimulatorSession(url: url) else { return false }
         currentSession = session
+        currentDeviceBuild = nil
         activeTransport = nil
         upsertRecentSession(RecentSession(session: session, displayName: nil))
         Task { await refresh() }
@@ -50,9 +66,20 @@ final class SessionStore: ObservableObject {
 
     func closeCurrentSession() {
         currentSession = nil
+        currentDeviceBuild = nil
         isConnected = false
         activeTransport = nil
         logs = []
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
+    }
+
+    func reopen(_ recent: RecentDeviceBuild) {
+        currentDeviceBuild = recent.session
+        currentSession = nil
+        deviceBuildStatus = nil
+        upsertRecentDeviceBuild(recent.touch())
+        Task { await refreshDeviceBuild() }
     }
 
     func refresh() async {
@@ -89,6 +116,49 @@ final class SessionStore: ObservableObject {
             logs = decoded.logs
         } catch {
             logs = ["Unable to load logs: \(error.localizedDescription)"]
+        }
+    }
+
+    func refreshDeviceBuild() async {
+        guard let build = currentDeviceBuild else { return }
+        do {
+            var request = URLRequest(url: build.statusURL)
+            request.timeoutInterval = 10
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                let serverMessage = decodeServerError(data)
+                deviceBuildLogs = [serverMessage ?? "Unable to load device build: HTTP \(httpResponse.statusCode)."]
+                return
+            }
+            let decoded = try JSONDecoder().decode(DeviceBuildStatus.self, from: data)
+            deviceBuildStatus = decoded
+            upsertRecentDeviceBuild(
+                RecentDeviceBuild(
+                    session: build,
+                    displayName: decoded.app.name.isEmpty ? nil : decoded.app.name,
+                    bundleIdentifier: decoded.app.bundleIdentifier.isEmpty ? nil : decoded.app.bundleIdentifier,
+                    state: decoded.state
+                )
+            )
+            await fetchDeviceBuildLogs()
+        } catch {
+            deviceBuildLogs = ["Unable to load device build: \(error.localizedDescription)"]
+        }
+    }
+
+    private func decodeServerError(_ data: Data) -> String? {
+        guard let decoded = try? JSONDecoder().decode(ServerError.self, from: data) else { return nil }
+        return decoded.error
+    }
+
+    func fetchDeviceBuildLogs() async {
+        guard let build = currentDeviceBuild else { return }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: build.logsURL)
+            let decoded = try JSONDecoder().decode(DeviceBuildLogs.self, from: data)
+            deviceBuildLogs = decoded.logs
+        } catch {
+            deviceBuildLogs = ["Unable to load build logs: \(error.localizedDescription)"]
         }
     }
 
@@ -252,6 +322,11 @@ final class SessionStore: ObservableObject {
         saveRecentSessions()
     }
 
+    func removeRecentDeviceBuild(_ recent: RecentDeviceBuild) {
+        recentDeviceBuilds.removeAll { $0.id == recent.id }
+        saveRecentDeviceBuilds()
+    }
+
     private func loadRecentSessions() {
         guard let data = UserDefaults.standard.data(forKey: recentSessionsKey),
               let decoded = try? JSONDecoder().decode([RecentSession].self, from: data) else {
@@ -274,6 +349,20 @@ final class SessionStore: ObservableObject {
         UserDefaults.standard.set(data, forKey: recentSessionsKey)
     }
 
+    private func loadRecentDeviceBuilds() {
+        guard let data = UserDefaults.standard.data(forKey: recentDeviceBuildsKey),
+              let decoded = try? JSONDecoder().decode([RecentDeviceBuild].self, from: data) else {
+            recentDeviceBuilds = []
+            return
+        }
+        recentDeviceBuilds = decoded.sorted { $0.lastOpened > $1.lastOpened }
+    }
+
+    private func saveRecentDeviceBuilds() {
+        guard let data = try? JSONEncoder().encode(recentDeviceBuilds) else { return }
+        UserDefaults.standard.set(data, forKey: recentDeviceBuildsKey)
+    }
+
     private func upsertRecentSession(_ recent: RecentSession) {
         var next = recentSessions.filter { existing in
             if existing.id == recent.id { return false }
@@ -294,6 +383,15 @@ final class SessionStore: ObservableObject {
         next.insert(recent, at: 0)
         recentSessions = Array(next.prefix(8))
         saveRecentSessions()
+    }
+
+    private func upsertRecentDeviceBuild(_ recent: RecentDeviceBuild) {
+        var next = recentDeviceBuilds.filter { existing in
+            existing.id != recent.id
+        }
+        next.insert(recent, at: 0)
+        recentDeviceBuilds = Array(next.prefix(8))
+        saveRecentDeviceBuilds()
     }
 
     private func loadPairedMac() {
@@ -525,12 +623,171 @@ struct SimulatorSession: Identifiable, Equatable {
     }
 }
 
+struct DeviceBuildSession: Identifiable, Equatable {
+    let id: String
+    let token: String
+    let baseURL: URL
+
+    var statusURL: URL {
+        baseURL.appending(path: "api/device-builds/\(id)").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var logsURL: URL {
+        baseURL.appending(path: "api/device-builds/\(id)/logs").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var installPageURL: URL {
+        baseURL.appending(path: "d/\(id)").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var manifestURL: URL {
+        baseURL.appending(path: "api/device-builds/\(id)/artifact/manifest").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var installURL: URL? {
+        let escapedManifest = manifestURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? manifestURL.absoluteString
+        return URL(string: "itms-services://?action=download-manifest&url=\(escapedManifest)")
+    }
+
+    init(id: String, token: String, baseURL: URL) {
+        self.id = id
+        self.token = token
+        self.baseURL = baseURL
+    }
+
+    init?(url: URL) {
+        if url.scheme == "swift-sim" {
+            guard url.host == "device-build" else { return nil }
+            let id = url.pathComponents.dropFirst().first ?? ""
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let token = components?.queryItems?.first(where: { $0.name == "token" })?.value ?? ""
+            let base = components?.queryItems?.first(where: { $0.name == "base" })?.value ?? ""
+            guard !id.isEmpty, !token.isEmpty, let baseURL = URL(string: base) else { return nil }
+            self.id = id
+            self.token = token
+            self.baseURL = baseURL
+            return
+        }
+
+        guard url.scheme == "https" || url.scheme == "http" else { return nil }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let token = components?.queryItems?.first(where: { $0.name == "token" })?.value ?? ""
+        let parts = url.pathComponents
+        guard parts.count >= 3, parts[1] == "d", !token.isEmpty else { return nil }
+        self.id = parts[2]
+        self.token = token
+        var baseComponents = URLComponents()
+        baseComponents.scheme = url.scheme
+        baseComponents.host = url.host
+        baseComponents.port = url.port
+        guard let baseURL = baseComponents.url else { return nil }
+        self.baseURL = baseURL
+    }
+}
+
 struct SimulatorGestureEvent: Encodable {
     let type: String
     let x: Double
     let y: Double
     var scale: Double?
     var velocity: Double?
+}
+
+struct RecentDeviceBuild: Identifiable, Codable, Equatable {
+    let id: String
+    let token: String
+    let baseURLString: String
+    let displayName: String
+    let bundleIdentifier: String
+    let state: String
+    let lastOpened: Date
+
+    var session: DeviceBuildSession {
+        DeviceBuildSession(id: id, token: token, baseURL: URL(string: baseURLString)!)
+    }
+
+    var hostDisplayName: String {
+        URL(string: baseURLString)?.host ?? baseURLString
+    }
+
+    init(session: DeviceBuildSession, displayName: String?, bundleIdentifier: String?, state: String = "queued") {
+        self.id = session.id
+        self.token = session.token
+        self.baseURLString = session.baseURL.absoluteString
+        self.displayName = displayName ?? "Build \(session.id.prefix(6))"
+        self.bundleIdentifier = bundleIdentifier ?? ""
+        self.state = state
+        self.lastOpened = Date()
+    }
+
+    private init(id: String, token: String, baseURLString: String, displayName: String, bundleIdentifier: String, state: String, lastOpened: Date) {
+        self.id = id
+        self.token = token
+        self.baseURLString = baseURLString
+        self.displayName = displayName
+        self.bundleIdentifier = bundleIdentifier
+        self.state = state
+        self.lastOpened = lastOpened
+    }
+
+    func touch() -> RecentDeviceBuild {
+        RecentDeviceBuild(
+            id: id,
+            token: token,
+            baseURLString: baseURLString,
+            displayName: displayName,
+            bundleIdentifier: bundleIdentifier,
+            state: state,
+            lastOpened: Date()
+        )
+    }
+}
+
+struct DeviceBuildStatus: Decodable, Equatable {
+    let id: String
+    let expiresAt: String
+    let state: String
+    let app: DeviceBuildApp
+    let signing: DeviceBuildSigning
+    let preserveData: Bool
+    let links: DeviceBuildLinks?
+
+    var isReady: Bool {
+        state == "ready"
+    }
+
+    var expiryDate: Date? {
+        ISO8601DateFormatter().date(from: expiresAt)
+    }
+}
+
+struct DeviceBuildApp: Decodable, Equatable {
+    let name: String
+    let bundleIdentifier: String
+    let version: String
+    let build: String
+    let teamID: String
+}
+
+struct DeviceBuildSigning: Decodable, Equatable {
+    let method: String
+    let deviceInstallable: Bool
+    let updateSafe: String
+    let warnings: [String]
+}
+
+struct DeviceBuildLinks: Decodable, Equatable {
+    let universalLink: String
+    let customScheme: String
+    let installURL: String
+}
+
+private struct ServerError: Decodable {
+    let error: String
+}
+
+private struct DeviceBuildLogs: Decodable {
+    let logs: [String]
 }
 
 struct SimulatorMultiTouchEvent: Encodable {

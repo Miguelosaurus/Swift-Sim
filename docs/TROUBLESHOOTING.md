@@ -78,6 +78,7 @@ Use one of these paths:
 
 - tap **Open Simulator in Companion App** on the fallback page
 - open the printed `swift-sim://session/...` link
+- open the printed `swift-sim://device-build/...` link for device builds
 - paste the custom link into Swift Sim's Paste Link sheet
 
 See [Setup: Universal Links](SETUP.md#universal-links) for optional entitlement configuration.
@@ -97,6 +98,61 @@ scripts/codex/open-simulator-session.sh \
 ```
 
 Do not edit token query parameters manually.
+
+## Device Build Fails During Signing
+
+Run the same command with `--allow-provisioning-updates` if you want Xcode to repair profiles:
+
+```sh
+scripts/codex/build-device.sh \
+  --project "<path>" \
+  --scheme "<scheme>" \
+  --remote-base-url "<suggestedRemoteBaseUrl>" \
+  --allow-provisioning-updates
+```
+
+Then check:
+
+- the app builds for `generic/platform=iOS`
+- Xcode has your Apple Developer team selected
+- the bundle identifier belongs to that team
+- the iPhone is registered in the Apple Developer account or included by the profile
+- any required capabilities are enabled for that App ID
+
+Swift Sim signs with your development setup. It does not bypass Apple's provisioning rules.
+
+## Install Page Says Build Not Ready
+
+The archive/export is still running or failed. Open the build in Swift Sim and check the log, or query:
+
+```sh
+curl "<build-status-url>"
+```
+
+If the state is `failed`, fix the Xcode error and ask Codex to build to phone again.
+
+## Install Link Expired
+
+Create a fresh device build. Install pages are intentionally temporary.
+
+```sh
+scripts/codex/build-device.sh \
+  --project "<path>" \
+  --scheme "<scheme>" \
+  --remote-base-url "<suggestedRemoteBaseUrl>"
+```
+
+## App Installed As A Second App
+
+The bundle identifier changed. iOS treats that as a different app and cannot reuse the old app container.
+
+Use the same bundle identifier for every update build if you want app data and login state to remain.
+
+## App Updated But Login Or Keychain Data Is Gone
+
+Check whether the signing team, keychain access group, App Group, or other entitlements changed. iOS app data is preserved for normal updates, but keychain and shared-container access depends on compatible entitlements.
+
+Build again with the original team and entitlements if you need the existing data.
 
 ## Stream Is Blank Or Frozen
 
@@ -148,8 +204,11 @@ Confirm:
 
 - the iPhone trusts the Mac
 - Developer Mode is enabled on the iPhone
+- the iPhone is unlocked while Xcode mounts development services
 - Xcode has a valid development team
 - the bundle identifier belongs to that team
 - the phone is unlocked for the first launch
 
 Then retry [Setup: Install The iOS Companion](SETUP.md#4-install-the-ios-companion).
+
+If Xcode says the device is unavailable because the Developer Disk Image is not mounted, unlock the iPhone, keep it connected, accept any trust/developer prompt, then rerun the install command.

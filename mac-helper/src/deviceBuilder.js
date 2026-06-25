@@ -1,0 +1,337 @@
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { basename, extname, join } from "node:path";
+import { homedir } from "node:os";
+
+export class DeviceBuildError extends Error {}
+
+export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
+  const saveBuild = () => save?.(build);
+  const log = (message) => {
+    build.logs.push(message);
+    logger(message);
+    saveBuild();
+  };
+
+  try {
+    build.state = "preparing";
+    saveBuild();
+    const target = resolveTarget(build);
+    const root = join(homedir(), ".swift-sim", "device-builds", build.id);
+    const archivePath = join(root, `${safeName(build.scheme || "App")}.xcarchive`);
+    const exportPath = join(root, "export");
+    const manifestPath = join(root, "manifest.plist");
+    mkdirSync(exportPath, { recursive: true });
+
+    build.artifacts.root = root;
+    build.artifacts.archivePath = archivePath;
+    build.artifacts.exportPath = exportPath;
+    build.artifacts.manifestPath = manifestPath;
+    saveBuild();
+
+    log("Reading Xcode signing settings.");
+    const settings = await readBuildSettings({
+      target,
+      scheme: build.scheme,
+      configuration: build.configuration,
+      allowProvisioningUpdates: build.allowProvisioningUpdates,
+    });
+    build.app.bundleIdentifier = settings.PRODUCT_BUNDLE_IDENTIFIER || "";
+    build.app.version = settings.MARKETING_VERSION || "";
+    build.app.build = settings.CURRENT_PROJECT_VERSION || "";
+    build.app.teamID = settings.DEVELOPMENT_TEAM || "";
+    build.signing.style = settings.CODE_SIGN_STYLE || "";
+    build.signing.deviceInstallable = Boolean(build.app.bundleIdentifier && build.app.teamID);
+    build.signing.updateSafe = build.preserveData ? "same-bundle-update" : "reinstall-requested";
+    build.signing.warnings = updateSafetyWarnings(build);
+    saveBuild();
+
+    build.state = "archiving";
+    saveBuild();
+    log("Archiving for generic iOS device.");
+    await runLogged("xcodebuild", [
+      ...targetArgs(target),
+      "-scheme", required(build.scheme, "scheme"),
+      "-configuration", build.configuration || "Release",
+      "-destination", "generic/platform=iOS",
+      "-archivePath", archivePath,
+      ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
+      "archive",
+    ], log);
+
+    build.state = "exporting";
+    saveBuild();
+    log("Exporting signed IPA.");
+    const exportOptionsPath = join(root, "ExportOptions.plist");
+    writeFileSync(exportOptionsPath, exportOptionsPlist(build), "utf8");
+    await runLogged("xcodebuild", [
+      "-exportArchive",
+      "-archivePath", archivePath,
+      "-exportPath", exportPath,
+      "-exportOptionsPlist", exportOptionsPath,
+      ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
+    ], log);
+
+    const ipaPath = findIpa(exportPath);
+    if (!ipaPath) throw new DeviceBuildError("Xcode export finished, but no IPA was produced.");
+    build.artifacts.ipaPath = ipaPath;
+    build.app.name = displayNameFromIpa(ipaPath) || build.scheme || basename(ipaPath, ".ipa");
+
+    build.state = "ready";
+    saveBuild();
+    log("Build is ready to install.");
+    return build;
+  } catch (error) {
+    build.state = "failed";
+    build.logs.push(error instanceof Error ? error.message : String(error));
+    saveBuild();
+    throw error;
+  }
+}
+
+export function buildManifest(build, remoteBaseUrl) {
+  const base = normalizeBaseUrl(remoteBaseUrl || build.remoteBaseUrl);
+  if (!base) throw new DeviceBuildError("A remote base URL is required before creating the install manifest.");
+  const ipaURL = `${base}/api/device-builds/${encodeURIComponent(build.id)}/artifact/ipa?token=${encodeURIComponent(build.token)}`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>items</key>
+  <array>
+    <dict>
+      <key>assets</key>
+      <array>
+        <dict>
+          <key>kind</key>
+          <string>software-package</string>
+          <key>url</key>
+          <string>${escapeXml(ipaURL)}</string>
+        </dict>
+      </array>
+      <key>metadata</key>
+      <dict>
+        <key>bundle-identifier</key>
+        <string>${escapeXml(build.app.bundleIdentifier || "unknown.bundle")}</string>
+        <key>bundle-version</key>
+        <string>${escapeXml(build.app.build || build.app.version || "1")}</string>
+        <key>kind</key>
+        <string>software</string>
+        <key>title</key>
+        <string>${escapeXml(build.app.name || build.scheme || "iOS App")}</string>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>
+`;
+}
+
+export function deviceBuildLinks(build, remoteBaseUrl = "") {
+  const base = normalizeBaseUrl(remoteBaseUrl || build.remoteBaseUrl);
+  const universalLink = base
+    ? `${base}/d/${encodeURIComponent(build.id)}?token=${encodeURIComponent(build.token)}`
+    : "";
+  const manifestURL = base
+    ? `${base}/api/device-builds/${encodeURIComponent(build.id)}/artifact/manifest?token=${encodeURIComponent(build.token)}`
+    : "";
+  return {
+    universalLink,
+    customScheme: `swift-sim://device-build/${encodeURIComponent(build.id)}?token=${encodeURIComponent(build.token)}${base ? `&base=${encodeURIComponent(base)}` : ""}`,
+    installURL: manifestURL ? `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestURL)}` : "",
+  };
+}
+
+export function publicDeviceBuild(build) {
+  return {
+    id: build.id,
+    createdAt: build.createdAt,
+    updatedAt: build.updatedAt,
+    expiresAt: build.expiresAt,
+    state: build.state,
+    app: build.app,
+    signing: {
+      method: build.signing.method,
+      deviceInstallable: build.signing.deviceInstallable,
+      updateSafe: build.signing.updateSafe,
+      warnings: build.signing.warnings,
+    },
+    preserveData: build.preserveData,
+    links: deviceBuildLinks(build, build.remoteBaseUrl),
+  };
+}
+
+function resolveTarget(build) {
+  const project = build.project || "";
+  const workspace = build.workspace || "";
+  if (workspace) return { type: "workspace", path: workspace };
+  if (project) {
+    const extension = extname(project);
+    if (extension === ".xcworkspace") return { type: "workspace", path: project };
+    return { type: "project", path: project };
+  }
+  throw new DeviceBuildError("Missing project or workspace path.");
+}
+
+async function readBuildSettings({ target, scheme, configuration, allowProvisioningUpdates }) {
+  const result = await runBuffered("xcodebuild", [
+    ...targetArgs(target),
+    "-scheme", required(scheme, "scheme"),
+    "-configuration", configuration || "Release",
+    "-destination", "generic/platform=iOS",
+    ...(allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
+    "-showBuildSettings",
+  ]);
+  if (result.code !== 0) {
+    throw new DeviceBuildError(result.error || result.stderr || result.stdout || "Unable to read Xcode build settings.");
+  }
+  return parseBuildSettings(result.stdout);
+}
+
+function parseBuildSettings(output) {
+  const settings = {};
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+    if (match) settings[match[1]] = match[2].trim();
+  }
+  return settings;
+}
+
+function targetArgs(target) {
+  return target.type === "workspace"
+    ? ["-workspace", target.path]
+    : ["-project", target.path];
+}
+
+async function runLogged(command, args, log) {
+  const result = await runBuffered(command, args, { onLine: log, timeoutMs: 30 * 60 * 1000 });
+  if (result.code !== 0) {
+    throw new DeviceBuildError(result.error || result.stderr || result.stdout || `${command} failed with exit code ${result.code}`);
+  }
+  return result;
+}
+
+function runBuffered(command, args, { onLine, timeoutMs = 120_000 } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let stdoutPending = "";
+    let stderrPending = "";
+    let settled = false;
+
+    const flushLines = (chunk, isError) => {
+      const value = chunk.toString("utf8");
+      const combined = (isError ? stderrPending : stdoutPending) + value;
+      const lines = combined.split(/\r?\n/);
+      const pending = lines.pop() || "";
+      if (isError) stderrPending = pending;
+      else stdoutPending = pending;
+      for (const line of lines) {
+        if (line.trim()) onLine?.(line);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      resolve({ code: null, stdout, stderr, error: `${command} timed out` });
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      flushLines(chunk, false);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+      flushLines(chunk, true);
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code: null, stdout, stderr, error: error.message });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (stdoutPending.trim()) onLine?.(stdoutPending);
+      if (stderrPending.trim()) onLine?.(stderrPending);
+      resolve({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
+    });
+  });
+}
+
+function exportOptionsPlist(build) {
+  const teamID = build.app.teamID ? `<key>teamID</key>\n  <string>${escapeXml(build.app.teamID)}</string>` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key>
+  <string>${escapeXml(build.exportMethod || "development")}</string>
+  <key>signingStyle</key>
+  <string>automatic</string>
+  <key>stripSwiftSymbols</key>
+  <true/>
+  <key>compileBitcode</key>
+  <false/>
+  ${teamID}
+</dict>
+</plist>
+`;
+}
+
+function findIpa(exportPath) {
+  if (!existsSync(exportPath)) return "";
+  const candidates = readdirSync(exportPath)
+    .filter((file) => file.endsWith(".ipa"))
+    .map((file) => join(exportPath, file));
+  return candidates[0] || "";
+}
+
+function displayNameFromIpa(ipaPath) {
+  const name = basename(ipaPath, ".ipa").trim();
+  return name || "";
+}
+
+function updateSafetyWarnings(build) {
+  const warnings = [];
+  if (!build.app.bundleIdentifier) {
+    warnings.push("Bundle identifier could not be detected. Swift Sim cannot prove this will update the existing app.");
+  }
+  if (!build.app.teamID) {
+    warnings.push("Development team could not be detected. Device install may fail until Xcode signing is configured.");
+  }
+  if (build.exportMethod !== "development" && build.exportMethod !== "ad-hoc") {
+    warnings.push("Use development or ad-hoc export for direct device installs.");
+  }
+  if (build.preserveData) {
+    warnings.push("App data is preserved only when the installed app uses the same bundle identifier, team, and compatible entitlements.");
+  }
+  return warnings;
+}
+
+function safeName(value) {
+  return String(value).replace(/[^a-zA-Z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "") || "App";
+}
+
+function normalizeBaseUrl(value) {
+  return String(value || "").replace(/\/+$/, "");
+}
+
+function required(value, name) {
+  if (!value) throw new DeviceBuildError(`Missing ${name}.`);
+  return value;
+}
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&apos;");
+}

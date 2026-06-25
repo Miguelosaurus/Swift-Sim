@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
@@ -14,9 +14,16 @@ import {
 import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
 import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
 import { SessionStore } from "../src/sessionStore.js";
+import { DeviceBuildStore } from "../src/deviceBuildStore.js";
 import { PairingStore } from "../src/pairingStore.js";
 import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
 import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";
+import {
+  buildManifest,
+  deviceBuildLinks,
+  publicDeviceBuild,
+  runDeviceBuild,
+} from "../src/deviceBuilder.js";
 import {
   badRequest,
   json,
@@ -31,6 +38,7 @@ const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
 
 const store = new SessionStore();
+const deviceBuildStore = new DeviceBuildStore();
 const pairingStore = new PairingStore();
 const simulatorProfiles = new SimulatorProfileResolver();
 const adapter = new ServeSimAdapter();
@@ -121,6 +129,17 @@ async function main() {
     return;
   }
 
+  if (command === "build-device") {
+    const { values } = parseArgs({
+      args: rest,
+      options: commonDeviceBuildOptions(),
+    });
+    const build = await createDeviceBuild(values);
+    await runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) });
+    console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
+    return;
+  }
+
   if (command === "stop-session") {
     const { values } = parseArgs({
       args: rest,
@@ -153,6 +172,20 @@ function commonSessionOptions() {
     "remote-base-url": { type: "string" },
     port: { type: "string" },
     transport: { type: "string" },
+  };
+}
+
+function commonDeviceBuildOptions() {
+  return {
+    project: { type: "string" },
+    workspace: { type: "string" },
+    scheme: { type: "string" },
+    configuration: { type: "string" },
+    "remote-base-url": { type: "string" },
+    "export-method": { type: "string" },
+    "ttl-minutes": { type: "string" },
+    "allow-provisioning-updates": { type: "boolean" },
+    "replace-app-data": { type: "boolean" },
   };
 }
 
@@ -222,6 +255,80 @@ async function serve({ host, port }) {
           transport: body.transport,
         });
         return json(res, 201, session);
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/device-builds") {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
+        return json(res, 200, {
+          builds: deviceBuildStore.list().slice(0, 20).map(publicDeviceBuild),
+        });
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/device-builds/start") {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
+        const body = await readJson(req);
+        const build = await createDeviceBuild({
+          project: body.project,
+          workspace: body.workspace,
+          scheme: body.scheme,
+          configuration: body.configuration,
+          "remote-base-url": body.remoteBaseUrl,
+          "export-method": body.exportMethod,
+          "ttl-minutes": body.ttlMinutes,
+          "allow-provisioning-updates": Boolean(body.allowProvisioningUpdates),
+          "replace-app-data": Boolean(body.replaceAppData),
+        });
+        runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) }).catch(() => {});
+        return json(res, 202, publicDeviceBuild(build));
+      }
+
+      const deviceBuildMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links))?$/);
+      if (deviceBuildMatch) {
+        const [, buildId, action] = deviceBuildMatch;
+        const build = deviceBuildStore.get(buildId);
+        if (!build) return notFound(res, "Unknown device build.");
+        if (!tokenMatches(build, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        if (req.method === "GET" && !action) {
+          return json(res, 200, publicDeviceBuild(build));
+        }
+        if (req.method === "GET" && action === "logs") {
+          return json(res, 200, { buildId, logs: build.logs.slice(-300) });
+        }
+        if (req.method === "GET" && action === "links") {
+          build.remoteBaseUrl = build.remoteBaseUrl || `${url.protocol}//${url.host}`;
+          deviceBuildStore.save(build);
+          return json(res, 200, deviceBuildLinks(build, build.remoteBaseUrl));
+        }
+      }
+
+      const deviceArtifactMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/);
+      if (deviceArtifactMatch && req.method === "GET") {
+        const [, buildId, artifact] = deviceArtifactMatch;
+        const build = deviceBuildStore.get(buildId);
+        if (!build) return notFound(res, "Unknown device build.");
+        if (!tokenMatches(build, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        if (deviceBuildExpired(build)) {
+          return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
+        }
+        if (build.state !== "ready") {
+          return badRequest(res, 409, "Device build is not ready yet.");
+        }
+        const remoteBaseUrl = build.remoteBaseUrl || `${url.protocol}//${url.host}`;
+        if (artifact === "manifest") {
+          return text(res, 200, buildManifest(build, remoteBaseUrl), "text/xml; charset=utf-8");
+        }
+        return serveFile(res, build.artifacts.ipaPath, {
+          contentType: "application/octet-stream",
+          filename: `${build.app.name || build.scheme || "App"}.ipa`,
+        });
       }
 
       const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(logs|stop|links))?$/);
@@ -363,6 +470,23 @@ async function serve({ host, port }) {
           return unauthorized(res);
         }
         return text(res, 200, sessionFallbackHtml(session), "text/html; charset=utf-8");
+      }
+
+      const deviceWebMatch = url.pathname.match(/^\/d\/([^/]+)$/);
+      if (deviceWebMatch) {
+        const build = deviceBuildStore.get(deviceWebMatch[1]);
+        if (!build) return notFound(res, "Unknown device build.");
+        if (!tokenMatches(build, url.searchParams.get("token"))) {
+          return unauthorized(res);
+        }
+        if (deviceBuildExpired(build)) {
+          return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
+        }
+        if (!build.remoteBaseUrl) {
+          build.remoteBaseUrl = `${url.protocol}//${url.host}`;
+          deviceBuildStore.save(build);
+        }
+        return text(res, 200, deviceBuildFallbackHtml(build), "text/html; charset=utf-8");
       }
 
       if (req.method === "GET" && url.pathname === "/pair") {
@@ -1140,6 +1264,36 @@ function normalizeMultiTouchEvent(event) {
   return { type, x1, y1, x2, y2 };
 }
 
+async function createDeviceBuild(values) {
+  const build = deviceBuildStore.create({
+    project: values.project || "",
+    workspace: values.workspace || "",
+    scheme: required(values.scheme, "scheme"),
+    configuration: values.configuration || "Release",
+    remoteBaseUrl: values["remote-base-url"] || "",
+    exportMethod: values["export-method"] || "development",
+    ttlMinutes: values["ttl-minutes"] ? Number(values["ttl-minutes"]) : 30,
+    preserveData: !values["replace-app-data"],
+  });
+  build.allowProvisioningUpdates = Boolean(values["allow-provisioning-updates"]);
+  deviceBuildStore.save(build);
+  return build;
+}
+
+function serveFile(res, path, { contentType, filename }) {
+  if (!path || !existsSync(path)) {
+    return notFound(res, "Artifact is unavailable.");
+  }
+  const stat = statSync(path);
+  res.writeHead(200, {
+    "content-type": contentType,
+    "content-length": stat.size,
+    "content-disposition": `attachment; filename="${String(filename || "download").replaceAll("\"", "")}"`,
+    "cache-control": "private, no-store",
+  });
+  createReadStream(path).pipe(res);
+}
+
 function required(value, name) {
   if (!value || typeof value !== "string") {
     throw new Error(`Missing required ${name}.`);
@@ -1159,6 +1313,11 @@ function pairingTokenMatches(req, url) {
 
 function tokenMatches(session, token) {
   return Boolean(token && token === session.token);
+}
+
+function deviceBuildExpired(build) {
+  const expiresAt = Date.parse(build.expiresAt || "");
+  return Number.isFinite(expiresAt) && expiresAt < Date.now();
 }
 
 function sessionFallbackHtml(session) {
@@ -1226,6 +1385,61 @@ function pairingFallbackHtml({ token, base }) {
 </html>`;
 }
 
+function deviceBuildFallbackHtml(build) {
+  const links = deviceBuildLinks(build, build.remoteBaseUrl);
+  const customSchemeScript = JSON.stringify(links.customScheme);
+  const installURL = links.installURL || "#";
+  const warnings = (build.signing.warnings || [])
+    .map((warning) => `<li>${escapeHtml(warning)}</li>`)
+    .join("");
+  const stateLine = build.state === "ready"
+    ? "Ready to install on this iPhone"
+    : build.state === "failed"
+      ? "Build failed"
+      : "Build is still running";
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install ${escapeHtml(build.app.name || build.scheme || "iOS App")}</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f7fbff; color: #101318; }
+    main { width: min(520px, calc(100vw - 34px)); padding: 28px; border-radius: 34px; background: rgba(255,255,255,.86); box-shadow: 0 24px 70px rgba(31,44,64,.13); border: 1px solid rgba(20,30,45,.08); }
+    .status { display: inline-flex; align-items: center; gap: 8px; color: #65707c; font-size: 15px; font-weight: 750; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: ${build.state === "ready" ? "#34c759" : build.state === "failed" ? "#ff3b30" : "#ffcc00"}; display: inline-block; }
+    h1 { margin: 14px 0 8px; font-size: 34px; line-height: 1.04; letter-spacing: 0; }
+    p { color: #626b76; font-size: 17px; line-height: 1.4; }
+    .meta { margin: 16px 0 0; padding: 14px; border-radius: 18px; background: rgba(118,142,170,.1); color: #4c5864; font-size: 14px; }
+    a.button { display: block; margin-top: 18px; padding: 16px 18px; border-radius: 999px; color: white; background: ${build.state === "ready" ? "#1683ff" : "#8f98a3"}; text-align: center; text-decoration: none; font-weight: 850; pointer-events: ${build.state === "ready" ? "auto" : "none"}; }
+    a.secondary { display: block; margin-top: 12px; color: #1677ff; text-align: center; text-decoration: none; font-weight: 700; }
+    ul { margin: 12px 0 0; padding-left: 20px; color: #6b7280; font-size: 14px; line-height: 1.35; }
+    code { word-break: break-all; }
+  </style>
+  <script>
+    window.addEventListener("load", () => {
+      setTimeout(() => { window.location.href = ${customSchemeScript}; }, 200);
+    });
+  </script>
+</head>
+<body>
+  <main>
+    <div class="status"><span class="dot"></span>${escapeHtml(stateLine)}</div>
+    <h1>${escapeHtml(build.app.name || build.scheme || "iOS App")}</h1>
+    <p>This installs the real iPhone build signed by your Mac. Existing app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.</p>
+    <div class="meta">
+      <strong>${escapeHtml(build.app.bundleIdentifier || "Bundle ID pending")}</strong><br>
+      Expires ${escapeHtml(new Date(build.expiresAt).toLocaleString())}
+    </div>
+    ${warnings ? `<ul>${warnings}</ul>` : ""}
+    <a class="button" href="${escapeHtml(installURL)}">Install on iPhone</a>
+    <a class="secondary" href="${escapeHtml(links.customScheme)}">Open in Swift Sim</a>
+  </main>
+</body>
+</html>`;
+}
+
 function appleAppSiteAssociation() {
   const appId = process.env.SWIFT_SIM_IOS_APP_ID || "TEAMID.dev.local.SwiftSimCompanion";
   return {
@@ -1242,6 +1456,10 @@ function appleAppSiteAssociation() {
             {
               "/": "/pair",
               comment: "Pair Swift Sim companion with this Mac helper.",
+            },
+            {
+              "/": "/d/*",
+              comment: "Open Swift Sim device build installs.",
             },
           ],
         },
