@@ -538,8 +538,7 @@ final class SessionStore: ObservableObject {
     }
 
     private static func parseDate(_ value: String) -> Date? {
-        guard !value.isEmpty else { return nil }
-        return ISO8601DateFormatter().date(from: value)
+        SwiftSimISO8601.date(from: value)
     }
 
     private func loadPairedMac() {
@@ -1108,8 +1107,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
     }
 
     private static func parse(_ value: String?) -> Date? {
-        guard let value, !value.isEmpty else { return nil }
-        return ISO8601DateFormatter().date(from: value)
+        SwiftSimISO8601.date(from: value)
     }
 }
 
@@ -1131,7 +1129,7 @@ struct DeviceBuildStatus: Decodable, Equatable {
     }
 
     var expiryDate: Date? {
-        ISO8601DateFormatter().date(from: expiresAt)
+        SwiftSimISO8601.date(from: expiresAt)
     }
 
     init(cached build: ManagedBuild) {
@@ -1338,5 +1336,14 @@ private extension URL {
         let existing = components?.queryItems ?? []
         components?.queryItems = existing + queryItems
         return components?.url ?? self
+    }
+}
+
+private enum SwiftSimISO8601 {
+    static func date(from value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 }
