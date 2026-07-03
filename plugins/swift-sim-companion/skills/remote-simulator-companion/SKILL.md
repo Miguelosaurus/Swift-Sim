@@ -1,14 +1,16 @@
 ---
 name: remote-simulator-companion
-description: Use when Codex should preview an iOS app in a Mac Simulator through Swift Sim or build a signed real-device install for the Swift Sim native iOS companion app.
+description: Use when Codex should install or update a signed iOS app on an iPhone through Swift Sim, help configure Swift Sim, or preview an iOS app through the optional live Simulator companion.
 ---
 
 # Remote Simulator Companion
 
-Codex remains the only coding agent. This skill uses the lightweight Swift Sim helper for two workflows:
+Codex remains the only coding agent. This skill uses the lightweight Swift Sim helper for two workflows, in this priority order:
 
-- Preview an app in the Mac-hosted Xcode Simulator from the native Swift Sim iOS companion app.
 - Build, sign, and serve a real iPhone `.ipa` install/update from the Mac.
+- Preview an app in the Mac-hosted Xcode Simulator from the native Swift Sim iOS companion app.
+
+Real iPhone installs are the primary workflow. They work without Tailscale, simulator pairing, or a Swift Sim account. Live Simulator preview is an optional faster loop that requires private Tailscale setup.
 
 Important transport reality:
 
@@ -30,8 +32,6 @@ Do not use this skill to create a second AI agent. The helper is only a simulato
 
 ## Choose The Correct Lane
 
-Use the simulator lane when the user asks to preview UI, interact with a running simulator, see logs, or test a quick SwiftUI change.
-
 Use the device-build lane when the user says:
 
 - build to my phone
@@ -40,22 +40,52 @@ Use the device-build lane when the user says:
 - test real device APIs
 - TestFlight is too slow for this loop
 
+Also prefer the device-build lane when the user simply asks to test on their phone and does not explicitly ask for a Simulator. This is Swift Sim's default product path.
+
+Use the simulator lane when the user explicitly asks for a quick preview, live Simulator interaction, Simulator logs, or the Codex sidebar mirror.
+
 Do not uninstall the user's app for the device-build lane. Swift Sim's default path preserves app data by installing over the existing app. Warn the user if bundle identifier, signing team, or entitlements changed.
 
 ## Required Inputs
 
-You need:
+For every workflow you need:
 
 - Absolute project or workspace path.
 - Scheme.
-- Booted or selected Simulator UDID.
-- The Swift Sim checkout path in `SWIFT_SIM_HOME`, or a workspace that contains this repo.
-- Remote base URL for simulator preview, normally the Tailscale Serve HTTPS URL for the Mac helper. Device builds do not require one.
 
-Before the first pairing or simulator handoff in a Codex session, check setup:
+Simulator preview additionally needs a booted or selected Simulator UDID and the private Tailscale Serve URL.
+
+## Setup Contract
+
+Always use the installed `swift-sim` CLI. Do not ask normal users to clone the repository, run Node scripts by path, set `SWIFT_SIM_HOME`, or manually copy the plugin.
+
+At the first Swift Sim request in a thread, run:
 
 ```bash
-node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
+command -v swift-sim
+swift-sim doctor --json
+```
+
+If `swift-sim` is missing, offer to run the primary installation flow:
+
+```bash
+brew install miguelosaurus/tap/swift-sim
+swift-sim setup
+```
+
+`swift-sim setup` starts the helper, installs or refreshes this Codex plugin from the marketplace bundled in the same Homebrew release, and prints a readiness summary. After setup, use `swift-sim doctor --json` to diagnose only what remains.
+
+Read the report as two independent sections:
+
+- `deviceInstalls`: primary workflow. Xcode, helper, and Codex plugin must be ready. Tailscale is irrelevant.
+- `simulatorPreview`: optional workflow. Only require this section when the user requested live Simulator preview.
+
+When something is missing, explain and fix only the reported `needs-attention` item. Never dump the entire setup guide. If Xcode signing is informational, continue; the first project build provides the authoritative signing check.
+
+For detailed Simulator transport status, run:
+
+```bash
+swift-sim setup-status
 ```
 
 For simulator preview, if `ok` is true, use `suggestedRemoteBaseUrl`. If `ok` is false, follow `nextSteps` and explain only the missing pieces. For a device build, `deviceBuildReady` only requires the local helper; Tailscale setup is irrelevant.
@@ -80,7 +110,7 @@ Swift Sim has two different link types:
 The iOS app does not use an account or login. If the user says the app shows **Pair a Mac**, a gray status light, missing Mac setup, or asks to relink, generate a pairing URL:
 
 ```bash
-node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" pair \
+swift-sim pair \
   --remote-base-url "<tailscale-serve-url>"
 ```
 
@@ -115,8 +145,7 @@ When setup is healthy and the app is unpaired, Codex should give the pairing lin
 3. Start or reuse the Swift Sim session with the wrapper for that exact same Simulator UDID:
 
    ```bash
-   SWIFT_SIM_HOME="/path/to/Swift-Sim" \
-   "$SWIFT_SIM_HOME/scripts/codex/open-simulator-session.sh" \
+   swift-sim start-session \
      --project "<absolute-project-or-workspace-path>" \
      --scheme "<scheme>" \
      --simulator "<simulator-udid>" \
@@ -166,14 +195,14 @@ Required inputs:
 - Scheme.
 - A valid Apple Developer signing setup in Xcode.
 
-Before building, run setup-status as usual and confirm `deviceBuildReady` is true. The default lane signs locally, starts an account-free temporary HTTPS tunnel to a device-build-only gateway, and works without Tailscale or a Swift Sim login. Xcode uses the Apple Developer account already configured on the Mac; Swift Sim never handles Apple credentials.
+Before building, run `swift-sim doctor --json` and confirm `deviceInstalls.ready` is true. Do not require `simulatorPreview.ready` for this lane. The default lane signs locally, starts an account-free temporary HTTPS tunnel to a device-build-only gateway, and works without Tailscale or a Swift Sim login. Xcode uses the Apple Developer account already configured on the Mac; Swift Sim never handles Apple credentials.
 
 Install links last two hours by default. Use `--ttl-minutes <5-120>` only when the user requests a shorter window. The Mac must remain awake and online until installation finishes.
 
 Run:
 
 ```bash
-"$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
+swift-sim build-device \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
   --allow-provisioning-updates
@@ -221,7 +250,7 @@ Use this sequence:
 2. Set defaults if needed.
 3. `build_run_sim`.
 4. Verify with screenshot or UI description.
-5. Run `scripts/codex/open-simulator-session.sh` with the same Simulator UDID.
+5. Run `swift-sim start-session` with the same Simulator UDID.
 6. Open `codex.localPreviewUrl` in the Codex in-app browser and verify the nested simulator frame.
 7. Return the companion link.
 
@@ -259,16 +288,17 @@ Use the repo's normal build/run script if it has one. Otherwise:
 
 Use these branches when setup or links fail:
 
-- Missing `SWIFT_SIM_HOME`: set it to the Swift Sim repo checkout, or run commands from a workspace that contains this repo.
+- Missing `swift-sim`: install the signed release through Homebrew, then run setup.
 
   ```bash
-  export SWIFT_SIM_HOME="/path/to/Swift-Sim"
+  brew install miguelosaurus/tap/swift-sim
+  swift-sim setup
   ```
 
 - Missing simulator remote URL: ask for the Tailscale Serve HTTPS URL or have the user run:
 
   ```bash
-  node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
+  swift-sim setup-status
   tailscale serve 47217
   ```
 
@@ -281,7 +311,7 @@ Use these branches when setup or links fail:
   If it fails, start the helper:
 
   ```bash
-  node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" serve
+  swift-sim serve
   ```
 
   Then inspect `~/.swift-sim/helper.log` if it still fails.
@@ -294,7 +324,7 @@ Use these branches when setup or links fail:
 
 - HTTPS link opens the browser fallback page inside ChatGPT: this is expected when the companion app is not associated with that host. Tell the user to tap the page's open button or paste the `swift-sim://session/...` fallback into the Swift Sim app.
 
-- Session link says unauthorized or unknown session: create a fresh session by rerunning `scripts/codex/open-simulator-session.sh`, then return the new **Open Simulator in Companion App** link.
+- Session link says unauthorized or unknown session: create a fresh session with `swift-sim start-session`, then return the new **Open Simulator in Companion App** link.
 
 - Stream is blank, zoomed, slow, or controls do not work: run `setup-status` and check `transport.activeForPhone`. If it is `serve-sim`, treat the issue as fallback-transport quality unless local `serve-sim` is obviously dead. On `native-companion`, leave the link open for several seconds first: the app reconnects its decoder and the helper restarts a tracked `serve-sim` encoder that accepts input but emits no media. If it still fails, inspect `~/.swift-sim/helper.log`, create a fresh session, and never use an unscoped `serve-sim --kill`.
 
@@ -315,7 +345,7 @@ Use these branches when setup or links fail:
 Generate a setup/relink URL for the native iOS companion:
 
 ```bash
-node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" pair \
+swift-sim pair \
   --remote-base-url "<tailscale-serve-url>"
 ```
 
@@ -324,13 +354,13 @@ Give the user the returned `links.universalLink` when they need to pair the phon
 Inspect the current `serve-sim` adapter capability:
 
 ```bash
-node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" serve-sim-info
+swift-sim serve-sim-info
 ```
 
 Manually start the helper:
 
 ```bash
-node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" serve
+swift-sim serve
 ```
 
 Check helper health:
@@ -342,7 +372,7 @@ curl http://127.0.0.1:47217/health
 Build a real device install:
 
 ```bash
-"$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
+swift-sim build-device \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
   --allow-provisioning-updates

@@ -1,168 +1,123 @@
 # Codex Workflow
 
-Swift Sim does not add another AI agent. Codex is the only coding agent; the Mac helper manages simulator sessions, media, input, and signed device-build artifacts. There is no Swift Sim account. Simulator pairing is private through Tailscale, while device-build links work independently from any network.
+Codex is the only coding agent. Swift Sim contributes an installable plugin and a local helper; it does not create another agent or execute project source on the iPhone.
 
-## Install The Plugin
+## Installation
 
-The plugin source is:
-
-```text
-plugins/swift-sim-companion
-```
-
-Install or enable **Swift Sim Companion** from the local Codex marketplace used by your checkout. Start a new Codex thread after installing an updated plugin so the thread loads the current skill version.
-
-The plugin contains the `remote-simulator-companion` skill. It activates when the user asks Codex to preview an iOS Simulator session or build a real iPhone install through Swift Sim.
-
-## First Use In A Thread
-
-Codex should discover setup before asking the user for values:
+Normal users install everything through:
 
 ```sh
-node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
+brew install miguelosaurus/tap/swift-sim
+swift-sim setup
 ```
 
-For simulator preview, Codex should:
+`swift-sim setup` starts the Homebrew service and installs `swift-sim-companion` from the marketplace bundled in the same Homebrew package. Users should not clone the repository or manually copy the skill.
 
-1. Use `suggestedRemoteBaseUrl` when setup is healthy.
-2. Follow `nextSteps` when a prerequisite is missing.
-3. Inspect `transport.activeForPhone`.
-4. Explain only the missing setup step instead of dumping the full setup guide.
-
-If the app is unpaired, Codex should generate a pairing link:
-
-```sh
-node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" pair \
-  --remote-base-url "<suggestedRemoteBaseUrl>"
-```
-
-Pairing links and simulator-session links are different. A valid session link does not pair the Mac status panel automatically.
-
-For a device build, Codex only needs a healthy local helper and valid Xcode signing. Tailscale, simulator pairing, and `suggestedRemoteBaseUrl` are not prerequisites.
-
-## Choose The Right Lane
-
-Use **Preview in Simulator** when the user asks to see or interact with the app quickly, verify layout, inspect logs, or iterate on normal SwiftUI UI.
-
-Use **Build to iPhone** when the user asks to install on their phone, test real-device APIs, use camera/Bluetooth/push/HealthKit/widgets, or validate an update on the actual app.
-
-Do not build to phone by uninstalling first. The default behavior must preserve app data by installing over the existing app. Warn the user when bundle identifier, signing team, or entitlements changed.
-
-When Codex is unsure which lane the user wants, prefer:
-
-- simulator preview for fast visual/UI iteration
-- device build for real hardware behavior or "install/update on my phone"
-
-## Simulator Handoff Contract
-
-Codex should use one exact Simulator UDID from build through handoff:
-
-1. Select the project or workspace, scheme, and Simulator UDID.
-2. Build and launch the app on that simulator.
-3. Verify the launched UI.
-4. Start or reuse a Swift Sim session for the same UDID.
-5. Open the local preview in the Codex sidebar.
-6. Confirm it renders a real frame.
-7. Return the companion link.
-
-The stable wrapper command is:
-
-```sh
-SWIFT_SIM_HOME=/absolute/path/to/Swift-Sim \
-$SWIFT_SIM_HOME/scripts/codex/open-simulator-session.sh \
-  --project "<absolute project or workspace path>" \
-  --scheme "<scheme>" \
-  --simulator "<simulator UDID>" \
-  --remote-base-url "<Tailscale Serve URL>" \
-  --transport auto
-```
-
-The wrapper starts the helper if needed, reuses a matching healthy session, and prints JSON.
-
-## Output Rules
-
-Codex uses these values internally:
-
-- `codex.localPreviewUrl`
-- `codex.simulatorUDID`
-
-They prove that the sidebar preview and phone session point to the same simulator. Codex must not expose local ports, Simulator UDIDs, project paths, or stream internals in the final response.
-
-The user-facing response should end with:
-
-```md
-[Open Simulator in Companion App](https://your-private-host/s/opaque-session?token=opaque-token)
-```
-
-For a per-user Tailscale host, Codex should also provide `links.customScheme`. If ChatGPT opens the HTTPS page in a browser, the user can paste the custom link into Swift Sim.
-
-## Device Build Contract
-
-Device builds archive/export a real `.ipa` on the Mac, signed through the Apple Developer account already configured in Xcode. Swift Sim does not handle Apple credentials. The iPhone only downloads and installs the artifact; it does not build project code.
-
-Run:
-
-```sh
-"$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
-  --project "<absolute project path>" \
-  --scheme "<scheme>" \
-  --allow-provisioning-updates
-```
-
-Use `--workspace` instead of `--project` for `.xcworkspace` apps.
-
-Codex should parse the JSON and return:
-
-```md
-[Install on iPhone](https://random-words.trycloudflare.com/d/opaque-build?token=opaque-token)
-```
-
-The browser install page is the expected default and works without Tailscale. Also include `links.customScheme` when the native app is useful for build status and logs.
-
-The default delivery mode starts an account-free Cloudflare Quick Tunnel to a separate device-build-only gateway. Codex should verify:
-
-- `state` is `ready`
-- `delivery.mode` is `quick-tunnel`
-- the link uses HTTPS
-- `signing.deviceInstallable` is true
-
-The default install window is two hours. Codex may pass `--ttl-minutes <5-120>` when the user explicitly wants a shorter exposure window.
-
-If the user explicitly provides an independently secured endpoint, Codex may use `--delivery custom --remote-base-url <url>` instead. Never point a public custom URL at the unrestricted simulator helper.
-
-Update rules:
-
-- Same bundle ID + same team + compatible entitlements: safe update, app data should remain.
-- Different bundle ID: new app, no existing app data.
-- Different team or access groups: warn that keychain/app-group data may not carry over.
-- Never pass `--replace-app-data` unless the user explicitly asks for a clean install.
-
-Treat pairing, session, and device-build links as secrets. Do not paste them into commits, public issues, PR descriptions, or documentation examples with real values.
-
-## Recovery Behavior
-
-On the native path:
-
-- the iOS app queues dependent H.264 frames in order
-- decoder failure or backlog triggers a fresh stream connection and keyframe
-- the helper detects an encoder that accepts input but emits no media
-- recovery restarts only the tracked simulator stream
-- live keyboard input uses persistent WebSocket HID events
-
-Codex should allow several seconds for automatic recovery before replacing a session. If recovery fails, inspect `~/.swift-sim/helper.log`, then create a fresh session. Never run an unscoped `serve-sim --kill`.
-
-## XcodeBuildMCP
-
-When XcodeBuildMCP is available, Codex should prefer it for build, launch, screenshot, UI inspection, and interaction. Swift Sim starts only after the app has launched successfully.
-
-When it is unavailable, Codex may use the project's normal scripts or `xcodebuild` plus `simctl`. The same-UDID requirement does not change.
-
-## Skill Source Of Truth
-
-The executable Codex instructions live in:
+The executable plugin instructions live in:
 
 ```text
 plugins/swift-sim-companion/skills/remote-simulator-companion/SKILL.md
 ```
 
-Keep that skill synchronized with [Setup](SETUP.md), [Security](SECURITY.md), and [Troubleshooting](TROUBLESHOOTING.md).
+## First Request In A Thread
+
+Codex begins with:
+
+```sh
+command -v swift-sim
+swift-sim doctor --json
+```
+
+If the command is missing, Codex offers to install Swift Sim through Homebrew and runs `swift-sim setup`. Otherwise, it fixes only the item reported as needing attention.
+
+The doctor report deliberately separates:
+
+- `deviceInstalls`: primary workflow; does not require Tailscale
+- `simulatorPreview`: optional workflow; requires private Tailscale access
+
+Codex must not block an iPhone build because optional Simulator setup is incomplete.
+
+## Choose The Lane
+
+### Build To iPhone (Default)
+
+Use this lane for:
+
+- install or update on my phone
+- test on my iPhone
+- camera, Bluetooth, push, HealthKit, widgets, or other device APIs
+- a durable testing session without a streamed Simulator
+
+If the user asks only to test on their phone, prefer this lane.
+
+Run:
+
+```sh
+swift-sim build-device \
+  --project "<absolute project path>" \
+  --scheme "<scheme>" \
+  --allow-provisioning-updates
+```
+
+Use `--workspace` instead of `--project` for an `.xcworkspace` app.
+
+Codex verifies:
+
+- `state` is `ready`
+- `signing.deviceInstallable` is true
+- `delivery.mode` is `quick-tunnel`
+- `signing.updateSafe` is compatible with an in-place update
+- the returned link uses HTTPS
+
+Then end with:
+
+```md
+[Install on iPhone](https://random-words.trycloudflare.com/d/opaque-build?token=opaque-token)
+```
+
+The link is secret, works without Tailscale, and lasts two hours by default.
+
+Never uninstall first. The same bundle identifier, team, and compatible entitlements preserve the existing app container. Warn before proceeding when any of those values changed.
+
+### Live Simulator Preview (Optional)
+
+Use this lane only when the user asks for a live Simulator, quick UI preview, Simulator logs, or the Codex sidebar mirror.
+
+1. Run `swift-sim setup-status` and require the optional Simulator section to be healthy.
+2. Select one project/workspace, scheme, and Simulator UDID.
+3. Build and launch with XcodeBuildMCP when available.
+4. Verify the UI through a screenshot or UI description.
+5. Start the same Simulator session:
+
+   ```sh
+   swift-sim start-session \
+     --project "<absolute project path>" \
+     --scheme "<scheme>" \
+     --simulator "<simulator UDID>" \
+     --remote-base-url "<Tailscale Serve URL>" \
+     --transport auto
+   ```
+
+6. Open `codex.localPreviewUrl` in the Codex sidebar and confirm it renders.
+7. End with **Open Simulator in Companion App** using `links.universalLink`.
+
+Keep `links.customScheme` as the fallback for private Tailnet hosts. Never expose local ports, Simulator UDIDs, project paths, stream URLs, or process IDs in the user-facing response.
+
+## Setup Recovery
+
+Use the structured doctor output instead of guessing:
+
+- missing CLI: install Homebrew package and run `swift-sim setup`
+- helper unavailable: rerun `swift-sim setup`, then inspect `~/.swift-sim/helper.log`
+- plugin unavailable: rerun `swift-sim setup`; start a new Codex thread after installation
+- signing failure: report the exact Xcode error and relevant team, device, App ID, capability, or profile fix
+- Simulator preview unavailable: configure Tailscale only when the user requested that lane
+- dead install link: build again; do not redirect device installs through Tailscale
+
+Treat all pairing, session, and device-build links as secrets. Never paste live values into commits, issues, pull requests, or documentation.
+
+## Release Synchronization
+
+The Homebrew formula points at one immutable GitHub tag containing the CLI, helper, and local Codex marketplace. `swift-sim setup` registers that bundled marketplace through Homebrew's stable installation path, so the plugin and helper move together.
+
+Contributor setup is documented separately in [Development](DEVELOPMENT.md). It must exercise the same `swift-sim` CLI rather than introduce alternate helper behavior.

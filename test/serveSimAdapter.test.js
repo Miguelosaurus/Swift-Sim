@@ -54,7 +54,7 @@ test("ServeSimAdapter sends gesture JSON through the current serve-sim command",
       return { code: 0, stdout: "", stderr: "" };
     }
   }
-  const adapter = new RecordingAdapter({ packageName: "serve-sim@test" });
+  const adapter = new RecordingAdapter({ command: "npx", packageName: "serve-sim@test" });
   await adapter.gesture({ simulatorUDID: "SIM-1", event: { type: "move", x: 0.25, y: 0.75 } });
   assert.deepEqual(adapter.calls[0], [
     "--yes",

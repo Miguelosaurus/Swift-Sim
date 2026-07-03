@@ -20,6 +20,7 @@ struct ContentView: View {
 
 private struct HomeView: View {
     @EnvironmentObject private var sessionStore: SessionStore
+    @AppStorage("swiftSim.homeMode") private var homeMode = HomeMode.installs.rawValue
     @State private var searchText = ""
     @State private var showingMacSettings = false
     @State private var showingPasteLink = false
@@ -33,14 +34,33 @@ private struct HomeView: View {
         }
     }
 
+    private var filteredDeviceBuilds: [RecentDeviceBuild] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return sessionStore.recentDeviceBuilds }
+        return sessionStore.recentDeviceBuilds.filter {
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.bundleIdentifier.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var selectedMode: HomeMode {
+        HomeMode(rawValue: homeMode) ?? .installs
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 24) {
                     header
-                    macStatusPanel
-                    deviceBuildBoard
-                    sessionBoard
+                    modePicker
+
+                    if selectedMode == .installs {
+                        installStatusPanel
+                        deviceBuildBoard
+                    } else {
+                        macStatusPanel
+                        sessionBoard
+                    }
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 18)
@@ -62,28 +82,47 @@ private struct HomeView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Swift Sim")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                Text("Simulator preview and iPhone installs")
-                    .font(.callout.weight(.medium))
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Swift Sim")
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+            Text(selectedMode == .installs ? "Install and update iPhone apps" : "Live Simulator preview")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var modePicker: some View {
+        Picker("Mode", selection: $homeMode) {
+            Label("Install", systemImage: "iphone.and.arrow.forward")
+                .tag(HomeMode.installs.rawValue)
+            Label("Simulator", systemImage: "play.rectangle.on.rectangle")
+                .tag(HomeMode.simulator.rawValue)
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Swift Sim mode")
+    }
+
+    private var installStatusPanel: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "iphone.and.arrow.forward")
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(.green)
+                .frame(width: 50, height: 50)
+                .liquidGlassCircle(tint: Color.green.opacity(0.12), interactive: false)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Ready for iPhone Builds")
+                    .font(.headline.weight(.semibold))
+                Text("Signed by Xcode. No Tailscale required.")
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
             }
 
-            Spacer()
-
-            Button {
-                Task { await sessionStore.refresh() }
-            } label: {
-                Image(systemName: "arrow.trianglehead.clockwise")
-                    .font(.system(size: 23, weight: .semibold))
-                    .frame(width: 54, height: 54)
-            }
-            .buttonStyle(.plain)
-            .liquidGlassCircle(tint: Color(.systemBackground).opacity(0.3), interactive: true)
-            .accessibilityLabel("Refresh sessions")
+            Spacer(minLength: 8)
         }
+        .padding(14)
+        .liquidGlassPanel(cornerRadius: 26, tint: Color.green.opacity(0.08), interactive: false)
     }
 
     private var macStatusPanel: some View {
@@ -136,7 +175,7 @@ private struct HomeView: View {
     }
 
     private var simulatorStatusTitle: String {
-        sessionStore.recentSessions.isEmpty ? "Set Up Simulator" : "Simulator Paired"
+        sessionStore.recentSessions.isEmpty ? "Set Up Live Preview" : "Simulator Paired"
     }
 
     private var simulatorStatusDetail: String {
@@ -153,7 +192,7 @@ private struct HomeView: View {
     private var sessionBoard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Recent Projects")
+                Text("Simulator Sessions")
                     .font(.title3.weight(.bold))
                 Spacer()
                 Text("\(filteredSessions.count)")
@@ -187,10 +226,10 @@ private struct HomeView: View {
     private var deviceBuildBoard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Device Builds")
+                Text("iPhone Builds")
                     .font(.title3.weight(.bold))
                 Spacer()
-                Text("\(sessionStore.recentDeviceBuilds.count)")
+                Text("\(filteredDeviceBuilds.count)")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
@@ -198,11 +237,11 @@ private struct HomeView: View {
                     .liquidGlassCapsule(tint: .white.opacity(0.24), interactive: false)
             }
 
-            if sessionStore.recentDeviceBuilds.isEmpty {
+            if filteredDeviceBuilds.isEmpty {
                 EmptyDeviceBuildCard()
             } else {
                 VStack(spacing: 12) {
-                    ForEach(sessionStore.recentDeviceBuilds) { build in
+                    ForEach(filteredDeviceBuilds) { build in
                         SwipeToDeleteRow {
                             DeviceBuildRow(build: build)
                         } onOpen: {
@@ -225,7 +264,7 @@ private struct HomeView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.secondary)
 
-                TextField("Find a session", text: $searchText)
+                TextField(selectedMode == .installs ? "Find an iPhone build" : "Find a Simulator session", text: $searchText)
                     .font(.body.weight(.medium))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -244,7 +283,7 @@ private struct HomeView: View {
             }
             .buttonStyle(.plain)
             .liquidGlassCircle(tint: Color.blue.opacity(0.16), interactive: true)
-            .accessibilityLabel("Paste simulator link")
+            .accessibilityLabel("Paste Swift Sim link")
         }
         .padding(.horizontal, 18)
         .padding(.top, 14)
@@ -264,6 +303,11 @@ private struct HomeView: View {
     }
 }
 
+private enum HomeMode: String {
+    case installs
+    case simulator
+}
+
 private struct PasteLinkSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: SessionStore
@@ -273,7 +317,7 @@ private struct PasteLinkSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Text("Open Session")
+                Text("Open Swift Sim Link")
                     .font(.title2.weight(.bold))
                 Spacer()
                 Button {
@@ -318,7 +362,7 @@ private struct PasteLinkSheet: View {
             .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
             .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            Text("Use this if ChatGPT opens a simulator, build, or setup page in a browser instead of switching apps.")
+            Text("Paste an install, Simulator, or pairing link from Codex.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -386,7 +430,7 @@ private struct DeviceBuildView: View {
             Spacer()
 
             VStack(spacing: 3) {
-                Text("Device Build")
+                Text("Install on iPhone")
                     .font(.headline.weight(.bold))
                 HStack(spacing: 6) {
                     Circle()
@@ -511,7 +555,7 @@ private struct DeviceBuildView: View {
                     .frame(height: 58)
             }
             .buttonStyle(.plain)
-            .liquidGlassCapsule(tint: status?.isReady == true ? Color.blue.opacity(0.2) : Color.gray.opacity(0.12), interactive: status?.isReady == true)
+            .liquidGlassCapsule(tint: status?.isReady == true ? Color.green.opacity(0.2) : Color.gray.opacity(0.12), interactive: status?.isReady == true)
             .disabled(status?.isReady != true)
 
             if let expiry = status?.expiryDate {
@@ -650,7 +694,7 @@ private struct DeviceBuildRow: View {
 
             Image(systemName: build.state == "ready" ? "arrow.down.circle.fill" : "clock.fill")
                 .font(.system(size: 31, weight: .semibold))
-                .foregroundStyle(build.state == "ready" ? .blue : .secondary)
+                .foregroundStyle(build.state == "ready" ? .green : .secondary)
         }
         .padding(14)
         .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
@@ -742,12 +786,12 @@ private struct SwipeToDeleteRow<Content: View>: View {
 private struct EmptySessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            AppBadge(text: nil, isEmpty: true)
+            AppBadge(text: nil, isEmpty: true, symbol: "play.rectangle.on.rectangle")
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("No simulator sessions yet")
+                Text("No Simulator sessions yet")
                     .font(.title3.weight(.bold))
-                Text("Run the Codex companion skill and this board will fill with live Mac Simulator sessions.")
+                Text("Live previews from Codex appear here.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -762,12 +806,12 @@ private struct EmptySessionCard: View {
 private struct EmptyDeviceBuildCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            AppBadge(text: nil, isEmpty: true)
+            AppBadge(text: nil, isEmpty: true, symbol: "iphone.and.arrow.forward")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("No iPhone builds yet")
                     .font(.title3.weight(.bold))
-                Text("Ask Codex to build to your phone. The temporary link works on any network and preserves app data when signing stays compatible.")
+                Text("Signed install links from Codex appear here.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -775,13 +819,14 @@ private struct EmptyDeviceBuildCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .liquidGlassPanel(cornerRadius: 30, tint: Color.blue.opacity(0.08), interactive: false)
+        .liquidGlassPanel(cornerRadius: 30, tint: Color.green.opacity(0.08), interactive: false)
     }
 }
 
 private struct AppBadge: View {
     let text: String?
     let isEmpty: Bool
+    var symbol = "terminal.fill"
 
     var body: some View {
         ZStack {
@@ -799,7 +844,7 @@ private struct AppBadge: View {
                     .font(.system(size: 23, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
             } else {
-                Image(systemName: "terminal.fill")
+                Image(systemName: symbol)
                     .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(.white)
             }
@@ -830,42 +875,35 @@ private struct MacSettingsSheet: View {
                         Label("Check Connection", systemImage: "arrow.clockwise")
                     }
                 } footer: {
-                    Text("A saved simulator session can be reopened directly. Mac helper linking is a separate setup tool and is not required to open recent projects.")
+                    Text("Only needed for live Simulator preview. iPhone build installs work without this connection.")
                 }
 
                 Section {
                     ConnectionRequirementRow(
-                        icon: "sparkles.rectangle.stack.fill",
-                        tint: .blue,
-                        title: "1. Codex + plugin",
-                        detail: "Install the bundled Swift Sim companion plugin in the Codex desktop app on the Mac.",
-                        check: .notConfigured("Required on the Mac")
-                    )
-                    ConnectionRequirementRow(
                         icon: "lock.shield.fill",
                         tint: .blue,
-                        title: "2. Tailscale",
-                        detail: "The Mac and iPhone must be signed in to the same Tailnet. They do not need to share Wi-Fi.",
+                        title: "1. Private Network",
+                        detail: "Connect the Mac and iPhone to the same Tailscale Tailnet.",
                         check: sessionStore.tailscaleCheck
                     )
                     ConnectionRequirementRow(
                         icon: "server.rack",
                         tint: .blue,
-                        title: "3. Mac helper",
+                        title: "2. Mac Helper",
                         detail: helperRequirementDetail,
                         check: sessionStore.macHelperCheck
                     )
                     ConnectionRequirementRow(
                         icon: "play.rectangle.on.rectangle.fill",
                         tint: .blue,
-                        title: "4. Simulator session",
-                        detail: "Ask Codex to build and launch the app, then use the plugin to send this iPhone a private simulator session link.",
+                        title: "3. Live Session",
+                        detail: "Open the Simulator link returned by Codex.",
                         check: sessionStore.simulatorCheck
                     )
                 } header: {
-                    Text("What Swift Sim Needs")
+                    Text("Optional Simulator Setup")
                 } footer: {
-                    Text("Tailscale Serve exposes only the local helper over private HTTPS. Do not use Tailscale Funnel.")
+                    Text("On the Mac, run swift-sim setup, then tailscale serve 47217. Do not use Tailscale Funnel.")
                 }
 
                 Section("Mac Helper Access") {
@@ -898,7 +936,7 @@ private struct MacSettingsSheet: View {
                             Label("Forget Mac Helper", systemImage: "xmark.circle")
                         }
                     } else {
-                        Text("Optional: open a Mac helper link to enable connection diagnostics. Your saved simulator sessions remain available without it.")
+                        Text("Open a pairing link from Codex to add Mac status and connection diagnostics.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -913,7 +951,7 @@ private struct MacSettingsSheet: View {
                     }
                 }
             }
-            .navigationTitle("Simulator Connection")
+            .navigationTitle("Simulator Preview")
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 await sessionStore.refreshConnectionChecks()
@@ -940,9 +978,9 @@ private struct MacSettingsSheet: View {
 
     private var helperRequirementDetail: String {
         if let mac = sessionStore.pairedMac {
-            return "The helper is linked to \(mac.displayName) and must be running with Tailscale Serve on port 47217."
+            return "\(mac.displayName) must be running Swift Sim with Tailscale Serve on port 47217."
         }
-        return "The helper must be running on the Mac, with Tailscale Serve privately exposing port 47217."
+        return "Run Swift Sim on the Mac and privately expose port 47217 with Tailscale Serve."
     }
 
     private var helperStatusColor: Color {

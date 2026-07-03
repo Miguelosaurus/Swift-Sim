@@ -576,7 +576,7 @@ async function setupStatus({ host, port }) {
   }
 
   if (!helperHealth.ok) {
-    nextSteps.push(`Start the Swift Sim helper: node mac-helper/bin/swift-sim-helper.js serve --host ${host} --port ${port}`);
+    nextSteps.push("Run swift-sim setup to start the Mac helper.");
   }
 
   if (tailscale.online && !serveStatus.configured) {
@@ -584,7 +584,7 @@ async function setupStatus({ host, port }) {
   }
 
   if (remoteBaseUrl && helperHealth.ok && serveStatus.configured) {
-    nextSteps.push(`Generate an iPhone pairing link: node mac-helper/bin/swift-sim-helper.js pair --remote-base-url ${remoteBaseUrl}`);
+    nextSteps.push(`Generate an iPhone pairing link: swift-sim pair --remote-base-url ${remoteBaseUrl}`);
   }
 
   return {

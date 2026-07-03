@@ -1,15 +1,18 @@
 # Development
 
-## Helper Tests
+This guide is for contributors. End users should install the tagged Homebrew release; do not present source checkout as a second user setup path.
+
+## Local Checkout
 
 Run:
 
 ```sh
 npm ci
 npm run check
+npm link
 ```
 
-`npm run check` validates the helper entry point and runs the Node test suite.
+`npm link` exposes the same `swift-sim` CLI shipped by Homebrew. Contributor testing must use that command so setup behavior cannot drift from releases.
 
 ## Build The iOS Companion For Simulator
 
@@ -42,8 +45,8 @@ Start a new Codex thread after reinstalling so the new skill text is loaded.
 ## Manual Session Test
 
 1. Build and launch an app on a booted simulator.
-2. Run `setup-status` and copy `suggestedRemoteBaseUrl`.
-3. Run `scripts/codex/open-simulator-session.sh` with that simulator's UDID.
+2. Run `swift-sim setup-status` and copy `suggestedRemoteBaseUrl`.
+3. Run `swift-sim start-session` with that simulator's UDID.
 4. Open `codex.localPreviewUrl` locally.
 5. Open the companion link on an iPhone over cellular.
 6. Test tap, drag, keyboard, Home, rotation, logs, app backgrounding, and reconnect.
@@ -52,7 +55,7 @@ Start a new Codex thread after reinstalling so the new skill text is loaded.
 ## Manual Device Build Test
 
 1. Configure automatic development signing for a disposable iOS app.
-2. Run `scripts/codex/build-device.sh --project <path> --scheme <scheme> --allow-provisioning-updates` without a remote URL.
+2. Run `swift-sim build-device --project <path> --scheme <scheme> --allow-provisioning-updates` without a remote URL.
 3. Confirm `state` is `ready`, `delivery.mode` is `quick-tunnel`, and the link uses `https://*.trycloudflare.com`.
 4. Open the link on an iPhone with Tailscale disconnected and install the app.
 5. Save recognizable app data, increment the build number without changing bundle ID/team/entitlements, then install the update.

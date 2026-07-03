@@ -1,18 +1,27 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const bundledServeSim = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "node_modules", ".bin", "serve-sim");
+const pinnedServeSimPackage = "serve-sim@0.1.44";
 
 export class ServeSimError extends Error {}
 
 export class ServeSimAdapter {
-  constructor({ command = "npx", packageName = "serve-sim@latest" } = {}) {
+  constructor({
+    command = process.env.SWIFT_SIM_SERVE_SIM_COMMAND || (existsSync(bundledServeSim) ? bundledServeSim : "npx"),
+    packageName = pinnedServeSimPackage,
+  } = {}) {
     this.command = command;
     this.packageName = packageName;
   }
 
   async inspect() {
     const [version, help] = await Promise.all([
-      this.run(["--yes", this.packageName, "--version"], { allowFailure: true }),
-      this.run(["--yes", this.packageName, "--help"], { allowFailure: true }),
+      this.run(this.arguments(["--version"]), { allowFailure: true }),
+      this.run(this.arguments(["--help"]), { allowFailure: true }),
     ]);
     return {
       command: this.command,
@@ -36,11 +45,11 @@ export class ServeSimAdapter {
 
   async start({ simulatorUDID, port } = {}) {
     if (!simulatorUDID) throw new ServeSimError("Missing simulator UDID.");
-    const args = ["--yes", this.packageName, "--detach", "--quiet", "--host", "127.0.0.1"];
+    const args = ["--detach", "--quiet", "--host", "127.0.0.1"];
     if (port) args.push("--port", String(port));
     args.push(simulatorUDID);
 
-    const result = await this.run(args, { allowFailure: false });
+    const result = await this.run(this.arguments(args), { allowFailure: false });
     const parsed = parseServeSimOutput(result.stdout, result.stderr);
     if (!parsed.previewUrl) {
       throw new ServeSimError(`serve-sim did not return a preview URL. Output: ${result.stdout || result.stderr}`);
@@ -54,39 +63,43 @@ export class ServeSimAdapter {
 
   async kill(simulatorUDID) {
     if (!simulatorUDID) throw new ServeSimError("Refusing to run unscoped serve-sim --kill.");
-    return this.run(["--yes", this.packageName, "--kill", simulatorUDID], { allowFailure: true });
+    return this.run(this.arguments(["--kill", simulatorUDID]), { allowFailure: true });
   }
 
   async tap({ simulatorUDID, x, y }) {
-    return this.run(["--yes", this.packageName, "tap", String(x), String(y), "-d", simulatorUDID]);
+    return this.run(this.arguments(["tap", String(x), String(y), "-d", simulatorUDID]));
   }
 
   async gesture({ simulatorUDID, event }) {
-    return this.run(["--yes", this.packageName, "gesture", JSON.stringify(event), "-d", simulatorUDID]);
+    return this.run(this.arguments(["gesture", JSON.stringify(event), "-d", simulatorUDID]));
   }
 
   async type({ simulatorUDID, text }) {
-    return this.run(["--yes", this.packageName, "type", text, "-d", simulatorUDID]);
+    return this.run(this.arguments(["type", text, "-d", simulatorUDID]));
   }
 
   async rotate({ simulatorUDID, orientation }) {
-    return this.run(["--yes", this.packageName, "rotate", orientation, "-d", simulatorUDID]);
+    return this.run(this.arguments(["rotate", orientation, "-d", simulatorUDID]));
   }
 
   async button({ simulatorUDID, name = "home" }) {
-    return this.run(["--yes", this.packageName, "button", name, "-d", simulatorUDID]);
+    return this.run(this.arguments(["button", name, "-d", simulatorUDID]));
   }
 
   async ui({ simulatorUDID, args = [] }) {
-    return this.run(["--yes", this.packageName, "ui", ...args, "-d", simulatorUDID]);
+    return this.run(this.arguments(["ui", ...args, "-d", simulatorUDID]));
   }
 
   async caDebug({ simulatorUDID, option, state }) {
-    return this.run(["--yes", this.packageName, "ca-debug", option, state, "-d", simulatorUDID]);
+    return this.run(this.arguments(["ca-debug", option, state, "-d", simulatorUDID]));
   }
 
   async memoryWarning({ simulatorUDID }) {
-    return this.run(["--yes", this.packageName, "memory-warning", "-d", simulatorUDID]);
+    return this.run(this.arguments(["memory-warning", "-d", simulatorUDID]));
+  }
+
+  arguments(args) {
+    return this.command === "npx" ? ["--yes", this.packageName, ...args] : args;
   }
 
   async run(args, { allowFailure = false } = {}) {

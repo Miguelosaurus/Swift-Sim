@@ -1,239 +1,164 @@
 # Troubleshooting
 
-Start with:
+Start with the structured readiness check:
 
 ```sh
-node mac-helper/bin/swift-sim-helper.js setup-status
+swift-sim doctor
 ```
 
-Use the reported `nextSteps`. Do not guess the Mac hostname, helper port, or active transport.
+It separates primary iPhone-install requirements from optional Simulator-preview requirements. Fix only the item marked `needs-attention`.
 
-## Helper Is Offline
-
-Check localhost:
+## `swift-sim` Is Not Found
 
 ```sh
+brew install miguelosaurus/tap/swift-sim
+swift-sim setup
+```
+
+Open a new terminal after Homebrew finishes if the command is still missing.
+
+## Codex Does Not Know Swift Sim
+
+Run:
+
+```sh
+swift-sim setup
+```
+
+Then start a new Codex thread. Plugin instructions are loaded when a thread starts.
+
+Use `swift-sim doctor --json` to confirm `deviceInstalls.codexPlugin.ready` is true.
+
+## Mac Helper Is Unavailable
+
+Run setup again, then check the service:
+
+```sh
+swift-sim setup
+brew services list | grep swift-sim
 curl http://127.0.0.1:47217/health
 ```
 
-If it fails:
-
-```sh
-npm start
-```
-
-Then inspect:
+The health response should contain `"ok": true`. If it does not, inspect:
 
 ```sh
 tail -n 100 ~/.swift-sim/helper.log
+tail -n 100 "$(brew --prefix)/var/log/swift-sim.log"
 ```
-
-## Tailscale Is Not Ready
-
-This affects simulator preview only. Real iPhone install/update links do not require Tailscale.
-
-Verify both devices are signed into the same Tailnet. On the Mac:
-
-```sh
-tailscale status
-tailscale serve status
-```
-
-If the helper is not served privately:
-
-```sh
-tailscale serve 47217
-```
-
-Run `setup-status` again and use its `suggestedRemoteBaseUrl`.
-
-Same Wi-Fi is not required. Cellular works when both devices are online in the Tailnet.
-
-## App Shows Pair A Mac Or A Gray Light
-
-Generate a fresh pairing link:
-
-```sh
-node mac-helper/bin/swift-sim-helper.js pair \
-  --remote-base-url "<suggestedRemoteBaseUrl>"
-```
-
-Open the link on the iPhone. Use the printed `swift-sim://pair?...` fallback if HTTPS opens in a browser.
-
-## Mac Status Is Red
-
-Check, in order:
-
-1. Tailscale is connected on the Mac.
-2. Tailscale is connected on the iPhone.
-3. `curl http://127.0.0.1:47217/health` succeeds on the Mac.
-4. `tailscale serve status` points to port `47217`.
-5. The app is paired to the current `suggestedRemoteBaseUrl`.
-
-Relink after changing the Tailscale hostname or helper URL.
-
-## HTTPS Link Opens A Browser
-
-This is expected when the installed app is not entitled for that exact hostname.
-
-Use one of these paths:
-
-- tap **Open Simulator in Companion App** on the fallback page
-- open the printed `swift-sim://session/...` link
-- for device builds, use the normal HTTPS install page or open the printed `swift-sim://device-build/...` link
-- paste the custom link into Swift Sim's Paste Link sheet
-
-See [Setup: Universal Links](SETUP.md#universal-links) for optional entitlement configuration.
-
-## Link Is Unauthorized Or Unknown
-
-The token is wrong, the session no longer exists, or the link belongs to another helper state.
-
-Create a fresh link by rerunning:
-
-```sh
-scripts/codex/open-simulator-session.sh \
-  --project "<path>" \
-  --scheme "<scheme>" \
-  --simulator "<UDID>" \
-  --remote-base-url "<suggestedRemoteBaseUrl>"
-```
-
-Do not edit token query parameters manually.
 
 ## Device Build Fails During Signing
 
-Run the same command with `--allow-provisioning-updates` if you want Xcode to repair profiles:
+Swift Sim uses normal Xcode signing and does not bypass Apple's provisioning rules.
+
+Check:
+
+- an Apple Developer account is present in Xcode Settings
+- the target has a valid team and bundle identifier
+- the iPhone is registered with that team
+- required capabilities are enabled for the App ID
+- the provisioning profile contains the destination device
+
+Retry through Codex or run:
 
 ```sh
-scripts/codex/build-device.sh \
-  --project "<path>" \
+swift-sim build-device \
+  --project "<absolute project path>" \
   --scheme "<scheme>" \
   --allow-provisioning-updates
 ```
 
-Then check:
-
-- the app builds for `generic/platform=iOS`
-- Xcode has your Apple Developer team selected
-- the bundle identifier belongs to that team
-- the iPhone is registered in the Apple Developer account or included by the profile
-- any required capabilities are enabled for that App ID
-
-Swift Sim signs with your development setup. It does not bypass Apple's provisioning rules.
-
-Swift Sim uses the Apple account already configured in Xcode only for signing. It never reads or forwards Apple account credentials.
+Use `--workspace` for workspace-based projects. Report the exact Xcode signing error rather than replacing the app or changing its bundle identifier automatically.
 
 ## Temporary Delivery Tunnel Fails
 
-Check the delivery state and log:
+Check the restricted delivery process:
 
 ```sh
-node mac-helper/bin/swift-sim-helper.js device-delivery-status
+swift-sim device-delivery-status
 tail -n 100 ~/.swift-sim/device-delivery.log
 ```
 
-Confirm the Mac can reach Cloudflare over HTTPS. Then stop stale delivery processes and build again:
+Then stop the stale process and rebuild:
 
 ```sh
-node mac-helper/bin/swift-sim-helper.js device-delivery-stop
-scripts/codex/build-device.sh \
-  --project "<path>" \
-  --scheme "<scheme>" \
-  --allow-provisioning-updates
+swift-sim device-delivery-stop
 ```
 
-The first run may take longer while `npx` downloads Wrangler and Cloudflared. No Cloudflare account is required.
+Device installs do not require Tailscale. Do not route them through the full Simulator helper as a workaround.
 
-## Install Page Says Build Not Ready
+## Install Link Expired Or Cannot Connect
 
-The archive/export is still running or failed. Open the build in Swift Sim and check the log, or query:
+Generate a fresh build. Links last two hours by default but can end earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits.
 
-```sh
-curl "<build-status-url>"
-```
-
-If the state is `failed`, fix the Xcode error and ask Codex to build to phone again.
-
-## Install Link Expired
-
-Create a fresh device build. Install pages last two hours by default and can end earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits.
-
-```sh
-scripts/codex/build-device.sh \
-  --project "<path>" \
-  --scheme "<scheme>"
-```
-
-For a shorter link, add `--ttl-minutes <5-120>`. Two hours is the maximum supported window; use a separately secured custom delivery endpoint when durable hosting is required.
+The old random `trycloudflare.com` hostname disappearing is expected after its tunnel closes. Durable hosting requires a separately secured custom delivery service.
 
 ## App Installed As A Second App
 
-The bundle identifier changed. iOS treats that as a different app and cannot reuse the old app container.
+The bundle identifier changed. iOS treats it as a different app and cannot reuse the previous app container.
 
-Use the same bundle identifier for every update build if you want app data and login state to remain.
+Keep the same bundle identifier for every update that should preserve app data.
 
-## App Updated But Login Or Keychain Data Is Gone
+## App Updated But Login Or Keychain Data Is Missing
 
-Check whether the signing team, keychain access group, App Group, or other entitlements changed. iOS app data is preserved for normal updates, but keychain and shared-container access depends on compatible entitlements.
+The signing team, keychain access groups, or app-group entitlements probably changed. The main app container may still be present while protected shared data becomes inaccessible.
 
-Build again with the original team and entitlements if you need the existing data.
+Compare the old and new signed entitlements before installing another update.
 
-## Stream Is Blank Or Frozen
+## Simulator Preview Is Not Configured
 
-Check the active phone transport in `setup-status`.
+This does not block iPhone installs.
 
-If `activeForPhone` is `native-companion`:
+When live preview is wanted, connect the Mac and iPhone to the same Tailnet and run:
 
-1. Leave the session open for several seconds. Decoder and encoder recovery is automatic.
-2. Tap refresh once if the UI still shows no frame.
-3. Confirm the Mac Simulator itself is updating.
-4. Inspect `~/.swift-sim/helper.log` for recovery failures.
-5. Create a fresh session if recovery cannot restore media.
+```sh
+tailscale serve 47217
+swift-sim setup-status
+```
 
-Input may continue working while video is stalled. The helper specifically detects this case and restarts only the tracked simulator encoder.
+Use the exact `suggestedRemoteBaseUrl` returned by the command. Same Wi-Fi is not required. Do not use Tailscale Funnel.
 
-If `activeForPhone` is `serve-sim`, the phone is using the compatibility fallback. Upgrade the installed `serve-sim` package to a version with AVCC support and restart the helper.
+## Companion Shows No Mac Or A Gray Status
 
-Never use an unscoped `serve-sim --kill`.
+Mac pairing is only for Simulator diagnostics. Generate a fresh pairing link:
 
-## Stream Is Zoomed Or Cropped
+```sh
+swift-sim pair --remote-base-url "<suggestedRemoteBaseUrl>"
+```
 
-Create a fresh session for the exact Simulator UDID used by the build. The helper derives the video size and Xcode framebuffer mask from that simulator model; it does not use a hardcoded phone outline.
+Open the returned link on the iPhone. If Safari does not switch apps, paste the returned `swift-sim://pair?...` link into Swift Sim.
 
-If the wrong model still appears, verify Codex did not build one simulator and start Swift Sim with another UDID.
+## HTTPS Link Opens Safari Instead Of Swift Sim
 
-## Gestures Work But Video Does Not Update
+For device builds, Safari is the expected install surface.
 
-This means the control channel is alive while media is stalled. Wait for automatic recovery, then inspect the helper log. Do not replace the input path or reboot every simulator first; the media encoder is the narrower failure.
+For Simulator sessions, arbitrary private Tailscale hosts cannot all be declared as universal-link domains in a public companion build. Use the printed `swift-sim://session/...` fallback or paste it into the app.
 
-## Keyboard Is Delayed Or Sends A Whole Message
+## Simulator Is Blank, Frozen, Or Falling Behind
 
-Current builds show **Live Keyboard** and forward each key immediately through USB HID events.
+Run:
 
-If the app still shows **Send Text**:
+```sh
+swift-sim setup-status
+tail -n 100 ~/.swift-sim/helper.log
+```
 
-1. rebuild and reinstall the companion
-2. restart the Mac helper
-3. open a fresh session
+Check `transport.activeForPhone`:
 
-The current keyboard supports the US-keyboard ASCII mapping exposed by `serve-sim`.
+- `native-companion`: leave the session open for several seconds while the decoder requests a fresh keyframe. If recovery fails, create a fresh session.
+- `serve-sim`: this is the compatibility fallback and can be slower over cellular.
 
-## Controls Affect The Wrong Simulator
+Never run an unscoped `serve-sim --kill`; Swift Sim stops only the tracked Simulator stream.
 
-Stop the session and rerun the handoff with the same Simulator UDID used for the build. Codex should verify `codex.simulatorUDID` internally before returning a link.
+## Keyboard Input Is Delayed
 
-## Companion Will Not Install Or Launch
+Current companion builds use **Live Keyboard** and forward individual USB HID events through one persistent control channel. If the old **Send Text** sheet appears, update the companion and restart the helper.
 
-Confirm:
+## Reset Local State
 
-- the iPhone trusts the Mac
-- Developer Mode is enabled on the iPhone
-- the iPhone is unlocked while Xcode mounts development services
-- Xcode has a valid development team
-- the bundle identifier belongs to that team
-- the phone is unlocked for the first launch
+Stop active delivery first:
 
-Then retry [Setup: Install The iOS Companion](SETUP.md#4-install-the-ios-companion).
+```sh
+swift-sim device-delivery-stop
+```
 
-If Xcode says the device is unavailable because the Developer Disk Image is not mounted, unlock the iPhone, keep it connected, accept any trust/developer prompt, then rerun the install command.
+Swift Sim stores local state under `~/.swift-sim`. Remove individual affected session/build records rather than deleting the whole directory unless a clean reset is intentional.

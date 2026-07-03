@@ -1,0 +1,20 @@
+{
+  "name": "swift-sim",
+  "interface": {
+    "displayName": "Swift Sim"
+  },
+  "plugins": [
+    {
+      "name": "swift-sim-companion",
+      "source": {
+        "source": "local",
+        "path": "./plugins/swift-sim-companion"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -14,15 +14,18 @@
     "url": "https://github.com/Miguelosaurus/Swift-Sim/issues"
   },
   "bin": {
+    "swift-sim": "./mac-helper/bin/swift-sim.js",
     "swift-sim-helper": "./mac-helper/bin/swift-sim-helper.js"
   },
   "scripts": {
-    "start": "node mac-helper/bin/swift-sim-helper.js serve",
-    "check": "node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && node --test",
+    "start": "node mac-helper/bin/swift-sim.js serve",
+    "check": "node --check mac-helper/bin/swift-sim.js && node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && node --test",
     "test": "node --test"
   },
   "engines": {
     "node": ">=20"
   },
-  "dependencies": {}
+  "dependencies": {
+    "serve-sim": "0.1.44"
+  }
 }

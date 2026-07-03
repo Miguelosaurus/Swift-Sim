@@ -126,7 +126,7 @@ Never run an unscoped `serve-sim --kill` from Swift Sim automation. It can termi
 - Rotate pairing after a phone is replaced or a link is exposed.
 - Stop old streams, and remove exposed session records as described above.
 - Delete old device-build artifacts from `~/.swift-sim/device-builds/` when they are no longer needed.
-- Stop an active public delivery tunnel with `node mac-helper/bin/swift-sim-helper.js device-delivery-stop` when a link should end early.
+- Stop an active public delivery tunnel with `swift-sim device-delivery-stop` when a link should end early.
 - Review `~/.swift-sim/helper.log` before sharing it because logs may contain local metadata.
 - Keep the repository free of personal signing IDs, device UDIDs, hostnames, and real tokens.
 
