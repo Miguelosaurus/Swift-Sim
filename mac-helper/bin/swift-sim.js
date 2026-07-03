@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -183,6 +183,14 @@ function installCodexPlugin() {
     return { id: "codex-plugin", state: "needs-attention", detail: "Install the Codex app, then rerun swift-sim setup" };
   }
 
+  const marketplaceList = runCapture(codex, ["plugin", "marketplace", "list"], { allowFailure: true });
+  const configuredRoot = marketplaceSourceRoot(marketplaceList.stdout, marketplaceName);
+  const marketplaceChanged = configuredRoot && canonicalPath(configuredRoot) !== canonicalPath(marketplaceRoot);
+  if (marketplaceChanged) {
+    runCapture(codex, ["plugin", "remove", `${pluginName}@${marketplaceName}`], { allowFailure: true });
+    runCapture(codex, ["plugin", "marketplace", "remove", marketplaceName], { allowFailure: true });
+  }
+
   const addMarketplace = runCapture(codex, ["plugin", "marketplace", "add", marketplaceRoot], { allowFailure: true });
   if (addMarketplace.status !== 0) {
     runCapture(codex, ["plugin", "marketplace", "upgrade", marketplaceName], { allowFailure: true });
@@ -195,7 +203,28 @@ function installCodexPlugin() {
       detail: compactError(install) || "Codex could not install the Swift Sim plugin",
     };
   }
-  return { id: "codex-plugin", state: "configured", detail: `Codex plugin ${packageJSON.version} installed from the Swift Sim package` };
+  return {
+    id: "codex-plugin",
+    state: "configured",
+    detail: `Codex plugin ${packageJSON.version} installed from the Swift Sim package${marketplaceChanged ? "; stale marketplace path replaced" : ""}`,
+  };
+}
+
+function marketplaceSourceRoot(output, name) {
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const match = line.trim().match(/^(\S+)\s+(.+)$/);
+    if (match?.[1] === name) return match[2].trim();
+  }
+  return "";
+}
+
+function canonicalPath(path) {
+  if (!path) return "";
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 function printDoctorReport(report) {
