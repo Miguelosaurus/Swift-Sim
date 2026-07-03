@@ -126,6 +126,8 @@ The default delivery mode starts an account-free Cloudflare Quick Tunnel to a se
 - the link uses HTTPS
 - `signing.deviceInstallable` is true
 
+The default install window is two hours. Codex may pass `--ttl-minutes <5-120>` when the user explicitly wants a shorter exposure window.
+
 If the user explicitly provides an independently secured endpoint, Codex may use `--delivery custom --remote-base-url <url>` instead. Never point a public custom URL at the unrestricted simulator helper.
 
 Update rules:

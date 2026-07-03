@@ -157,13 +157,15 @@ If the state is `failed`, fix the Xcode error and ask Codex to build to phone ag
 
 ## Install Link Expired
 
-Create a fresh device build. Install pages are intentionally temporary.
+Create a fresh device build. Install pages last two hours by default and can end earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits.
 
 ```sh
 scripts/codex/build-device.sh \
   --project "<path>" \
   --scheme "<scheme>"
 ```
+
+For a shorter link, add `--ttl-minutes <5-120>`. Two hours is the maximum supported window; use a separately secured custom delivery endpoint when durable hosting is required.
 
 ## App Installed As A Second App
 

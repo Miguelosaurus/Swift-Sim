@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { parseQuickTunnelUrl } from "../src/deviceDelivery.js";
+import { normalizeDeviceBuildTTLMinutes } from "../src/deviceBuildDefaults.js";
 
 const { values } = parseArgs({
   options: {
@@ -21,7 +22,7 @@ const statePath = required(values["state-path"], "state path");
 const logPath = required(values["log-path"], "log path");
 const helperPath = required(values["helper-path"], "helper path");
 const gatewayPort = Number(values["gateway-port"] || 47218);
-const ttlMinutes = Math.max(5, Math.min(120, Number(values["ttl-minutes"] || 30)));
+const ttlMinutes = normalizeDeviceBuildTTLMinutes(values["ttl-minutes"]);
 const localBaseUrl = `http://127.0.0.1:${gatewayPort}`;
 const createdAt = new Date().toISOString();
 const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();

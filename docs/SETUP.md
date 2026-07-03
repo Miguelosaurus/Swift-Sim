@@ -189,6 +189,8 @@ On first use, Swift Sim downloads Cloudflare's tunnel helper through `npx`. This
 
 Open the install link on the iPhone. If iOS asks for confirmation, accept it from the Home Screen.
 
+Install links last two hours by default. The Mac must remain awake and online until installation finishes. To use a shorter window, pass `--ttl-minutes <5-120>` or set `SWIFT_SIM_DEVICE_TTL_MINUTES`.
+
 Swift Sim does not uninstall your app by default. iOS performs an update when the bundle identifier, team, and entitlements match the existing app, so logins and app data stay in place. Changing those values installs a different app or can break access to previous data.
 
 Xcode uses the Apple Developer account already configured on the Mac. Swift Sim does not ask for, read, transmit, or store Apple account credentials.
@@ -203,7 +205,7 @@ Codex should use the same device-build lane and end with an **Install on iPhone*
 
 ### Custom Delivery URL
 
-The default account-free Quick Tunnel is intentionally temporary. To use your own stable HTTPS endpoint instead:
+The default account-free Quick Tunnel is intentionally temporary and lasts two hours unless configured otherwise. To use your own stable HTTPS endpoint instead:
 
 ```sh
 scripts/codex/build-device.sh \

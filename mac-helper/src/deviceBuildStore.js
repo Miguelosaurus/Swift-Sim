@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 
 export class DeviceBuildStore {
   constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
@@ -29,7 +30,7 @@ export class DeviceBuildStore {
       preserveData: input.preserveData !== false,
       createdAt: now,
       updatedAt: now,
-      expiresAt: new Date(Date.now() + (input.ttlMinutes || 30) * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + normalizeDeviceBuildTTLMinutes(input.ttlMinutes) * 60 * 1000).toISOString(),
       state: "queued",
       app: {
         name: input.scheme || "iOS App",

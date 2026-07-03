@@ -5,6 +5,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
+import {
+  DEFAULT_DEVICE_BUILD_TTL_MINUTES,
+  normalizeDeviceBuildTTLMinutes,
+} from "./deviceBuildDefaults.js";
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -25,7 +29,8 @@ export class DeviceDeliveryAdapter {
     this.gatewayPort = gatewayPort;
   }
 
-  async ensure({ ttlMinutes = 30 } = {}) {
+  async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES } = {}) {
+    ttlMinutes = normalizeDeviceBuildTTLMinutes(ttlMinutes);
     const current = this.status();
     if (deliveryIsReusable(current, ttlMinutes)) return current;
     if (processIsAlive(current.managerPid)) {
@@ -111,7 +116,7 @@ export function parseQuickTunnelUrl(output) {
 function deliveryIsReusable(state, ttlMinutes) {
   if (state.status !== "ready" || !state.publicBaseUrl) return false;
   if (!processIsAlive(state.managerPid)) return false;
-  const requiredLifetime = Math.max(5, Number(ttlMinutes) || 30) * 60_000 - 30_000;
+  const requiredLifetime = normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60_000 - 30_000;
   if (Date.parse(state.expiresAt || "") <= Date.now() + requiredLifetime) return false;
   return true;
 }

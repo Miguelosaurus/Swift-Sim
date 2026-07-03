@@ -58,6 +58,7 @@ Start a new Codex thread after reinstalling so the new skill text is loaded.
 5. Save recognizable app data, increment the build number without changing bundle ID/team/entitlements, then install the update.
 6. Confirm the UI changed and the saved data remained.
 7. Confirm a public request to `/api/pairing/status` or `/api/sessions/...` returns `404`.
+8. Confirm the returned delivery expiry is two hours after creation, or matches an explicit `--ttl-minutes` override.
 
 ## Repository Hygiene
 

@@ -91,7 +91,7 @@ scripts/codex/build-device.sh \
   --allow-provisioning-updates
 ```
 
-The first run downloads Cloudflare's tunnel helper through `npx`. No Cloudflare account is required. The Mac must stay online while the temporary link is in use.
+The first run downloads Cloudflare's tunnel helper through `npx`. No Cloudflare account is required. Install links last two hours by default, and the Mac must stay online while a link is in use.
 
 For the complete first-time flow, read [Setup](docs/SETUP.md).
 

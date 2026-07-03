@@ -16,13 +16,14 @@ CONFIGURATION="Release"
 REMOTE_BASE_URL="${SWIFT_SIM_DEVICE_REMOTE_BASE_URL:-}"
 DELIVERY="${SWIFT_SIM_DEVICE_DELIVERY:-}"
 EXPORT_METHOD="${SWIFT_SIM_EXPORT_METHOD:-development}"
+TTL_MINUTES="${SWIFT_SIM_DEVICE_TTL_MINUTES:-120}"
 ALLOW_PROVISIONING_UPDATES=0
 
 usage() {
   cat <<'USAGE'
 Usage:
-  build-device.sh --project <path> --scheme <scheme> [--allow-provisioning-updates]
-  build-device.sh --workspace <path> --scheme <scheme> [--allow-provisioning-updates]
+  build-device.sh --project <path> --scheme <scheme> [--ttl-minutes <5-120>] [--allow-provisioning-updates]
+  build-device.sh --workspace <path> --scheme <scheme> [--ttl-minutes <5-120>] [--allow-provisioning-updates]
 
 Builds a signed real-device IPA and prints JSON with:
   links.universalLink
@@ -33,6 +34,7 @@ Defaults:
   configuration: Release
   export method: development
   delivery: temporary public HTTPS link, no account or Tailscale required
+  link lifetime: 120 minutes
 
 Environment:
   SWIFT_SIM_PORT             Helper port. Default: 47217
@@ -40,6 +42,7 @@ Environment:
   SWIFT_SIM_DEVICE_REMOTE_BASE_URL  Custom device URL if --remote-base-url is omitted
   SWIFT_SIM_DEVICE_DELIVERY  quick-tunnel or custom. Default: automatic
   SWIFT_SIM_EXPORT_METHOD    development or ad-hoc. Default: development
+  SWIFT_SIM_DEVICE_TTL_MINUTES  Install-link lifetime from 5 to 120. Default: 120
 USAGE
 }
 
@@ -71,6 +74,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --export-method)
       EXPORT_METHOD="${2:-}"
+      shift 2
+      ;;
+    --ttl-minutes)
+      TTL_MINUTES="${2:-}"
       shift 2
       ;;
     --allow-provisioning-updates)
@@ -131,6 +138,7 @@ args=(
   --scheme "$SCHEME"
   --configuration "$CONFIGURATION"
   --export-method "$EXPORT_METHOD"
+  --ttl-minutes "$TTL_MINUTES"
 )
 
 if [[ -n "$REMOTE_BASE_URL" ]]; then

@@ -1317,7 +1317,7 @@ async function createDeviceBuild(values) {
     remoteBaseUrl,
     delivery,
     exportMethod: values["export-method"] || "development",
-    ttlMinutes: values["ttl-minutes"] ? Number(values["ttl-minutes"]) : 30,
+    ttlMinutes: values["ttl-minutes"],
     preserveData: !values["replace-app-data"],
   });
   build.allowProvisioningUpdates = Boolean(values["allow-provisioning-updates"]);

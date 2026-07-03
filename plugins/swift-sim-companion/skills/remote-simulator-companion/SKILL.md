@@ -168,6 +168,8 @@ Required inputs:
 
 Before building, run setup-status as usual and confirm `deviceBuildReady` is true. The default lane signs locally, starts an account-free temporary HTTPS tunnel to a device-build-only gateway, and works without Tailscale or a Swift Sim login. Xcode uses the Apple Developer account already configured on the Mac; Swift Sim never handles Apple credentials.
 
+Install links last two hours by default. Use `--ttl-minutes <5-120>` only when the user requests a shorter window. The Mac must remain awake and online until installation finishes.
+
 Run:
 
 ```bash
@@ -251,6 +253,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - Treat device-build tokens as secrets. A build link can download a signed IPA until revoked or expired.
 - Session tokens do not currently expire automatically. Treat links as durable credentials; Stop ends the tracked stream but is not complete token revocation in V1.
 - Device-build pages are temporary, but local IPA artifacts remain under `~/.swift-sim/device-builds/` until deleted.
+- Device-build links expire after two hours by default and can fail earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits. Generate a fresh build rather than reusing a dead link.
 
 ## Troubleshooting
 

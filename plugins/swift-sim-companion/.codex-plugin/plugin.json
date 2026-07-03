@@ -1,6 +1,6 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.1.0+codex.20260703122520",
+  "version": "0.1.0+codex.20260703161805",
   "description": "Teach Codex to preview Mac-hosted Xcode Simulators and build signed iPhone installs through Swift Sim.",
   "author": {
     "name": "Swift Sim",
