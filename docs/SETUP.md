@@ -1,6 +1,6 @@
 # Setup
 
-This guide takes a new checkout from zero to simulator preview and real iPhone installs. Swift Sim has no account system in V1; pairing is just your iPhone learning the private helper URL and token from your Mac.
+This guide takes a new checkout from zero to simulator preview and real iPhone installs. Swift Sim has no account system. Simulator pairing uses Tailscale; signed iPhone installs use temporary public HTTPS links and do not require Tailscale.
 
 ## 1. Install The Mac Prerequisites
 
@@ -8,10 +8,9 @@ Install:
 
 - Xcode and at least one iOS Simulator runtime
 - Node.js 20 or newer
-- Tailscale on the Mac
-- Tailscale on the iPhone
+- Tailscale on the Mac and iPhone if you want simulator preview
 
-Sign in to the same Tailnet on both devices. Same Wi-Fi is not required; the iPhone can use cellular.
+For simulator preview, sign in to the same Tailnet on both devices. Same Wi-Fi is not required; the iPhone can use cellular. Skip Tailscale entirely if you only need real-device installs.
 
 Verify the tools:
 
@@ -54,7 +53,7 @@ Expected result:
 }
 ```
 
-## 3. Configure Private Remote Access
+## 3. Configure Private Simulator Access
 
 Run:
 
@@ -160,7 +159,7 @@ Open either companion link on the iPhone. The companion displays the same Mac Si
 
 ## 7. Build A Real App To The iPhone
 
-Device builds are separate from simulator preview. The Mac archives and signs your app, Swift Sim serves a temporary install page, and the iPhone installs the real `.ipa`.
+Device builds are separate from simulator preview. The Mac archives and signs your app, then Swift Sim creates a temporary public HTTPS link through Cloudflare Quick Tunnels. The iPhone installs the real `.ipa`. No Swift Sim login, Cloudflare login, Tailscale connection, or same-network connection is required.
 
 Requirements:
 
@@ -168,6 +167,7 @@ Requirements:
 - Xcode signing must be configured for your Apple Developer team.
 - The iPhone must be registered in that team or included by the development/ad-hoc provisioning profile.
 - Use the same bundle identifier and signing team to update an existing install without losing app data.
+- Keep the Mac online until the iPhone finishes installing.
 
 Run a first build manually:
 
@@ -175,22 +175,23 @@ Run a first build manually:
 scripts/codex/build-device.sh \
   --project /absolute/path/to/YourApp.xcodeproj \
   --scheme YourApp \
-  --remote-base-url https://your-mac.your-tailnet.ts.net \
   --allow-provisioning-updates
 ```
 
 Use `--workspace /absolute/path/to/YourApp.xcworkspace` instead of `--project` for workspace-based apps.
 
-The command prints JSON with:
+On first use, Swift Sim downloads Cloudflare's tunnel helper through `npx`. This is automatic and does not create an account. Quick Tunnels are intended for temporary development and testing, which is exactly the device-build use case; see [Cloudflare's Quick Tunnel documentation](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/). The command prints JSON with:
 
 - `state`: `ready` means the IPA and install page are available.
-- `links.universalLink`: opens Swift Sim or the browser fallback page.
+- `links.universalLink`: opens the temporary browser install page from any network.
 - `links.customScheme`: opens Swift Sim directly.
 - `links.installURL`: opens iOS installation directly from the manifest.
 
 Open the install link on the iPhone. If iOS asks for confirmation, accept it from the Home Screen.
 
 Swift Sim does not uninstall your app by default. iOS performs an update when the bundle identifier, team, and entitlements match the existing app, so logins and app data stay in place. Changing those values installs a different app or can break access to previous data.
+
+Xcode uses the Apple Developer account already configured on the Mac. Swift Sim does not ask for, read, transmit, or store Apple account credentials.
 
 For Codex, say:
 
@@ -200,9 +201,25 @@ Build this to my iPhone with Swift Sim
 
 Codex should use the same device-build lane and end with an **Install on iPhone** link.
 
-## Universal Links
+### Custom Delivery URL
 
-The `swift-sim://` custom scheme works without Associated Domains and is the reliable V1 path for arbitrary private Tailnet hosts.
+The default account-free Quick Tunnel is intentionally temporary. To use your own stable HTTPS endpoint instead:
+
+```sh
+scripts/codex/build-device.sh \
+  --project /absolute/path/to/YourApp.xcodeproj \
+  --scheme YourApp \
+  --delivery custom \
+  --remote-base-url https://your-host.example
+```
+
+This compatibility mode assumes the URL already reaches a trusted helper deployment. Keep it private or independently secure it; do not expose the full simulator helper publicly. The managed Quick Tunnel is the safer default for public install links because it exposes only the restricted gateway.
+
+## Link Behavior
+
+The temporary HTTPS device-build link is designed to open as a normal install webpage. It does not need to open the companion app. The page can install the app directly, and its **Open in Swift Sim** button uses the `swift-sim://` custom scheme when build status or logs are useful.
+
+Simulator links still use the `swift-sim://` custom scheme as the reliable fallback for arbitrary private Tailnet hosts.
 
 Public/TestFlight builds intentionally omit Associated Domains because they cannot declare every user's private hostname. To enable an HTTPS universal link for your own signed source build:
 
@@ -216,7 +233,7 @@ Public/TestFlight builds intentionally omit Associated Domains because they cann
 
 3. Rebuild and reinstall the companion.
 
-A public/TestFlight build cannot include every user's private Tailscale hostname in its entitlement. A future fixed Swift Sim link domain can provide universal-link behavior for public builds; until then, keep the custom scheme fallback.
+A public/TestFlight build cannot include every private Tailscale hostname or random `trycloudflare.com` hostname in its entitlement. This is fine for device builds because the HTTPS page itself owns the install action. Keep the custom scheme fallback for opening Swift Sim directly.
 
 ## Next
 

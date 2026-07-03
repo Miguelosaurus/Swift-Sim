@@ -1,6 +1,6 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.1.0+codex.20260618103353",
+  "version": "0.1.0+codex.20260703122520",
   "description": "Teach Codex to preview Mac-hosted Xcode Simulators and build signed iPhone installs through Swift Sim.",
   "author": {
     "name": "Swift Sim",
@@ -12,13 +12,14 @@
     "simulator",
     "codex",
     "swiftui",
-    "tailscale"
+    "tailscale",
+    "device-builds"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Swift Sim Companion",
     "shortDescription": "Preview simulators and install iPhone builds.",
-    "longDescription": "A Codex workflow companion skill that previews a Mac-hosted iOS Simulator session or exports a signed real-device IPA, then returns a native Swift Sim companion link.",
+    "longDescription": "A Codex workflow companion skill that previews a Mac-hosted iOS Simulator or exports a signed real-device IPA with an account-free temporary install link.",
     "developerName": "Swift Sim",
     "category": "Developer Tools",
     "capabilities": [

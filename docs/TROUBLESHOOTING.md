@@ -30,6 +30,8 @@ tail -n 100 ~/.swift-sim/helper.log
 
 ## Tailscale Is Not Ready
 
+This affects simulator preview only. Real iPhone install/update links do not require Tailscale.
+
 Verify both devices are signed into the same Tailnet. On the Mac:
 
 ```sh
@@ -78,7 +80,7 @@ Use one of these paths:
 
 - tap **Open Simulator in Companion App** on the fallback page
 - open the printed `swift-sim://session/...` link
-- open the printed `swift-sim://device-build/...` link for device builds
+- for device builds, use the normal HTTPS install page or open the printed `swift-sim://device-build/...` link
 - paste the custom link into Swift Sim's Paste Link sheet
 
 See [Setup: Universal Links](SETUP.md#universal-links) for optional entitlement configuration.
@@ -107,7 +109,6 @@ Run the same command with `--allow-provisioning-updates` if you want Xcode to re
 scripts/codex/build-device.sh \
   --project "<path>" \
   --scheme "<scheme>" \
-  --remote-base-url "<suggestedRemoteBaseUrl>" \
   --allow-provisioning-updates
 ```
 
@@ -120,6 +121,29 @@ Then check:
 - any required capabilities are enabled for that App ID
 
 Swift Sim signs with your development setup. It does not bypass Apple's provisioning rules.
+
+Swift Sim uses the Apple account already configured in Xcode only for signing. It never reads or forwards Apple account credentials.
+
+## Temporary Delivery Tunnel Fails
+
+Check the delivery state and log:
+
+```sh
+node mac-helper/bin/swift-sim-helper.js device-delivery-status
+tail -n 100 ~/.swift-sim/device-delivery.log
+```
+
+Confirm the Mac can reach Cloudflare over HTTPS. Then stop stale delivery processes and build again:
+
+```sh
+node mac-helper/bin/swift-sim-helper.js device-delivery-stop
+scripts/codex/build-device.sh \
+  --project "<path>" \
+  --scheme "<scheme>" \
+  --allow-provisioning-updates
+```
+
+The first run may take longer while `npx` downloads Wrangler and Cloudflared. No Cloudflare account is required.
 
 ## Install Page Says Build Not Ready
 
@@ -138,8 +162,7 @@ Create a fresh device build. Install pages are intentionally temporary.
 ```sh
 scripts/codex/build-device.sh \
   --project "<path>" \
-  --scheme "<scheme>" \
-  --remote-base-url "<suggestedRemoteBaseUrl>"
+  --scheme "<scheme>"
 ```
 
 ## App Installed As A Second App

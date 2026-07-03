@@ -1,8 +1,8 @@
 # Swift Sim Privacy Policy
 
-Effective June 18, 2026
+Effective July 3, 2026
 
-Swift Sim is a self-hosted companion for viewing and controlling an iOS Simulator running on a Mac owned by the user. SEA & SEA LLC does not operate a Swift Sim account service, analytics service, advertising service, or cloud relay, and does not collect personal data through the Swift Sim iPhone app.
+Swift Sim is a companion for controlling an iOS Simulator and installing development builds produced on a Mac owned by the user. SEA & SEA LLC does not operate a Swift Sim account, artifact-storage, analytics, or advertising service and does not collect personal data through the Swift Sim iPhone app.
 
 ## Data the App Handles
 
@@ -12,18 +12,21 @@ The app handles the following data only to provide its core functionality:
 - opaque pairing and simulator-session tokens
 - recent session names and connection metadata
 - simulator video frames, controls, and logs exchanged directly with the user's Mac
+- opaque device-build tokens, build metadata, and recent build history
 
 The app stores pairing information and recent sessions locally on the iPhone. Simulator frames and logs are displayed in the app and are not uploaded to SEA & SEA LLC.
 
 ## Network and Third-Party Services
 
-Swift Sim connects directly to the user's Mac through the user's private Tailscale network. Tailscale processes network traffic according to its own terms and privacy policy. The Swift Sim helper listens locally on the Mac and the supported remote path uses private Tailscale HTTPS; Swift Sim does not use a developer-operated relay.
+Simulator sessions connect directly to the user's Mac through the user's private Tailscale network. Tailscale processes that traffic according to its own terms and privacy policy.
 
-The Codex desktop app and the bundled Swift Sim companion plugin orchestrate builds and simulator sessions on the user's Mac. Project source code and build products remain on the Mac and are not sent to the Swift Sim iPhone app or SEA & SEA LLC.
+For real-device installs, the Mac may start an account-free Cloudflare Quick Tunnel. The signed IPA, install manifest, build metadata, and network information pass through Cloudflare while the iPhone downloads the build. Swift Sim does not upload the IPA to storage operated by SEA & SEA LLC, and the temporary tunnel is stopped automatically. Cloudflare processes tunnel traffic according to its own terms and privacy policy.
+
+The Codex desktop app and bundled plugin orchestrate builds and simulator sessions on the user's Mac. Project source code remains on the Mac. Signed device-build artifacts are delivered to the user's iPhone, but are not sent to SEA & SEA LLC.
 
 ## Retention and Deletion
 
-Pairing information and recent-session metadata remain on the iPhone until the user forgets the Mac helper, removes recent sessions, or deletes the app. Session records remain on the user's Mac until removed by the user. The repository's security guide explains how to revoke exposed tokens and remove stored session records.
+Pairing information, recent-session metadata, and recent-build metadata remain on the iPhone until the user removes them or deletes the app. Session records and signed IPA artifacts remain on the user's Mac until removed by the user. Device-build links expire automatically. The repository's security guide explains how to stop delivery, revoke exposed tokens, and remove stored records.
 
 Because SEA & SEA LLC does not collect or retain Swift Sim user data on its servers, there is no developer-held account data to request or delete.
 

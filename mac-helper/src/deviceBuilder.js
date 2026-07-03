@@ -156,6 +156,11 @@ export function publicDeviceBuild(build) {
       updateSafe: build.signing.updateSafe,
       warnings: build.signing.warnings,
     },
+    delivery: build.delivery || {
+      mode: build.remoteBaseUrl ? "custom" : "quick-tunnel",
+      provider: build.remoteBaseUrl ? "user-configured" : "cloudflare-quick-tunnel",
+      expiresAt: build.expiresAt,
+    },
     preserveData: build.preserveData,
     links: deviceBuildLinks(build, build.remoteBaseUrl),
   };

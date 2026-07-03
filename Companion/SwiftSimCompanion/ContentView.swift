@@ -431,6 +431,13 @@ private struct DeviceBuildView: View {
                 BuildFactChip(title: "Signing", value: status?.signing.method.capitalized ?? "Checking")
                 BuildFactChip(title: "Data", value: status?.preserveData == false ? "Replace" : "Preserve")
             }
+
+            Label(
+                status?.delivery?.mode == "quick-tunnel" ? "Available on any network" : "Custom delivery link",
+                systemImage: "network"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(22)
@@ -760,7 +767,7 @@ private struct EmptyDeviceBuildCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("No iPhone builds yet")
                     .font(.title3.weight(.bold))
-                Text("Ask Codex to build to your phone. Swift Sim will install updates over the existing app when signing and bundle ID stay the same.")
+                Text("Ask Codex to build to your phone. The temporary link works on any network and preserves app data when signing stays compatible.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

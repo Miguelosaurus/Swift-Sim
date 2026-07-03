@@ -49,6 +49,16 @@ Start a new Codex thread after reinstalling so the new skill text is loaded.
 6. Test tap, drag, keyboard, Home, rotation, logs, app backgrounding, and reconnect.
 7. Leave the stream active beyond one minute, then mutate the simulator UI and confirm the phone updates.
 
+## Manual Device Build Test
+
+1. Configure automatic development signing for a disposable iOS app.
+2. Run `scripts/codex/build-device.sh --project <path> --scheme <scheme> --allow-provisioning-updates` without a remote URL.
+3. Confirm `state` is `ready`, `delivery.mode` is `quick-tunnel`, and the link uses `https://*.trycloudflare.com`.
+4. Open the link on an iPhone with Tailscale disconnected and install the app.
+5. Save recognizable app data, increment the build number without changing bundle ID/team/entitlements, then install the update.
+6. Confirm the UI changed and the saved data remained.
+7. Confirm a public request to `/api/pairing/status` or `/api/sessions/...` returns `404`.
+
 ## Repository Hygiene
 
 Do not commit:
@@ -69,6 +79,7 @@ Use placeholders in documentation and examples.
 - Keep Codex as the only coding agent.
 - Keep project execution on the Mac Simulator.
 - Keep the helper bound to localhost by default.
+- Expose only the read-only device-build gateway through the managed temporary public tunnel.
 - Keep `serve-sim` behind the adapter and transport boundaries.
 - Stop only the tracked simulator stream.
 - Preserve the custom URL scheme as the reliable private-host fallback.

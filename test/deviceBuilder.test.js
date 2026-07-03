@@ -13,6 +13,11 @@ function fixtureBuild() {
     updatedAt: "2026-06-25T00:00:00.000Z",
     expiresAt: "2026-06-25T00:30:00.000Z",
     preserveData: true,
+    delivery: {
+      mode: "quick-tunnel",
+      provider: "cloudflare-quick-tunnel",
+      expiresAt: "2026-06-25T00:30:00.000Z",
+    },
     app: {
       name: "Example App",
       bundleIdentifier: "com.example.app",
@@ -62,5 +67,6 @@ test("public device build hides artifact paths", () => {
   });
   assert.equal(publicBuild.app.bundleIdentifier, "com.example.app");
   assert.equal(publicBuild.links.universalLink, "https://mac.example.ts.net/d/build-123?token=secret-token");
+  assert.equal(publicBuild.delivery.mode, "quick-tunnel");
   assert.equal(JSON.stringify(publicBuild).includes("/Users/example"), false);
 });

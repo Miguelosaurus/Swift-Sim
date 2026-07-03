@@ -1,6 +1,6 @@
 # Codex Workflow
 
-Swift Sim does not add another AI agent. Codex is the only coding agent; the Mac helper manages simulator sessions, media, input, and signed device-build artifacts. The iOS app has no Swift Sim account requirement; it trusts a Mac only after opening a pairing link from that Mac helper.
+Swift Sim does not add another AI agent. Codex is the only coding agent; the Mac helper manages simulator sessions, media, input, and signed device-build artifacts. There is no Swift Sim account. Simulator pairing is private through Tailscale, while device-build links work independently from any network.
 
 ## Install The Plugin
 
@@ -22,7 +22,7 @@ Codex should discover setup before asking the user for values:
 node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
 ```
 
-Codex should:
+For simulator preview, Codex should:
 
 1. Use `suggestedRemoteBaseUrl` when setup is healthy.
 2. Follow `nextSteps` when a prerequisite is missing.
@@ -37,6 +37,8 @@ node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" pair \
 ```
 
 Pairing links and simulator-session links are different. A valid session link does not pair the Mac status panel automatically.
+
+For a device build, Codex only needs a healthy local helper and valid Xcode signing. Tailscale, simulator pairing, and `suggestedRemoteBaseUrl` are not prerequisites.
 
 ## Choose The Right Lane
 
@@ -96,7 +98,7 @@ For a per-user Tailscale host, Codex should also provide `links.customScheme`. I
 
 ## Device Build Contract
 
-Device builds archive/export a real `.ipa` on the Mac, signed with the user's own Apple development signing. The iPhone only downloads and installs the artifact; it does not build project code.
+Device builds archive/export a real `.ipa` on the Mac, signed through the Apple Developer account already configured in Xcode. Swift Sim does not handle Apple credentials. The iPhone only downloads and installs the artifact; it does not build project code.
 
 Run:
 
@@ -104,7 +106,6 @@ Run:
 "$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
   --project "<absolute project path>" \
   --scheme "<scheme>" \
-  --remote-base-url "<helper URL>" \
   --allow-provisioning-updates
 ```
 
@@ -113,10 +114,19 @@ Use `--workspace` instead of `--project` for `.xcworkspace` apps.
 Codex should parse the JSON and return:
 
 ```md
-[Install on iPhone](https://your-private-host/d/opaque-build?token=opaque-token)
+[Install on iPhone](https://random-words.trycloudflare.com/d/opaque-build?token=opaque-token)
 ```
 
-Also include `links.customScheme` if the HTTPS link opens in a browser. The native app can display build status and launch the install URL.
+The browser install page is the expected default and works without Tailscale. Also include `links.customScheme` when the native app is useful for build status and logs.
+
+The default delivery mode starts an account-free Cloudflare Quick Tunnel to a separate device-build-only gateway. Codex should verify:
+
+- `state` is `ready`
+- `delivery.mode` is `quick-tunnel`
+- the link uses HTTPS
+- `signing.deviceInstallable` is true
+
+If the user explicitly provides an independently secured endpoint, Codex may use `--delivery custom --remote-base-url <url>` instead. Never point a public custom URL at the unrestricted simulator helper.
 
 Update rules:
 

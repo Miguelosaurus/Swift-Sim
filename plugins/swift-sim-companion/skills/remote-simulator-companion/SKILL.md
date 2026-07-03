@@ -50,7 +50,7 @@ You need:
 - Scheme.
 - Booted or selected Simulator UDID.
 - The Swift Sim checkout path in `SWIFT_SIM_HOME`, or a workspace that contains this repo.
-- Remote base URL, normally the Tailscale Serve HTTPS URL for the Mac helper. Discover it before asking the user.
+- Remote base URL for simulator preview, normally the Tailscale Serve HTTPS URL for the Mac helper. Device builds do not require one.
 
 Before the first pairing or simulator handoff in a Codex session, check setup:
 
@@ -58,7 +58,7 @@ Before the first pairing or simulator handoff in a Codex session, check setup:
 node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
 ```
 
-If `ok` is true, use `suggestedRemoteBaseUrl` as the remote URL. If `ok` is false, follow `nextSteps` and explain only the missing pieces. This check is bounded and safe to run even when Tailscale or the helper is not ready.
+For simulator preview, if `ok` is true, use `suggestedRemoteBaseUrl`. If `ok` is false, follow `nextSteps` and explain only the missing pieces. For a device build, `deviceBuildReady` only requires the local helper; Tailscale setup is irrelevant.
 
 Also inspect the returned `transport` section. If `transport.activeForPhone` is `serve-sim`, the companion link works through the fallback stream. If the user is testing latency, zoom, pinch, or full simulator controls, be explicit that the native transport is the correct target and the fallback is only for proof-of-loop.
 
@@ -164,10 +164,9 @@ Required inputs:
 
 - Absolute project or workspace path.
 - Scheme.
-- Remote base URL for the helper.
 - A valid Apple Developer signing setup in Xcode.
 
-Before building, run setup-status as usual. For V1, direct install pages are served by the helper, so a reachable helper URL is still required. Future hosted artifact adapters may remove the Tailscale requirement for this lane.
+Before building, run setup-status as usual and confirm `deviceBuildReady` is true. The default lane signs locally, starts an account-free temporary HTTPS tunnel to a device-build-only gateway, and works without Tailscale or a Swift Sim login. Xcode uses the Apple Developer account already configured on the Mac; Swift Sim never handles Apple credentials.
 
 Run:
 
@@ -175,7 +174,6 @@ Run:
 "$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
-  --remote-base-url "<helper-url>" \
   --allow-provisioning-updates
 ```
 
@@ -188,6 +186,7 @@ Parse the returned JSON:
 - `links.customScheme` opens the build in Swift Sim directly.
 - `links.installURL` can launch the OTA install directly.
 - `signing.warnings` should be summarized if present.
+- `delivery.mode` should be `quick-tunnel` unless the user explicitly configured a custom delivery URL.
 
 End the Codex response with a Markdown link labeled exactly:
 
@@ -198,10 +197,10 @@ Install on iPhone
 Example:
 
 ```md
-[Install on iPhone](https://example.ts.net/d/opaque-build?token=opaque-token)
+[Install on iPhone](https://random-words.trycloudflare.com/d/opaque-build?token=opaque-token)
 ```
 
-Also include the `swift-sim://device-build/...` fallback if the HTTPS link opens in a browser.
+The browser page is the expected install surface. Also include the `swift-sim://device-build/...` fallback when the user wants build status and logs in the native companion.
 
 Update preservation rules:
 
@@ -240,9 +239,10 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - Do not expose IPA paths, archive paths, signing file paths, device UDIDs, or Apple team IDs in the user-facing link.
 - Keep the framebuffer-mask endpoint behind the same opaque session token. Do not expose its source path from Xcode's device profile.
 - `codex.localPreviewUrl` and `codex.simulatorUDID` are local workflow metadata only. Use them to prove the nested Codex simulator and the phone companion use the same Simulator session; never paste them into the final user message.
-- Keep the helper bound to localhost and expose it remotely through Tailscale Serve for v1.
-- Do not use Tailscale Funnel for default setup. Prefer private Tailnet access.
-- Do not imply that universal links work automatically for every Tailscale host. A public iOS build cannot be pre-entitled for arbitrary `*.ts.net` hosts; use `swift-sim://` as the reliable v1 direct-open fallback.
+- Keep the full simulator helper bound to localhost and expose simulator access only through private Tailscale Serve.
+- Device builds may expose only the separate read-only gateway through the managed expiring Quick Tunnel.
+- Do not use Tailscale Funnel for simulator setup. Prefer private Tailnet access.
+- Do not imply that universal links work automatically for every Tailscale or Quick Tunnel host. Device build HTTPS links intentionally open an install webpage; use `swift-sim://` when opening the native companion is useful.
 - Input uses the installed `serve-sim` control channel on both video transports. Do not promise complete multi-touch pinch/zoom unless `serve-sim-info` proves the installed version supports stable multi-touch gesture JSON.
 - Never run an unscoped `serve-sim --kill`; stop only the session/UDID owned by this workflow.
 - The iPhone companion only views and controls the Mac Simulator. It does not execute project code.
@@ -262,7 +262,7 @@ Use these branches when setup or links fail:
   export SWIFT_SIM_HOME="/path/to/Swift-Sim"
   ```
 
-- Missing remote URL: ask for the Tailscale Serve HTTPS URL or have the user run:
+- Missing simulator remote URL: ask for the Tailscale Serve HTTPS URL or have the user run:
 
   ```bash
   node "$SWIFT_SIM_HOME/mac-helper/bin/swift-sim-helper.js" setup-status
@@ -297,9 +297,11 @@ Use these branches when setup or links fail:
 
 - Keyboard opens but typing is delayed or arrives as a batch: current builds should show **Live Keyboard** and forward each key as USB HID events through one persistent control channel. Rebuild the iOS companion and restart the Mac helper if the old **Send Text** sheet is still present.
 
-- User asks whether login is required: no account is required for v1. The trust boundary is the user's Tailnet plus opaque pairing/session tokens generated by the Mac helper.
+- User asks whether login is required: no Swift Sim or Cloudflare account is required. Simulator trust uses the user's Tailnet plus pairing/session tokens; device delivery uses an expiring public gateway plus one opaque build token.
 
 - Device build fails signing: check that Xcode has the team selected, the bundle identifier belongs to the team, the iPhone is registered, capabilities are enabled, and try `--allow-provisioning-updates`.
+
+- Device delivery tunnel fails: run `device-delivery-status`, inspect `~/.swift-sim/device-delivery.log`, stop stale delivery with `device-delivery-stop`, then rebuild. Do not redirect device builds to Tailscale merely because the default tunnel had a transient failure.
 
 - Device build installs as a second app: the bundle identifier changed. Tell the user to keep the same bundle identifier to preserve app data.
 
@@ -340,6 +342,5 @@ Build a real device install:
 "$SWIFT_SIM_HOME/scripts/codex/build-device.sh" \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
-  --remote-base-url "<helper-url>" \
   --allow-provisioning-updates
 ```

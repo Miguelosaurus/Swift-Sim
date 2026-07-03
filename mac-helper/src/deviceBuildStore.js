@@ -16,6 +16,11 @@ export class DeviceBuildStore {
       id: randomUUID(),
       token: input.token || randomBytes(24).toString("base64url"),
       remoteBaseUrl: input.remoteBaseUrl || "",
+      delivery: {
+        mode: input.delivery || (input.remoteBaseUrl ? "custom" : "quick-tunnel"),
+        provider: input.remoteBaseUrl ? "user-configured" : "cloudflare-quick-tunnel",
+        expiresAt: "",
+      },
       project: input.project || "",
       workspace: input.workspace || "",
       scheme: input.scheme || "",

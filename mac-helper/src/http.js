@@ -14,10 +14,11 @@ export function json(res, status, body) {
   res.end(payload);
 }
 
-export function text(res, status, body, contentType = "text/plain; charset=utf-8") {
+export function text(res, status, body, contentType = "text/plain; charset=utf-8", headers = {}) {
   res.writeHead(status, {
     "content-type": contentType,
     "cache-control": "no-store",
+    ...headers,
   });
   res.end(body);
 }

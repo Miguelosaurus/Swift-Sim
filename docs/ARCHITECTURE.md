@@ -14,6 +14,7 @@ Codex edits the user's project, builds it, launches it on a selected Mac Simulat
 - starts, reuses, restarts, and stops scoped simulator streams
 - archives and exports signed iPhone `.ipa` builds
 - creates temporary OTA install manifests and install pages
+- starts an expiring device-build-only HTTPS tunnel when no custom delivery URL is supplied
 - stores pairing and session metadata under `~/.swift-sim`
 - proxies authenticated media and device-mask responses
 - forwards touch, keyboard, hardware, rotation, and accessibility controls
@@ -66,11 +67,15 @@ User project on Mac
   -> xcodebuild archive
   -> xcodebuild -exportArchive
   -> signed .ipa under ~/.swift-sim/device-builds/<id>
-  -> helper authenticated manifest + install page
+  -> localhost device-build-only gateway
+  -> account-free Cloudflare Quick Tunnel
+  -> token-authenticated manifest + install page
   -> iPhone OTA install
 ```
 
-The helper signs with the user's existing Xcode/Apple Developer setup. Direct installs use development or ad-hoc signing, so iOS only accepts devices included by the provisioning profile.
+The helper signs with the user's existing Xcode/Apple Developer setup. It never reads or transmits Apple credentials. Direct installs use development or ad-hoc signing, so iOS only accepts devices included by the provisioning profile.
+
+The temporary tunnel is not the simulator helper. A second server binds to a fresh ephemeral `127.0.0.1` port and allows only read-only device-build status, logs, install-page, manifest, and IPA routes. Pairing, simulator media, and simulator controls return `404` through this gateway. The tunnel and gateway stop after the delivery TTL.
 
 Swift Sim preserves app data by default because it does not uninstall before installing. iOS treats the build as an update when the bundle identifier, signing team, and entitlements are compatible.
 
@@ -130,6 +135,7 @@ A device build tracks:
 - signing warnings and update-safety status
 - archive, IPA, and manifest paths
 - expiry timestamp and build logs
+- delivery mode, provider, and delivery expiry
 
 Public device-build responses omit archive paths, IPA paths, local filesystem details, and signing file locations.
 
@@ -180,6 +186,8 @@ GET  /api/device-builds/<id>/artifact/manifest
 GET  /api/device-builds/<id>/artifact/ipa
 ```
 
+Only the single-build `GET` routes are exposed by the temporary public delivery gateway. Listing and build-start routes remain local/pairing-token operations.
+
 Browser fallback and link entry points:
 
 ```text
@@ -197,6 +205,8 @@ The helper stores local state in:
 ~/.swift-sim/sessions.json
 ~/.swift-sim/device-builds.json
 ~/.swift-sim/device-builds/
+~/.swift-sim/device-delivery.json
+~/.swift-sim/device-delivery.log
 ~/.swift-sim/helper.log
 ```
 

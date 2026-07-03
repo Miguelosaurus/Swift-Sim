@@ -749,6 +749,7 @@ struct DeviceBuildStatus: Decodable, Equatable {
     let state: String
     let app: DeviceBuildApp
     let signing: DeviceBuildSigning
+    let delivery: DeviceBuildDelivery?
     let preserveData: Bool
     let links: DeviceBuildLinks?
 
@@ -774,6 +775,12 @@ struct DeviceBuildSigning: Decodable, Equatable {
     let deviceInstallable: Bool
     let updateSafe: String
     let warnings: [String]
+}
+
+struct DeviceBuildDelivery: Decodable, Equatable {
+    let mode: String
+    let provider: String
+    let expiresAt: String
 }
 
 struct DeviceBuildLinks: Decodable, Equatable {

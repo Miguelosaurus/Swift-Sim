@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createReadStream, existsSync, statSync } from "node:fs";
@@ -15,6 +15,10 @@ import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
 import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
 import { SessionStore } from "../src/sessionStore.js";
 import { DeviceBuildStore } from "../src/deviceBuildStore.js";
+import {
+  DeviceDeliveryAdapter,
+  deviceDeliveryRequestAllowed,
+} from "../src/deviceDelivery.js";
 import { PairingStore } from "../src/pairingStore.js";
 import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
 import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";
@@ -39,6 +43,7 @@ const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
 
 const store = new SessionStore();
 const deviceBuildStore = new DeviceBuildStore();
+const deviceDelivery = new DeviceDeliveryAdapter();
 const pairingStore = new PairingStore();
 const simulatorProfiles = new SimulatorProfileResolver();
 const adapter = new ServeSimAdapter();
@@ -61,11 +66,13 @@ async function main() {
       options: {
         port: { type: "string", short: "p" },
         host: { type: "string" },
+        "device-builds-only": { type: "boolean" },
       },
     });
     await serve({
       port: values.port ? Number(values.port) : DEFAULT_PORT,
       host: values.host || DEFAULT_HOST,
+      deviceBuildsOnly: Boolean(values["device-builds-only"]),
     });
     return;
   }
@@ -136,7 +143,18 @@ async function main() {
     });
     const build = await createDeviceBuild(values);
     await runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) });
+    await prepareDeviceDelivery(build);
     console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
+    return;
+  }
+
+  if (command === "device-delivery-status") {
+    console.log(JSON.stringify(deviceDelivery.status(), null, 2));
+    return;
+  }
+
+  if (command === "device-delivery-stop") {
+    console.log(JSON.stringify({ stopped: deviceDelivery.stop() }, null, 2));
     return;
   }
 
@@ -182,6 +200,7 @@ function commonDeviceBuildOptions() {
     scheme: { type: "string" },
     configuration: { type: "string" },
     "remote-base-url": { type: "string" },
+    delivery: { type: "string" },
     "export-method": { type: "string" },
     "ttl-minutes": { type: "string" },
     "allow-provisioning-updates": { type: "boolean" },
@@ -189,10 +208,14 @@ function commonDeviceBuildOptions() {
   };
 }
 
-async function serve({ host, port }) {
+async function serve({ host, port, deviceBuildsOnly = false }) {
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
+
+      if (deviceBuildsOnly && !deviceDeliveryRequestAllowed(req.method, url.pathname)) {
+        return notFound(res, "Not found.");
+      }
 
       if (req.method === "GET" && url.pathname === "/health") {
         return json(res, 200, {
@@ -277,12 +300,15 @@ async function serve({ host, port }) {
           scheme: body.scheme,
           configuration: body.configuration,
           "remote-base-url": body.remoteBaseUrl,
+          delivery: body.delivery,
           "export-method": body.exportMethod,
           "ttl-minutes": body.ttlMinutes,
           "allow-provisioning-updates": Boolean(body.allowProvisioningUpdates),
           "replace-app-data": Boolean(body.replaceAppData),
         });
-        runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) }).catch(() => {});
+        runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) })
+          .then(() => prepareDeviceDelivery(build))
+          .catch(() => {});
         return json(res, 202, publicDeviceBuild(build));
       }
 
@@ -486,7 +512,11 @@ async function serve({ host, port }) {
           build.remoteBaseUrl = `${url.protocol}//${url.host}`;
           deviceBuildStore.save(build);
         }
-        return text(res, 200, deviceBuildFallbackHtml(build), "text/html; charset=utf-8");
+        return text(res, 200, deviceBuildFallbackHtml(build), "text/html; charset=utf-8", {
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+        });
       }
 
       if (req.method === "GET" && url.pathname === "/pair") {
@@ -507,7 +537,11 @@ async function serve({ host, port }) {
     server.listen(port, host, () => {
       server.off("error", reject);
       console.log(`swift-sim-helper listening at http://${host}:${port}`);
-      console.log("Expose privately with: tailscale serve " + port);
+      if (deviceBuildsOnly) {
+        console.log("Device-build-only gateway ready.");
+      } else {
+        console.log("Expose simulator sessions privately with: tailscale serve " + port);
+      }
       resolve();
     });
   });
@@ -558,6 +592,8 @@ async function setupStatus({ host, port }) {
     helper: helperHealth,
     tailscale,
     tailscaleServe: serveStatus,
+    deviceDelivery: deviceDelivery.status(),
+    deviceBuildReady: helperHealth.ok,
     transport: {
       default: defaultTransportPreference(),
       activeForPhone: preferredPhoneTransport(transportInfo),
@@ -1265,12 +1301,21 @@ function normalizeMultiTouchEvent(event) {
 }
 
 async function createDeviceBuild(values) {
+  const remoteBaseUrl = values["remote-base-url"] || "";
+  const delivery = values.delivery || (remoteBaseUrl ? "custom" : "quick-tunnel");
+  if (!["custom", "quick-tunnel"].includes(delivery)) {
+    throw new Error("Device delivery must be custom or quick-tunnel.");
+  }
+  if (delivery === "custom" && !remoteBaseUrl) {
+    throw new Error("Custom device delivery requires --remote-base-url.");
+  }
   const build = deviceBuildStore.create({
     project: values.project || "",
     workspace: values.workspace || "",
     scheme: required(values.scheme, "scheme"),
     configuration: values.configuration || "Release",
-    remoteBaseUrl: values["remote-base-url"] || "",
+    remoteBaseUrl,
+    delivery,
     exportMethod: values["export-method"] || "development",
     ttlMinutes: values["ttl-minutes"] ? Number(values["ttl-minutes"]) : 30,
     preserveData: !values["replace-app-data"],
@@ -1278,6 +1323,37 @@ async function createDeviceBuild(values) {
   build.allowProvisioningUpdates = Boolean(values["allow-provisioning-updates"]);
   deviceBuildStore.save(build);
   return build;
+}
+
+async function prepareDeviceDelivery(build) {
+  try {
+    if (build.remoteBaseUrl || build.delivery?.mode === "custom") {
+      build.delivery = {
+        mode: "custom",
+        provider: "user-configured",
+        expiresAt: build.expiresAt,
+      };
+      deviceBuildStore.save(build);
+      return build;
+    }
+
+    const remainingMinutes = Math.max(5, Math.ceil((Date.parse(build.expiresAt) - Date.now()) / 60_000));
+    const delivery = await deviceDelivery.ensure({ ttlMinutes: remainingMinutes });
+    build.remoteBaseUrl = delivery.publicBaseUrl;
+    build.delivery = {
+      mode: "quick-tunnel",
+      provider: delivery.provider,
+      expiresAt: delivery.expiresAt,
+    };
+    build.logs.push("Temporary HTTPS install link is ready. Tailscale is not required.");
+    deviceBuildStore.save(build);
+    return build;
+  } catch (error) {
+    build.state = "failed";
+    build.logs.push(error instanceof Error ? error.message : String(error));
+    deviceBuildStore.save(build);
+    throw error;
+  }
 }
 
 function serveFile(res, path, { contentType, filename }) {
@@ -1290,6 +1366,8 @@ function serveFile(res, path, { contentType, filename }) {
     "content-length": stat.size,
     "content-disposition": `attachment; filename="${String(filename || "download").replaceAll("\"", "")}"`,
     "cache-control": "private, no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
   });
   createReadStream(path).pipe(res);
 }
@@ -1312,7 +1390,10 @@ function pairingTokenMatches(req, url) {
 }
 
 function tokenMatches(session, token) {
-  return Boolean(token && token === session.token);
+  if (!token || !session.token) return false;
+  const expected = Buffer.from(String(session.token));
+  const actual = Buffer.from(String(token));
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 function deviceBuildExpired(build) {
@@ -1387,7 +1468,6 @@ function pairingFallbackHtml({ token, base }) {
 
 function deviceBuildFallbackHtml(build) {
   const links = deviceBuildLinks(build, build.remoteBaseUrl);
-  const customSchemeScript = JSON.stringify(links.customScheme);
   const installURL = links.installURL || "#";
   const warnings = (build.signing.warnings || [])
     .map((warning) => `<li>${escapeHtml(warning)}</li>`)
@@ -1417,17 +1497,12 @@ function deviceBuildFallbackHtml(build) {
     ul { margin: 12px 0 0; padding-left: 20px; color: #6b7280; font-size: 14px; line-height: 1.35; }
     code { word-break: break-all; }
   </style>
-  <script>
-    window.addEventListener("load", () => {
-      setTimeout(() => { window.location.href = ${customSchemeScript}; }, 200);
-    });
-  </script>
 </head>
 <body>
   <main>
     <div class="status"><span class="dot"></span>${escapeHtml(stateLine)}</div>
     <h1>${escapeHtml(build.app.name || build.scheme || "iOS App")}</h1>
-    <p>This installs the real iPhone build signed by your Mac. Existing app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.</p>
+    <p>This real iPhone build was signed by Xcode on your Mac and is available on any network. Existing app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.</p>
     <div class="meta">
       <strong>${escapeHtml(build.app.bundleIdentifier || "Bundle ID pending")}</strong><br>
       Expires ${escapeHtml(new Date(build.expiresAt).toLocaleString())}

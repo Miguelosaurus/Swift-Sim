@@ -13,15 +13,16 @@ PROJECT=""
 WORKSPACE=""
 SCHEME=""
 CONFIGURATION="Release"
-REMOTE_BASE_URL="${SWIFT_SIM_REMOTE_BASE_URL:-}"
+REMOTE_BASE_URL="${SWIFT_SIM_DEVICE_REMOTE_BASE_URL:-}"
+DELIVERY="${SWIFT_SIM_DEVICE_DELIVERY:-}"
 EXPORT_METHOD="${SWIFT_SIM_EXPORT_METHOD:-development}"
 ALLOW_PROVISIONING_UPDATES=0
 
 usage() {
   cat <<'USAGE'
 Usage:
-  build-device.sh --project <path> --scheme <scheme> --remote-base-url <https-url> [--allow-provisioning-updates]
-  build-device.sh --workspace <path> --scheme <scheme> --remote-base-url <https-url> [--allow-provisioning-updates]
+  build-device.sh --project <path> --scheme <scheme> [--allow-provisioning-updates]
+  build-device.sh --workspace <path> --scheme <scheme> [--allow-provisioning-updates]
 
 Builds a signed real-device IPA and prints JSON with:
   links.universalLink
@@ -31,11 +32,13 @@ Builds a signed real-device IPA and prints JSON with:
 Defaults:
   configuration: Release
   export method: development
+  delivery: temporary public HTTPS link, no account or Tailscale required
 
 Environment:
   SWIFT_SIM_PORT             Helper port. Default: 47217
   SWIFT_SIM_HOST             Helper bind host. Default: 127.0.0.1
-  SWIFT_SIM_REMOTE_BASE_URL  Default remote URL if --remote-base-url is omitted
+  SWIFT_SIM_DEVICE_REMOTE_BASE_URL  Custom device URL if --remote-base-url is omitted
+  SWIFT_SIM_DEVICE_DELIVERY  quick-tunnel or custom. Default: automatic
   SWIFT_SIM_EXPORT_METHOD    development or ad-hoc. Default: development
 USAGE
 }
@@ -62,6 +65,10 @@ while [[ $# -gt 0 ]]; do
       REMOTE_BASE_URL="${2:-}"
       shift 2
       ;;
+    --delivery)
+      DELIVERY="${2:-}"
+      shift 2
+      ;;
     --export-method)
       EXPORT_METHOD="${2:-}"
       shift 2
@@ -82,7 +89,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$SCHEME" || -z "$REMOTE_BASE_URL" ]]; then
+if [[ -z "$SCHEME" ]]; then
   usage >&2
   exit 2
 fi
@@ -123,9 +130,16 @@ args=(
   "$HELPER" build-device
   --scheme "$SCHEME"
   --configuration "$CONFIGURATION"
-  --remote-base-url "$REMOTE_BASE_URL"
   --export-method "$EXPORT_METHOD"
 )
+
+if [[ -n "$REMOTE_BASE_URL" ]]; then
+  args+=(--remote-base-url "$REMOTE_BASE_URL")
+fi
+
+if [[ -n "$DELIVERY" ]]; then
+  args+=(--delivery "$DELIVERY")
+fi
 
 if [[ -n "$PROJECT" ]]; then
   args+=(--project "$PROJECT")

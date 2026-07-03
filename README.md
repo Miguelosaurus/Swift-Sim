@@ -14,25 +14,25 @@
   <img src="https://img.shields.io/badge/SwiftUI-native-orange.svg" alt="Native SwiftUI companion">
 </p>
 
-Codex remains the only coding agent. Project code builds on the Mac. The iPhone companion either controls a Mac Simulator or opens a signed install page for a real device build. There is no Swift Sim account or cloud project import in V1.
+Codex remains the only coding agent. Project code builds on the Mac. The iPhone companion either controls a Mac Simulator or opens a signed install page for a real device build. There is no Swift Sim account or project upload.
 
 ## How It Works
 
 Swift Sim has two lanes:
 
 - **Preview in Simulator**: Codex launches your app on a Mac Simulator, verifies the same simulator in its sidebar, then returns an **Open Simulator in Companion App** link.
-- **Install on iPhone**: Codex archives your project on the Mac, exports a signed `.ipa`, creates a temporary install page, then returns an **Install on iPhone** link.
+- **Install on iPhone**: Codex archives your project on the Mac, exports a signed `.ipa`, starts a temporary HTTPS delivery tunnel, then returns an **Install on iPhone** link. This lane does not require Tailscale or the same network.
 
 The normal phone path uses headless H.264 from `serve-sim`, native iOS decoding, live touch input, hardware controls, logs, and immediate HID keyboard forwarding.
 
-Device builds use your existing Apple development signing. Swift Sim installs over the existing app by default, so app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.
+Device builds use the Apple Developer account already configured in Xcode. Swift Sim never reads Apple credentials. It installs over the existing app by default, so app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.
 
 ## Requirements
 
 - Apple silicon Mac
 - Xcode with an iOS Simulator runtime
 - Node.js 20 or newer
-- Tailscale on the Mac and iPhone for simulator preview
+- Tailscale on the Mac and iPhone only for simulator preview
 - Apple Developer signing to install the companion from source
 - Apple Developer signing for projects you want to install on iPhone
 
@@ -82,6 +82,17 @@ After pairing, Codex can produce either:
 - an **Open Simulator in Companion App** link for live simulator preview
 - an **Install on iPhone** link for a signed device build/update
 
+Building to iPhone is even shorter and does not require pairing or Tailscale:
+
+```sh
+scripts/codex/build-device.sh \
+  --project /absolute/path/to/YourApp.xcodeproj \
+  --scheme YourApp \
+  --allow-provisioning-updates
+```
+
+The first run downloads Cloudflare's tunnel helper through `npx`. No Cloudflare account is required. The Mac must stay online while the temporary link is in use.
+
 For the complete first-time flow, read [Setup](docs/SETUP.md).
 
 ## Codex Integration
@@ -94,7 +105,7 @@ The included Codex plugin teaches Codex to:
 - archive/export a real iPhone build
 - return an authenticated install page for device builds
 - preserve app data by avoiding uninstall/reinstall unless requested
-- diagnose missing helper, Tailscale, pairing, and stream setup
+- diagnose missing helper, signing, temporary delivery, Tailscale, pairing, and stream setup
 - return the correct companion link after a successful run
 
 The plugin source is at `plugins/swift-sim-companion`.
@@ -114,7 +125,7 @@ test/                          Node helper tests
 
 ## Documentation
 
-- [Setup](docs/SETUP.md): install, Tailscale, pairing, and first session
+- [Setup](docs/SETUP.md): install, simulator pairing, and real-device builds
 - [Codex Workflow](docs/CODEX_WORKFLOW.md): plugin installation and expected Codex behavior
 - [Architecture](docs/ARCHITECTURE.md): components, transports, recovery, and session API
 - [Security](docs/SECURITY.md): trust boundaries, tokens, and current limitations
@@ -128,13 +139,14 @@ test/                          Node helper tests
 - Universal links cannot be pre-entitled for every user's private `*.ts.net` hostname. The `swift-sim://` link is the reliable per-user fallback.
 - Simulator session tokens do not yet expire or have a per-session deletion flow. Treat links as durable credentials and follow [Security](docs/SECURITY.md) if one is exposed.
 - Device build install pages expire, but the generated `.ipa` is stored locally under `~/.swift-sim` until deleted.
+- Account-free device delivery uses an ephemeral Cloudflare Quick Tunnel. It has no uptime guarantee; regenerate the link if the tunnel ends.
 - WebRTC is deferred. V1 uses AVCC H.264 over Tailscale with bounded decoder and encoder recovery.
 
 ## Security Summary
 
-The helper binds to `127.0.0.1` by default. Tailscale Serve exposes it only inside the user's Tailnet. Pairing and session routes require opaque tokens, and public session responses omit project paths, local ports, process IDs, and Simulator UDIDs.
+The full helper binds to `127.0.0.1` and simulator access stays inside the user's Tailnet. Device delivery starts a separate localhost gateway that exposes only read-only, token-protected build routes through an expiring HTTPS tunnel. Pairing and simulator controls are not reachable through that public gateway.
 
-Read [Security](docs/SECURITY.md) before exposing the helper through anything other than private Tailscale Serve.
+Read [Security](docs/SECURITY.md) before exposing the full simulator helper through anything other than private Tailscale Serve. The managed device-build-only tunnel is intentionally separate.
 
 ## License
 

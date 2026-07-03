@@ -18,7 +18,7 @@
   },
   "scripts": {
     "start": "node mac-helper/bin/swift-sim-helper.js serve",
-    "check": "node --check mac-helper/bin/swift-sim-helper.js && node --test",
+    "check": "node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && node --test",
     "test": "node --test"
   },
   "engines": {
