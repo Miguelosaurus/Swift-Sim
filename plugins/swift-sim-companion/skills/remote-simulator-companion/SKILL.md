@@ -303,7 +303,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - Keep the framebuffer-mask endpoint behind the same opaque session token. Do not expose its source path from Xcode's device profile.
 - `codex.localPreviewUrl` and `codex.simulatorUDID` are local workflow metadata only. Use them to prove the nested Codex simulator and the phone companion use the same Simulator session; never paste them into the final user message.
 - Keep the full simulator helper bound to localhost and expose simulator access only through private Tailscale Serve.
-- Device builds may expose only the separate read-only gateway through the managed expiring Quick Tunnel.
+- Device builds may expose only the separate token-scoped gateway through the managed expiring Quick Tunnel. Its only mutations are install-request tracking and connected-device verification for that build.
 - Do not use Tailscale Funnel for simulator setup. Prefer private Tailnet access.
 - Do not imply that universal links work automatically for every Tailscale or Quick Tunnel host. Device build HTTPS links intentionally open an install webpage; use `swift-sim://` when opening the native companion is useful.
 - Input uses the installed `serve-sim` control channel on both video transports. Do not promise complete multi-touch pinch/zoom unless `serve-sim-info` proves the installed version supports stable multi-touch gesture JSON.

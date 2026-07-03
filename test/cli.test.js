@@ -4,11 +4,12 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const cli = new URL("../mac-helper/bin/swift-sim.js", import.meta.url);
+const packageJSON = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
 
 test("swift-sim exposes the packaged version and install-first help", () => {
   const version = spawnSync(process.execPath, [cli.pathname, "version"], { encoding: "utf8" });
   assert.equal(version.status, 0);
-  assert.equal(version.stdout.trim(), "0.1.0");
+  assert.equal(version.stdout.trim(), packageJSON.version);
 
   const help = spawnSync(process.execPath, [cli.pathname, "help"], { encoding: "utf8" });
   assert.equal(help.status, 0);

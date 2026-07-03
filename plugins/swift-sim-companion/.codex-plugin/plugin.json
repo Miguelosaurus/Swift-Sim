@@ -1,6 +1,6 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.1.0+codex.20260703200913",
+  "version": "0.2.0+codex.20260703230835",
   "description": "Teach Codex to set up Swift Sim, manage signed iPhone app histories, and optionally preview Mac-hosted Xcode Simulators.",
   "author": {
     "name": "Swift Sim",
