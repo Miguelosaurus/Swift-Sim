@@ -69,7 +69,18 @@ Ask Codex to build to your phone again after making changes. Keep the same:
 
 iOS then installs the new build over the existing one and preserves its app container. Swift Sim does not uninstall first.
 
+The companion groups builds by bundle identifier and Apple Developer team. Rebuilding the same app updates its single library entry and adds a new row to **Build History** instead of creating another app card.
+
 Changing the bundle identifier creates a separate app. Changing the team or access-group entitlements can prevent the update from reading previous keychain or shared-container data.
+
+### Managing Prototypes
+
+- **Archive App** hides a dormant prototype from the active library but keeps its complete build history.
+- **Restore App** returns an archived prototype to the active library.
+- **Delete History** removes the companion's saved timeline. It does not uninstall the app from iOS.
+- **Verify** asks the Mac to compare the build with apps reported by Apple's `devicectl`. Verification succeeds only while that trusted iPhone is reachable from the Mac.
+
+Swift Sim uses the honest intermediate status **Install requested** because iOS OTA installation does not provide a completion callback to the companion app.
 
 ## 4. Optional Live Simulator Preview
 

@@ -11,6 +11,9 @@ struct ContentView: View {
                 SimulatorSessionView(session: session)
             } else if let build = sessionStore.currentDeviceBuild {
                 DeviceBuildView(build: build)
+            } else if let appID = sessionStore.selectedManagedAppID,
+                      let app = sessionStore.managedApps.first(where: { $0.id == appID }) {
+                ManagedAppDetailView(app: app)
             } else {
                 HomeView()
             }
@@ -24,6 +27,7 @@ private struct HomeView: View {
     @State private var searchText = ""
     @State private var showingMacSettings = false
     @State private var showingPasteLink = false
+    @State private var showingArchivedApps = false
 
     private var filteredSessions: [RecentSession] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,10 +38,11 @@ private struct HomeView: View {
         }
     }
 
-    private var filteredDeviceBuilds: [RecentDeviceBuild] {
+    private var filteredApps: [ManagedApp] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return sessionStore.recentDeviceBuilds }
-        return sessionStore.recentDeviceBuilds.filter {
+        let apps = sessionStore.managedApps.filter { $0.isArchived == showingArchivedApps }
+        guard !query.isEmpty else { return apps }
+        return apps.filter {
             $0.displayName.localizedCaseInsensitiveContains(query)
                 || $0.bundleIdentifier.localizedCaseInsensitiveContains(query)
         }
@@ -114,7 +119,7 @@ private struct HomeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ready for iPhone Builds")
                     .font(.headline.weight(.semibold))
-                Text("Signed by Xcode. No Tailscale required.")
+                Text(appLibrarySummary)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
             }
@@ -123,6 +128,12 @@ private struct HomeView: View {
         }
         .padding(14)
         .liquidGlassPanel(cornerRadius: 26, tint: Color.green.opacity(0.08), interactive: false)
+    }
+
+    private var appLibrarySummary: String {
+        let activeCount = sessionStore.managedApps.filter { !$0.isArchived }.count
+        guard activeCount > 0 else { return "Signed by Xcode. No Tailscale required." }
+        return activeCount == 1 ? "1 prototype app with complete build history" : "\(activeCount) prototype apps with organized build history"
     }
 
     private var macStatusPanel: some View {
@@ -226,10 +237,23 @@ private struct HomeView: View {
     private var deviceBuildBoard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("iPhone Builds")
+                Text(showingArchivedApps ? "Archived Apps" : "Apps")
                     .font(.title3.weight(.bold))
                 Spacer()
-                Text("\(filteredDeviceBuilds.count)")
+                Button {
+                    withAnimation(.snappy(duration: 0.25)) {
+                        showingArchivedApps.toggle()
+                    }
+                } label: {
+                    Image(systemName: showingArchivedApps ? "tray.full.fill" : "archivebox")
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .liquidGlassCircle(tint: Color.white.opacity(0.18), interactive: true)
+                .accessibilityLabel(showingArchivedApps ? "Show active apps" : "Show archived apps")
+
+                Text("\(filteredApps.count)")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
@@ -237,20 +261,17 @@ private struct HomeView: View {
                     .liquidGlassCapsule(tint: .white.opacity(0.24), interactive: false)
             }
 
-            if filteredDeviceBuilds.isEmpty {
-                EmptyDeviceBuildCard()
+            if filteredApps.isEmpty {
+                EmptyDeviceBuildCard(isArchive: showingArchivedApps)
             } else {
                 VStack(spacing: 12) {
-                    ForEach(filteredDeviceBuilds) { build in
-                        SwipeToDeleteRow {
-                            DeviceBuildRow(build: build)
-                        } onOpen: {
-                            sessionStore.reopen(build)
-                        } onDelete: {
-                            withAnimation {
-                                sessionStore.removeRecentDeviceBuild(build)
-                            }
+                    ForEach(filteredApps) { app in
+                        Button {
+                            sessionStore.openManagedApp(app)
+                        } label: {
+                            ManagedAppRow(app: app)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -264,7 +285,7 @@ private struct HomeView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.secondary)
 
-                TextField(selectedMode == .installs ? "Find an iPhone build" : "Find a Simulator session", text: $searchText)
+                TextField(selectedMode == .installs ? "Find an app" : "Find a Simulator session", text: $searchText)
                     .font(.body.weight(.medium))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -383,6 +404,253 @@ private struct PasteLinkSheet: View {
     }
 }
 
+private struct ManagedAppDetailView: View {
+    @EnvironmentObject private var sessionStore: SessionStore
+    let app: ManagedApp
+    @State private var showingDeleteConfirmation = false
+
+    var body: some View {
+        ZStack {
+            HomeCanvas()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    topBar
+                    appHeader
+                    latestBuildSection
+                    buildHistorySection
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 18)
+                .padding(.bottom, 40)
+            }
+        }
+        .alert("Delete Swift Sim History?", isPresented: $showingDeleteConfirmation) {
+            Button("Delete History", role: .destructive) {
+                sessionStore.deleteManagedApp(app)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the saved build timeline from Swift Sim. It does not uninstall the app from your iPhone.")
+        }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Button {
+                sessionStore.closeManagedApp()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 23, weight: .bold))
+                    .frame(width: 50, height: 50)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCircle(tint: Color(.systemBackground).opacity(0.2), interactive: true)
+
+            Spacer()
+
+            Text("App History")
+                .font(.headline.weight(.bold))
+
+            Spacer()
+
+            Menu {
+                Button {
+                    sessionStore.archiveManagedApp(app, archived: !app.isArchived)
+                } label: {
+                    Label(app.isArchived ? "Restore App" : "Archive App", systemImage: app.isArchived ? "arrow.uturn.backward" : "archivebox")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Label("Delete History", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 21, weight: .bold))
+                    .frame(width: 50, height: 50)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCircle(tint: Color(.systemBackground).opacity(0.2), interactive: true)
+            .accessibilityLabel("App actions")
+        }
+    }
+
+    private var appHeader: some View {
+        HStack(alignment: .center, spacing: 16) {
+            AppBadge(text: app.initials, isEmpty: false, accent: statusColor)
+                .frame(width: 72, height: 72)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(app.displayName)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .lineLimit(2)
+                Text(app.bundleIdentifier.isEmpty ? "Bundle identifier unavailable" : app.bundleIdentifier)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Label(statusText, systemImage: statusSymbol)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(statusColor)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var latestBuildSection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Text("Current Build")
+                .font(.title3.weight(.bold))
+
+            if let latest = app.latestBuild {
+                Button {
+                    sessionStore.reopen(latest)
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: latest.installationState == "verified" ? "checkmark.circle.fill" : "iphone.and.arrow.forward")
+                            .font(.system(size: 25, weight: .semibold))
+                            .foregroundStyle(statusColor)
+                            .frame(width: 46, height: 46)
+                            .liquidGlassCircle(tint: statusColor.opacity(0.12), interactive: false)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(latest.versionLabel)
+                                .font(.headline.weight(.bold))
+                                .foregroundStyle(.primary)
+                            Text(latest.isLinkActive ? "Install link available" : "Build metadata saved")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(16)
+                    .liquidGlassPanel(cornerRadius: 26, tint: statusColor.opacity(0.08), interactive: true)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var buildHistorySection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack {
+                Text("Build History")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                Text("\(app.builds.count)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(app.builds.sorted { $0.createdAt > $1.createdAt }) { build in
+                Button {
+                    sessionStore.reopen(build)
+                } label: {
+                    BuildHistoryRow(build: build, isCurrent: build.id == app.latestBuild?.id)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var statusText: String {
+        if app.isArchived { return "Archived" }
+        switch app.latestBuild?.installationState {
+        case "verified": return "Verified on iPhone"
+        case "requested": return "Install requested"
+        default: return "Ready for the next build"
+        }
+    }
+
+    private var statusSymbol: String {
+        if app.isArchived { return "archivebox.fill" }
+        return app.latestBuild?.installationState == "verified" ? "checkmark.circle.fill" : "clock.arrow.circlepath"
+    }
+
+    private var statusColor: Color {
+        if app.isArchived { return .secondary }
+        switch app.latestBuild?.installationState {
+        case "verified": return .green
+        case "requested": return .orange
+        default: return .blue
+        }
+    }
+}
+
+private struct BuildHistoryRow: View {
+    let build: ManagedBuild
+    let isCurrent: Bool
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 36, height: 36)
+                .liquidGlassCircle(tint: color.opacity(0.1), interactive: false)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text(build.versionLabel)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                    if isCurrent {
+                        Text("CURRENT")
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundStyle(.blue)
+                    }
+                }
+                Text(build.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(buildStatus)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 13)
+        .liquidGlassPanel(cornerRadius: 22, tint: Color.white.opacity(0.12), interactive: true)
+    }
+
+    private var icon: String {
+        switch build.installationState {
+        case "verified": "checkmark.circle.fill"
+        case "requested": "clock.fill"
+        default: build.isLinkActive ? "arrow.down.circle.fill" : "clock.arrow.circlepath"
+        }
+    }
+
+    private var color: Color {
+        switch build.installationState {
+        case "verified": .green
+        case "requested": .orange
+        default: build.isLinkActive ? .blue : .secondary
+        }
+    }
+
+    private var buildStatus: String {
+        switch build.installationState {
+        case "verified": "Verified"
+        case "requested": "Requested"
+        default: build.isLinkActive ? "Available" : "Expired"
+        }
+    }
+}
+
 private struct DeviceBuildView: View {
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var sessionStore: SessionStore
@@ -400,6 +668,7 @@ private struct DeviceBuildView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     topBar
                     buildHero
+                    installationPanel
                     updateSafety
                     logsPanel
                 }
@@ -418,7 +687,7 @@ private struct DeviceBuildView: View {
     private var topBar: some View {
         HStack {
             Button {
-                sessionStore.closeCurrentSession()
+                sessionStore.closeCurrentBuild()
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 25, weight: .bold))
@@ -462,10 +731,10 @@ private struct DeviceBuildView: View {
                 .frame(width: 78, height: 78)
 
             VStack(alignment: .leading, spacing: 7) {
-                Text(status?.app.name.isEmpty == false ? status!.app.name : "iPhone Build")
+                Text(appName)
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .lineLimit(2)
-                Text(status?.app.bundleIdentifier.isEmpty == false ? status!.app.bundleIdentifier : "Waiting for signing details")
+                Text(bundleIdentifier.isEmpty ? "Waiting for signing details" : bundleIdentifier)
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -486,6 +755,36 @@ private struct DeviceBuildView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(22)
         .liquidGlassPanel(cornerRadius: 34, tint: Color.white.opacity(0.18), interactive: false)
+    }
+
+    private var installationPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label(installationTitle, systemImage: installationSymbol)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(installationColor)
+                Spacer()
+                Button {
+                    Task { await sessionStore.verifyCurrentBuildInstallation() }
+                } label: {
+                    Label("Verify", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.bold))
+                }
+                .buttonStyle(.borderless)
+            }
+
+            if let device = status?.installation?.devices.first(where: { $0.state == "installed" }) {
+                Text("\(device.name) has version \(device.version) (\(device.build)).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(installationDetail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(18)
+        .liquidGlassPanel(cornerRadius: 28, tint: installationColor.opacity(0.07), interactive: false)
     }
 
     private var updateSafety: some View {
@@ -543,20 +842,20 @@ private struct DeviceBuildView: View {
                 } else {
                     statusInstallURL = nil
                 }
-                if let installURL = statusInstallURL ?? build.installURL {
+                let installURL = statusInstallURL ?? build.installURL ?? build.installPageURL
+                Task {
+                    await sessionStore.markCurrentBuildInstallRequested()
                     openURL(installURL)
-                } else {
-                    openURL(build.installPageURL)
                 }
             } label: {
-                Label(status?.isReady == true ? "Install on iPhone" : "Build Not Ready", systemImage: "iphone.and.arrow.forward")
+                Label(installButtonTitle, systemImage: "iphone.and.arrow.forward")
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
                     .frame(height: 58)
             }
             .buttonStyle(.plain)
-            .liquidGlassCapsule(tint: status?.isReady == true ? Color.green.opacity(0.2) : Color.gray.opacity(0.12), interactive: status?.isReady == true)
-            .disabled(status?.isReady != true)
+            .liquidGlassCapsule(tint: canInstall ? Color.green.opacity(0.2) : Color.gray.opacity(0.12), interactive: canInstall)
+            .disabled(!canInstall)
 
             if let expiry = status?.expiryDate {
                 Text("Install page expires \(expiry.formatted(date: .omitted, time: .shortened))")
@@ -582,10 +881,73 @@ private struct DeviceBuildView: View {
     }
 
     private var appInitials: String {
-        let name = status?.app.name ?? "iPhone Build"
+        let name = appName
         let letters = name.split(separator: " ").prefix(2).compactMap(\.first)
         let text = String(letters).uppercased()
         return text.isEmpty ? "IB" : text
+    }
+
+    private var currentManagedBuild: ManagedBuild? {
+        sessionStore.managedApps
+            .flatMap(\.builds)
+            .first { $0.id == build.id }
+    }
+
+    private var appName: String {
+        if let name = status?.app.name, !name.isEmpty { return name }
+        return currentManagedBuild?.displayName ?? "iPhone Build"
+    }
+
+    private var bundleIdentifier: String {
+        if let identifier = status?.app.bundleIdentifier, !identifier.isEmpty { return identifier }
+        return currentManagedBuild?.bundleIdentifier ?? ""
+    }
+
+    private var canInstall: Bool {
+        guard status?.isReady == true else { return false }
+        guard let expiry = status?.expiryDate else { return currentManagedBuild?.isLinkActive == true }
+        return expiry > Date()
+    }
+
+    private var installButtonTitle: String {
+        guard canInstall else { return status?.isReady == true ? "Install Link Expired" : "Build Not Ready" }
+        let buildCount = sessionStore.managedApps.first(where: { $0.id == currentManagedBuild?.appID })?.builds.count ?? 1
+        return buildCount > 1 ? "Install Update" : "Install on iPhone"
+    }
+
+    private var installationTitle: String {
+        switch status?.installation?.state ?? currentManagedBuild?.installationState {
+        case "verified": "Verified on iPhone"
+        case "requested": "Install requested"
+        case "not-installed": "Not found on reachable iPhone"
+        default: "Installation not verified"
+        }
+    }
+
+    private var installationSymbol: String {
+        switch status?.installation?.state ?? currentManagedBuild?.installationState {
+        case "verified": "checkmark.circle.fill"
+        case "requested": "clock.badge.checkmark"
+        case "not-installed": "iphone.slash"
+        default: "questionmark.circle"
+        }
+    }
+
+    private var installationColor: Color {
+        switch status?.installation?.state ?? currentManagedBuild?.installationState {
+        case "verified": .green
+        case "requested": .orange
+        case "not-installed": .red
+        default: .secondary
+        }
+    }
+
+    private var installationDetail: String {
+        switch status?.installation?.state ?? currentManagedBuild?.installationState {
+        case "requested": "iOS accepted the install handoff. Swift Sim can verify the exact version when this iPhone is reachable from the Mac."
+        case "not-installed": "The app was not present on the reachable iPhone during the last check."
+        default: "Verification uses Apple developer tooling when this iPhone is reachable from the Mac."
+        }
     }
 
     private var statusLabel: String {
@@ -666,25 +1028,25 @@ private struct SessionRow: View {
     }
 }
 
-private struct DeviceBuildRow: View {
-    let build: RecentDeviceBuild
+private struct ManagedAppRow: View {
+    let app: ManagedApp
 
     var body: some View {
         HStack(spacing: 14) {
-            AppBadge(text: initials, isEmpty: false)
+            AppBadge(text: app.initials, isEmpty: false, accent: appAccent)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(build.displayName)
+                Text(app.displayName)
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                HStack(spacing: 8) {
-                    Label(build.state.capitalized, systemImage: "iphone.and.arrow.forward")
-                    if !build.bundleIdentifier.isEmpty {
-                        Text(build.bundleIdentifier)
-                            .lineLimit(1)
-                    }
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(appAccent)
+                        .frame(width: 7, height: 7)
+                    Text("\(statusLabel) - \(app.latestBuild?.versionLabel ?? "No build details")")
+                        .lineLimit(1)
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -692,19 +1054,36 @@ private struct DeviceBuildRow: View {
 
             Spacer()
 
-            Image(systemName: build.state == "ready" ? "arrow.down.circle.fill" : "clock.fill")
-                .font(.system(size: 31, weight: .semibold))
-                .foregroundStyle(build.state == "ready" ? .green : .secondary)
+            VStack(alignment: .trailing, spacing: 5) {
+                Text("\(app.builds.count)")
+                    .font(.headline.weight(.bold))
+                Text(app.builds.count == 1 ? "build" : "builds")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.tertiary)
         }
         .padding(14)
         .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
     }
 
-    private var initials: String {
-        let pieces = build.displayName.split(separator: " ")
-        let letters = pieces.prefix(2).compactMap { $0.first }
-        let result = String(letters).uppercased()
-        return result.isEmpty ? "IB" : result
+    private var statusLabel: String {
+        switch app.latestBuild?.installationState {
+        case "verified": "Verified"
+        case "requested": "Install requested"
+        default: app.latestBuild?.isLinkActive == true ? "Ready to install" : "Build history"
+        }
+    }
+
+    private var appAccent: Color {
+        switch app.latestBuild?.installationState {
+        case "verified": .green
+        case "requested": .orange
+        default: .blue
+        }
     }
 }
 
@@ -804,14 +1183,16 @@ private struct EmptySessionCard: View {
 }
 
 private struct EmptyDeviceBuildCard: View {
+    let isArchive: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             AppBadge(text: nil, isEmpty: true, symbol: "iphone.and.arrow.forward")
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("No iPhone builds yet")
+                Text(isArchive ? "No archived apps" : "No prototype apps yet")
                     .font(.title3.weight(.bold))
-                Text("Signed install links from Codex appear here.")
+                Text(isArchive ? "Archived apps stay organized here without cluttering your active library." : "Your first signed install link from Codex creates an app with its own build history.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -827,13 +1208,14 @@ private struct AppBadge: View {
     let text: String?
     let isEmpty: Bool
     var symbol = "terminal.fill"
+    var accent: Color = .blue
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 21, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: isEmpty ? [Color.gray.opacity(0.55), Color.gray.opacity(0.28)] : [Color.blue, Color.indigo],
+                        colors: isEmpty ? [Color.gray.opacity(0.55), Color.gray.opacity(0.28)] : [accent, accent.opacity(0.62)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )

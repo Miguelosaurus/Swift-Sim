@@ -33,6 +33,9 @@ The native SwiftUI app:
 - forwards normalized input to the helper
 - presents build status, logs, reconnect state, and simulator controls
 - opens device-build links and launches real iPhone installs
+- groups every build under one stable app identity
+- keeps a local build timeline that survives expired install links
+- records install requests and displays connected-device verification
 
 It never builds the user's project. Simulator sessions execute on the Mac Simulator; device builds execute as normal installed iOS apps after iOS installs them.
 
@@ -78,6 +81,10 @@ The helper signs with the user's existing Xcode/Apple Developer setup. It never 
 The temporary tunnel is not the simulator helper. A second server binds to a fresh ephemeral `127.0.0.1` port and allows only read-only device-build status, logs, install-page, manifest, and IPA routes. Pairing, simulator media, and simulator controls return `404` through this gateway. The tunnel and gateway stop after the delivery TTL.
 
 Swift Sim preserves app data by default because it does not uninstall before installing. iOS treats the build as an update when the bundle identifier, signing team, and entitlements are compatible.
+
+The helper derives one opaque app identity from the bundle identifier and signing team. Builds with that identity form one ordered history. Changing either identity component intentionally creates another app because iOS update compatibility changed.
+
+Install completion is reconciled through `xcrun devicectl device info apps` when a trusted physical iPhone is reachable. Public responses include only the friendly device name and installed version/build; they omit UDIDs, serial numbers, and CoreDevice identifiers.
 
 ## Stream Recovery
 
@@ -136,6 +143,14 @@ A device build tracks:
 - archive, IPA, and manifest paths
 - expiry timestamp and build logs
 - delivery mode, provider, and delivery expiry
+- install-request and device-verification state
+
+An app record tracks:
+
+- opaque app identity
+- display name and bundle identifier
+- ordered build history
+- archive state
 
 Public device-build responses omit archive paths, IPA paths, local filesystem details, and signing file locations.
 
@@ -156,6 +171,10 @@ GET  /api/transports
 GET  /api/pairing/status
 POST /api/pairing/rotate
 POST /api/sessions/start
+GET  /api/apps
+GET  /api/apps/<app-id>
+POST /api/apps/<app-id>/archive
+DELETE /api/apps/<app-id>
 ```
 
 Session-token routes:
@@ -184,9 +203,11 @@ GET  /api/device-builds/<id>/logs
 GET  /api/device-builds/<id>/links
 GET  /api/device-builds/<id>/artifact/manifest
 GET  /api/device-builds/<id>/artifact/ipa
+POST /api/device-builds/<id>/install-request
+POST /api/device-builds/<id>/verify
 ```
 
-Only the single-build `GET` routes are exposed by the temporary public delivery gateway. Listing and build-start routes remain local/pairing-token operations.
+The temporary public delivery gateway exposes only one token-scoped build's read routes plus `install-request` and `verify`. App listing, archive, deletion, pairing, build start, Simulator media, and Simulator controls remain unavailable through the public gateway.
 
 Browser fallback and link entry points:
 

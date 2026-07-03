@@ -19,6 +19,7 @@ function fixtureBuild() {
       expiresAt: "2026-06-25T00:30:00.000Z",
     },
     app: {
+      identity: "app-identity",
       name: "Example App",
       bundleIdentifier: "com.example.app",
       version: "1.0",
@@ -30,6 +31,12 @@ function fixtureBuild() {
       deviceInstallable: true,
       updateSafe: "same-bundle-update",
       warnings: ["App data is preserved only when signing stays compatible."],
+    },
+    installation: {
+      state: "requested",
+      requestedAt: "2026-06-25T00:10:00.000Z",
+      verifiedAt: "",
+      devices: [],
     },
   };
 }
@@ -68,5 +75,6 @@ test("public device build hides artifact paths", () => {
   assert.equal(publicBuild.app.bundleIdentifier, "com.example.app");
   assert.equal(publicBuild.links.universalLink, "https://mac.example.ts.net/d/build-123?token=secret-token");
   assert.equal(publicBuild.delivery.mode, "quick-tunnel");
+  assert.equal(publicBuild.installation.state, "requested");
   assert.equal(JSON.stringify(publicBuild).includes("/Users/example"), false);
 });

@@ -12,7 +12,8 @@ The app handles the following data only to provide its core functionality:
 - opaque pairing and simulator-session tokens
 - recent session names and connection metadata
 - simulator video frames, controls, and logs exchanged directly with the user's Mac
-- opaque device-build tokens, build metadata, and recent build history
+- opaque device-build tokens, app-grouped build history, archive state, and install-request status
+- friendly device name and installed version/build when the user runs connected-device verification
 
 The app stores pairing information and recent sessions locally on the iPhone. Simulator frames and logs are displayed in the app and are not uploaded to SEA & SEA LLC.
 
@@ -26,7 +27,7 @@ The Codex desktop app and bundled plugin orchestrate builds and simulator sessio
 
 ## Retention and Deletion
 
-Pairing information, recent-session metadata, and recent-build metadata remain on the iPhone until the user removes them or deletes the app. Session records and signed IPA artifacts remain on the user's Mac until removed by the user. Device-build links expire automatically. The repository's security guide explains how to stop delivery, revoke exposed tokens, and remove stored records.
+Pairing information, recent-session metadata, and app build history remain on the iPhone until the user deletes that history or removes the app. Archiving hides an app without deleting its history. Session records and signed IPA artifacts remain on the user's Mac until removed by the user. Device-build links expire automatically. The repository's security guide explains how to stop delivery, revoke exposed tokens, and remove stored records.
 
 Because SEA & SEA LLC does not collect or retain Swift Sim user data on its servers, there is no developer-held account data to request or delete.
 

@@ -12,19 +12,21 @@ final class SessionStore: ObservableObject {
     @Published private(set) var pairedMac: PairedMac?
     @Published private(set) var helperStatus: HelperConnectionStatus = .notPaired
     @Published private(set) var recentSessions: [RecentSession] = []
-    @Published private(set) var recentDeviceBuilds: [RecentDeviceBuild] = []
+    @Published private(set) var managedApps: [ManagedApp] = []
+    @Published private(set) var selectedManagedAppID: String?
     @Published private(set) var tailscaleCheck = ConnectionCheck.notConfigured("Add a simulator session before checking the private route")
     @Published private(set) var macHelperCheck = ConnectionCheck.notConfigured("No Mac helper address is available yet")
     @Published private(set) var simulatorCheck = ConnectionCheck.notConfigured("Open a session link from Codex to add a simulator")
 
     private let recentSessionsKey = "recentSessions"
     private let recentDeviceBuildsKey = "recentDeviceBuilds"
+    private let managedAppsKey = "managedApps.v1"
     private let pairedMacKey = "pairedMac"
     private var keyboardTail: Task<Void, Never>?
 
     init() {
         loadRecentSessions()
-        loadRecentDeviceBuilds()
+        loadManagedApps()
         loadPairedMac()
         Task { await refreshHelperStatus() }
     }
@@ -43,7 +45,6 @@ final class SessionStore: ObservableObject {
             currentDeviceBuild = build
             currentSession = nil
             deviceBuildStatus = nil
-            upsertRecentDeviceBuild(RecentDeviceBuild(session: build, displayName: nil, bundleIdentifier: nil))
             Task { await refreshDeviceBuild() }
             return true
         }
@@ -72,14 +73,34 @@ final class SessionStore: ObservableObject {
         logs = []
         deviceBuildStatus = nil
         deviceBuildLogs = []
+        selectedManagedAppID = nil
     }
 
-    func reopen(_ recent: RecentDeviceBuild) {
-        currentDeviceBuild = recent.session
+    func openManagedApp(_ app: ManagedApp) {
+        selectedManagedAppID = app.id
         currentSession = nil
-        deviceBuildStatus = nil
-        upsertRecentDeviceBuild(recent.touch())
+        currentDeviceBuild = nil
+        touchManagedApp(app.id)
+    }
+
+    func closeManagedApp() {
+        selectedManagedAppID = nil
+    }
+
+    func reopen(_ build: ManagedBuild) {
+        selectedManagedAppID = build.appID
+        currentDeviceBuild = build.session
+        currentSession = nil
+        deviceBuildStatus = DeviceBuildStatus(cached: build)
+        deviceBuildLogs = []
+        touchManagedApp(build.appID)
         Task { await refreshDeviceBuild() }
+    }
+
+    func closeCurrentBuild() {
+        currentDeviceBuild = nil
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
     }
 
     func refresh() async {
@@ -132,14 +153,9 @@ final class SessionStore: ObservableObject {
             }
             let decoded = try JSONDecoder().decode(DeviceBuildStatus.self, from: data)
             deviceBuildStatus = decoded
-            upsertRecentDeviceBuild(
-                RecentDeviceBuild(
-                    session: build,
-                    displayName: decoded.app.name.isEmpty ? nil : decoded.app.name,
-                    bundleIdentifier: decoded.app.bundleIdentifier.isEmpty ? nil : decoded.app.bundleIdentifier,
-                    state: decoded.state
-                )
-            )
+            let managedBuild = ManagedBuild(session: build, status: decoded)
+            upsertManagedBuild(managedBuild)
+            selectedManagedAppID = managedBuild.appID
             await fetchDeviceBuildLogs()
         } catch {
             deviceBuildLogs = ["Unable to load device build: \(error.localizedDescription)"]
@@ -159,6 +175,38 @@ final class SessionStore: ObservableObject {
             deviceBuildLogs = decoded.logs
         } catch {
             deviceBuildLogs = ["Unable to load build logs: \(error.localizedDescription)"]
+        }
+    }
+
+    func markCurrentBuildInstallRequested() async {
+        guard let build = currentDeviceBuild else { return }
+        updateManagedBuild(build.id) { existing in
+            existing.markingInstallRequested()
+        }
+        var request = URLRequest(url: build.installRequestURL)
+        request.httpMethod = "POST"
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let decoded = try? JSONDecoder().decode(DeviceBuildStatus.self, from: data) else {
+            return
+        }
+        deviceBuildStatus = decoded
+        upsertManagedBuild(ManagedBuild(session: build, status: decoded))
+    }
+
+    func verifyCurrentBuildInstallation() async {
+        guard let build = currentDeviceBuild else { return }
+        var request = URLRequest(url: build.verifyURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 25
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            let decoded = try JSONDecoder().decode(DeviceBuildStatus.self, from: data)
+            deviceBuildStatus = decoded
+            upsertManagedBuild(ManagedBuild(session: build, status: decoded))
+        } catch {
+            deviceBuildLogs = ["Installation verification is available when this iPhone is reachable from the Mac."]
         }
     }
 
@@ -243,6 +291,7 @@ final class SessionStore: ObservableObject {
             pairedMac = mac.updated(name: decoded.macName)
             savePairedMac()
             helperStatus = .online
+            await syncManagedAppsFromMac()
         } catch {
             helperStatus = .offline
         }
@@ -322,9 +371,21 @@ final class SessionStore: ObservableObject {
         saveRecentSessions()
     }
 
-    func removeRecentDeviceBuild(_ recent: RecentDeviceBuild) {
-        recentDeviceBuilds.removeAll { $0.id == recent.id }
-        saveRecentDeviceBuilds()
+    func archiveManagedApp(_ app: ManagedApp, archived: Bool) {
+        guard let index = managedApps.firstIndex(where: { $0.id == app.id }) else { return }
+        managedApps[index] = managedApps[index].settingArchived(archived)
+        selectedManagedAppID = nil
+        sortAndSaveManagedApps()
+        Task { await syncArchiveToMac(appID: app.id, archived: archived) }
+    }
+
+    func deleteManagedApp(_ app: ManagedApp) {
+        managedApps.removeAll { $0.id == app.id }
+        if selectedManagedAppID == app.id {
+            selectedManagedAppID = nil
+        }
+        saveManagedApps()
+        Task { await syncDeleteToMac(appID: app.id) }
     }
 
     private func loadRecentSessions() {
@@ -349,18 +410,22 @@ final class SessionStore: ObservableObject {
         UserDefaults.standard.set(data, forKey: recentSessionsKey)
     }
 
-    private func loadRecentDeviceBuilds() {
-        guard let data = UserDefaults.standard.data(forKey: recentDeviceBuildsKey),
-              let decoded = try? JSONDecoder().decode([RecentDeviceBuild].self, from: data) else {
-            recentDeviceBuilds = []
+    private func loadManagedApps() {
+        if let data = UserDefaults.standard.data(forKey: managedAppsKey),
+           let decoded = try? JSONDecoder().decode([ManagedApp].self, from: data) {
+            managedApps = decoded.sorted { $0.lastOpened > $1.lastOpened }
             return
         }
-        recentDeviceBuilds = decoded.sorted { $0.lastOpened > $1.lastOpened }
-    }
 
-    private func saveRecentDeviceBuilds() {
-        guard let data = try? JSONEncoder().encode(recentDeviceBuilds) else { return }
-        UserDefaults.standard.set(data, forKey: recentDeviceBuildsKey)
+        guard let legacyData = UserDefaults.standard.data(forKey: recentDeviceBuildsKey),
+              let legacyBuilds = try? JSONDecoder().decode([RecentDeviceBuild].self, from: legacyData) else {
+            managedApps = []
+            return
+        }
+        for legacy in legacyBuilds {
+            upsertManagedBuild(ManagedBuild(legacy: legacy))
+        }
+        UserDefaults.standard.removeObject(forKey: recentDeviceBuildsKey)
     }
 
     private func upsertRecentSession(_ recent: RecentSession) {
@@ -385,13 +450,96 @@ final class SessionStore: ObservableObject {
         saveRecentSessions()
     }
 
-    private func upsertRecentDeviceBuild(_ recent: RecentDeviceBuild) {
-        var next = recentDeviceBuilds.filter { existing in
-            existing.id != recent.id
+    private func upsertManagedBuild(_ build: ManagedBuild) {
+        managedApps.removeAll { app in
+            app.id.hasPrefix("pending:") && app.builds.contains(where: { $0.id == build.id })
         }
-        next.insert(recent, at: 0)
-        recentDeviceBuilds = Array(next.prefix(8))
-        saveRecentDeviceBuilds()
+        if let index = managedApps.firstIndex(where: { $0.id == build.appID }) {
+            managedApps[index] = managedApps[index].upserting(build)
+        } else {
+            managedApps.append(ManagedApp(build: build))
+        }
+        sortAndSaveManagedApps()
+    }
+
+    private func updateManagedBuild(_ id: String, transform: (ManagedBuild) -> ManagedBuild) {
+        for appIndex in managedApps.indices {
+            guard let buildIndex = managedApps[appIndex].builds.firstIndex(where: { $0.id == id }) else { continue }
+            managedApps[appIndex].builds[buildIndex] = transform(managedApps[appIndex].builds[buildIndex])
+            sortAndSaveManagedApps()
+            return
+        }
+    }
+
+    private func touchManagedApp(_ id: String) {
+        guard let index = managedApps.firstIndex(where: { $0.id == id }) else { return }
+        managedApps[index].lastOpened = Date()
+        sortAndSaveManagedApps()
+    }
+
+    private func sortAndSaveManagedApps() {
+        managedApps.sort { $0.lastOpened > $1.lastOpened }
+        saveManagedApps()
+    }
+
+    private func saveManagedApps() {
+        guard let data = try? JSONEncoder().encode(managedApps) else { return }
+        UserDefaults.standard.set(data, forKey: managedAppsKey)
+    }
+
+    private func syncManagedAppsFromMac() async {
+        guard let mac = pairedMac else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: mac.appsURL)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            let remote = try JSONDecoder().decode(RemoteAppList.self, from: data)
+            for app in remote.apps {
+                let builds = app.builds.compactMap { status -> ManagedBuild? in
+                    guard let link = status.links?.customScheme,
+                          let url = URL(string: link),
+                          let session = DeviceBuildSession(url: url) else { return nil }
+                    return ManagedBuild(session: session, status: status)
+                }
+                guard let latest = builds.first else { continue }
+                var managed = ManagedApp(build: latest)
+                managed.displayName = app.name
+                managed.bundleIdentifier = app.bundleIdentifier
+                managed.builds = builds.sorted { $0.createdAt > $1.createdAt }
+                managed.archivedAt = Self.parseDate(app.archivedAt)
+                managed.lastOpened = managed.builds.first?.lastOpened ?? Date()
+                if let index = managedApps.firstIndex(where: { $0.id == managed.id }) {
+                    let localLastOpened = managedApps[index].lastOpened
+                    managed.lastOpened = max(localLastOpened, managed.lastOpened)
+                    managedApps[index] = managed
+                } else {
+                    managedApps.append(managed)
+                }
+            }
+            sortAndSaveManagedApps()
+        } catch {
+            // Link-ingested history remains available when optional Mac sync is offline.
+        }
+    }
+
+    private func syncArchiveToMac(appID: String, archived: Bool) async {
+        guard let mac = pairedMac, !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return }
+        var request = URLRequest(url: mac.appArchiveURL(appID))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONEncoder().encode(["archived": archived])
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
+    private func syncDeleteToMac(appID: String) async {
+        guard let mac = pairedMac, !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return }
+        var request = URLRequest(url: mac.appURL(appID))
+        request.httpMethod = "DELETE"
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        guard !value.isEmpty else { return nil }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     private func loadPairedMac() {
@@ -483,6 +631,21 @@ struct PairedMac: Identifiable, Codable, Equatable {
 
     var statusURL: URL {
         baseURL.appending(path: "api/pairing/status").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var appsURL: URL {
+        baseURL.appending(path: "api/apps").appending(queryItems: [
+            .init(name: "token", value: token),
+            .init(name: "archived", value: "true"),
+        ])
+    }
+
+    func appURL(_ id: String) -> URL {
+        baseURL.appending(path: "api/apps/\(id)").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    func appArchiveURL(_ id: String) -> URL {
+        baseURL.appending(path: "api/apps/\(id)/archive").appending(queryItems: [.init(name: "token", value: token)])
     }
 
     init(token: String, baseURL: URL, displayName: String = "Paired Mac") {
@@ -636,6 +799,14 @@ struct DeviceBuildSession: Identifiable, Equatable {
         baseURL.appending(path: "api/device-builds/\(id)/logs").appending(queryItems: [.init(name: "token", value: token)])
     }
 
+    var installRequestURL: URL {
+        baseURL.appending(path: "api/device-builds/\(id)/install-request").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    var verifyURL: URL {
+        baseURL.appending(path: "api/device-builds/\(id)/verify").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
     var installPageURL: URL {
         baseURL.appending(path: "d/\(id)").appending(queryItems: [.init(name: "token", value: token)])
     }
@@ -743,14 +914,216 @@ struct RecentDeviceBuild: Identifiable, Codable, Equatable {
     }
 }
 
+struct ManagedApp: Identifiable, Codable, Equatable {
+    let id: String
+    var displayName: String
+    var bundleIdentifier: String
+    var teamID: String
+    var builds: [ManagedBuild]
+    var archivedAt: Date?
+    var lastOpened: Date
+
+    var latestBuild: ManagedBuild? {
+        builds.sorted { $0.createdAt > $1.createdAt }.first
+    }
+
+    var isArchived: Bool {
+        archivedAt != nil
+    }
+
+    var initials: String {
+        let letters = displayName.split(separator: " ").prefix(2).compactMap(\.first)
+        let value = String(letters).uppercased()
+        return value.isEmpty ? "APP" : value
+    }
+
+    init(build: ManagedBuild) {
+        id = build.appID
+        displayName = build.displayName
+        bundleIdentifier = build.bundleIdentifier
+        teamID = build.teamID
+        builds = [build]
+        archivedAt = nil
+        lastOpened = build.lastOpened
+    }
+
+    func upserting(_ build: ManagedBuild) -> ManagedApp {
+        var copy = self
+        copy.displayName = build.displayName
+        copy.bundleIdentifier = build.bundleIdentifier
+        copy.teamID = build.teamID
+        copy.lastOpened = Date()
+        copy.builds.removeAll { $0.id == build.id }
+        copy.builds.append(build)
+        copy.builds.sort { $0.createdAt > $1.createdAt }
+        return copy
+    }
+
+    func settingArchived(_ archived: Bool) -> ManagedApp {
+        var copy = self
+        copy.archivedAt = archived ? Date() : nil
+        copy.lastOpened = Date()
+        return copy
+    }
+}
+
+struct ManagedBuild: Identifiable, Codable, Equatable {
+    let id: String
+    let token: String
+    let baseURLString: String
+    let appID: String
+    let displayName: String
+    let bundleIdentifier: String
+    let teamID: String
+    let version: String
+    let buildNumber: String
+    let state: String
+    let createdAt: Date
+    let expiresAt: Date?
+    let installationState: String
+    let installRequestedAt: Date?
+    let verifiedAt: Date?
+    let verifiedDevices: [VerifiedDevice]
+    let lastOpened: Date
+
+    var session: DeviceBuildSession {
+        DeviceBuildSession(id: id, token: token, baseURL: URL(string: baseURLString)!)
+    }
+
+    var isLinkActive: Bool {
+        guard let expiresAt else { return false }
+        return expiresAt > Date()
+    }
+
+    var versionLabel: String {
+        let versionText = version.isEmpty ? "Unversioned" : "Version \(version)"
+        return buildNumber.isEmpty ? versionText : "\(versionText) (\(buildNumber))"
+    }
+
+    init(session: DeviceBuildSession, status: DeviceBuildStatus) {
+        id = status.id
+        token = session.token
+        baseURLString = session.baseURL.absoluteString
+        appID = status.app.identity?.isEmpty == false
+            ? status.app.identity!
+            : ManagedBuild.localAppID(bundleIdentifier: status.app.bundleIdentifier, teamID: status.app.teamID, buildID: status.id)
+        displayName = status.app.name.isEmpty ? "iPhone App" : status.app.name
+        bundleIdentifier = status.app.bundleIdentifier
+        teamID = status.app.teamID
+        version = status.app.version
+        buildNumber = status.app.build
+        state = status.state
+        createdAt = Self.parse(status.createdAt) ?? Date()
+        expiresAt = Self.parse(status.expiresAt)
+        installationState = status.installation?.state ?? "unknown"
+        installRequestedAt = Self.parse(status.installation?.requestedAt)
+        verifiedAt = Self.parse(status.installation?.verifiedAt)
+        verifiedDevices = status.installation?.devices ?? []
+        lastOpened = Date()
+    }
+
+    init(legacy: RecentDeviceBuild) {
+        id = legacy.id
+        token = legacy.token
+        baseURLString = legacy.baseURLString
+        appID = Self.localAppID(bundleIdentifier: legacy.bundleIdentifier, teamID: "", buildID: legacy.id)
+        displayName = legacy.displayName
+        bundleIdentifier = legacy.bundleIdentifier
+        teamID = ""
+        version = ""
+        buildNumber = ""
+        state = legacy.state
+        createdAt = legacy.lastOpened
+        expiresAt = nil
+        installationState = "unknown"
+        installRequestedAt = nil
+        verifiedAt = nil
+        verifiedDevices = []
+        lastOpened = legacy.lastOpened
+    }
+
+    func markingInstallRequested() -> ManagedBuild {
+        ManagedBuild(
+            id: id,
+            token: token,
+            baseURLString: baseURLString,
+            appID: appID,
+            displayName: displayName,
+            bundleIdentifier: bundleIdentifier,
+            teamID: teamID,
+            version: version,
+            buildNumber: buildNumber,
+            state: state,
+            createdAt: createdAt,
+            expiresAt: expiresAt,
+            installationState: installationState == "verified" ? "verified" : "requested",
+            installRequestedAt: Date(),
+            verifiedAt: verifiedAt,
+            verifiedDevices: verifiedDevices,
+            lastOpened: Date()
+        )
+    }
+
+    private init(
+        id: String,
+        token: String,
+        baseURLString: String,
+        appID: String,
+        displayName: String,
+        bundleIdentifier: String,
+        teamID: String,
+        version: String,
+        buildNumber: String,
+        state: String,
+        createdAt: Date,
+        expiresAt: Date?,
+        installationState: String,
+        installRequestedAt: Date?,
+        verifiedAt: Date?,
+        verifiedDevices: [VerifiedDevice],
+        lastOpened: Date
+    ) {
+        self.id = id
+        self.token = token
+        self.baseURLString = baseURLString
+        self.appID = appID
+        self.displayName = displayName
+        self.bundleIdentifier = bundleIdentifier
+        self.teamID = teamID
+        self.version = version
+        self.buildNumber = buildNumber
+        self.state = state
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
+        self.installationState = installationState
+        self.installRequestedAt = installRequestedAt
+        self.verifiedAt = verifiedAt
+        self.verifiedDevices = verifiedDevices
+        self.lastOpened = lastOpened
+    }
+
+    private static func localAppID(bundleIdentifier: String, teamID: String, buildID: String) -> String {
+        guard !bundleIdentifier.isEmpty else { return "pending:\(buildID)" }
+        return "local:\(teamID.uppercased()):\(bundleIdentifier.lowercased())"
+    }
+
+    private static func parse(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        return ISO8601DateFormatter().date(from: value)
+    }
+}
+
 struct DeviceBuildStatus: Decodable, Equatable {
     let id: String
+    let createdAt: String
+    let updatedAt: String
     let expiresAt: String
     let state: String
     let app: DeviceBuildApp
     let signing: DeviceBuildSigning
     let delivery: DeviceBuildDelivery?
     let preserveData: Bool
+    let installation: DeviceBuildInstallation?
     let links: DeviceBuildLinks?
 
     var isReady: Bool {
@@ -760,9 +1133,36 @@ struct DeviceBuildStatus: Decodable, Equatable {
     var expiryDate: Date? {
         ISO8601DateFormatter().date(from: expiresAt)
     }
+
+    init(cached build: ManagedBuild) {
+        id = build.id
+        createdAt = ISO8601DateFormatter().string(from: build.createdAt)
+        updatedAt = createdAt
+        expiresAt = build.expiresAt.map { ISO8601DateFormatter().string(from: $0) } ?? ""
+        state = build.state
+        app = DeviceBuildApp(
+            identity: build.appID,
+            name: build.displayName,
+            bundleIdentifier: build.bundleIdentifier,
+            version: build.version,
+            build: build.buildNumber,
+            teamID: build.teamID
+        )
+        signing = DeviceBuildSigning(method: "development", deviceInstallable: true, updateSafe: "same-bundle-update", warnings: [])
+        delivery = nil
+        preserveData = true
+        installation = DeviceBuildInstallation(
+            state: build.installationState,
+            requestedAt: build.installRequestedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+            verifiedAt: build.verifiedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+            devices: build.verifiedDevices
+        )
+        links = nil
+    }
 }
 
 struct DeviceBuildApp: Decodable, Equatable {
+    let identity: String?
     let name: String
     let bundleIdentifier: String
     let version: String
@@ -781,6 +1181,20 @@ struct DeviceBuildDelivery: Decodable, Equatable {
     let mode: String
     let provider: String
     let expiresAt: String
+}
+
+struct DeviceBuildInstallation: Decodable, Equatable {
+    let state: String
+    let requestedAt: String
+    let verifiedAt: String
+    let devices: [VerifiedDevice]
+}
+
+struct VerifiedDevice: Codable, Equatable {
+    let name: String
+    let state: String
+    let version: String
+    let build: String
 }
 
 struct DeviceBuildLinks: Decodable, Equatable {
@@ -896,6 +1310,18 @@ private struct SessionLogs: Decodable {
 
 private struct PairingStatus: Decodable {
     let macName: String
+}
+
+private struct RemoteAppList: Decodable {
+    let apps: [RemoteManagedApp]
+}
+
+private struct RemoteManagedApp: Decodable {
+    let id: String
+    let name: String
+    let bundleIdentifier: String
+    let archivedAt: String
+    let builds: [DeviceBuildStatus]
 }
 
 private extension URL {

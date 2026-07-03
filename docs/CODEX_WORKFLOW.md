@@ -79,6 +79,30 @@ The link is secret, works without Tailscale, and lasts two hours by default.
 
 Never uninstall first. The same bundle identifier, team, and compatible entitlements preserve the existing app container. Warn before proceeding when any of those values changed.
 
+Every successful build is registered under a stable app identity derived from the bundle identifier and signing team. Codex can inspect the organized history with:
+
+```sh
+swift-sim list-apps
+```
+
+When the user asks whether a build is actually present on a reachable iPhone, run:
+
+```sh
+swift-sim verify-device-build --build-id "<opaque-build-id>"
+```
+
+Report `verified`, `not-installed`, or `unknown` exactly. Do not treat opening an install link as proof of completion. The companion records that step as `requested` until Apple developer tooling verifies it.
+
+Library maintenance is app-scoped:
+
+```sh
+swift-sim archive-app --app-id "<opaque-app-id>"
+swift-sim archive-app --app-id "<opaque-app-id>" --restore
+swift-sim delete-app --app-id "<opaque-app-id>"
+```
+
+Archiving preserves history and artifacts. Deleting removes local Swift Sim history and artifacts; it does not uninstall the app from an iPhone.
+
 ### Live Simulator Preview (Optional)
 
 Use this lane only when the user asks for a live Simulator, quick UI preview, Simulator logs, or the Codex sidebar mirror.

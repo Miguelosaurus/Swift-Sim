@@ -133,6 +133,21 @@ For device builds, Safari is the expected install surface.
 
 For Simulator sessions, arbitrary private Tailscale hosts cannot all be declared as universal-link domains in a public companion build. Use the printed `swift-sim://session/...` fallback or paste it into the app.
 
+## App Says Install Requested Instead Of Installed
+
+That status is intentional: iOS does not send OTA install completion back to Swift Sim. With the iPhone reachable from the Mac, verify the exact installed build:
+
+```sh
+swift-sim list-apps
+swift-sim verify-device-build --build-id "<opaque-build-id>"
+```
+
+`verified` means Apple developer tooling found the bundle and version. `unknown` means the phone could not be reached; it does not mean installation failed.
+
+## The Same App Appears Twice
+
+Run `swift-sim list-apps` and compare the bundle identifier and signing team. Swift Sim intentionally separates builds when either changes because iOS treats that as a different update identity. Builds with the same bundle identifier and team are stored as one app history.
+
 ## Simulator Is Blank, Frozen, Or Falling Behind
 
 Run:

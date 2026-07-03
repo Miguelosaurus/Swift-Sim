@@ -1,7 +1,7 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.1.0+codex.20260703170427",
-  "description": "Teach Codex to set up Swift Sim, install signed iPhone apps, and optionally preview Mac-hosted Xcode Simulators.",
+  "version": "0.1.0+codex.20260703200913",
+  "description": "Teach Codex to set up Swift Sim, manage signed iPhone app histories, and optionally preview Mac-hosted Xcode Simulators.",
   "author": {
     "name": "Swift Sim",
     "email": "local@example.com"
@@ -18,8 +18,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Swift Sim Companion",
-    "shortDescription": "Install iPhone builds and preview simulators.",
-    "longDescription": "A setup-aware Codex workflow that installs signed real-device apps over an account-free temporary link, preserves app data on updates, and optionally previews a Mac-hosted Simulator.",
+    "shortDescription": "Manage iPhone prototypes and preview simulators.",
+    "longDescription": "A setup-aware Codex workflow that installs signed real-device apps over an account-free temporary link, organizes updates into one app history, verifies reachable device installs, and optionally previews a Mac-hosted Simulator.",
     "developerName": "Swift Sim",
     "category": "Developer Tools",
     "capabilities": [

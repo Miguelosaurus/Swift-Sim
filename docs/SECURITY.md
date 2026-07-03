@@ -10,7 +10,7 @@ The intended boundary is:
 2. Tailscale Serve exposes simulator and pairing routes to authenticated devices in the same Tailnet.
 3. Pairing routes require an opaque pairing token.
 4. Session routes require a separate opaque session token.
-5. Device delivery starts a separate localhost gateway with a strict read-only route allowlist.
+5. Device delivery starts a separate localhost gateway with a strict token-scoped route allowlist.
 6. Cloudflare Quick Tunnel exposes only that temporary gateway.
 7. Every build route except health requires a separate opaque build token and expires.
 8. The iPhone only receives simulator media, sends simulator controls, or installs signed IPA artifacts.
@@ -39,7 +39,7 @@ Default device-build exposure:
 127.0.0.1:<ephemeral> -> random-name.trycloudflare.com
 ```
 
-The gateway accepts only `GET` requests for health and token-protected single-build status, logs, page, manifest, and IPA routes. It rejects pairing, session control, build creation, and build listing routes. The manager stops the gateway and tunnel after the build TTL. [Cloudflare documents Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/) as temporary development/testing infrastructure and provides no uptime guarantee; a failed link should be regenerated rather than treated as durable hosting.
+The gateway accepts health plus token-protected single-build status, logs, page, manifest, and IPA routes. Two narrow token-protected `POST` actions record an install request or ask Apple developer tooling to verify that build. It rejects app-library mutation, pairing, session control, build creation, and build listing routes. The manager stops the gateway and tunnel after the build TTL. [Cloudflare documents Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/) as temporary development/testing infrastructure and provides no uptime guarantee; a failed link should be regenerated rather than treated as durable hosting.
 
 The public companion build uses App Transport Security defaults. Simulator sessions connect through private Tailscale HTTPS; device installs use temporary public HTTPS. Plain HTTP remote URLs are intentionally unsupported in public builds.
 
@@ -90,6 +90,9 @@ Public device-build responses do not return:
 - provisioning profile paths
 - certificate/keychain details
 - absolute source paths
+- physical-device UDIDs, serial numbers, or CoreDevice identifiers
+
+Connected-device verification returns only the friendly device name and installed app version/build.
 
 Local state under `~/.swift-sim` contains more detail and must remain private to the Mac user account.
 

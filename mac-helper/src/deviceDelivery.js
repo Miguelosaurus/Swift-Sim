@@ -102,7 +102,11 @@ export class DeviceDeliveryAdapter {
 }
 
 export function deviceDeliveryRequestAllowed(method, pathname) {
-  if (String(method || "").toUpperCase() !== "GET") return false;
+  const verb = String(method || "").toUpperCase();
+  if (verb === "POST") {
+    return /^\/api\/device-builds\/[^/]+\/(install-request|verify)$/.test(pathname);
+  }
+  if (verb !== "GET") return false;
   if (pathname === "/health") return true;
   if (/^\/d\/[^/]+$/.test(pathname)) return true;
   return /^\/api\/device-builds\/[^/]+(?:\/logs|\/links|\/artifact\/(?:ipa|manifest))?$/.test(pathname);

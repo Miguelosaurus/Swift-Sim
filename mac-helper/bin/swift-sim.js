@@ -33,6 +33,10 @@ async function main() {
 
   const helperCommands = new Set([
     "build-device",
+    "list-apps",
+    "archive-app",
+    "delete-app",
+    "verify-device-build",
     "companion-link",
     "device-delivery-status",
     "device-delivery-stop",
@@ -304,6 +308,10 @@ Usage:
   swift-sim doctor [--json]       Check install and optional Simulator setup
   swift-sim update                Update Homebrew and the Codex plugin
   swift-sim build-device ...      Build a signed iPhone install
+  swift-sim list-apps [--archived] List managed prototype apps and build history
+  swift-sim verify-device-build    Verify an install on a reachable iPhone
+  swift-sim archive-app ...        Archive or restore an app from the library
+  swift-sim delete-app ...         Delete local app history and artifacts
   swift-sim start-session ...     Open a live Simulator session
   swift-sim pair ...              Pair optional Simulator diagnostics
   swift-sim serve                 Run the local helper in the foreground

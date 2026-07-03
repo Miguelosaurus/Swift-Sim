@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { homedir } from "node:os";
+import { deviceAppIdentity } from "./deviceBuildStore.js";
 
 export class DeviceBuildError extends Error {}
 
@@ -40,6 +41,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     build.app.version = settings.MARKETING_VERSION || "";
     build.app.build = settings.CURRENT_PROJECT_VERSION || "";
     build.app.teamID = settings.DEVELOPMENT_TEAM || "";
+    build.app.identity = deviceAppIdentity(build.app);
     build.signing.style = settings.CODE_SIGN_STYLE || "";
     build.signing.deviceInstallable = Boolean(build.app.bundleIdentifier && build.app.teamID);
     build.signing.updateSafe = build.preserveData ? "same-bundle-update" : "reinstall-requested";
@@ -162,7 +164,20 @@ export function publicDeviceBuild(build) {
       expiresAt: build.expiresAt,
     },
     preserveData: build.preserveData,
+    installation: publicInstallation(build.installation),
     links: deviceBuildLinks(build, build.remoteBaseUrl),
+  };
+}
+
+export function publicDeviceApp(app) {
+  const builds = (app.builds || []).map(publicDeviceBuild);
+  return {
+    id: app.id,
+    name: app.name,
+    bundleIdentifier: app.bundleIdentifier,
+    archivedAt: app.archivedAt || "",
+    latestBuild: builds[0] || null,
+    builds,
   };
 }
 
@@ -317,6 +332,20 @@ function updateSafetyWarnings(build) {
     warnings.push("App data is preserved only when the installed app uses the same bundle identifier, team, and compatible entitlements.");
   }
   return warnings;
+}
+
+function publicInstallation(installation = {}) {
+  return {
+    state: installation.state || "unknown",
+    requestedAt: installation.requestedAt || "",
+    verifiedAt: installation.verifiedAt || "",
+    devices: (installation.devices || []).map((device) => ({
+      name: device.name || "iPhone",
+      state: device.state || "unknown",
+      version: device.version || "",
+      build: device.build || "",
+    })),
+  };
 }
 
 function safeName(value) {

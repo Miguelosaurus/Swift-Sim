@@ -46,6 +46,8 @@ Codex archives and signs the app, then returns an **Install on iPhone** link tha
 
 Updates preserve the existing app container when the bundle identifier, Apple team, and entitlements stay compatible. Swift Sim never uninstalls first unless you explicitly request a clean install.
 
+The companion organizes installs as an app library. One app occupies one slot; every later build becomes a versioned entry in that app's history. You can archive dormant prototypes or delete their Swift Sim history without confusing either action with uninstalling the app from iOS.
+
 For a quick live preview, ask:
 
 ```text
@@ -95,6 +97,7 @@ Swift Sim never reads or transmits your Apple ID password. Xcode owns signing cr
 ## Current Limits
 
 - Quick Tunnel links are temporary and have no uptime guarantee. Generate a new build if one ends early.
+- iOS does not report OTA install completion to another app. Swift Sim records the install request and verifies the installed version through Apple developer tooling whenever the iPhone is reachable from the Mac.
 - Simulator multi-touch fidelity depends on the pinned `serve-sim` transport.
 - Arbitrary private Tailscale hosts cannot all be universal-link entitlements; the `swift-sim://` fallback remains available.
 

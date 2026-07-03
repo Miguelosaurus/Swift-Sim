@@ -21,10 +21,12 @@ import {
 } from "../src/deviceDelivery.js";
 import { PairingStore } from "../src/pairingStore.js";
 import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
+import { DeviceInventoryAdapter } from "../src/deviceInventory.js";
 import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";
 import {
   buildManifest,
   deviceBuildLinks,
+  publicDeviceApp,
   publicDeviceBuild,
   runDeviceBuild,
 } from "../src/deviceBuilder.js";
@@ -46,6 +48,7 @@ const deviceBuildStore = new DeviceBuildStore();
 const deviceDelivery = new DeviceDeliveryAdapter();
 const pairingStore = new PairingStore();
 const simulatorProfiles = new SimulatorProfileResolver();
+const deviceInventory = new DeviceInventoryAdapter();
 const adapter = new ServeSimAdapter();
 const transports = {
   "serve-sim": new ServeSimTransport({ adapter }),
@@ -145,6 +148,59 @@ async function main() {
     await runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) });
     await prepareDeviceDelivery(build);
     console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
+    return;
+  }
+
+  if (command === "list-apps") {
+    const { values } = parseArgs({
+      args: rest,
+      options: { archived: { type: "boolean" } },
+    });
+    console.log(JSON.stringify({
+      apps: deviceBuildStore.listApps({ includeArchived: Boolean(values.archived) }).map(publicDeviceApp),
+    }, null, 2));
+    return;
+  }
+
+  if (command === "archive-app") {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        "app-id": { type: "string" },
+        restore: { type: "boolean" },
+      },
+    });
+    const app = deviceBuildStore.setAppArchived(required(values["app-id"], "app-id"), !values.restore);
+    if (!app) throw new Error("Unknown app id.");
+    console.log(JSON.stringify(publicDeviceApp(app), null, 2));
+    return;
+  }
+
+  if (command === "delete-app") {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        "app-id": { type: "string" },
+        "keep-artifacts": { type: "boolean" },
+      },
+    });
+    const appID = required(values["app-id"], "app-id");
+    const deleted = deviceBuildStore.deleteApp(appID, { deleteArtifacts: !values["keep-artifacts"] });
+    if (!deleted) throw new Error("Unknown app id.");
+    console.log(JSON.stringify({ deleted: true, appId: appID }, null, 2));
+    return;
+  }
+
+  if (command === "verify-device-build") {
+    const { values } = parseArgs({
+      args: rest,
+      options: { "build-id": { type: "string" } },
+    });
+    const build = deviceBuildStore.get(required(values["build-id"], "build-id"));
+    if (!build) throw new Error("Unknown device build.");
+    const verification = await deviceInventory.verifyApp(build.app.bundleIdentifier);
+    const verifiedBuild = deviceBuildStore.saveVerification(build.id, verification);
+    console.log(JSON.stringify(publicDeviceBuild(verifiedBuild), null, 2));
     return;
   }
 
@@ -289,6 +345,39 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         });
       }
 
+      if (req.method === "GET" && url.pathname === "/api/apps") {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
+        const includeArchived = url.searchParams.get("archived") === "true";
+        return json(res, 200, {
+          apps: deviceBuildStore.listApps({ includeArchived }).map(publicDeviceApp),
+        });
+      }
+
+      const appMatch = url.pathname.match(/^\/api\/apps\/([^/]+)(?:\/(archive))?$/);
+      if (appMatch) {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
+        const [, appID, action] = appMatch;
+        if (req.method === "GET" && !action) {
+          const app = deviceBuildStore.getApp(appID);
+          return app ? json(res, 200, publicDeviceApp(app)) : notFound(res, "Unknown app.");
+        }
+        if (req.method === "POST" && action === "archive") {
+          const body = await readJson(req);
+          const app = deviceBuildStore.setAppArchived(appID, body.archived !== false);
+          return app ? json(res, 200, publicDeviceApp(app)) : notFound(res, "Unknown app.");
+        }
+        if (req.method === "DELETE" && !action) {
+          const deleted = deviceBuildStore.deleteApp(appID, {
+            deleteArtifacts: url.searchParams.get("keepArtifacts") !== "true",
+          });
+          return deleted ? json(res, 200, { deleted: true, appId: appID }) : notFound(res, "Unknown app.");
+        }
+      }
+
       if (req.method === "POST" && url.pathname === "/api/device-builds/start") {
         if (!pairingTokenMatches(req, url)) {
           return unauthorized(res);
@@ -312,7 +401,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         return json(res, 202, publicDeviceBuild(build));
       }
 
-      const deviceBuildMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links))?$/);
+      const deviceBuildMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/);
       if (deviceBuildMatch) {
         const [, buildId, action] = deviceBuildMatch;
         const build = deviceBuildStore.get(buildId);
@@ -330,6 +419,15 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           build.remoteBaseUrl = build.remoteBaseUrl || `${url.protocol}//${url.host}`;
           deviceBuildStore.save(build);
           return json(res, 200, deviceBuildLinks(build, build.remoteBaseUrl));
+        }
+        if (req.method === "POST" && action === "install-request") {
+          const requestedBuild = deviceBuildStore.markInstallRequested(buildId);
+          return json(res, 200, publicDeviceBuild(requestedBuild));
+        }
+        if (req.method === "POST" && action === "verify") {
+          const verification = await deviceInventory.verifyApp(build.app.bundleIdentifier);
+          const verifiedBuild = deviceBuildStore.saveVerification(buildId, verification);
+          return json(res, 200, publicDeviceBuild(verifiedBuild));
         }
       }
 

@@ -240,6 +240,38 @@ Update preservation rules:
 - Different team or keychain/app-group entitlements: warn that login/keychain/shared-container data may not remain available.
 - Never pass `--replace-app-data` unless the user explicitly asks for a clean install.
 
+## App Library Contract
+
+Swift Sim organizes prototypes by a stable identity derived from bundle identifier plus signing team. The same app must occupy one library slot; later builds become history under it. A different bundle identifier or team intentionally creates another app because iOS no longer treats it as the same update identity.
+
+After a successful device build, the companion records the build when the user opens its Swift Sim link. Opening the install handoff means `requested`, not proven installed. iOS does not provide the companion an OTA completion callback.
+
+Use the helper's Apple-supported device reconciliation when the user asks whether a build is installed:
+
+```bash
+swift-sim verify-device-build --build-id "<opaque-build-id>"
+```
+
+Report the returned installation state exactly:
+
+- `verified`: Apple developer tooling found that app and version on a reachable iPhone.
+- `not-installed`: a reachable iPhone was checked and did not contain the bundle identifier.
+- `unknown`: no trusted physical iPhone could be checked.
+
+Never claim device-wide inventory from the iOS companion alone. Do not use private installed-app APIs.
+
+For library maintenance, inspect and act on opaque app IDs:
+
+```bash
+swift-sim list-apps
+swift-sim list-apps --archived
+swift-sim archive-app --app-id "<opaque-app-id>"
+swift-sim archive-app --app-id "<opaque-app-id>" --restore
+swift-sim delete-app --app-id "<opaque-app-id>"
+```
+
+Archiving preserves history and artifacts. Deleting removes Swift Sim's local history and artifacts. Neither action uninstalls an iPhone app. Do not expose an uninstall command through the public Quick Tunnel.
+
 If signing fails, explain the exact Xcode error and the likely missing setup: developer team, registered device, App ID capability, provisioning profile, or bundle identifier ownership.
 
 ## If XcodeBuildMCP Is Available
