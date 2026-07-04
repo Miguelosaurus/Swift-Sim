@@ -1567,6 +1567,7 @@ function pairingFallbackHtml({ token, base }) {
 function deviceBuildFallbackHtml(build) {
   const links = deviceBuildLinks(build, build.remoteBaseUrl);
   const installURL = links.installURL || "#";
+  const customSchemeScript = JSON.stringify(links.customScheme);
   const warnings = (build.signing.warnings || [])
     .map((warning) => `<li>${escapeHtml(warning)}</li>`)
     .join("");
@@ -1591,23 +1592,30 @@ function deviceBuildFallbackHtml(build) {
     p { color: #626b76; font-size: 17px; line-height: 1.4; }
     .meta { margin: 16px 0 0; padding: 14px; border-radius: 18px; background: rgba(118,142,170,.1); color: #4c5864; font-size: 14px; }
     a.button { display: block; margin-top: 18px; padding: 16px 18px; border-radius: 999px; color: white; background: ${build.state === "ready" ? "#1683ff" : "#8f98a3"}; text-align: center; text-decoration: none; font-weight: 850; pointer-events: ${build.state === "ready" ? "auto" : "none"}; }
-    a.secondary { display: block; margin-top: 12px; color: #1677ff; text-align: center; text-decoration: none; font-weight: 700; }
+    a.secondary { display: block; margin-top: 16px; color: #66717d; text-align: center; text-decoration: none; font-size: 14px; font-weight: 700; }
+    .fallback { margin-top: 10px; color: #7a838d; text-align: center; font-size: 13px; }
     ul { margin: 12px 0 0; padding-left: 20px; color: #6b7280; font-size: 14px; line-height: 1.35; }
     code { word-break: break-all; }
   </style>
+  <script>
+    window.addEventListener("load", () => {
+      setTimeout(() => { window.location.href = ${customSchemeScript}; }, 250);
+    });
+  </script>
 </head>
 <body>
   <main>
-    <div class="status"><span class="dot"></span>${escapeHtml(stateLine)}</div>
+    <div class="status"><span class="dot"></span>Opening Swift Sim</div>
     <h1>${escapeHtml(build.app.name || build.scheme || "iOS App")}</h1>
-    <p>This real iPhone build was signed by Xcode on your Mac and is available on any network. Existing app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.</p>
+    <p>Swift Sim keeps this build in the app's version history, then hands the signed install to iOS. Existing app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.</p>
     <div class="meta">
       <strong>${escapeHtml(build.app.bundleIdentifier || "Bundle ID pending")}</strong><br>
       Expires ${escapeHtml(new Date(build.expiresAt).toLocaleString())}
     </div>
     ${warnings ? `<ul>${warnings}</ul>` : ""}
-    <a class="button" href="${escapeHtml(installURL)}">Install on iPhone</a>
-    <a class="secondary" href="${escapeHtml(links.customScheme)}">Open in Swift Sim</a>
+    <a class="button" href="${escapeHtml(links.customScheme)}">Open in Swift Sim</a>
+    <a class="secondary" href="${escapeHtml(installURL)}">Install without Swift Sim</a>
+    <div class="fallback">The fallback install works without the companion, but it will not add this build to the on-device library.</div>
   </main>
 </body>
 </html>`;

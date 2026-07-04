@@ -16,7 +16,7 @@ final class SessionStore: ObservableObject {
     @Published private(set) var selectedManagedAppID: String?
     @Published private(set) var tailscaleCheck = ConnectionCheck.notConfigured("Add a simulator session before checking the private route")
     @Published private(set) var macHelperCheck = ConnectionCheck.notConfigured("No Mac helper address is available yet")
-    @Published private(set) var simulatorCheck = ConnectionCheck.notConfigured("Open a session link from Codex to add a simulator")
+    @Published private(set) var simulatorCheck = ConnectionCheck.notConfigured("Open a session link from your coding agent to add a simulator")
 
     private let recentSessionsKey = "recentSessions"
     private let recentDeviceBuildsKey = "recentDeviceBuilds"
@@ -45,6 +45,9 @@ final class SessionStore: ObservableObject {
             currentDeviceBuild = build
             currentSession = nil
             deviceBuildStatus = nil
+            if !managedApps.contains(where: { app in app.builds.contains(where: { $0.id == build.id }) }) {
+                upsertManagedBuild(ManagedBuild(pending: build))
+            }
             Task { await refreshDeviceBuild() }
             return true
         }
@@ -159,6 +162,13 @@ final class SessionStore: ObservableObject {
             await fetchDeviceBuildLogs()
         } catch {
             deviceBuildLogs = ["Unable to load device build: \(error.localizedDescription)"]
+        }
+    }
+
+    func refreshAppState() async {
+        await refreshHelperStatus()
+        if currentDeviceBuild != nil {
+            await refreshDeviceBuild()
         }
     }
 
@@ -301,14 +311,14 @@ final class SessionStore: ObservableObject {
         guard let baseURL = recentSessions.first?.session.baseURL ?? pairedMac?.baseURL else {
             tailscaleCheck = .notConfigured("Add a simulator session before checking the private route")
             macHelperCheck = .notConfigured("No Mac helper address is available yet")
-            simulatorCheck = .notConfigured("Open a session link from Codex to add a simulator")
+            simulatorCheck = .notConfigured("Open a session link from your coding agent to add a simulator")
             return
         }
 
         tailscaleCheck = .checking("Checking the private Tailnet route")
         macHelperCheck = .checking("Contacting the Mac helper")
         simulatorCheck = recentSessions.isEmpty
-            ? .notConfigured("Open a session link from Codex to add a simulator")
+            ? .notConfigured("Open a session link from your coding agent to add a simulator")
             : .checking("Checking saved simulator sessions")
 
         var healthRequest = URLRequest(url: baseURL.appending(path: "health"))
@@ -357,7 +367,7 @@ final class SessionStore: ObservableObject {
             return
         }
 
-        simulatorCheck = .issue("Saved sessions are unavailable; ask Codex to open a fresh simulator session")
+        simulatorCheck = .issue("Saved sessions are unavailable; ask your coding agent to open a fresh simulator session")
     }
 
     func forgetPairedMac() {
@@ -1018,6 +1028,26 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         installRequestedAt = Self.parse(status.installation?.requestedAt)
         verifiedAt = Self.parse(status.installation?.verifiedAt)
         verifiedDevices = status.installation?.devices ?? []
+        lastOpened = Date()
+    }
+
+    init(pending session: DeviceBuildSession) {
+        id = session.id
+        token = session.token
+        baseURLString = session.baseURL.absoluteString
+        appID = "pending:\(session.id)"
+        displayName = "Incoming Build"
+        bundleIdentifier = ""
+        teamID = ""
+        version = ""
+        buildNumber = ""
+        state = "loading"
+        createdAt = Date()
+        expiresAt = nil
+        installationState = "unknown"
+        installRequestedAt = nil
+        verifiedAt = nil
+        verifiedDevices = []
         lastOpened = Date()
     }
 

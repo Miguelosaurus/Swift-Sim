@@ -1,5 +1,5 @@
 class SwiftSim < Formula
-  desc "Install iOS builds from Codex and preview a Mac Simulator remotely"
+  desc "Install iOS builds from mobile-controlled coding agents"
   homepage "https://github.com/Miguelosaurus/Swift-Sim"
   url "https://github.com/Miguelosaurus/Swift-Sim/archive/refs/tags/v@VERSION@.tar.gz"
   sha256 "@SHA256@"
@@ -10,7 +10,7 @@ class SwiftSim < Formula
 
   def install
     libexec.install Dir["*"]
-    libexec.install ".agents"
+    libexec.install ".agents", ".claude-plugin", ".cursor-plugin"
 
     cd libexec do
       system Formula["node@22"].opt_bin/"npm", "install", "--omit=dev", "--ignore-scripts"

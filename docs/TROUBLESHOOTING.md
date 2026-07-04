@@ -17,7 +17,7 @@ swift-sim setup
 
 Open a new terminal after Homebrew finishes if the command is still missing.
 
-## Codex Does Not Know Swift Sim
+## The Coding Agent Does Not Know Swift Sim
 
 Run:
 
@@ -25,9 +25,14 @@ Run:
 swift-sim setup
 ```
 
-Then start a new Codex thread. Plugin instructions are loaded when a thread starts.
+Then refresh the host agent:
 
-Use `swift-sim doctor --json` to confirm `deviceInstalls.codexPlugin.ready` is true.
+- Codex: start a new thread.
+- Cursor: start a new agent session or reload the Cursor window.
+- Claude Code: run `/reload-plugins` or start a new session.
+- OpenCode: start a new session so its skill inventory is rebuilt, then run `swift-sim doctor`.
+
+Use `swift-sim doctor --json` and inspect `deviceInstalls.agents`. The current host should report `ready: true`, and `deviceInstalls.agentIntegrations.ready` should be true.
 
 ## Mac Helper Is Unavailable
 
@@ -58,7 +63,7 @@ Check:
 - required capabilities are enabled for the App ID
 - the provisioning profile contains the destination device
 
-Retry through Codex or run:
+Retry through the coding agent or run:
 
 ```sh
 swift-sim build-device \
@@ -129,7 +134,7 @@ Open the returned link on the iPhone. If Safari does not switch apps, paste the 
 
 ## HTTPS Link Opens Safari Instead Of Swift Sim
 
-For device builds, Safari is the expected install surface.
+For device builds, Safari hosts the secure handoff because random temporary tunnel hosts cannot all be universal-link domains. Tap **Open in Swift Sim to Install**. If iOS does not switch apps, use the page's copy-link action and paste the link into Swift Sim. **Install without Swift Sim** remains available as a fallback, but that path cannot add the build to the companion's local history.
 
 For Simulator sessions, arbitrary private Tailscale hosts cannot all be declared as universal-link domains in a public companion build. Use the printed `swift-sim://session/...` fallback or paste it into the app.
 

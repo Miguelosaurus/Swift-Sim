@@ -383,7 +383,7 @@ private struct PasteLinkSheet: View {
             .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
             .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            Text("Paste an install, Simulator, or pairing link from Codex.")
+            Text("Paste an install, Simulator, or pairing link from your coding agent.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -1170,7 +1170,7 @@ private struct EmptySessionCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("No Simulator sessions yet")
                     .font(.title3.weight(.bold))
-                Text("Live previews from Codex appear here.")
+                Text("Live previews from your coding agent appear here.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1192,7 +1192,7 @@ private struct EmptyDeviceBuildCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(isArchive ? "No archived apps" : "No prototype apps yet")
                     .font(.title3.weight(.bold))
-                Text(isArchive ? "Archived apps stay organized here without cluttering your active library." : "Your first signed install link from Codex creates an app with its own build history.")
+                Text(isArchive ? "Archived apps stay organized here without cluttering your active library." : "Your first signed install link from your coding agent creates an app with its own build history.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1279,7 +1279,7 @@ private struct MacSettingsSheet: View {
                         icon: "play.rectangle.on.rectangle.fill",
                         tint: .blue,
                         title: "3. Live Session",
-                        detail: "Open the Simulator link returned by Codex.",
+                        detail: "Open the Simulator link returned by your coding agent.",
                         check: sessionStore.simulatorCheck
                     )
                 } header: {
@@ -1318,7 +1318,7 @@ private struct MacSettingsSheet: View {
                             Label("Forget Mac Helper", systemImage: "xmark.circle")
                         }
                     } else {
-                        Text("Open a pairing link from Codex to add Mac status and connection diagnostics.")
+                        Text("Open a pairing link from your coding agent to add Mac status and connection diagnostics.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -1354,7 +1354,7 @@ private struct MacSettingsSheet: View {
 
     private var simulatorSummary: String {
         let count = sessionStore.recentSessions.count
-        guard count > 0 else { return "Open a session link from Codex to add your first simulator." }
+        guard count > 0 else { return "Open a session link from your coding agent to add your first simulator." }
         return count == 1 ? "1 recent project is ready to open." : "\(count) recent projects are ready to open."
     }
 

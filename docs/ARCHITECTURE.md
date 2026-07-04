@@ -2,9 +2,11 @@
 
 ## Components
 
-### Codex
+### Coding Agent
 
-Codex edits the user's project, builds it, launches it on a selected Mac Simulator, verifies the local preview, and returns the companion link. Swift Sim does not create a second coding agent.
+Codex, Cursor, Claude Code, or OpenCode edits the user's project, builds it with the local Mac Xcode environment, verifies the result, and returns the install or companion link. Mobile apps control that same local session. Swift Sim does not create a second coding agent.
+
+For device builds, the HTTPS URL is a companion-first handoff rather than the install itself. It opens `swift-sim://device-build/...`; the companion persists a pending history entry immediately, fetches authoritative metadata, and then launches Apple's OTA installer. This keeps delivery account-free while making Swift Sim the normal source of on-device build history. A direct web install remains available only as a fallback and cannot be observed by the companion.
 
 ### Mac Helper
 
@@ -55,9 +57,9 @@ CoreSimulator framebuffer
 
 Input travels in the opposite direction through authenticated helper routes and the persistent `serve-sim` WebSocket control channel.
 
-### Codex Preview And Fallback
+### Local Agent Preview And Fallback
 
-Codex uses the local MJPEG preview supplied by `serve-sim`. The iPhone may also use this compatibility path when native AVCC support is unavailable, but it has higher bandwidth and lower interaction quality.
+Codex can use the local MJPEG preview supplied by `serve-sim` in its sidebar. Other agents can use their available local screenshot and UI tools. The iPhone may also use MJPEG as a compatibility path when native AVCC support is unavailable, but it has higher bandwidth and lower interaction quality.
 
 `setup-status` reports the selected phone transport at `transport.activeForPhone`.
 

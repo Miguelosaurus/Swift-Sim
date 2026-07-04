@@ -1,0 +1,16 @@
+{
+  "name": "swift-sim",
+  "owner": {
+    "name": "Swift Sim"
+  },
+  "metadata": {
+    "description": "Build, install, update, and preview iOS apps from Cursor on Mac or iPhone."
+  },
+  "plugins": [
+    {
+      "name": "swift-sim-companion",
+      "source": "./plugins/swift-sim-companion",
+      "description": "Build signed iPhone apps and open optional live Simulator sessions through Swift Sim."
+    }
+  ]
+}

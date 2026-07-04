@@ -113,7 +113,7 @@ The Apple account configured in Xcode is only a signing identity. Swift Sim does
 
 Universal links require an Associated Domains entitlement for the exact HTTPS hostname serving the AASA file.
 
-A public companion build cannot be entitled for every private `*.ts.net` or random `*.trycloudflare.com` hostname. Device build links therefore open a normal HTTPS install page; the page can use `swift-sim://` to open build status in the companion. This does not weaken the build token check.
+A public companion build cannot be entitled for every private `*.ts.net` or random `*.trycloudflare.com` hostname. Device-build links therefore open a token-protected HTTPS handoff page, which immediately offers the signed build to Swift Sim through its registered `swift-sim://` scheme. The page retains a clearly labeled direct-install fallback when the companion is unavailable. The opaque build token is checked again for every metadata, manifest, and IPA request, so switching apps does not weaken authorization.
 
 ## Dependency Boundary
 

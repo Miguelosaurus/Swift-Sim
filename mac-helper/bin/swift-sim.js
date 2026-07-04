@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, realpathSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,8 @@ const helperBaseURL = `http://127.0.0.1:${Number(process.env.SWIFT_SIM_PORT || 4
 const marketplaceRoot = process.env.SWIFT_SIM_MARKETPLACE_ROOT || rootDirectory;
 const marketplaceName = "swift-sim";
 const pluginName = "swift-sim-companion";
+const skillName = "remote-simulator-companion";
+const packagedSkillDirectory = join(marketplaceRoot, "plugins", pluginName, "skills", skillName);
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -60,6 +62,7 @@ async function setup(args) {
     options: {
       json: { type: "boolean" },
       "skip-plugin": { type: "boolean" },
+      "skip-agents": { type: "boolean" },
       "skip-service": { type: "boolean" },
     },
   });
@@ -68,8 +71,8 @@ async function setup(args) {
   if (!values["skip-service"]) {
     actions.push(await ensureHelperRunning());
   }
-  if (!values["skip-plugin"]) {
-    actions.push(installCodexPlugin());
+  if (!values["skip-plugin"] && !values["skip-agents"]) {
+    actions.push(...installAgentIntegrations());
   }
 
   const report = await buildDoctorReport();
@@ -82,7 +85,7 @@ async function setup(args) {
   printDoctorReport(result);
   console.log("");
   if (result.deviceInstalls.ready) {
-    console.log("Swift Sim is ready. Ask Codex: Build this app to my iPhone with Swift Sim.");
+    console.log("Swift Sim is ready. Ask your coding agent: Build this app to my iPhone with Swift Sim.");
   } else {
     console.log("Finish the item marked needs-attention, then run swift-sim doctor.");
   }
@@ -106,12 +109,11 @@ async function update() {
   if (brew) {
     runCapture(brew, ["upgrade", "swift-sim"], { allowFailure: true });
   }
-  const codex = findCodexCommand();
-  if (codex) {
-    runCapture(codex, ["plugin", "marketplace", "upgrade", marketplaceName], { allowFailure: true });
-    runCapture(codex, ["plugin", "add", `${pluginName}@${marketplaceName}`], { allowFailure: true });
+  const actions = installAgentIntegrations();
+  for (const action of actions) {
+    console.log(`[${action.state}] ${action.label}: ${action.detail}`);
   }
-  console.log("Swift Sim update check complete.");
+  console.log("Swift Sim and detected agent integrations are up to date.");
 }
 
 async function buildDoctorReport() {
@@ -121,22 +123,49 @@ async function buildDoctorReport() {
   const setup = runHelperJSON(["setup-status"]);
   const codex = findCodexCommand();
   const pluginList = codex ? runCapture(codex, ["plugin", "list"], { allowFailure: true }) : emptyResult();
+  const claude = findClaudeCommand();
+  const claudePluginList = claude ? runCapture(claude, ["plugin", "list", "--json"], { allowFailure: true }) : emptyResult();
   const signingIdentityCount = Number(identities.stdout.match(/(\d+) valid identities found/)?.[1] || 0);
-  const pluginInstalled = pluginList.status === 0
+  const codexReady = pluginList.status === 0
     && pluginList.stdout.includes(pluginName)
     && pluginList.stdout.includes("installed, enabled");
+  const cursorDetected = isCursorInstalled();
+  const cursorReady = cursorDetected && installedCursorSkillVersion() === packageJSON.version;
+  const claudeReady = claudePluginList.status === 0 && outputContainsEnabledPlugin(claudePluginList.stdout);
+  const openCodeDetected = isOpenCodeInstalled();
+  const openCodeReady = openCodeDetected && installedOpenCodeSkillVersion() === packageJSON.version;
+  const agents = {
+    codex: agentCheck(Boolean(codex), codexReady, codexReady
+      ? `Swift Sim plugin ${packageJSON.version} is installed`
+      : Boolean(codex) ? "Swift Sim plugin is not installed" : "Codex is not installed"),
+    cursor: agentCheck(cursorDetected, cursorReady, cursorReady
+      ? `Swift Sim skill ${packageJSON.version} is installed`
+      : cursorDetected ? "Swift Sim skill is not installed" : "Cursor is not installed"),
+    claude: agentCheck(Boolean(claude), claudeReady, claudeReady
+      ? `Swift Sim plugin ${packageJSON.version} is installed`
+      : Boolean(claude) ? "Swift Sim plugin is not installed" : "Claude Code is not installed"),
+    opencode: agentCheck(openCodeDetected, openCodeReady, openCodeReady
+      ? `Swift Sim skill ${packageJSON.version} is installed`
+      : openCodeDetected ? "Swift Sim skill is not installed" : "OpenCode is not installed"),
+  };
+  const readyAgentNames = Object.entries(agents).filter(([, value]) => value.ready).map(([name]) => displayAgentName(name));
+  const agentIntegrationsReady = readyAgentNames.length > 0;
   const xcodeReady = xcode.status === 0;
 
   return {
     version: packageJSON.version,
     deviceInstalls: {
-      ready: xcodeReady && helper.ok && pluginInstalled,
+      ready: xcodeReady && helper.ok && agentIntegrationsReady,
       xcode: check(xcodeReady, firstLine(xcode.stdout) || "Xcode is unavailable"),
       signing: check(signingIdentityCount > 0, signingIdentityCount > 0
         ? `${signingIdentityCount} local signing ${signingIdentityCount === 1 ? "identity" : "identities"} found`
         : "Xcode will request or create signing credentials during the first device build", true),
       helper: check(helper.ok, helper.ok ? "Mac helper is running" : "Mac helper is not running"),
-      codexPlugin: check(pluginInstalled, pluginInstalled ? "Codex plugin is installed and enabled" : "Codex plugin is not installed"),
+      agentIntegrations: check(agentIntegrationsReady, agentIntegrationsReady
+        ? `Ready in ${readyAgentNames.join(", ")}`
+        : "Install Codex, Cursor, Claude Code, or OpenCode, then rerun swift-sim setup"),
+      agents,
+      codexPlugin: check(codexReady, codexReady ? "Codex plugin is installed and enabled" : "Codex plugin is not installed"),
     },
     simulatorPreview: {
       optional: true,
@@ -149,6 +178,10 @@ async function buildDoctorReport() {
         : "Run tailscale serve 47217 to enable live Simulator preview"),
     },
   };
+}
+
+function installAgentIntegrations() {
+  return [installCodexPlugin(), installCursorSkill(), installClaudePlugin(), installOpenCodeSkill()];
 }
 
 async function ensureHelperRunning() {
@@ -180,7 +213,7 @@ async function ensureHelperRunning() {
 function installCodexPlugin() {
   const codex = findCodexCommand();
   if (!codex) {
-    return { id: "codex-plugin", state: "needs-attention", detail: "Install the Codex app, then rerun swift-sim setup" };
+    return agentAction("codex", "Codex", "not-detected", "Codex is not installed; skipped");
   }
 
   const marketplaceList = runCapture(codex, ["plugin", "marketplace", "list"], { allowFailure: true });
@@ -198,16 +231,198 @@ function installCodexPlugin() {
   const install = runCapture(codex, ["plugin", "add", `${pluginName}@${marketplaceName}`], { allowFailure: true });
   if (install.status !== 0) {
     return {
-      id: "codex-plugin",
+      id: "codex",
+      label: "Codex",
       state: "needs-attention",
       detail: compactError(install) || "Codex could not install the Swift Sim plugin",
     };
   }
   return {
-    id: "codex-plugin",
+    id: "codex",
+    label: "Codex",
     state: "configured",
     detail: `Codex plugin ${packageJSON.version} installed from the Swift Sim package${marketplaceChanged ? "; stale marketplace path replaced" : ""}`,
   };
+}
+
+function installCursorSkill() {
+  if (!isCursorInstalled()) {
+    return agentAction("cursor", "Cursor", "not-detected", "Cursor is not installed; skipped");
+  }
+  if (!existsSync(packagedSkillDirectory)) {
+    return agentAction("cursor", "Cursor", "needs-attention", "Packaged Swift Sim skill is missing");
+  }
+
+  const destination = cursorSkillDirectory();
+  try {
+    mkdirSync(dirname(destination), { recursive: true });
+    rmSync(destination, { recursive: true, force: true });
+    cpSync(packagedSkillDirectory, destination, { recursive: true });
+    writeFileSync(join(destination, ".swift-sim-version"), `${packageJSON.version}\n`);
+    return agentAction("cursor", "Cursor", "configured", `Swift Sim skill ${packageJSON.version} installed for Cursor`);
+  } catch (error) {
+    return agentAction("cursor", "Cursor", "needs-attention", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function installClaudePlugin() {
+  const claude = findClaudeCommand();
+  if (!claude) {
+    return agentAction("claude", "Claude Code", "not-detected", "Claude Code is not installed; skipped");
+  }
+
+  const marketplaces = runCapture(claude, ["plugin", "marketplace", "list", "--json"], { allowFailure: true });
+  const configuredRoot = claudeMarketplaceSource(marketplaces.stdout, marketplaceName);
+  if (configuredRoot && canonicalPath(configuredRoot) !== canonicalPath(marketplaceRoot)) {
+    runCapture(claude, ["plugin", "marketplace", "remove", marketplaceName, "--scope", "user"], { allowFailure: true });
+  }
+
+  const currentRoot = configuredRoot && canonicalPath(configuredRoot) === canonicalPath(marketplaceRoot);
+  const marketplace = currentRoot
+    ? runCapture(claude, ["plugin", "marketplace", "update", marketplaceName], { allowFailure: true })
+    : runCapture(claude, ["plugin", "marketplace", "add", marketplaceRoot, "--scope", "user"], { allowFailure: true });
+  if (marketplace.status !== 0) {
+    return agentAction("claude", "Claude Code", "needs-attention", compactError(marketplace) || "Claude Code could not register the Swift Sim marketplace");
+  }
+
+  const installed = runCapture(claude, ["plugin", "list", "--json"], { allowFailure: true });
+  const plugin = outputContainsPlugin(installed.stdout)
+    ? runCapture(claude, ["plugin", "update", `${pluginName}@${marketplaceName}`, "--scope", "user"], { allowFailure: true })
+    : runCapture(claude, ["plugin", "install", `${pluginName}@${marketplaceName}`, "--scope", "user"], { allowFailure: true });
+  if (plugin.status !== 0) {
+    return agentAction("claude", "Claude Code", "needs-attention", compactError(plugin) || "Claude Code could not install the Swift Sim plugin");
+  }
+  const enable = runCapture(claude, ["plugin", "enable", `${pluginName}@${marketplaceName}`, "--scope", "user"], { allowFailure: true });
+  if (enable.status !== 0) {
+    return agentAction("claude", "Claude Code", "needs-attention", compactError(enable) || "Claude Code could not enable the Swift Sim plugin");
+  }
+  return agentAction("claude", "Claude Code", "configured", `Swift Sim plugin ${packageJSON.version} installed for Claude Code`);
+}
+
+function installOpenCodeSkill() {
+  if (!isOpenCodeInstalled()) {
+    return agentAction("opencode", "OpenCode", "not-detected", "OpenCode is not installed; skipped");
+  }
+  if (!existsSync(packagedSkillDirectory)) {
+    return agentAction("opencode", "OpenCode", "needs-attention", "Packaged Swift Sim skill is missing");
+  }
+
+  const destination = openCodeSkillDirectory();
+  try {
+    mkdirSync(dirname(destination), { recursive: true });
+    rmSync(destination, { recursive: true, force: true });
+    cpSync(packagedSkillDirectory, destination, { recursive: true });
+    writeFileSync(join(destination, ".swift-sim-version"), `${packageJSON.version}\n`);
+    return agentAction("opencode", "OpenCode", "configured", `Swift Sim skill ${packageJSON.version} installed for OpenCode`);
+  } catch (error) {
+    return agentAction("opencode", "OpenCode", "needs-attention", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function agentAction(id, label, state, detail) {
+  return { id, label, state, detail };
+}
+
+function cursorSkillDirectory() {
+  if (process.env.SWIFT_SIM_CURSOR_SKILL_HOME) {
+    return join(process.env.SWIFT_SIM_CURSOR_SKILL_HOME, skillName);
+  }
+  return join(homedir(), ".cursor", "skills", skillName);
+}
+
+function openCodeSkillDirectory() {
+  const configRoot = process.env.SWIFT_SIM_OPENCODE_CONFIG_HOME
+    || join(homedir(), ".config", "opencode");
+  return join(configRoot, "skills", skillName);
+}
+
+function installedCursorSkillVersion() {
+  try {
+    return readFileSync(join(cursorSkillDirectory(), ".swift-sim-version"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function installedOpenCodeSkillVersion() {
+  try {
+    return readFileSync(join(openCodeSkillDirectory(), ".swift-sim-version"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function isCursorInstalled() {
+  if (process.env.SWIFT_SIM_DISABLE_CURSOR === "1") return false;
+  const explicit = process.env.SWIFT_SIM_CURSOR_COMMAND;
+  if (explicit) return existsSync(explicit);
+  return Boolean(findCommand("cursor") || findCommand("agent") || existsSync("/Applications/Cursor.app"));
+}
+
+function isOpenCodeInstalled() {
+  if (process.env.SWIFT_SIM_DISABLE_OPENCODE === "1") return false;
+  const explicit = process.env.SWIFT_SIM_OPENCODE_COMMAND;
+  if (explicit) return existsSync(explicit);
+  return Boolean(findCommand("opencode"));
+}
+
+function findClaudeCommand() {
+  if (process.env.SWIFT_SIM_DISABLE_CLAUDE === "1") return "";
+  const explicit = process.env.SWIFT_SIM_CLAUDE_COMMAND;
+  if (explicit && existsSync(explicit)) return explicit;
+  return findCommand("claude");
+}
+
+function outputContainsPlugin(output) {
+  return Boolean(claudePluginEntry(output));
+}
+
+function outputContainsEnabledPlugin(output) {
+  const entry = claudePluginEntry(output);
+  if (!entry) return false;
+  if (entry.enabled === false) return false;
+  return String(entry.status || "").toLowerCase() !== "disabled";
+}
+
+function claudePluginEntry(output) {
+  try {
+    const parsed = JSON.parse(output);
+    return findObject(parsed, (item) => {
+      const identifier = String(item.id || item.name || item.plugin || "");
+      const source = String(item.marketplace || item.source || "");
+      return identifier.includes(pluginName) && (identifier.includes(marketplaceName) || source.includes(marketplaceName));
+    });
+  } catch {
+    return null;
+  }
+}
+
+function findObject(value, predicate) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const match = findObject(item, predicate);
+      if (match) return match;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  if (predicate(value)) return value;
+  for (const nested of Object.values(value)) {
+    const match = findObject(nested, predicate);
+    if (match) return match;
+  }
+  return null;
+}
+
+function claudeMarketplaceSource(output, name) {
+  try {
+    const parsed = JSON.parse(output);
+    const entries = Array.isArray(parsed) ? parsed : parsed.marketplaces || [];
+    const entry = entries.find((item) => item?.name === name);
+    return entry?.path || entry?.source?.path || "";
+  } catch {
+    return "";
+  }
 }
 
 function marketplaceSourceRoot(output, name) {
@@ -234,11 +449,22 @@ function printDoctorReport(report) {
   printCheck("Xcode", report.deviceInstalls.xcode);
   printCheck("Signing", report.deviceInstalls.signing);
   printCheck("Mac helper", report.deviceInstalls.helper);
-  printCheck("Codex plugin", report.deviceInstalls.codexPlugin);
+  printCheck("Coding agent", report.deviceInstalls.agentIntegrations);
+  for (const [name, agent] of Object.entries(report.deviceInstalls.agents || {})) {
+    if (agent.detected) printCheck(`  ${displayAgentName(name)}`, agent);
+  }
   console.log("");
   console.log("Live Simulator preview (optional)");
   printCheck("Tailscale", report.simulatorPreview.tailscale);
   printCheck("Private route", report.simulatorPreview.privateServe);
+}
+
+function displayAgentName(name) {
+  if (name === "codex") return "Codex";
+  if (name === "cursor") return "Cursor";
+  if (name === "claude") return "Claude Code";
+  if (name === "opencode") return "OpenCode";
+  return name;
 }
 
 function printCheck(label, value) {
@@ -248,6 +474,10 @@ function printCheck(label, value) {
 
 function check(ready, detail, informational = false) {
   return { ready, informational, detail };
+}
+
+function agentCheck(detected, ready, detail) {
+  return { detected, ready, informational: !detected, detail };
 }
 
 async function helperHealth() {
@@ -301,6 +531,7 @@ function runCapture(command, args, { allowFailure = false } = {}) {
 }
 
 function findCodexCommand() {
+  if (process.env.SWIFT_SIM_DISABLE_CODEX === "1") return "";
   const explicit = process.env.SWIFT_SIM_CODEX_COMMAND;
   if (explicit && existsSync(explicit)) return explicit;
   const shellCommand = findCommand("codex");
@@ -333,9 +564,9 @@ function printHelp() {
   console.log(`Swift Sim ${packageJSON.version}
 
 Usage:
-  swift-sim setup                 Configure the helper and Codex plugin
+  swift-sim setup                 Configure the helper and detected coding agents
   swift-sim doctor [--json]       Check install and optional Simulator setup
-  swift-sim update                Update Homebrew and the Codex plugin
+  swift-sim update                Update Homebrew and detected agent integrations
   swift-sim build-device ...      Build a signed iPhone install
   swift-sim list-apps [--archived] List managed prototype apps and build history
   swift-sim verify-device-build    Verify an install on a reachable iPhone

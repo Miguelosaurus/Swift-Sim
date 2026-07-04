@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+import { existsSync, writeFileSync } from "node:fs";
+
+const state = process.env.FAKE_CLAUDE_STATE;
+const args = process.argv.slice(2).join(" ");
+
+if (!state) process.exit(2);
+
+if (args === "plugin marketplace list --json") {
+  console.log(JSON.stringify(existsSync(`${state}.marketplace`)
+    ? [{ name: "swift-sim", source: "directory", path: process.env.SWIFT_SIM_MARKETPLACE_ROOT }]
+    : []));
+} else if (args.startsWith("plugin marketplace add ")) {
+  writeFileSync(`${state}.marketplace`, "ready\n");
+} else if (args.startsWith("plugin marketplace update ")) {
+  process.exit(existsSync(`${state}.marketplace`) ? 0 : 1);
+} else if (args.startsWith("plugin marketplace remove ")) {
+  writeFileSync(`${state}.marketplace`, "removed\n");
+} else if (args === "plugin list --json") {
+  console.log(JSON.stringify(existsSync(`${state}.plugin`)
+    ? [{ id: "swift-sim-companion@swift-sim", version: "0.2.2", enabled: true }]
+    : []));
+} else if (args.startsWith("plugin install ") || args.startsWith("plugin update ") || args.startsWith("plugin enable ")) {
+  writeFileSync(`${state}.plugin`, "ready\n");
+} else if (args === "--version") {
+  console.log("2.1.200");
+} else {
+  console.error(`Unexpected fake Claude command: ${args}`);
+  process.exit(2);
+}

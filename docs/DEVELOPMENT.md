@@ -36,11 +36,15 @@ PRODUCT_BUNDLE_IDENTIFIER=com.yourname.SwiftSimCompanion \
 
 The script detects one connected iPhone by default. Set `DEVICE_UDID` when multiple devices are available.
 
-## Validate The Codex Plugin
+## Validate The Agent Integrations
 
-The plugin source is `plugins/swift-sim-companion`. After changing its skill, validate it with the current Codex plugin and skill validation tools, update its cachebuster, then reinstall it from the local marketplace.
+The shared plugin source is `plugins/swift-sim-companion`. It contains Codex, Cursor, and Claude Code manifests around one skill folder; OpenCode consumes that same skill through its global skills directory. After changing the skill:
 
-Start a new Codex thread after reinstalling so the new skill text is loaded.
+1. Validate the skill frontmatter.
+2. Validate all three plugin manifests, all marketplace manifests, and OpenCode discovery.
+3. Update every explicit plugin version together.
+4. Run `swift-sim setup` to refresh detected local hosts.
+5. Start a new agent session so the new skill text is loaded.
 
 ## Manual Session Test
 
@@ -80,7 +84,7 @@ Use placeholders in documentation and examples.
 
 ## Scope Rules
 
-- Keep Codex as the only coding agent.
+- Keep the selected host as the only coding agent; Swift Sim must not spawn another one.
 - Keep project execution on the Mac Simulator.
 - Keep the helper bound to localhost by default.
 - Expose only the read-only device-build gateway through the managed temporary public tunnel.

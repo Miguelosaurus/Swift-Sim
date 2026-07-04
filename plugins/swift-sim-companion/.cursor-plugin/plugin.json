@@ -1,0 +1,26 @@
+{
+  "name": "swift-sim-companion",
+  "displayName": "Swift Sim",
+  "version": "0.2.2",
+  "description": "Build signed iPhone apps and open optional live Simulator sessions through Swift Sim.",
+  "author": {
+    "name": "Swift Sim"
+  },
+  "homepage": "https://github.com/Miguelosaurus/Swift-Sim",
+  "repository": "https://github.com/Miguelosaurus/Swift-Sim",
+  "license": "Apache-2.0",
+  "keywords": [
+    "ios",
+    "iphone",
+    "swiftui",
+    "xcode",
+    "remote-development"
+  ],
+  "category": "developer-tools",
+  "tags": [
+    "ios",
+    "swiftui",
+    "remote-development"
+  ],
+  "skills": "./skills/"
+}

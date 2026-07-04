@@ -23,7 +23,7 @@ Simulator sessions connect directly to the user's Mac through the user's private
 
 For real-device installs, the Mac may start an account-free Cloudflare Quick Tunnel. The signed IPA, install manifest, build metadata, and network information pass through Cloudflare while the iPhone downloads the build. Swift Sim does not upload the IPA to storage operated by SEA & SEA LLC, and the temporary tunnel is stopped automatically. Cloudflare processes tunnel traffic according to its own terms and privacy policy.
 
-The Codex desktop app and bundled plugin orchestrate builds and simulator sessions on the user's Mac. Project source code remains on the Mac. Signed device-build artifacts are delivered to the user's iPhone, but are not sent to SEA & SEA LLC.
+The user's selected coding agent and bundled Swift Sim integration orchestrate builds and simulator sessions on the user's Mac. Supported hosts are Codex, Cursor, Claude Code, and OpenCode. Project source code remains on the Mac. Signed device-build artifacts are delivered to the user's iPhone, but are not sent to SEA & SEA LLC.
 
 ## Retention and Deletion
 

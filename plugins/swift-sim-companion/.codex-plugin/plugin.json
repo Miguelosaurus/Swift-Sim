@@ -1,11 +1,13 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.2.1+codex.20260703233933",
-  "description": "Teach Codex to set up Swift Sim, manage signed iPhone app histories, and optionally preview Mac-hosted Xcode Simulators.",
+  "version": "0.2.2+codex.20260704225104",
+  "description": "Build, install, update, and manage signed iPhone apps from a Mac-hosted Codex session.",
   "author": {
     "name": "Swift Sim",
-    "email": "local@example.com"
+    "url": "https://github.com/Miguelosaurus/Swift-Sim"
   },
+  "homepage": "https://github.com/Miguelosaurus/Swift-Sim",
+  "repository": "https://github.com/Miguelosaurus/Swift-Sim",
   "license": "Apache-2.0",
   "keywords": [
     "ios",
@@ -17,11 +19,16 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Swift Sim Companion",
+    "displayName": "Swift Sim",
     "shortDescription": "Manage iPhone prototypes and preview simulators.",
     "longDescription": "A setup-aware Codex workflow that installs signed real-device apps over an account-free temporary link, organizes updates into one app history, verifies reachable device installs, and optionally previews a Mac-hosted Simulator.",
     "developerName": "Swift Sim",
     "category": "Developer Tools",
+    "websiteURL": "https://github.com/Miguelosaurus/Swift-Sim",
+    "privacyPolicyURL": "https://github.com/Miguelosaurus/Swift-Sim/blob/main/docs/PRIVACY.md",
+    "brandColor": "#0A84FF",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
     "capabilities": [
       "Interactive",
       "Local"

@@ -1,15 +1,28 @@
 # Setup
 
-Swift Sim has one user installation path. Homebrew installs one release containing both the helper and Codex plugin, and `swift-sim setup` activates them together.
+Swift Sim has three components: the Mac package, a coding-agent integration, and the iPhone companion. The Mac package and every detected agent integration are installed together from one Homebrew release.
 
-## 1. Install Swift Sim
+## 1. Prepare A Local Coding Agent
+
+Choose at least one supported agent and make sure it runs on the Mac that contains the iOS project:
+
+| Agent | Mac requirement | Phone handoff |
+| --- | --- | --- |
+| Codex | Codex desktop app | Continue the Mac thread from the ChatGPT/Codex mobile app |
+| Cursor | Cursor 3.9+ with Remote Control enabled in the Agents Window | Continue the local agent from Cursor for iOS |
+| Claude Code | Claude Code 2.1.51+ signed in through claude.ai | Run `claude remote-control` and open the session from the Claude mobile app |
+| OpenCode | A local OpenCode installation | Use the local session through your preferred remote or mobile client |
+
+Keep the agent session local. Cloud agents cannot use the Xcode installation, signing credentials, helper, or Simulator state on your Mac.
+
+## 2. Install The Mac Package And Agent Integration
 
 Requirements:
 
 - Apple silicon Mac
 - Xcode
 - Homebrew
-- Codex desktop app
+- at least one supported local coding agent
 
 Run:
 
@@ -18,99 +31,98 @@ brew install miguelosaurus/tap/swift-sim
 swift-sim setup
 ```
 
-Setup prints two independent sections:
+`swift-sim setup` performs the complete Mac-side setup:
 
-- **iPhone app installs (primary)**: Xcode, local helper, and Codex plugin
-- **Live Simulator preview (optional)**: Tailscale and its private Serve route
+- starts the helper with Homebrew services
+- installs the Codex plugin when Codex is detected
+- installs the Cursor skill when Cursor is detected
+- registers and installs the Claude Code plugin when Claude Code is detected
+- installs the shared skill in OpenCode's global skills directory when OpenCode is detected
+- checks Xcode and local signing readiness
 
-The primary install workflow is ready even when the optional section is not configured.
+No repository clone or manual skill copy is required. Setup skips agents that are not installed.
 
-Check it again at any time:
+Check the result at any time:
 
 ```sh
 swift-sim doctor
 ```
 
-## 2. Prepare Xcode Signing
+The report has three sections:
 
-Open Xcode once and add your Apple Developer account under **Settings > Accounts**. The app you are building must use a bundle identifier owned by that team.
+- Xcode and signing
+- detected coding-agent integrations
+- optional live Simulator networking
 
-For development signing, the destination iPhone must be registered with the team. Xcode can normally manage the certificate, App ID, device registration, and provisioning profile when Codex builds with provisioning updates enabled.
+The iPhone-install workflow is ready when Xcode, the helper, and at least one agent integration are ready.
 
-Swift Sim never receives your Apple password or account session. It asks Xcode to perform the normal signed archive and export.
+## 3. Install The iPhone Companion
 
-## 3. Install Your First App
+[Install the public Swift Sim TestFlight beta](https://testflight.apple.com/join/HMUUFYNK) and open it once.
 
-From the Codex thread working on the iOS project, ask:
+The companion provides:
+
+- one organized library entry per prototype app
+- build and update history
+- archive and restore controls
+- connected-device verification
+- optional live Simulator viewing and control
+
+Device-build links can still install through Safari, but the companion is the management hub and the intended mobile experience.
+
+## 4. Prepare Xcode Signing
+
+Open Xcode once and add your Apple Developer account under **Settings > Accounts**. The target must use a bundle identifier owned by that team, and the destination iPhone must be included by the provisioning profile.
+
+Swift Sim never receives your Apple password or account session. It asks Xcode to perform normal archive, signing, and export operations.
+
+## 5. Install Your First App
+
+From the local agent session working on the iOS project, ask:
 
 ```text
 Build this app to my iPhone with Swift Sim
 ```
 
-Codex will:
+The agent will:
 
 1. Run `swift-sim doctor --json`.
 2. Identify the project or workspace and scheme.
 3. Archive and export a development-signed IPA.
 4. Start a restricted temporary HTTPS delivery tunnel.
-5. Return an **Install on iPhone** link.
+5. Return **Open in Swift Sim to Install**.
+6. Open Swift Sim, review the recorded version, and tap **Install**.
 
-Open the link on the iPhone and choose **Install**. The link works over cellular or any other network; Tailscale is not involved.
+The HTTPS handoff includes a clearly labeled **Install without Swift Sim** fallback for phones without the companion. That fallback is intentionally secondary because iOS does not notify Swift Sim about installs initiated outside the app.
 
-Install links last two hours by default. The Mac must remain awake and online until installation finishes.
+Open the link on the iPhone and choose **Install**. It works over cellular or any network; Tailscale is not involved. The Mac must remain awake and online until installation finishes.
 
-### Updating An Existing App
+## Updating An Existing App
 
-Ask Codex to build to your phone again after making changes. Keep the same:
+Ask the agent to build to the phone again. Keep the same bundle identifier, Apple Developer team, and compatible keychain/app-group entitlements. iOS installs over the existing app and preserves its app container.
 
-- bundle identifier
-- Apple Developer team
-- compatible keychain and app-group entitlements
+Swift Sim groups builds by bundle identifier plus team. Rebuilding the same app creates one new history row, not another app card.
 
-iOS then installs the new build over the existing one and preserves its app container. Swift Sim does not uninstall first.
+## Optional Live Simulator Preview
 
-The companion groups builds by bundle identifier and Apple Developer team. Rebuilding the same app updates its single library entry and adds a new row to **Build History** instead of creating another app card.
-
-Changing the bundle identifier creates a separate app. Changing the team or access-group entitlements can prevent the update from reading previous keychain or shared-container data.
-
-### Managing Prototypes
-
-- **Archive App** hides a dormant prototype from the active library but keeps its complete build history.
-- **Restore App** returns an archived prototype to the active library.
-- **Delete History** removes the companion's saved timeline. It does not uninstall the app from iOS.
-- **Verify** asks the Mac to compare the build with apps reported by Apple's `devicectl`. Verification succeeds only while that trusted iPhone is reachable from the Mac.
-
-Swift Sim uses the honest intermediate status **Install requested** because iOS OTA installation does not provide a completion callback to the companion app.
-
-## 4. Optional Live Simulator Preview
-
-Only configure this when you want to view and control the Mac Simulator from the Swift Sim iOS app.
+Only configure this lane when you want to control the Mac Simulator from Swift Sim:
 
 1. Install Tailscale on the Mac and iPhone.
-2. Sign in to the same Tailnet on both devices.
-3. On the Mac, run:
+2. Sign in to the same Tailnet.
+3. Run on the Mac:
 
    ```sh
    tailscale serve 47217
    swift-sim doctor
    ```
 
-4. Ask Codex:
+4. Ask the local agent:
 
    ```text
    Open a live Simulator preview in Swift Sim
    ```
 
-Codex checks the private route, builds and launches one exact Simulator, opens that same Simulator in the Codex sidebar, and returns the companion link.
-
 Same Wi-Fi is not required. Do not use Tailscale Funnel; Simulator controls should remain private to the Tailnet.
-
-## Link Behavior
-
-- **Install link**: normal HTTPS page that installs the signed app. No companion app or Tailscale required.
-- **Simulator link**: opens the Swift Sim companion and connects through Tailscale.
-- **Pairing link**: stores optional Mac-helper diagnostics in the companion app.
-- **`swift-sim://` link**: fallback when an arbitrary private host cannot open as an iOS universal link.
 
 ## Updating Swift Sim
 
@@ -118,10 +130,10 @@ Same Wi-Fi is not required. Do not use Tailscale Funnel; Simulator controls shou
 swift-sim update
 ```
 
-This upgrades the Homebrew package and refreshes the bundled Codex plugin from that same installation.
+This upgrades Homebrew and refreshes every detected agent integration from the same package.
 
 ## Next
 
+- [Agent Workflows](AGENT_WORKFLOWS.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Security](SECURITY.md)
-- [Codex Workflow](CODEX_WORKFLOW.md)
