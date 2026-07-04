@@ -1,6 +1,6 @@
 {
   "name": "swift-sim",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "Install signed iPhone builds and preview Mac Simulators from mobile-controlled coding agents.",

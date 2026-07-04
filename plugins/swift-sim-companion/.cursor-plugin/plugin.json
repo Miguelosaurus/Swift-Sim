@@ -1,7 +1,7 @@
 {
   "name": "swift-sim-companion",
   "displayName": "Swift Sim",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Build signed iPhone apps and open optional live Simulator sessions through Swift Sim.",
   "author": {
     "name": "Swift Sim"
