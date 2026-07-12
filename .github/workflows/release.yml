@@ -31,4 +31,5 @@ jobs:
       - run: |
           ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
       - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh
-      - run: xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' -configuration Debug CODE_SIGNING_ALLOWED=NO
+      - name: Build iOS app and tests
+        run: xcodebuild build-for-testing -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO
