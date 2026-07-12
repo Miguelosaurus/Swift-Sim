@@ -67,3 +67,47 @@ test("install requests and verification persist without exposing a device id", (
   assert.equal(saved.installation.devices[0].name, "Test iPhone");
   assert.equal(readFileSync(join(directory, "builds.json"), "utf8").includes("Test iPhone"), true);
 }));
+
+test("an inconclusive check preserves a known install request", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  store.markInstallRequested(build.id);
+  store.saveVerification(build.id, {
+    state: "unknown",
+    verifiedAt: "2026-07-03T00:00:00.000Z",
+    devices: [{ name: "Test iPhone", state: "unreachable", version: "", build: "" }],
+  });
+
+  const saved = store.get(build.id);
+  assert.equal(saved.installation.state, "requested");
+  assert.equal(saved.installation.verifiedAt, "");
+  assert.equal(saved.installation.devices[0].state, "unreachable");
+}));
+
+test("a different installed version remains actionable", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  store.markInstallRequested(build.id);
+  store.saveVerification(build.id, {
+    state: "different-version",
+    devices: [{ name: "Test iPhone", state: "different-version", version: "0.9", build: "8" }],
+  });
+
+  assert.equal(store.get(build.id).installation.state, "different-version");
+}));
+
+test("an expired build can generate a new install link from its saved app", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  build.expiresAt = "2026-01-01T00:00:00.000Z";
+  build.remoteBaseUrl = "https://old-link.example.com";
+  build.delivery = {
+    mode: "quick-tunnel",
+    provider: "cloudflare-quick-tunnel",
+    expiresAt: "2026-01-01T00:00:00.000Z",
+  };
+  store.save(build);
+
+  const renewed = store.renewInstallLink(build.id, { ttlMinutes: 60 });
+  assert.ok(Date.parse(renewed.expiresAt) > Date.now() + 59 * 60 * 1000);
+  assert.equal(renewed.remoteBaseUrl, "");
+  assert.equal(renewed.delivery.mode, "quick-tunnel");
+  assert.equal(renewed.state, "ready");
+}));

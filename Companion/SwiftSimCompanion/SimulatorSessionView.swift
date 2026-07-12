@@ -144,7 +144,7 @@ struct SimulatorSessionView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 22, weight: .semibold))
-                        Text("Stream unavailable")
+                        Text("Preview unavailable")
                             .font(.headline.weight(.bold))
                         Text(message)
                             .font(.caption)
@@ -161,7 +161,7 @@ struct SimulatorSessionView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "speedometer")
                                 .font(.system(size: 11, weight: .semibold))
-                            Text("Fallback stream")
+                            Text("Limited controls")
                                 .font(.caption2.weight(.semibold))
                         }
                         .foregroundStyle(.secondary)
@@ -422,7 +422,7 @@ private struct LiveKeyboardSheet: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Live Keyboard")
                     .font(.headline.weight(.bold))
-                Text("Keys forward immediately")
+                Text("Typing appears right away")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

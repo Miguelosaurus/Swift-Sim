@@ -106,12 +106,34 @@ async function doctor(args) {
 
 async function update() {
   const brew = findCommand("brew");
-  if (brew) {
-    runCapture(brew, ["upgrade", "swift-sim"], { allowFailure: true });
+  if (!brew) {
+    throw new Error("Homebrew is required to update Swift Sim. Install Homebrew, then try again.");
   }
-  const actions = installAgentIntegrations();
+  const upgrade = runCapture(brew, ["upgrade", "swift-sim"], { allowFailure: true });
+  if (upgrade.status !== 0) {
+    throw new Error(compactError(upgrade) || "Homebrew could not update Swift Sim. Your existing version is still installed.");
+  }
+  const updatedCommand = findCommand("swift-sim");
+  let actions;
+  if (updatedCommand) {
+    const refreshed = runCapture(updatedCommand, ["setup", "--skip-service", "--json"], { allowFailure: true });
+    if (refreshed.status !== 0) {
+      throw new Error(compactError(refreshed) || "Swift Sim updated, but its coding-agent integrations could not be refreshed.");
+    }
+    try {
+      actions = JSON.parse(refreshed.stdout).actions || [];
+    } catch {
+      throw new Error("Swift Sim updated, but the refreshed setup report could not be read. Run swift-sim doctor.");
+    }
+  } else {
+    actions = installAgentIntegrations();
+  }
   for (const action of actions) {
     console.log(`[${action.state}] ${action.label}: ${action.detail}`);
+  }
+  const failed = actions.filter((action) => action.state === "needs-attention");
+  if (failed.length > 0) {
+    throw new Error("Swift Sim updated, but one or more coding-agent integrations could not be refreshed. Run swift-sim doctor.");
   }
   console.log("Swift Sim and detected agent integrations are up to date.");
 }
@@ -126,24 +148,33 @@ async function buildDoctorReport() {
   const claude = findClaudeCommand();
   const claudePluginList = claude ? runCapture(claude, ["plugin", "list", "--json"], { allowFailure: true }) : emptyResult();
   const signingIdentityCount = Number(identities.stdout.match(/(\d+) valid identities found/)?.[1] || 0);
+  const codexVersion = codexPluginVersion(pluginList.stdout);
   const codexReady = pluginList.status === 0
     && pluginList.stdout.includes(pluginName)
-    && pluginList.stdout.includes("installed, enabled");
+    && pluginList.stdout.includes("installed, enabled")
+    && versionMatchesPackage(codexVersion);
   const cursorDetected = isCursorInstalled();
   const cursorReady = cursorDetected && installedCursorSkillVersion() === packageJSON.version;
-  const claudeReady = claudePluginList.status === 0 && outputContainsEnabledPlugin(claudePluginList.stdout);
+  const claudeEntry = claudePluginEntry(claudePluginList.stdout);
+  const claudeReady = claudePluginList.status === 0
+    && outputContainsEnabledPlugin(claudePluginList.stdout)
+    && versionMatchesPackage(claudeEntry?.version);
   const openCodeDetected = isOpenCodeInstalled();
   const openCodeReady = openCodeDetected && installedOpenCodeSkillVersion() === packageJSON.version;
   const agents = {
     codex: agentCheck(Boolean(codex), codexReady, codexReady
       ? `Swift Sim plugin ${packageJSON.version} is installed`
-      : Boolean(codex) ? "Swift Sim plugin is not installed" : "Codex is not installed"),
+      : Boolean(codex) && codexVersion
+        ? `Swift Sim plugin ${codexVersion} does not match ${packageJSON.version}; run swift-sim setup`
+        : Boolean(codex) ? "Swift Sim plugin is not installed" : "Codex is not installed"),
     cursor: agentCheck(cursorDetected, cursorReady, cursorReady
       ? `Swift Sim skill ${packageJSON.version} is installed`
       : cursorDetected ? "Swift Sim skill is not installed" : "Cursor is not installed"),
     claude: agentCheck(Boolean(claude), claudeReady, claudeReady
       ? `Swift Sim plugin ${packageJSON.version} is installed`
-      : Boolean(claude) ? "Swift Sim plugin is not installed" : "Claude Code is not installed"),
+      : Boolean(claude) && claudeEntry?.version
+        ? `Swift Sim plugin ${claudeEntry.version} does not match ${packageJSON.version}; run swift-sim setup`
+        : Boolean(claude) ? "Swift Sim plugin is not installed" : "Claude Code is not installed"),
     opencode: agentCheck(openCodeDetected, openCodeReady, openCodeReady
       ? `Swift Sim skill ${packageJSON.version} is installed`
       : openCodeDetected ? "Swift Sim skill is not installed" : "OpenCode is not installed"),
@@ -382,6 +413,16 @@ function outputContainsEnabledPlugin(output) {
   if (!entry) return false;
   if (entry.enabled === false) return false;
   return String(entry.status || "").toLowerCase() !== "disabled";
+}
+
+function codexPluginVersion(output) {
+  const line = String(output || "").split(/\r?\n/).find((value) => value.includes(pluginName));
+  if (!line) return "";
+  return line.match(/\b(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b/)?.[1] || "";
+}
+
+function versionMatchesPackage(version) {
+  return String(version || "").split("+")[0] === packageJSON.version;
 }
 
 function claudePluginEntry(output) {

@@ -8,7 +8,7 @@ export class DeviceInventoryAdapter {
     this.run = run;
   }
 
-  async verifyApp(bundleIdentifier) {
+  async verifyApp(bundleIdentifier, expected = {}) {
     if (!bundleIdentifier) {
       return verification("unknown", [], "A bundle identifier is required for device verification.");
     }
@@ -25,9 +25,12 @@ export class DeviceInventoryAdapter {
           "--bundle-id", bundleIdentifier,
         ]);
         const app = response?.result?.apps?.[0];
+        const matchesVersion = app
+          && (!expected.version || app.version === expected.version)
+          && (!expected.build || app.bundleVersion === expected.build);
         results.push({
           name: device.name,
-          state: app ? "installed" : "not-installed",
+          state: matchesVersion ? "installed" : app ? "different-version" : "not-installed",
           version: app?.version || "",
           build: app?.bundleVersion || "",
         });
@@ -43,9 +46,11 @@ export class DeviceInventoryAdapter {
 
     const state = results.some((device) => device.state === "installed")
       ? "verified"
-      : results.some((device) => device.state === "not-installed")
-        ? "not-installed"
-        : "unknown";
+      : results.some((device) => device.state === "different-version")
+        ? "different-version"
+        : results.some((device) => device.state === "not-installed")
+          ? "not-installed"
+          : "unknown";
     return verification(state, results);
   }
 }

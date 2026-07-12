@@ -66,7 +66,7 @@ Pairing tokens rotate when the app relinks through the helper's rotate route.
 
 Session tokens do not currently expire automatically. They remain valid in the stored session record across helper restarts. Stopping a session ends its tracked stream, but V1 does not yet provide a per-session record-deletion route; do not describe Stop as complete token revocation.
 
-Device-build install pages and their delivery tunnel expire after two hours by default. Callers may shorten that window to as little as five minutes. The local IPA file remains on the Mac under `~/.swift-sim/device-builds/` until deleted.
+Device-build install pages and their delivery tunnel expire after two hours by default. Callers may shorten that window to as little as five minutes. The local IPA file remains on the Mac under `~/.swift-sim/device-builds/` until deleted. A paired companion may ask the private Mac helper to generate a new link for that saved IPA. The public delivery gateway cannot renew links.
 
 If a session or device-build link is exposed, stop the helper, remove the affected record from `~/.swift-sim/sessions.json` or `~/.swift-sim/device-builds.json`, delete the matching artifact directory if needed, then restart the helper and create a fresh link. Rotate pairing separately if the pairing link was exposed. Automatic cleanup and first-class revocation are future hardening work.
 

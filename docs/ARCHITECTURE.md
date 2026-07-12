@@ -37,6 +37,7 @@ The native SwiftUI app:
 - opens device-build links and launches real iPhone installs
 - groups every build under one stable app identity
 - keeps a local build timeline that survives expired install links
+- asks the trusted Mac to generate a new link for a saved build
 - records install requests and displays connected-device verification
 
 It never builds the user's project. Simulator sessions execute on the Mac Simulator; device builds execute as normal installed iOS apps after iOS installs them.
@@ -86,7 +87,7 @@ Swift Sim preserves app data by default because it does not uninstall before ins
 
 The helper derives one opaque app identity from the bundle identifier and signing team. Builds with that identity form one ordered history. Changing either identity component intentionally creates another app because iOS update compatibility changed.
 
-Install completion is reconciled through `xcrun devicectl device info apps` when a trusted physical iPhone is reachable. Public responses include only the friendly device name and installed version/build; they omit UDIDs, serial numbers, and CoreDevice identifiers.
+The Mac helper reconciles requested installs in the background through `xcrun devicectl device info apps` when a trusted physical iPhone is available over the local network or USB. It matches the exact version and build. Public responses include only the friendly device name and installed version/build; they omit UDIDs, serial numbers, and CoreDevice identifiers.
 
 ## Stream Recovery
 

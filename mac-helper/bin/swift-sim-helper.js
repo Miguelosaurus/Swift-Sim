@@ -198,7 +198,7 @@ async function main() {
     });
     const build = deviceBuildStore.get(required(values["build-id"], "build-id"));
     if (!build) throw new Error("Unknown device build.");
-    const verification = await deviceInventory.verifyApp(build.app.bundleIdentifier);
+    const verification = await verifyDeviceBuild(build);
     const verifiedBuild = deviceBuildStore.saveVerification(build.id, verification);
     console.log(JSON.stringify(publicDeviceBuild(verifiedBuild), null, 2));
     return;
@@ -401,12 +401,44 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         return json(res, 202, publicDeviceBuild(build));
       }
 
+      const deviceBuildRenewMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/renew$/);
+      if (deviceBuildRenewMatch && req.method === "POST") {
+        if (!pairingTokenMatches(req, url)) {
+          return unauthorized(res);
+        }
+        const build = deviceBuildStore.get(deviceBuildRenewMatch[1]);
+        if (!build) return notFound(res, "That saved app is no longer available on this Mac.");
+        if (build.state !== "ready" || !build.artifacts?.ipaPath || !existsSync(build.artifacts.ipaPath)) {
+          return badRequest(res, 409, "The saved app is no longer available. Build it again to create a new link.");
+        }
+        const previousDelivery = {
+          expiresAt: build.expiresAt,
+          remoteBaseUrl: build.remoteBaseUrl,
+          delivery: build.delivery ? { ...build.delivery } : null,
+        };
+        const renewedBuild = deviceBuildStore.renewInstallLink(build.id);
+        try {
+          await prepareDeviceDelivery(renewedBuild, { markBuildFailed: false });
+        } catch (error) {
+          renewedBuild.expiresAt = previousDelivery.expiresAt;
+          renewedBuild.remoteBaseUrl = previousDelivery.remoteBaseUrl;
+          renewedBuild.delivery = previousDelivery.delivery;
+          deviceBuildStore.save(renewedBuild);
+          throw error;
+        }
+        renewedBuild.logs.push("A new install link was generated from the saved app.");
+        deviceBuildStore.save(renewedBuild);
+        return json(res, 200, publicDeviceBuild(renewedBuild));
+      }
+
       const deviceBuildMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/);
       if (deviceBuildMatch) {
         const [, buildId, action] = deviceBuildMatch;
         const build = deviceBuildStore.get(buildId);
         if (!build) return notFound(res, "Unknown device build.");
-        if (!tokenMatches(build, url.searchParams.get("token"))) {
+        const buildTokenMatches = tokenMatches(build, url.searchParams.get("token"));
+        const pairedMacTokenMatches = !deviceBuildsOnly && pairingTokenMatches(req, url);
+        if (!buildTokenMatches && !pairedMacTokenMatches) {
           return unauthorized(res);
         }
         if (req.method === "GET" && !action) {
@@ -425,7 +457,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           return json(res, 200, publicDeviceBuild(requestedBuild));
         }
         if (req.method === "POST" && action === "verify") {
-          const verification = await deviceInventory.verifyApp(build.app.bundleIdentifier);
+          const verification = await verifyDeviceBuild(build);
           const verifiedBuild = deviceBuildStore.saveVerification(buildId, verification);
           return json(res, 200, publicDeviceBuild(verifiedBuild));
         }
@@ -644,16 +676,55 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     });
   });
 
+  let reconciliationTimer;
+  if (!deviceBuildsOnly) {
+    void reconcileRequestedDeviceBuilds();
+    reconciliationTimer = setInterval(() => {
+      void reconcileRequestedDeviceBuilds();
+    }, 15_000);
+  }
+
   const keepAlive = setInterval(() => {}, 60 * 60 * 1000);
   process.once("SIGTERM", () => {
+    if (reconciliationTimer) clearInterval(reconciliationTimer);
     clearInterval(keepAlive);
     server.close(() => process.exit(0));
   });
   process.once("SIGINT", () => {
+    if (reconciliationTimer) clearInterval(reconciliationTimer);
     clearInterval(keepAlive);
     server.close(() => process.exit(0));
   });
   await new Promise(() => {});
+}
+
+let deviceReconciliationRunning = false;
+
+async function reconcileRequestedDeviceBuilds() {
+  if (deviceReconciliationRunning) return;
+  deviceReconciliationRunning = true;
+  try {
+    const requested = deviceBuildStore.list().filter((build) =>
+      build.state === "ready"
+      && build.installation?.state === "requested"
+      && build.app?.bundleIdentifier
+    );
+    for (const build of requested) {
+      const verification = await verifyDeviceBuild(build);
+      if (verification.state === "verified") {
+        deviceBuildStore.saveVerification(build.id, verification);
+      }
+    }
+  } finally {
+    deviceReconciliationRunning = false;
+  }
+}
+
+function verifyDeviceBuild(build) {
+  return deviceInventory.verifyApp(build.app.bundleIdentifier, {
+    version: build.app.version,
+    build: build.app.build,
+  });
 }
 
 async function setupStatus({ host, port }) {
@@ -1423,7 +1494,7 @@ async function createDeviceBuild(values) {
   return build;
 }
 
-async function prepareDeviceDelivery(build) {
+async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
   try {
     if (build.remoteBaseUrl || build.delivery?.mode === "custom") {
       build.delivery = {
@@ -1447,7 +1518,7 @@ async function prepareDeviceDelivery(build) {
     deviceBuildStore.save(build);
     return build;
   } catch (error) {
-    build.state = "failed";
+    if (markBuildFailed) build.state = "failed";
     build.logs.push(error instanceof Error ? error.message : String(error));
     deviceBuildStore.save(build);
     throw error;
@@ -1527,10 +1598,10 @@ function sessionFallbackHtml(session) {
 </head>
 <body>
   <main>
-    <div class="status"><span class="dot"></span>Opening native companion</div>
+    <div class="status"><span class="dot"></span>Opening Swift Sim</div>
     <h1>Swift Sim</h1>
-    <p>Safari is only the fallback handoff page. The simulator stream belongs in the native Swift Sim app.</p>
-    <a class="button" href="${escapeHtml(links.customScheme)}">Open Simulator in Companion App</a>
+    <p>This page opens the live Simulator in the Swift Sim app.</p>
+    <a class="button" href="${escapeHtml(links.customScheme)}">Open in Swift Sim</a>
     <p>If that button does not switch apps, paste this link into Swift Sim:</p>
     <code>${escapeHtml(links.customScheme)}</code>
   </main>
@@ -1545,7 +1616,7 @@ function pairingFallbackHtml({ token, base }) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pair Swift Sim</title>
+  <title>Connect Swift Sim</title>
   <style>
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f8fbff; color: #121417; }
     main { max-width: 560px; margin: 0 auto; padding: 40px 22px; }
@@ -1555,9 +1626,9 @@ function pairingFallbackHtml({ token, base }) {
 </head>
 <body>
   <main>
-    <h1>Pair Swift Sim</h1>
-    <p>Open this link on your iPhone to pair the companion app with this Mac helper over your private Tailscale connection.</p>
-    <a class="button" href="${escapeHtml(customScheme)}">Open Swift Sim Companion</a>
+    <h1>Connect Swift Sim</h1>
+    <p>Open Swift Sim on your iPhone and connect it to this Mac over Tailscale.</p>
+    <a class="button" href="${escapeHtml(customScheme)}">Open Swift Sim</a>
     <code>${escapeHtml(customScheme)}</code>
   </main>
 </body>
@@ -1607,15 +1678,15 @@ function deviceBuildFallbackHtml(build) {
   <main>
     <div class="status"><span class="dot"></span>Opening Swift Sim</div>
     <h1>${escapeHtml(build.app.name || build.scheme || "iOS App")}</h1>
-    <p>Swift Sim keeps this build in the app's version history, then hands the signed install to iOS. Existing app data is preserved when the bundle identifier, signing team, and entitlements stay compatible.</p>
+    <p>Swift Sim saves this version, then opens the iOS install prompt. Updates normally keep your login and app data.</p>
     <div class="meta">
-      <strong>${escapeHtml(build.app.bundleIdentifier || "Bundle ID pending")}</strong><br>
-      Expires ${escapeHtml(new Date(build.expiresAt).toLocaleString())}
+      <strong>App ID: ${escapeHtml(build.app.bundleIdentifier || "Not available")}</strong><br>
+      Link expires ${escapeHtml(new Date(build.expiresAt).toLocaleString())}
     </div>
     ${warnings ? `<ul>${warnings}</ul>` : ""}
     <a class="button" href="${escapeHtml(links.customScheme)}">Open in Swift Sim</a>
-    <a class="secondary" href="${escapeHtml(installURL)}">Install without Swift Sim</a>
-    <div class="fallback">The fallback install works without the companion, but it will not add this build to the on-device library.</div>
+    <a class="secondary" href="${escapeHtml(installURL)}">Install directly</a>
+    <div class="fallback">Installing directly will not save this version in Swift Sim.</div>
   </main>
 </body>
 </html>`;

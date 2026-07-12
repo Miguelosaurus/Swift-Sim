@@ -9,20 +9,25 @@ final class SessionStore: ObservableObject {
     @Published var deviceBuildLogs: [String] = []
     @Published var logs: [String] = []
     @Published var activeTransport: SessionTransport?
+    @Published private(set) var isRenewingDeviceBuildLink = false
+    @Published private(set) var isStartingInstallation = false
+    @Published private(set) var deviceBuildActionMessage: String?
+    @Published private(set) var libraryActionMessage: String?
     @Published private(set) var pairedMac: PairedMac?
     @Published private(set) var helperStatus: HelperConnectionStatus = .notPaired
     @Published private(set) var recentSessions: [RecentSession] = []
     @Published private(set) var managedApps: [ManagedApp] = []
     @Published private(set) var selectedManagedAppID: String?
-    @Published private(set) var tailscaleCheck = ConnectionCheck.notConfigured("Add a simulator session before checking the private route")
-    @Published private(set) var macHelperCheck = ConnectionCheck.notConfigured("No Mac helper address is available yet")
-    @Published private(set) var simulatorCheck = ConnectionCheck.notConfigured("Open a session link from your coding agent to add a simulator")
+    @Published private(set) var tailscaleCheck = ConnectionCheck.notConfigured("Open a Simulator link before checking the connection")
+    @Published private(set) var macHelperCheck = ConnectionCheck.notConfigured("Connect your Mac to check its status")
+    @Published private(set) var simulatorCheck = ConnectionCheck.notConfigured("Open a Simulator link in Swift Sim")
 
     private let recentSessionsKey = "recentSessions"
     private let recentDeviceBuildsKey = "recentDeviceBuilds"
     private let managedAppsKey = "managedApps.v1"
     private let pairedMacKey = "pairedMac"
     private var keyboardTail: Task<Void, Never>?
+    private var installRequestSnapshot: (build: ManagedBuild, status: DeviceBuildStatus?)?
 
     init() {
         loadRecentSessions()
@@ -45,10 +50,12 @@ final class SessionStore: ObservableObject {
             currentDeviceBuild = build
             currentSession = nil
             deviceBuildStatus = nil
+            deviceBuildActionMessage = nil
+            isStartingInstallation = false
             if !managedApps.contains(where: { app in app.builds.contains(where: { $0.id == build.id }) }) {
                 upsertManagedBuild(ManagedBuild(pending: build))
             }
-            Task { await refreshDeviceBuild() }
+            Task { await refreshAppState() }
             return true
         }
 
@@ -56,6 +63,7 @@ final class SessionStore: ObservableObject {
         currentSession = session
         currentDeviceBuild = nil
         activeTransport = nil
+        simulatorCheck = .checking("Checking this Simulator preview")
         upsertRecentSession(RecentSession(session: session, displayName: nil))
         Task { await refresh() }
         return true
@@ -64,6 +72,7 @@ final class SessionStore: ObservableObject {
     func reopen(_ recent: RecentSession) {
         currentSession = recent.session
         activeTransport = nil
+        simulatorCheck = .checking("Checking (recent.displayName)")
         upsertRecentSession(recent.touch())
         Task { await refresh() }
     }
@@ -96,14 +105,18 @@ final class SessionStore: ObservableObject {
         currentSession = nil
         deviceBuildStatus = DeviceBuildStatus(cached: build)
         deviceBuildLogs = []
+        deviceBuildActionMessage = nil
         touchManagedApp(build.appID)
-        Task { await refreshDeviceBuild() }
+        Task { await refreshAppState() }
     }
 
     func closeCurrentBuild() {
         currentDeviceBuild = nil
         deviceBuildStatus = nil
         deviceBuildLogs = []
+        deviceBuildActionMessage = nil
+        isStartingInstallation = false
+        installRequestSnapshot = nil
     }
 
     func refresh() async {
@@ -112,10 +125,13 @@ final class SessionStore: ObservableObject {
             let (data, response) = try await URLSession.shared.data(from: session.statusURL)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                 isConnected = false
+                simulatorCheck = .issue("This saved preview is unavailable. Open a new Simulator link")
                 return
             }
+            var displayName = "Simulator"
             if let status = try? JSONDecoder().decode(SessionStatus.self, from: data) {
                 let name = status.scheme.isEmpty ? nil : status.scheme
+                displayName = name ?? displayName
                 activeTransport = status.stream
                 upsertRecentSession(
                     RecentSession(
@@ -126,9 +142,11 @@ final class SessionStore: ObservableObject {
                 )
             }
             isConnected = true
+            simulatorCheck = .ready("\(displayName) is available to open")
             await fetchLogs()
         } catch {
             isConnected = false
+            simulatorCheck = .issue("This saved preview is unavailable. Open a new Simulator link")
         }
     }
 
@@ -146,17 +164,16 @@ final class SessionStore: ObservableObject {
     func refreshDeviceBuild() async {
         guard let build = currentDeviceBuild else { return }
         do {
-            var request = URLRequest(url: build.statusURL)
-            request.timeoutInterval = 10
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                let serverMessage = decodeServerError(data)
-                deviceBuildLogs = [serverMessage ?? "Unable to load device build: HTTP \(httpResponse.statusCode)."]
-                return
-            }
-            let decoded = try JSONDecoder().decode(DeviceBuildStatus.self, from: data)
+            let decoded = try await fetchDeviceBuildStatus(
+                urls: preferredDeviceBuildURLs(
+                    direct: build.statusURL,
+                    paired: pairedMac?.buildStatusURL(build.id)
+                )
+            )
+            let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
+            currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
-            let managedBuild = ManagedBuild(session: build, status: decoded)
+            let managedBuild = ManagedBuild(session: resolvedSession, status: decoded)
             upsertManagedBuild(managedBuild)
             selectedManagedAppID = managedBuild.appID
             await fetchDeviceBuildLogs()
@@ -166,10 +183,13 @@ final class SessionStore: ObservableObject {
     }
 
     func refreshAppState() async {
-        await refreshHelperStatus()
         if currentDeviceBuild != nil {
             await refreshDeviceBuild()
+            if deviceBuildStatus?.installation?.state == "requested" {
+                await verifyCurrentBuildInstallation()
+            }
         }
+        await refreshHelperStatus()
     }
 
     private func decodeServerError(_ data: Data) -> String? {
@@ -188,16 +208,43 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    func markCurrentBuildInstallRequested() async {
+    func beginCurrentBuildInstall() {
         guard let build = currentDeviceBuild else { return }
+        if let managedBuild = managedApps.lazy.flatMap(\.builds).first(where: { $0.id == build.id }) {
+            installRequestSnapshot = (managedBuild, deviceBuildStatus)
+        }
+        isStartingInstallation = true
+        deviceBuildActionMessage = nil
         updateManagedBuild(build.id) { existing in
             existing.markingInstallRequested()
         }
+        deviceBuildStatus = deviceBuildStatus?.markingInstallRequested()
+    }
+
+    func finishCurrentBuildInstallHandoff(opened: Bool) {
+        isStartingInstallation = false
+        guard opened else {
+            if let snapshot = installRequestSnapshot {
+                upsertManagedBuild(snapshot.build)
+                deviceBuildStatus = snapshot.status
+            }
+            installRequestSnapshot = nil
+            deviceBuildActionMessage = "The install screen didn't open. Try again."
+            return
+        }
+        installRequestSnapshot = nil
+        deviceBuildActionMessage = "Install opened. This screen will update automatically."
+    }
+
+    func syncCurrentBuildInstallRequested() async {
+        guard let build = currentDeviceBuild else { return }
         var request = URLRequest(url: build.installRequestURL)
         request.httpMethod = "POST"
+        request.timeoutInterval = 8
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
               let decoded = try? JSONDecoder().decode(DeviceBuildStatus.self, from: data) else {
+            deviceBuildActionMessage = "Install opened. Status will update when your Mac reconnects."
             return
         }
         deviceBuildStatus = decoded
@@ -206,17 +253,112 @@ final class SessionStore: ObservableObject {
 
     func verifyCurrentBuildInstallation() async {
         guard let build = currentDeviceBuild else { return }
-        var request = URLRequest(url: build.verifyURL)
+        do {
+            let decoded = try await fetchDeviceBuildStatus(
+                urls: preferredDeviceBuildURLs(
+                    direct: build.verifyURL,
+                    paired: pairedMac?.buildVerifyURL(build.id)
+                ),
+                method: "POST",
+                timeout: 25
+            )
+            let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
+            currentDeviceBuild = resolvedSession
+            deviceBuildStatus = decoded
+            upsertManagedBuild(ManagedBuild(session: resolvedSession, status: decoded))
+        } catch {
+            // Keep the last known install state when no verification source is reachable.
+        }
+    }
+
+    private func preferredDeviceBuildURLs(direct: URL, paired: URL?) -> [URL] {
+        Self.preferredDeviceBuildURLs(
+            direct: direct,
+            paired: paired,
+            helperIsOnline: helperStatus == .online
+        )
+    }
+
+    static func preferredDeviceBuildURLs(direct: URL, paired: URL?, helperIsOnline: Bool) -> [URL] {
+        let ordered: [URL?]
+        if helperIsOnline {
+            ordered = [paired, direct]
+        } else {
+            ordered = [direct, paired]
+        }
+        var seen = Set<String>()
+        return ordered.compactMap { url in
+            guard let url, seen.insert(url.absoluteString).inserted else { return nil }
+            return url
+        }
+    }
+
+    private func fetchDeviceBuildStatus(
+        urls: [URL],
+        method: String = "GET",
+        timeout: TimeInterval = 8
+    ) async throws -> DeviceBuildStatus {
+        var lastError: Error = SessionStoreRequestError.noReachableSource
+        for url in urls {
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            request.timeoutInterval = timeout
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    lastError = SessionStoreRequestError.unexpectedResponse
+                    continue
+                }
+                return try JSONDecoder().decode(DeviceBuildStatus.self, from: data)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    private func renewedDeviceBuildSession(from status: DeviceBuildStatus) -> DeviceBuildSession? {
+        guard let link = status.links?.customScheme,
+              let url = URL(string: link) else { return nil }
+        return DeviceBuildSession(url: url)
+    }
+
+    func renewCurrentDeviceBuildLink() async {
+        guard let build = currentDeviceBuild else { return }
+        guard let mac = pairedMac else {
+            deviceBuildActionMessage = "Your Mac is needed to create a new link. Open Swift Sim on the Mac, then try again."
+            return
+        }
+
+        isRenewingDeviceBuildLink = true
+        deviceBuildActionMessage = nil
+        defer { isRenewingDeviceBuildLink = false }
+
+        var request = URLRequest(url: mac.buildRenewURL(build.id))
         request.httpMethod = "POST"
-        request.timeoutInterval = 25
+        request.timeoutInterval = 60
+
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                deviceBuildActionMessage = decodeServerError(data) ?? "Swift Sim couldn't create a new link. Try again."
+                return
+            }
             let decoded = try JSONDecoder().decode(DeviceBuildStatus.self, from: data)
+            guard let link = decoded.links?.customScheme,
+                  let url = URL(string: link),
+                  let renewedSession = DeviceBuildSession(url: url) else {
+                deviceBuildActionMessage = "Swift Sim couldn't create the link. Try again."
+                return
+            }
+            currentDeviceBuild = renewedSession
             deviceBuildStatus = decoded
-            upsertManagedBuild(ManagedBuild(session: build, status: decoded))
+            upsertManagedBuild(ManagedBuild(session: renewedSession, status: decoded))
+            deviceBuildActionMessage = "New install link created."
         } catch {
-            deviceBuildLogs = ["Installation verification is available when this iPhone is reachable from the Mac."]
+            deviceBuildActionMessage = "Your Mac is offline. Open Swift Sim on the Mac, then try again."
         }
     }
 
@@ -309,17 +451,17 @@ final class SessionStore: ObservableObject {
 
     func refreshConnectionChecks() async {
         guard let baseURL = recentSessions.first?.session.baseURL ?? pairedMac?.baseURL else {
-            tailscaleCheck = .notConfigured("Add a simulator session before checking the private route")
-            macHelperCheck = .notConfigured("No Mac helper address is available yet")
-            simulatorCheck = .notConfigured("Open a session link from your coding agent to add a simulator")
+            tailscaleCheck = .notConfigured("Open a Simulator link before checking the connection")
+            macHelperCheck = .notConfigured("Connect your Mac to check its status")
+            simulatorCheck = .notConfigured("Open a Simulator link in Swift Sim")
             return
         }
 
-        tailscaleCheck = .checking("Checking the private Tailnet route")
-        macHelperCheck = .checking("Contacting the Mac helper")
+        tailscaleCheck = .checking("Checking Tailscale")
+        macHelperCheck = .checking("Looking for Swift Sim on your Mac")
         simulatorCheck = recentSessions.isEmpty
-            ? .notConfigured("Open a session link from your coding agent to add a simulator")
-            : .checking("Checking saved simulator sessions")
+            ? .notConfigured("Open a Simulator link in Swift Sim")
+            : .checking("Checking saved Simulator previews")
 
         var healthRequest = URLRequest(url: baseURL.appending(path: "health"))
         healthRequest.timeoutInterval = 8
@@ -327,15 +469,15 @@ final class SessionStore: ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: healthRequest)
             if (response as? HTTPURLResponse)?.statusCode == 200 {
-                tailscaleCheck = .ready("Private HTTPS route is reachable from this iPhone")
-                macHelperCheck = .ready("Mac helper responded successfully")
+                tailscaleCheck = .ready("Your iPhone can reach your Mac")
+                macHelperCheck = .ready("Swift Sim is running on your Mac")
             } else {
-                tailscaleCheck = .issue("Private route responded unexpectedly; check Tailscale Serve")
-                macHelperCheck = .issue("Helper health check failed")
+                tailscaleCheck = .issue("Your Mac answered unexpectedly. Check Tailscale on both devices")
+                macHelperCheck = .issue("Swift Sim on your Mac did not answer")
             }
         } catch {
-            tailscaleCheck = .issue("Cannot reach the Mac through Tailscale")
-            macHelperCheck = .issue("Start the helper and confirm Tailscale Serve is running")
+            tailscaleCheck = .issue("Your iPhone could not reach your Mac. Check Tailscale on both devices")
+            macHelperCheck = .issue("Run swift-sim setup on your Mac, then try again")
         }
 
         guard !recentSessions.isEmpty else { return }
@@ -367,7 +509,7 @@ final class SessionStore: ObservableObject {
             return
         }
 
-        simulatorCheck = .issue("Saved sessions are unavailable; ask your coding agent to open a fresh simulator session")
+        simulatorCheck = .issue("Saved previews are unavailable. Open a new Simulator link")
     }
 
     func forgetPairedMac() {
@@ -386,7 +528,17 @@ final class SessionStore: ObservableObject {
         managedApps[index] = managedApps[index].settingArchived(archived)
         selectedManagedAppID = nil
         sortAndSaveManagedApps()
-        Task { await syncArchiveToMac(appID: app.id, archived: archived) }
+        libraryActionMessage = nil
+        Task {
+            guard await syncArchiveToMac(appID: app.id, archived: archived) == false else { return }
+            if let index = managedApps.firstIndex(where: { $0.id == app.id }) {
+                managedApps[index] = app
+            } else {
+                managedApps.append(app)
+            }
+            sortAndSaveManagedApps()
+            libraryActionMessage = "Could not update your Mac. The app was restored here."
+        }
     }
 
     func deleteManagedApp(_ app: ManagedApp) {
@@ -395,7 +547,19 @@ final class SessionStore: ObservableObject {
             selectedManagedAppID = nil
         }
         saveManagedApps()
-        Task { await syncDeleteToMac(appID: app.id) }
+        libraryActionMessage = nil
+        Task {
+            guard await syncDeleteToMac(appID: app.id) == false else { return }
+            if !managedApps.contains(where: { $0.id == app.id }) {
+                managedApps.append(app)
+                sortAndSaveManagedApps()
+            }
+            libraryActionMessage = "Could not delete this history from your Mac. It was restored here."
+        }
+    }
+
+    func dismissLibraryActionMessage() {
+        libraryActionMessage = nil
     }
 
     private func loadRecentSessions() {
@@ -531,20 +695,26 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    private func syncArchiveToMac(appID: String, archived: Bool) async {
-        guard let mac = pairedMac, !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return }
+    private func syncArchiveToMac(appID: String, archived: Bool) async -> Bool {
+        guard !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return true }
+        guard let mac = pairedMac else { return true }
         var request = URLRequest(url: mac.appArchiveURL(appID))
         request.httpMethod = "POST"
+        request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try? JSONEncoder().encode(["archived": archived])
-        _ = try? await URLSession.shared.data(for: request)
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
-    private func syncDeleteToMac(appID: String) async {
-        guard let mac = pairedMac, !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return }
+    private func syncDeleteToMac(appID: String) async -> Bool {
+        guard !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return true }
+        guard let mac = pairedMac else { return true }
         var request = URLRequest(url: mac.appURL(appID))
         request.httpMethod = "DELETE"
-        _ = try? await URLSession.shared.data(for: request)
+        request.timeoutInterval = 10
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
     private static func parseDate(_ value: String) -> Date? {
@@ -569,7 +739,7 @@ final class SessionStore: ObservableObject {
     }
 }
 
-enum HelperConnectionStatus {
+enum HelperConnectionStatus: Equatable {
     case notPaired
     case checking
     case online
@@ -577,19 +747,19 @@ enum HelperConnectionStatus {
 
     var title: String {
         switch self {
-        case .notPaired: "Mac helper not linked"
-        case .checking: "Checking Mac helper"
-        case .online: "Mac helper connected"
-        case .offline: "Mac helper unavailable"
+        case .notPaired: "No Mac connected"
+        case .checking: "Connecting to Mac"
+        case .online: "Mac connected"
+        case .offline: "Mac is offline"
         }
     }
 
     var detail: String {
         switch self {
-        case .notPaired: "Recent simulator sessions can still be opened"
-        case .checking: "Testing the private Tailscale connection"
-        case .online: "Private helper access is ready"
-        case .offline: "Check Tailscale Serve and the helper process"
+        case .notPaired: "Installs work without a Mac connection"
+        case .checking: "Checking whether Swift Sim is open on your Mac"
+        case .online: "Install status updates automatically"
+        case .offline: "Installs still work and status updates when it reconnects"
         }
     }
 }
@@ -655,6 +825,24 @@ struct PairedMac: Identifiable, Codable, Equatable {
 
     func appArchiveURL(_ id: String) -> URL {
         baseURL.appending(path: "api/apps/\(id)/archive").appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    func buildStatusURL(_ id: String) -> URL {
+        buildURL(id)
+    }
+
+    func buildVerifyURL(_ id: String) -> URL {
+        buildURL(id, action: "verify")
+    }
+
+    private func buildURL(_ id: String, action: String? = nil) -> URL {
+        var url = baseURL.appending(path: "api/device-builds/\(id)")
+        if let action { url = url.appending(path: action) }
+        return url.appending(queryItems: [.init(name: "token", value: token)])
+    }
+
+    func buildRenewURL(_ id: String) -> URL {
+        baseURL.appending(path: "api/device-builds/\(id)/renew").appending(queryItems: [.init(name: "token", value: token)])
     }
 
     init(token: String, baseURL: URL, displayName: String = "Paired Mac") {
@@ -1004,6 +1192,10 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         return expiresAt > Date()
     }
 
+    var installationStatus: InstallationState {
+        InstallationState(serverValue: installationState)
+    }
+
     var versionLabel: String {
         let versionText = version.isEmpty ? "Unversioned" : "Version \(version)"
         return buildNumber.isEmpty ? versionText : "\(versionText) (\(buildNumber))"
@@ -1141,6 +1333,24 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
     }
 }
 
+enum InstallationState: Equatable {
+    case unknown
+    case requested
+    case verified
+    case differentVersion
+    case notInstalled
+
+    init(serverValue: String?) {
+        switch serverValue {
+        case "requested": self = .requested
+        case "verified": self = .verified
+        case "different-version": self = .differentVersion
+        case "not-installed": self = .notInstalled
+        default: self = .unknown
+        }
+    }
+}
+
 struct DeviceBuildStatus: Decodable, Equatable {
     let id: String
     let createdAt: String
@@ -1160,6 +1370,27 @@ struct DeviceBuildStatus: Decodable, Equatable {
 
     var expiryDate: Date? {
         SwiftSimISO8601.date(from: expiresAt)
+    }
+
+    func markingInstallRequested() -> DeviceBuildStatus {
+        DeviceBuildStatus(
+            id: id,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            expiresAt: expiresAt,
+            state: state,
+            app: app,
+            signing: signing,
+            delivery: delivery,
+            preserveData: preserveData,
+            installation: DeviceBuildInstallation(
+                state: installation?.state == "verified" ? "verified" : "requested",
+                requestedAt: ISO8601DateFormatter().string(from: Date()),
+                verifiedAt: installation?.verifiedAt ?? "",
+                devices: installation?.devices ?? []
+            ),
+            links: links
+        )
     }
 
     init(cached build: ManagedBuild) {
@@ -1186,6 +1417,32 @@ struct DeviceBuildStatus: Decodable, Equatable {
             devices: build.verifiedDevices
         )
         links = nil
+    }
+
+    private init(
+        id: String,
+        createdAt: String,
+        updatedAt: String,
+        expiresAt: String,
+        state: String,
+        app: DeviceBuildApp,
+        signing: DeviceBuildSigning,
+        delivery: DeviceBuildDelivery?,
+        preserveData: Bool,
+        installation: DeviceBuildInstallation?,
+        links: DeviceBuildLinks?
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.expiresAt = expiresAt
+        self.state = state
+        self.app = app
+        self.signing = signing
+        self.delivery = delivery
+        self.preserveData = preserveData
+        self.installation = installation
+        self.links = links
     }
 }
 
@@ -1233,6 +1490,11 @@ struct DeviceBuildLinks: Decodable, Equatable {
 
 private struct ServerError: Decodable {
     let error: String
+}
+
+private enum SessionStoreRequestError: Error {
+    case noReachableSource
+    case unexpectedResponse
 }
 
 private struct DeviceBuildLogs: Decodable {

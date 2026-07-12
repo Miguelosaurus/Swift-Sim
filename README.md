@@ -72,9 +72,9 @@ From the local agent session, ask:
 Build this app to my iPhone with Swift Sim
 ```
 
-The agent runs the installed Swift Sim workflow, signs the app, and returns **Open in Swift Sim to Install**. The handoff records the build in Swift Sim first; the install button inside the companion then asks iOS to install it. The link works over cellular or any network and lasts two hours by default. Tailscale is not required.
+The agent runs the installed Swift Sim workflow, signs the app, and returns **Open in Swift Sim to Install**. Swift Sim saves the version before asking iOS to install it. The link works over cellular or any network and lasts two hours by default. If it expires, the app can generate a new link from the saved app while the trusted Mac is online. Tailscale is not required for the install itself.
 
-If Swift Sim is not installed, the HTTPS page still offers **Install without Swift Sim**. That fallback installs the signed app but cannot add the build to the companion's on-device history.
+If Swift Sim is not installed, the HTTPS page still offers **Install directly**. That option installs the signed app but cannot add the version to Swift Sim's history.
 
 Building the same bundle again updates the existing app and preserves its container when the bundle identifier, Apple team, and entitlements remain compatible. Swift Sim keeps one library card per app and adds each update to that app's build history.
 
@@ -127,7 +127,7 @@ Swift Sim never reads or transmits your Apple ID password. Xcode owns signing cr
 ## Current Limits
 
 - Quick Tunnel links are temporary and have no uptime guarantee. Generate a new build if one ends early.
-- iOS does not report OTA install completion to another app. Swift Sim verifies through Apple developer tooling when the iPhone is reachable from the Mac.
+- iOS does not report OTA install completion to another app. The Mac helper confirms requested installs automatically when the paired iPhone is available over the local network or USB, and the companion syncs that result when opened.
 - Simulator multi-touch fidelity depends on the pinned `serve-sim` transport.
 - Cursor and Claude mobile workflows must control a local Mac agent session; their cloud agents cannot access your Mac's Xcode environment.
 

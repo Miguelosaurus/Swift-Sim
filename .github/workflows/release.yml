@@ -1,6 +1,9 @@
-name: Release
+name: Verify
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   release:
     types: [published]
 
@@ -9,7 +12,7 @@ permissions:
 
 jobs:
   verify:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,3 +22,4 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh
+      - run: xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' -configuration Debug CODE_SIGNING_ALLOWED=NO

@@ -93,7 +93,9 @@ Device installs do not require Tailscale. Do not route them through the full Sim
 
 ## Install Link Expired Or Cannot Connect
 
-Generate a fresh build. Links last two hours by default but can end earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits.
+Open the saved version in Swift Sim and tap **Generate New Link**. The trusted Mac must be online and still have the saved app file. Swift Sim creates another two-hour link without rebuilding the project.
+
+If the Mac is not connected or the saved app was deleted, ask your coding agent to build the app again. Links can also end early if the Mac sleeps, restarts, or loses internet access.
 
 The old random `trycloudflare.com` hostname disappearing is expected after its tunnel closes. Durable hosting requires a separately secured custom delivery service.
 
@@ -134,20 +136,22 @@ Open the returned link on the iPhone. If Safari does not switch apps, paste the 
 
 ## HTTPS Link Opens Safari Instead Of Swift Sim
 
-For device builds, Safari hosts the secure handoff because random temporary tunnel hosts cannot all be universal-link domains. Tap **Open in Swift Sim to Install**. If iOS does not switch apps, use the page's copy-link action and paste the link into Swift Sim. **Install without Swift Sim** remains available as a fallback, but that path cannot add the build to the companion's local history.
+For device builds, Safari hosts the secure handoff because random temporary tunnel hosts cannot all be universal-link domains. Tap **Open in Swift Sim to Install**. If iOS does not switch apps, use the page's copy-link action and paste the link into Swift Sim. **Install directly** remains available as a fallback, but that path cannot add the build to the companion's local history.
 
 For Simulator sessions, arbitrary private Tailscale hosts cannot all be declared as universal-link domains in a public companion build. Use the printed `swift-sim://session/...` fallback or paste it into the app.
 
-## App Says Install Requested Instead Of Installed
+## App Still Says Installing
 
-That status is intentional: iOS does not send OTA install completion back to Swift Sim. With the iPhone reachable from the Mac, verify the exact installed build:
+The Mac helper confirms requested installs automatically in the background. The iPhone can connect wirelessly over the local network after it has been paired once in Xcode; USB also works. Open Swift Sim again to sync the result.
+
+For troubleshooting, confirm the exact installed version from the Mac:
 
 ```sh
 swift-sim list-apps
 swift-sim verify-device-build --build-id "<opaque-build-id>"
 ```
 
-`verified` means Apple developer tooling found the bundle and version. `unknown` means the phone could not be reached; it does not mean installation failed.
+`verified` means Apple developer tooling found the exact bundle and version. `different-version` means the app is installed but the requested version is not. `not-installed` means a reachable iPhone did not contain the app. `unknown` means the phone could not be reached; it does not mean installation failed, and it does not erase a known installation request.
 
 ## The Same App Appears Twice
 

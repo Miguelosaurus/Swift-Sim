@@ -320,16 +320,13 @@ function displayNameFromIpa(ipaPath) {
 function updateSafetyWarnings(build) {
   const warnings = [];
   if (!build.app.bundleIdentifier) {
-    warnings.push("Bundle identifier could not be detected. Swift Sim cannot prove this will update the existing app.");
+    warnings.push("Swift Sim could not identify this app, so iOS may not update the existing copy.");
   }
   if (!build.app.teamID) {
-    warnings.push("Development team could not be detected. Device install may fail until Xcode signing is configured.");
+    warnings.push("Xcode signing is not ready, so the install may fail.");
   }
   if (build.exportMethod !== "development" && build.exportMethod !== "ad-hoc") {
-    warnings.push("Use development or ad-hoc export for direct device installs.");
-  }
-  if (build.preserveData) {
-    warnings.push("App data is preserved only when the installed app uses the same bundle identifier, team, and compatible entitlements.");
+    warnings.push("This build must use development or ad hoc signing to install directly.");
   }
   return warnings;
 }

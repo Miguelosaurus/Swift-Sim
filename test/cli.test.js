@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -90,7 +90,7 @@ test("shared skill supports every mobile-capable local agent", () => {
 test("device build handoff opens Swift Sim before the direct install fallback", () => {
   const helper = readFileSync(new URL("../mac-helper/bin/swift-sim-helper.js", import.meta.url), "utf8");
   const primary = helper.indexOf(">Open in Swift Sim</a>");
-  const fallback = helper.indexOf(">Install without Swift Sim</a>");
+  const fallback = helper.indexOf(">Install directly</a>");
   assert.ok(primary >= 0);
   assert.ok(fallback > primary);
   assert.match(helper, /window\.location\.href = \$\{customSchemeScript\}/);
@@ -117,6 +117,43 @@ test("setup installs the bundled Codex marketplace and plugin", () => {
     const report = JSON.parse(setup.stdout);
     assert.equal(report.deviceInstalls.agents.codex.ready, true);
     assert.equal(report.actions.find((action) => action.id === "codex")?.state, "configured");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports stale Codex and Claude integrations", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-stale-agents-"));
+  const fakeCodex = new URL("./fixtures/fake-codex", import.meta.url).pathname;
+  const fakeClaude = new URL("./fixtures/fake-claude", import.meta.url).pathname;
+  chmodSync(fakeCodex, 0o755);
+  chmodSync(fakeClaude, 0o755);
+  try {
+    const codexState = join(directory, "codex");
+    const claudeState = join(directory, "claude");
+    writeFileSync(`${codexState}.plugin`, "ready\n");
+    writeFileSync(`${claudeState}.plugin`, "ready\n");
+
+    const doctor = spawnSync(process.execPath, [cli.pathname, "doctor", "--json"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        FAKE_CODEX_STATE: codexState,
+        FAKE_CLAUDE_STATE: claudeState,
+        FAKE_CODEX_PLUGIN_VERSION: "0.1.0",
+        FAKE_CLAUDE_PLUGIN_VERSION: "0.1.0",
+        SWIFT_SIM_CODEX_COMMAND: fakeCodex,
+        SWIFT_SIM_CLAUDE_COMMAND: fakeClaude,
+        SWIFT_SIM_DISABLE_CURSOR: "1",
+        SWIFT_SIM_DISABLE_OPENCODE: "1",
+      },
+    });
+    assert.equal(doctor.status, 0, doctor.stderr);
+    const report = JSON.parse(doctor.stdout);
+    assert.equal(report.deviceInstalls.agents.codex.ready, false);
+    assert.match(report.deviceInstalls.agents.codex.detail, /does not match/);
+    assert.equal(report.deviceInstalls.agents.claude.ready, false);
+    assert.match(report.deviceInstalls.agents.claude.detail, /does not match/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

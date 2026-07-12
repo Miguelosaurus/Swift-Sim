@@ -22,6 +22,7 @@ test("public delivery gateway exposes only token-scoped device build routes", ()
   assert.equal(deviceDeliveryRequestAllowed("GET", "/api/device-builds/build-123/artifact/ipa"), true);
   assert.equal(deviceDeliveryRequestAllowed("POST", "/api/device-builds/build-123/install-request"), true);
   assert.equal(deviceDeliveryRequestAllowed("POST", "/api/device-builds/build-123/verify"), true);
+  assert.equal(deviceDeliveryRequestAllowed("POST", "/api/device-builds/build-123/renew"), false);
 
   assert.equal(deviceDeliveryRequestAllowed("GET", "/api/sessions/session-123"), false);
   assert.equal(deviceDeliveryRequestAllowed("GET", "/api/pairing/status"), false);

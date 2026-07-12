@@ -244,9 +244,9 @@ Update preservation rules:
 
 Swift Sim organizes prototypes by a stable identity derived from bundle identifier plus signing team. The same app must occupy one library slot; later builds become history under it. A different bundle identifier or team intentionally creates another app because iOS no longer treats it as the same update identity.
 
-After a successful device build, always route the user through the Swift Sim handoff. The companion records a pending entry immediately, replaces it with authoritative build metadata from the helper, and groups later builds by bundle identifier plus signing team. Opening the install handoff means `requested`, not proven installed. iOS does not provide the companion an OTA completion callback.
+After a successful device build, always route the user through the Swift Sim handoff. The companion records a pending entry immediately, replaces it with authoritative build metadata from the helper, and groups later builds by bundle identifier plus signing team. Opening the install handoff uses the internal `requested` state, shown to the user as **Installation started**; it does not prove installation completed. iOS does not provide the companion an OTA completion callback.
 
-Use the helper's Apple-supported device reconciliation when the user asks whether a build is installed:
+The Mac helper automatically reconciles requested installs in the background when a trusted iPhone is available over the local network or USB. The companion syncs that result when it opens or returns to the foreground. Use the CLI below as a troubleshooting fallback when the user asks whether a build is installed:
 
 ```bash
 swift-sim verify-device-build --build-id "<opaque-build-id>"
@@ -255,8 +255,9 @@ swift-sim verify-device-build --build-id "<opaque-build-id>"
 Report the returned installation state exactly:
 
 - `verified`: Apple developer tooling found that app and version on a reachable iPhone.
+- `different-version`: the app is present, but the reachable iPhone has another version or build.
 - `not-installed`: a reachable iPhone was checked and did not contain the bundle identifier.
-- `unknown`: no trusted physical iPhone could be checked.
+- `unknown`: no trusted physical iPhone could be checked. This must not erase a previously known install request.
 
 Never claim device-wide inventory from the iOS companion alone. Do not use private installed-app APIs.
 
@@ -322,7 +323,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - Treat device-build tokens as secrets. A build link can download a signed IPA until revoked or expired.
 - Session tokens do not currently expire automatically. Treat links as durable credentials; Stop ends the tracked stream but is not complete token revocation in V1.
 - Device-build pages are temporary, but local IPA artifacts remain under `~/.swift-sim/device-builds/` until deleted.
-- Device-build links expire after two hours by default and can fail earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits. Generate a fresh build rather than reusing a dead link.
+- Device-build links expire after two hours by default and can fail earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits. If the companion is paired and the Mac still has the saved IPA, use **Generate New Link** in the app. Otherwise generate a fresh build.
 
 ## Troubleshooting
 

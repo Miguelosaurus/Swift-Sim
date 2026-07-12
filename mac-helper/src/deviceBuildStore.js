@@ -88,13 +88,39 @@ export class DeviceBuildStore {
     return this.save(build);
   }
 
+  renewInstallLink(id, { ttlMinutes } = {}) {
+    const build = this.get(id);
+    if (!build) return null;
+    build.expiresAt = new Date(
+      Date.now() + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000
+    ).toISOString();
+    if (build.delivery?.mode !== "custom") {
+      build.remoteBaseUrl = "";
+      build.delivery = {
+        mode: "quick-tunnel",
+        provider: "cloudflare-quick-tunnel",
+        expiresAt: "",
+      };
+    } else {
+      build.delivery.expiresAt = build.expiresAt;
+    }
+    return this.save(build);
+  }
+
   saveVerification(id, verification) {
     const build = this.get(id);
     if (!build) return null;
+    const previous = normalizeInstallation(build.installation);
+    const reportedState = verification.state || "unknown";
+    const nextState = reportedState === "unknown" && previous.state === "requested"
+      ? "requested"
+      : reportedState;
     build.installation = {
-      ...normalizeInstallation(build.installation),
-      state: verification.state || "unknown",
-      verifiedAt: verification.verifiedAt || new Date().toISOString(),
+      ...previous,
+      state: nextState,
+      verifiedAt: reportedState === "verified"
+        ? verification.verifiedAt || new Date().toISOString()
+        : previous.verifiedAt,
       devices: Array.isArray(verification.devices) ? verification.devices : [],
     };
     return this.save(build);

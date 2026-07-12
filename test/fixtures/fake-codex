@@ -18,7 +18,7 @@ if (args === "--version") {
   writeFileSync(`${state}.marketplace`, "removed\n");
 } else if (args === "plugin list") {
   if (existsSync(`${state}.plugin`)) {
-    console.log("swift-sim-companion@swift-sim  installed, enabled  0.2.3+codex.test");
+    console.log(`swift-sim-companion@swift-sim  installed, enabled  ${process.env.FAKE_CODEX_PLUGIN_VERSION || "0.2.3+codex.test"}`);
   }
 } else if (args.startsWith("plugin add ")) {
   writeFileSync(`${state}.plugin`, "ready\n");
