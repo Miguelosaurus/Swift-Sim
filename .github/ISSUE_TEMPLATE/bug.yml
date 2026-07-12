@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a reproducible Swift Sim problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Remove install links, tokens, device identifiers, signing identities, and private hostnames before submitting. Report vulnerabilities privately using SECURITY.md.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - iPhone companion
+        - Mac helper or CLI
+        - iPhone install workflow
+        - Simulator preview
+        - Codex integration
+        - Cursor integration
+        - Claude Code integration
+        - OpenCode integration
+        - Homebrew or release packaging
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Swift Sim version
+      description: Run `swift-sim --version`.
+      placeholder: 0.2.3
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include macOS, Xcode, iOS, local agent, and relevant setup details. Redact private values.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Paste only the relevant portion of `swift-sim doctor` or logs after removing private data.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I removed private links, tokens, identifiers, and hostnames.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

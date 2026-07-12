@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a focused improvement to Swift Sim
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is difficult or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the simplest user-facing result.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Area
+      options:
+        - iPhone installs
+        - App library and history
+        - Simulator preview
+        - Agent integrations
+        - Mac helper or CLI
+        - Setup and diagnostics
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints
+      options:
+        - label: The proposal keeps builds and signing on the user's Mac.
+          required: true
+        - label: The proposal does not require public Simulator controls.
+          required: true

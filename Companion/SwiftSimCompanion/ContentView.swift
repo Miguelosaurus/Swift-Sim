@@ -64,25 +64,24 @@ private struct HomeView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) {
-                    header
-                    modePicker
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                modePicker
 
-                    if selectedMode == .installs {
-                        macInstallStatusPanel
-                        deviceBuildBoard
-                    } else {
-                        macStatusPanel
-                        sessionBoard
-                    }
+                if selectedMode == .installs {
+                    deviceBuildBoard
+                    macInstallStatusPanel
+                } else {
+                    macStatusPanel
+                    sessionBoard
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
-                .padding(.bottom, 122)
             }
-
+            .padding(.horizontal, 22)
+            .padding(.top, 18)
+            .padding(.bottom, 24)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             commandDock
         }
         .sheet(isPresented: $showingMacSettings) {
@@ -92,7 +91,7 @@ private struct HomeView: View {
         .sheet(isPresented: $showingPasteLink) {
             PasteLinkSheet()
                 .environmentObject(sessionStore)
-                .presentationDetents([.height(300)])
+                .presentationDetents([.height(360), .medium])
                 .presentationDragIndicator(.visible)
         }
     }
@@ -151,6 +150,7 @@ private struct HomeView: View {
         .padding(14)
         .liquidGlassPanel(cornerRadius: 26, tint: macInstallStatusColor.opacity(0.07), interactive: true)
         .accessibilityLabel("Mac connection details")
+        .accessibilityHint("Shows whether install status can update automatically")
     }
 
     private var macInstallStatusTitle: String {
@@ -158,8 +158,8 @@ private struct HomeView: View {
         switch sessionStore.helperStatus {
         case .online: return "Connected to \(macName)"
         case .checking: return "Connecting to \(macName)"
-        case .offline: return "Mac is offline"
-        case .notPaired: return "No Mac connected"
+        case .offline: return "Installs still work"
+        case .notPaired: return "Installs work without a Mac"
         }
     }
 
@@ -167,8 +167,8 @@ private struct HomeView: View {
         switch sessionStore.helperStatus {
         case .online: return "Install status updates automatically."
         case .checking: return "Installs still work while Swift Sim connects."
-        case .offline: return "Installs still work. Status updates when it reconnects."
-        case .notPaired: return "Installs work. Connect a Mac for automatic status updates."
+        case .offline: return "Install status updates when your Mac reconnects."
+        case .notPaired: return "Connect one for automatic install status updates."
         }
     }
 
@@ -299,11 +299,12 @@ private struct HomeView: View {
                 } label: {
                     Image(systemName: showingArchivedApps ? "tray.full.fill" : "archivebox")
                         .font(.system(size: 14, weight: .bold))
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
                 .liquidGlassCircle(tint: Color.white.opacity(0.18), interactive: true)
                 .accessibilityLabel(showingArchivedApps ? "Show active apps" : "Show archived apps")
+                .accessibilityHint(showingArchivedApps ? "Returns to your app library" : "Shows apps hidden from your library")
 
                 Text("\(filteredApps.count)")
                     .font(.caption.weight(.bold))
@@ -331,32 +332,47 @@ private struct HomeView: View {
     }
 
     private var commandDock: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.secondary)
+        Group {
+            if hasSearchableItems {
+                HStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.secondary)
 
-                TextField(selectedMode == .installs ? "Find an app" : "Find a Simulator preview", text: $searchText)
-                    .font(.body.weight(.medium))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 58)
-            .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
+                        TextField(selectedMode == .installs ? "Find an app" : "Find a Simulator preview", text: $searchText)
+                            .font(.body.weight(.medium))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 58)
+                    .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
 
-            Button {
-                showingPasteLink = true
-            } label: {
-                Label("Paste Link", systemImage: "link.badge.plus")
-                    .labelStyle(.iconOnly)
-                    .font(.system(size: 22, weight: .semibold))
-                    .frame(width: 58, height: 58)
+                    Button {
+                        showingPasteLink = true
+                    } label: {
+                        Label("Paste Link", systemImage: "link.badge.plus")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: 22, weight: .semibold))
+                            .frame(width: 58, height: 58)
+                    }
+                    .buttonStyle(.plain)
+                    .liquidGlassCircle(tint: Color.blue.opacity(0.16), interactive: true)
+                    .accessibilityLabel("Paste Swift Sim link")
+                }
+            } else {
+                Button {
+                    showingPasteLink = true
+                } label: {
+                    Label(selectedMode == .installs ? "Paste Install Link" : "Paste Simulator Link", systemImage: "doc.on.clipboard")
+                        .font(.headline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 58)
+                }
+                .buttonStyle(.plain)
+                .liquidGlassCapsule(tint: Color.blue.opacity(0.16), interactive: true)
             }
-            .buttonStyle(.plain)
-            .liquidGlassCircle(tint: Color.blue.opacity(0.16), interactive: true)
-            .accessibilityLabel("Paste Swift Sim link")
         }
         .padding(.horizontal, 18)
         .padding(.top, 14)
@@ -374,6 +390,13 @@ private struct HomeView: View {
             .ignoresSafeArea()
         }
     }
+
+    private var hasSearchableItems: Bool {
+        if selectedMode == .simulator {
+            return !sessionStore.recentSessions.isEmpty
+        }
+        return sessionStore.managedApps.contains { $0.isArchived == showingArchivedApps }
+    }
 }
 
 private enum HomeMode: String {
@@ -386,6 +409,7 @@ private struct PasteLinkSheet: View {
     @EnvironmentObject private var sessionStore: SessionStore
     @State private var linkText = ""
     @State private var errorText = ""
+    @FocusState private var linkFieldIsFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -412,6 +436,9 @@ private struct PasteLinkSheet: View {
                     .font(.body.weight(.medium))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .focused($linkFieldIsFocused)
             }
             .padding(.horizontal, 16)
             .frame(height: 58)
@@ -426,7 +453,7 @@ private struct PasteLinkSheet: View {
             Button {
                 openLink()
             } label: {
-                Label("Open in Swift Sim", systemImage: "play.fill")
+                Label("Open Link", systemImage: "arrow.right")
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
@@ -440,6 +467,9 @@ private struct PasteLinkSheet: View {
                 .foregroundStyle(.secondary)
         }
         .padding(22)
+        .onAppear {
+            linkFieldIsFocused = true
+        }
     }
 
     private func openLink() {
@@ -822,6 +852,7 @@ private struct DeviceBuildView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.18), interactive: false)
+        .accessibilityElement(children: .combine)
     }
 
     private var installStatusCard: some View {
@@ -852,6 +883,7 @@ private struct DeviceBuildView: View {
         }
         .padding(17)
         .liquidGlassPanel(cornerRadius: 26, tint: installStatusColor.opacity(0.07), interactive: false)
+        .accessibilityElement(children: .combine)
     }
 
     private var installDetailsCard: some View {
@@ -1360,11 +1392,12 @@ private struct EmptySessionCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("No Simulator previews yet")
                     .font(.title3.weight(.bold))
-                Text("Simulator links you open appear here.")
+                Text("Open the Simulator link you receive, or paste it here.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
@@ -1382,11 +1415,12 @@ private struct EmptyDeviceBuildCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(isArchive ? "No archived apps" : "No apps yet")
                     .font(.title3.weight(.bold))
-                Text(isArchive ? "Archived apps appear here." : "Open an iPhone install link to add your first app.")
+                Text(isArchive ? "Apps you archive appear here." : "Open the install link you receive, or paste it here.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
@@ -1451,6 +1485,7 @@ private struct AppBadge: View {
             }
         }
         .frame(width: 70, height: 70)
+        .accessibilityHidden(true)
     }
 }
 

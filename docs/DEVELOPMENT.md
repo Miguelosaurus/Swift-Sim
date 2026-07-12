@@ -82,6 +82,23 @@ Do not commit:
 
 Use placeholders in documentation and examples.
 
+## Documentation And Community Files
+
+Run the documentation check directly with:
+
+```sh
+npm run check:docs
+```
+
+It verifies relative links across the root guides and `docs/`. `npm run check` includes the same validation in CI.
+
+When behavior changes:
+
+- update the user guide, shared agent skill, and helper output together;
+- add a short entry under `Unreleased` in [CHANGELOG.md](../CHANGELOG.md);
+- keep screenshots and examples free of real links, tokens, identifiers, and hostnames;
+- update issue or pull-request guidance when contributor expectations change.
+
 ## Scope Rules
 
 - Keep the selected host as the only coding agent; Swift Sim must not spawn another one.

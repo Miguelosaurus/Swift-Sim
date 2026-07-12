@@ -10,16 +10,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
       - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh
       - run: xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' -configuration Debug CODE_SIGNING_ALLOWED=NO

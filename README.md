@@ -10,12 +10,45 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
+  <a href="https://github.com/Miguelosaurus/Swift-Sim/actions/workflows/release.yml"><img src="https://github.com/Miguelosaurus/Swift-Sim/actions/workflows/release.yml/badge.svg" alt="Build status"></a>
   <a href="https://testflight.apple.com/join/HMUUFYNK"><img src="https://img.shields.io/badge/TestFlight-Join%20Beta-0A84FF.svg" alt="Join the Swift Sim TestFlight beta"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%2B%20iOS-lightgrey.svg" alt="macOS and iOS">
   <img src="https://img.shields.io/badge/SwiftUI-native-orange.svg" alt="Native SwiftUI companion">
 </p>
 
 Swift Sim closes the remote iOS development loop. Your existing coding agent edits the project on your Mac, Xcode signs it with your Apple Developer account, and your iPhone receives a temporary **Open in Swift Sim to Install** link. The agent stays the agent; Swift Sim only provides the build, delivery, app-library, and optional Simulator companion.
+
+Swift Sim is in public beta. The install workflow is usable today, but commands and stored state may still change between tagged releases. Run `swift-sim update` before reporting a problem.
+
+## Quick Start
+
+```sh
+brew install miguelosaurus/tap/swift-sim
+swift-sim setup
+swift-sim doctor
+```
+
+Install the [iPhone companion from TestFlight](https://testflight.apple.com/join/HMUUFYNK), then ask a supported local coding agent:
+
+```text
+Build this app to my iPhone with Swift Sim
+```
+
+The detailed setup below explains signing, supported agents, updates, and the optional Simulator connection.
+
+## How It Works
+
+```mermaid
+flowchart LR
+    Agent["Local coding agent"] --> Helper["Swift Sim CLI and helper"]
+    Helper --> Xcode["Xcode build and signing"]
+    Xcode --> Build["Signed iPhone app"]
+    Build --> Tunnel["Temporary protected install link"]
+    Tunnel --> Phone["Swift Sim on iPhone"]
+    Helper -. "Optional private Simulator session" .-> Phone
+```
+
+Project source, Xcode credentials, and build work stay on the Mac. The temporary public route can download only one token-protected signed build; optional Simulator controls use the user's private Tailscale network.
 
 ## The Three Components
 
@@ -123,6 +156,7 @@ Swift Sim never reads or transmits your Apple ID password. Xcode owns signing cr
 - [Architecture](docs/ARCHITECTURE.md): helper, delivery, and Simulator transports
 - [Development](docs/DEVELOPMENT.md): contributor-only source workflow
 - [Privacy](docs/PRIVACY.md): data handling and third parties
+- [Changelog](CHANGELOG.md): notable changes by release
 
 ## Current Limits
 
@@ -136,5 +170,7 @@ Swift Sim never reads or transmits your Apple ID password. Xcode owns signing cr
 The repository is the single source for the Homebrew package, helper, shared agent skill, native agent manifests, and iPhone companion. End users should use Homebrew so every installed component stays version-matched.
 
 All supported agent integrations are public and install from the same tagged Homebrew package through `swift-sim setup`. There are no separate private plugin repositories or manual local-plugin copies.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Community participation follows the [Code of Conduct](CODE_OF_CONDUCT.md), and vulnerabilities should be reported privately using [SECURITY.md](SECURITY.md).
 
 Swift Sim is open source under the [Apache License 2.0](LICENSE).
