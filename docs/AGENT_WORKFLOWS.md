@@ -98,6 +98,18 @@ swift-sim build-device \
 
 Use `--workspace` for `.xcworkspace` projects. The agent verifies `state`, signing compatibility, delivery mode, and the returned HTTPS URL, then ends with **Open in Swift Sim to Install**. The HTTPS page opens the companion first; direct OTA installation is visibly presented only as the no-companion fallback.
 
+When a project needs an explicit Xcode build-setting override, pass one or more repeated `--build-setting KEY=VALUE` options. Swift Sim applies the same validated settings while reading signing metadata and archiving, so the app identity shown in install history matches the signed build:
+
+```sh
+swift-sim build-device \
+  --project "<absolute project path>" \
+  --scheme "<scheme>" \
+  --build-setting "PRODUCT_BUNDLE_IDENTIFIER=com.example.preview" \
+  --build-setting "CURRENT_PROJECT_VERSION=42"
+```
+
+Use uppercase Xcode setting names and quote the complete `KEY=VALUE` argument.
+
 Never uninstall first. Matching bundle identifier, team, and compatible entitlements preserve the existing app container.
 
 ## Live Simulator Preview

@@ -259,6 +259,7 @@ function commonDeviceBuildOptions() {
     delivery: { type: "string" },
     "export-method": { type: "string" },
     "ttl-minutes": { type: "string" },
+    "build-setting": { type: "string", multiple: true },
     "allow-provisioning-updates": { type: "boolean" },
     "replace-app-data": { type: "boolean" },
   };
@@ -392,6 +393,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           delivery: body.delivery,
           "export-method": body.exportMethod,
           "ttl-minutes": body.ttlMinutes,
+          "build-setting": body.buildSettings,
           "allow-provisioning-updates": Boolean(body.allowProvisioningUpdates),
           "replace-app-data": Boolean(body.replaceAppData),
         });
@@ -1489,6 +1491,9 @@ async function createDeviceBuild(values) {
     ttlMinutes: values["ttl-minutes"],
     preserveData: !values["replace-app-data"],
   });
+  build.buildSettings = Array.isArray(values["build-setting"])
+    ? values["build-setting"]
+    : [];
   build.allowProvisioningUpdates = Boolean(values["allow-provisioning-updates"]);
   deviceBuildStore.save(build);
   return build;

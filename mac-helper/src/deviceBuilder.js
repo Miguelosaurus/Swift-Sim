@@ -18,6 +18,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     build.state = "preparing";
     saveBuild();
     const target = resolveTarget(build);
+    const buildSettingArgs = xcodeBuildSettingArgs(build.buildSettings);
     const root = join(homedir(), ".swift-sim", "device-builds", build.id);
     const archivePath = join(root, `${safeName(build.scheme || "App")}.xcarchive`);
     const exportPath = join(root, "export");
@@ -36,6 +37,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       scheme: build.scheme,
       configuration: build.configuration,
       allowProvisioningUpdates: build.allowProvisioningUpdates,
+      buildSettingArgs,
     });
     build.app.bundleIdentifier = settings.PRODUCT_BUNDLE_IDENTIFIER || "";
     build.app.version = settings.MARKETING_VERSION || "";
@@ -55,6 +57,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       ...targetArgs(target),
       "-scheme", required(build.scheme, "scheme"),
       "-configuration", build.configuration || "Release",
+      ...buildSettingArgs,
       "-destination", "generic/platform=iOS",
       "-archivePath", archivePath,
       ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
@@ -193,11 +196,12 @@ function resolveTarget(build) {
   throw new DeviceBuildError("Missing project or workspace path.");
 }
 
-async function readBuildSettings({ target, scheme, configuration, allowProvisioningUpdates }) {
+async function readBuildSettings({ target, scheme, configuration, allowProvisioningUpdates, buildSettingArgs }) {
   const result = await runBuffered("xcodebuild", [
     ...targetArgs(target),
     "-scheme", required(scheme, "scheme"),
     "-configuration", configuration || "Release",
+    ...buildSettingArgs,
     "-destination", "generic/platform=iOS",
     ...(allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
     "-showBuildSettings",
@@ -206,6 +210,17 @@ async function readBuildSettings({ target, scheme, configuration, allowProvision
     throw new DeviceBuildError(result.error || result.stderr || result.stdout || "Unable to read Xcode build settings.");
   }
   return parseBuildSettings(result.stdout);
+}
+
+function xcodeBuildSettingArgs(buildSettings) {
+  if (!Array.isArray(buildSettings)) return [];
+  return buildSettings.map((setting) => {
+    const value = String(setting || "");
+    if (!/^[A-Z][A-Z0-9_]*=.+$/.test(value)) {
+      throw new DeviceBuildError("Build settings must use KEY=VALUE format.");
+    }
+    return value;
+  });
 }
 
 function parseBuildSettings(output) {

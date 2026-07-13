@@ -16,6 +16,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 - Reworked the iPhone install screen around plain-language status, app-data behavior, link availability, and optional technical details.
 - Simplified app-library, history, Simulator, and Mac-connection copy.
+- Made the install handoff resilient to the initial status refresh and external iOS URL callback, so the first tap can complete the install flow.
+- Added repeated `--build-setting KEY=VALUE` overrides for device builds and documented the shared signing/build-metadata behavior.
 
 ## 0.2.3 - 2026-07-05
 

@@ -67,6 +67,8 @@ The shared plugin source is `plugins/swift-sim-companion`. It contains Codex, Cu
 7. Confirm a public request to `/api/pairing/status` or `/api/sessions/...` returns `404`.
 8. Confirm the returned delivery expiry is two hours after creation, or matches an explicit `--ttl-minutes` override.
 
+For a checkout with placeholder project settings, pass repeated `--build-setting KEY=VALUE` options to the device build. The helper applies them while reading signing metadata and archiving; validate the returned bundle identifier, team, and build number before installing.
+
 ## Repository Hygiene
 
 Do not commit:

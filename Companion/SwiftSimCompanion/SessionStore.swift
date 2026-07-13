@@ -251,6 +251,30 @@ final class SessionStore: ObservableObject {
         upsertManagedBuild(ManagedBuild(session: build, status: decoded))
     }
 
+    func prepareCurrentBuildInstallURL() async -> URL? {
+        guard let build = currentDeviceBuild else { return nil }
+
+        if deviceBuildStatus?.isReady != true {
+            await refreshDeviceBuild()
+        }
+
+        guard let status = deviceBuildStatus, status.isReady else {
+            deviceBuildActionMessage = "This app is still being prepared. Try again in a moment."
+            return nil
+        }
+
+        if let expiry = status.expiryDate, expiry <= Date() {
+            deviceBuildActionMessage = "This install link has expired. Create a new one to continue."
+            return nil
+        }
+
+        if let installURLString = status.links?.installURL,
+           let installURL = URL(string: installURLString) {
+            return installURL
+        }
+        return build.installURL ?? build.installPageURL
+    }
+
     func verifyCurrentBuildInstallation() async {
         guard let build = currentDeviceBuild else { return }
         do {

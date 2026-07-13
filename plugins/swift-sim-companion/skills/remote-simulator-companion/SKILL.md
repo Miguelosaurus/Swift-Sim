@@ -210,6 +210,8 @@ swift-sim build-device \
 
 Use `--workspace "<absolute-workspace-path>"` instead of `--project` for `.xcworkspace` apps.
 
+For an explicit Xcode build-setting override, pass one or more repeated `--build-setting KEY=VALUE` options. Swift Sim validates the format and applies the same settings while reading build metadata and archiving, so install history matches the signed app. Use uppercase setting names and quote the complete argument.
+
 Parse the returned JSON:
 
 - `state` must be `ready` before telling the user it can install.

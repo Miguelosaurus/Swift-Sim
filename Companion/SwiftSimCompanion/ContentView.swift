@@ -1062,7 +1062,8 @@ private struct DeviceBuildView: View {
     }
 
     private var canInstall: Bool {
-        guard status?.isReady == true else { return false }
+        if status == nil { return true }
+        guard status?.isReady == true else { return status?.state != "failed" }
         guard let expiry = status?.expiryDate else { return currentManagedBuild?.isLinkActive == true }
         return expiry > Date()
     }
@@ -1074,27 +1075,36 @@ private struct DeviceBuildView: View {
     }
 
     private var installButtonTitle: String {
+        if sessionStore.isStartingInstallation { return "Starting Install…" }
+        if status == nil || isPreparingBuild { return "Check and Install" }
         guard canInstall else { return isPreparingBuild ? "Preparing App…" : "Install Unavailable" }
         let buildCount = sessionStore.managedApps.first(where: { $0.id == currentManagedBuild?.appID })?.builds.count ?? 1
         return buildCount > 1 ? "Install Update" : "Install on iPhone"
     }
 
     private func startInstall() {
-        let statusInstallURL: URL?
-        if let installURLString = status?.links?.installURL {
-            statusInstallURL = URL(string: installURLString)
-        } else {
-            statusInstallURL = nil
-        }
-        let installURL = statusInstallURL ?? build.installURL ?? build.installPageURL
         sessionStore.beginCurrentBuildInstall()
-        openURL(installURL) { opened in
-            Task { @MainActor in
-                sessionStore.finishCurrentBuildInstallHandoff(opened: opened)
-                if opened {
-                    await sessionStore.syncCurrentBuildInstallRequested()
+        Task { @MainActor in
+            guard let installURL = await sessionStore.prepareCurrentBuildInstallURL() else {
+                sessionStore.finishCurrentBuildInstallHandoff(opened: false)
+                return
+            }
+
+            // Refreshing the build above can replace the optimistic pending
+            // status. Mark it again immediately before handing off so one tap
+            // always leaves the local history in the requested state.
+            sessionStore.beginCurrentBuildInstall()
+            // iOS may suspend the app before the openURL completion arrives.
+            // Do not leave the button disabled waiting for that callback.
+            sessionStore.finishCurrentBuildInstallHandoff(opened: true)
+            openURL(installURL) { opened in
+                Task { @MainActor in
+                    if !opened {
+                        sessionStore.finishCurrentBuildInstallHandoff(opened: false)
+                    }
                 }
             }
+            await sessionStore.syncCurrentBuildInstallRequested()
         }
     }
 
