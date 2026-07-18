@@ -27,7 +27,7 @@ For real-device installs, the Mac may start an account-free Cloudflare Quick Tun
 
 The user's selected coding agent and bundled Swift Sim integration orchestrate builds and simulator sessions on the user's Mac. Supported hosts are Codex, Cursor, Claude Code, and OpenCode. Project source code remains on the Mac. Signed device-build artifacts are delivered to the user's iPhone, but are not sent to SEA & SEA LLC.
 
-The optional hot-reload lane uses the open-source InjectionNext engine locally on the Mac. Tailscale carries the compiled Debug patch to the user's iPhone. Swift Sim does not send that patch to SEA & SEA LLC or through its Cloudflare install tunnel.
+The optional hot-reload lane uses Swift Sim's locally managed open-source engine on the Mac. Tailscale carries the compiled Debug patch to the user's iPhone. Swift Sim does not send that patch to SEA & SEA LLC or through its Cloudflare install tunnel.
 
 ## Retention and Deletion
 

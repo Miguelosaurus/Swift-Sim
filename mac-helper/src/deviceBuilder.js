@@ -3,6 +3,10 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity } from "./deviceBuildStore.js";
+import {
+  registerLiveBuildResult,
+  startLiveReload,
+} from "./liveReload.js";
 
 export class DeviceBuildError extends Error {}
 
@@ -23,12 +27,14 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     const archivePath = join(root, `${safeName(build.scheme || "App")}.xcarchive`);
     const exportPath = join(root, "export");
     const manifestPath = join(root, "manifest.plist");
+    const resultBundlePath = join(root, `${safeName(build.scheme || "App")}.xcresult`);
     mkdirSync(exportPath, { recursive: true });
 
     build.artifacts.root = root;
     build.artifacts.archivePath = archivePath;
     build.artifacts.exportPath = exportPath;
     build.artifacts.manifestPath = manifestPath;
+    build.artifacts.resultBundlePath = resultBundlePath;
     saveBuild();
 
     log("Reading Xcode signing settings.");
@@ -52,6 +58,33 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
 
     build.state = "archiving";
     saveBuild();
+    const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
+      && (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"));
+    let liveSession = null;
+    if (liveEligible && target.type === "project") {
+      try {
+        liveSession = await startLiveReload({
+          project: join(target.path, "project.pbxproj"),
+        });
+        if (liveSession.started) {
+          build.liveReload = {
+            eligible: true,
+            engineReady: true,
+            compilerReady: false,
+            host: liveSession.host,
+          };
+          log("Preparing Swift Sim's private live patch lane.");
+        }
+      } catch (error) {
+        build.liveReload = {
+          eligible: true,
+          engineReady: false,
+          compilerReady: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        log("Live patch preparation was unavailable; the signed install will still continue.");
+      }
+    }
     log("Archiving for generic iOS device.");
     await runLogged("xcodebuild", [
       ...targetArgs(target),
@@ -60,9 +93,40 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       ...buildSettingArgs,
       "-destination", "generic/platform=iOS",
       "-archivePath", archivePath,
+      ...(liveSession?.started ? ["-resultBundlePath", resultBundlePath] : []),
       ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
       "archive",
-    ], log);
+    ], log, {
+      env: liveSession?.started
+        ? {
+          ...process.env,
+          INJECTION_HOST: liveSession.host,
+        }
+        : process.env,
+    });
+
+    if (liveSession?.started) {
+      try {
+        const capture = await registerLiveBuildResult({ resultBundle: resultBundlePath });
+        build.liveReload = {
+          eligible: true,
+          engineReady: true,
+          compilerReady: true,
+          host: liveSession.host,
+          capturedCompilations: capture.registered,
+        };
+        log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
+      } catch (error) {
+        build.liveReload = {
+          eligible: true,
+          engineReady: true,
+          compilerReady: false,
+          host: liveSession.host,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        log("The build is installable, but live patching needs a new baseline build.");
+      }
+    }
 
     build.state = "exporting";
     saveBuild();
@@ -160,6 +224,10 @@ export function publicDeviceBuild(build) {
     liveReload: {
       eligible: liveReloadEligible,
       mode: "debug-only",
+      engineReady: Boolean(build.liveReload?.engineReady),
+      compilerReady: Boolean(build.liveReload?.compilerReady),
+      capturedCompilations: Number(build.liveReload?.capturedCompilations || 0),
+      error: build.liveReload?.error || "",
     },
     app: build.app,
     signing: {
@@ -245,17 +313,21 @@ function targetArgs(target) {
     : ["-project", target.path];
 }
 
-async function runLogged(command, args, log) {
-  const result = await runBuffered(command, args, { onLine: log, timeoutMs: 30 * 60 * 1000 });
+async function runLogged(command, args, log, { env = process.env } = {}) {
+  const result = await runBuffered(command, args, {
+    onLine: log,
+    timeoutMs: 30 * 60 * 1000,
+    env,
+  });
   if (result.code !== 0) {
     throw new DeviceBuildError(result.error || result.stderr || result.stdout || `${command} failed with exit code ${result.code}`);
   }
   return result;
 }
 
-function runBuffered(command, args, { onLine, timeoutMs = 120_000 } = {}) {
+function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process.env } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env });
     let stdout = "";
     let stderr = "";
     let stdoutPending = "";

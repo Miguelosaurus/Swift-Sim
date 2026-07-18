@@ -4,6 +4,18 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+### Added
+
+- A user-transparent headless live engine that Swift Sim provisions, verifies, launches, and configures without a separate Mac app workflow.
+- Deterministic compiler-command capture and source injection with request-correlated completion in place of file-watcher timing.
+- Private Tailscale userspace forwarding for remote iPhones that are not on the Mac's Wi-Fi.
+- SwiftUI visual proof so a loaded patch with no rendered change is treated as failure and falls back to a fresh signed link.
+
+### Changed
+
+- Pinned the live client to Swift Sim's thin `swift-sim-engine` fork while keeping upstream changes mergeable.
+- Made setup, doctor, build metadata, and agent routing describe one Swift Sim feature instead of exposing the underlying engine.
+
 ## 0.3.0 - 2026-07-18
 
 ### Added

@@ -130,12 +130,12 @@ Remote hot reload is separate from Simulator preview. It keeps a regular develop
 
 One-time setup:
 
-1. Install [InjectionNext](https://github.com/johnno1962/InjectionNext/releases) in `/Applications`.
+1. Run `swift-sim setup`. Swift Sim downloads its pinned, checksum-verified headless engine into `~/.swift-sim`; there is no separate app to install or configure.
 2. In the target project, add `https://github.com/Miguelosaurus/Swift-Sim` as a package dependency and link `SwiftSimLive`.
 3. Add `.swiftSimLive()` once to the root SwiftUI view.
 4. Add the Debug-only linker flags `-Xlinker` and `-interposable`. Set `EMIT_FRONTEND_COMMAND_LINES=YES` and `COMPILATION_CACHE_ENABLE_CACHING=NO` for Debug.
 5. Connect Tailscale on the Mac and iPhone.
-6. Run `swift-sim live-start --project "/absolute/App.xcodeproj/project.pbxproj"`, enable **Enable Devices** in InjectionNext, and select the development signing identity when it asks.
+6. Run `swift-sim live-start --project "/absolute/App.xcodeproj/project.pbxproj"`. Swift Sim selects the matching development identity and configures the private route automatically.
 
 Check the machine-readable setup state:
 
@@ -156,6 +156,8 @@ INJECTION_HOST="<mac-tailscale-ip>" swift-sim build-device \
   --build-setting 'OTHER_LDFLAGS=$(inherited) -Xlinker -interposable' \
   --allow-provisioning-updates
 ```
+
+Swift Sim captures the exact frontend commands from this baseline build. Later edits use `swift-sim route-change`; structural edits or any patch without compile, client, and visual proof automatically return to the normal signed-build lane.
 
 Install that build normally through Swift Sim, open it, and leave it running while editing. The shared agent skill routes compatible body changes through live injection and automatically returns to the normal signed-update workflow for structural changes.
 

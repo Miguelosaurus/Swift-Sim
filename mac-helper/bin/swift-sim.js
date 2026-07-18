@@ -8,6 +8,7 @@ import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
 import {
   classifyLiveChange,
+  ensureLiveEngineInstalled,
   inspectLiveReload,
   routeLiveChange,
   startLiveReload,
@@ -66,17 +67,17 @@ async function main() {
   throw new Error(`Unknown command: ${command}. Run swift-sim help.`);
 }
 
-function liveStatus(args) {
+async function liveStatus(args) {
   const { values } = parseArgs({ args, options: liveOptions() });
-  console.log(JSON.stringify(inspectLiveReload({
+  console.log(JSON.stringify(await inspectLiveReload({
     project: values.project,
     host: values.host,
   }), null, 2));
 }
 
-function liveStart(args) {
+async function liveStart(args) {
   const { values } = parseArgs({ args, options: liveOptions() });
-  const result = startLiveReload({
+  const result = await startLiveReload({
     project: values.project,
     host: values.host,
   });
@@ -98,7 +99,7 @@ function classifyChange(args) {
   }), null, 2));
 }
 
-function routeChange(args) {
+async function routeChange(args) {
   const { values } = parseArgs({
     args,
     options: {
@@ -107,7 +108,7 @@ function routeChange(args) {
       after: { type: "string" },
     },
   });
-  console.log(JSON.stringify(routeLiveChange({
+  console.log(JSON.stringify(await routeLiveChange({
     beforePath: values.before,
     afterPath: values.after,
     project: values.project,
@@ -140,6 +141,7 @@ async function setup(args) {
   if (!values["skip-plugin"] && !values["skip-agents"]) {
     actions.push(...installAgentIntegrations());
   }
+  actions.push(await ensureLiveEngineInstalled());
 
   const report = await buildDoctorReport();
   const result = { ...report, actions };
@@ -248,7 +250,7 @@ async function buildDoctorReport() {
   const readyAgentNames = Object.entries(agents).filter(([, value]) => value.ready).map(([name]) => displayAgentName(name));
   const agentIntegrationsReady = readyAgentNames.length > 0;
   const xcodeReady = xcode.status === 0;
-  const liveReload = inspectLiveReload();
+  const liveReload = await inspectLiveReload();
 
   return {
     version: packageJSON.version,
@@ -267,10 +269,10 @@ async function buildDoctorReport() {
     },
     remoteHotReload: {
       optional: true,
-      ready: liveReload.injectionApp.ready && Boolean(liveReload.host),
-      engine: check(liveReload.injectionApp.ready, liveReload.injectionApp.ready
-        ? "InjectionNext patch engine is installed"
-        : "Install InjectionNext.app to enable body-only live patches"),
+      ready: liveReload.engine.installed && Boolean(liveReload.host),
+      engine: check(liveReload.engine.installed, liveReload.engine.installed
+        ? `Swift Sim live engine ${liveReload.engine.version} is installed`
+        : "Run swift-sim setup to install the private live engine"),
       tailscale: check(Boolean(liveReload.host), liveReload.host
         ? `Private device route is available at ${liveReload.host}`
         : "Connect this Mac and the iPhone to Tailscale for remote hot reload"),

@@ -88,7 +88,7 @@ swift-sim setup
 Read the report as three independent sections:
 
 - `deviceInstalls`: primary workflow. Xcode, helper, and at least one supported agent integration must be ready. Tailscale is irrelevant.
-- `remoteHotReload`: optional Debug-only workflow. It needs InjectionNext and a private Tailscale device route.
+- `remoteHotReload`: optional Debug-only workflow. Swift Sim manages its private engine; the Mac and iPhone need a private Tailscale route.
 - `simulatorPreview`: optional workflow. Only require this section when the user requested live Simulator preview.
 
 When something is missing, explain and fix only the reported `needs-attention` item. Never dump the entire setup guide. If Xcode signing is informational, continue; the first project build provides the authoritative signing check.
@@ -205,7 +205,7 @@ One-time project preparation:
 1. Add `https://github.com/Miguelosaurus/Swift-Sim` as a Swift Package dependency and link the `SwiftSimLive` product to the app target.
 2. Add `.swiftSimLive()` once to the app's root SwiftUI view. Do not add it to every view or every source line.
 3. For Debug only, add `-Xlinker` and `-interposable` as separate `OTHER_LDFLAGS` entries. Also set `EMIT_FRONTEND_COMMAND_LINES=YES` and `COMPILATION_CACHE_ENABLE_CACHING=NO`.
-4. Install `InjectionNext.app` from its official release, launch it through Swift Sim, and enable its **Enable Devices** setting. Selecting the app's expanded development signing identity is a one-time upstream requirement.
+4. Run `swift-sim setup`. Swift Sim installs and manages its checksum-verified headless engine and resolves the app's development identity; never ask the user to install or operate a separate injection app.
 5. Connect both devices to the same private Tailnet. Never expose injection port 8887 through Tailscale Funnel, a public tunnel, or a public firewall rule.
 
 Inspect and launch the lane:
@@ -244,7 +244,8 @@ swift-sim route-change \
 
 Honor the returned `action`:
 
-- `hot-reload`: keep the app running and save the file. Report the patch as applied only after the injection engine reports success; otherwise use the normal device build.
+- `hot-reload`: report the patch only after correlated engine completion. For SwiftUI source, Swift Sim also requires visual change proof.
+- `hot-reload-failed`: immediately use the Device Build Workflow and return a fresh update link. Do not describe the failed attempt as a partial success.
 - `build-device`: immediately use the Device Build Workflow and return a fresh update link. Do not ask the user to decide which lane to use.
 - `none`: no runtime action is needed.
 

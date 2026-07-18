@@ -85,11 +85,11 @@ swift-sim live-status \
 
 The JSON reports the missing prerequisite. Common causes are:
 
-- InjectionNext is not installed in `/Applications`.
+- The private engine was not provisioned by `swift-sim setup`.
 - Tailscale is disconnected on the Mac or iPhone.
 - The project does not link `SwiftSimLive`.
 - Debug `OTHER_LDFLAGS` does not contain `-Xlinker -interposable`.
-- InjectionNext **Enable Devices** is off or the development signing identity was not selected.
+- Swift Sim could not find the development identity used by the installed app.
 - The installed app is a Release build rather than the prepared Debug build.
 
 Do not make port 8887 public to work around connectivity. Use the normal Swift Sim signed update link until the private lane is healthy.
@@ -98,7 +98,7 @@ Do not make port 8887 public to work around connectivity. Use the normal Swift S
 
 Run `swift-sim route-change` with the before and after Swift files. If it returns `build-device`, the change crossed a structural boundary and needs a new link.
 
-If it returns `hot-reload`, keep the app in the foreground and unlocked, confirm both devices are on Tailscale, and inspect InjectionNext for a green success or yellow compile failure. Compiler errors, a disconnected app, a locked device, or no success confirmation should trigger the normal `swift-sim build-device` fallback. Do not repeatedly inject a structural change.
+If it returns `hot-reload`, Swift Sim proved the patch completed. For SwiftUI source it also proved the rendered screen changed. `hot-reload-failed` is actionable fallback—not partial success—so immediately run the normal `swift-sim build-device` flow and return a fresh update link. A compiler error, disconnected or locked device, timeout, or visually unchanged SwiftUI patch all take that fallback. Do not repeatedly inject a structural change.
 
 ## Temporary Delivery Tunnel Fails
 

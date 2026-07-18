@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifySwiftSource } from "../mac-helper/src/liveReload.js";
+import {
+  classifySwiftSource,
+  requiresLiveVisualProof,
+} from "../mac-helper/src/liveReload.js";
 
 test("routes SwiftUI body edits through hot reload", () => {
   const before = `
@@ -46,4 +49,22 @@ test("ignores declaration words inside comments and strings", () => {
   const before = `func message() -> String { "add var later" }`;
   const after = `func message() -> String { "remove class later" } // let fake = true`;
   assert.equal(classifySwiftSource(before, after).route, "hot-reload");
+});
+
+test("requires visual proof for a SwiftUI view body", () => {
+  assert.equal(
+    requiresLiveVisualProof(`
+      struct Card: View {
+        var body: some View { Text("Ready") }
+      }
+    `),
+    true
+  );
+});
+
+test("does not require visual proof for non-UI implementation code", () => {
+  assert.equal(
+    requiresLiveVisualProof(`func greeting() -> String { "Ready" }`),
+    false
+  );
 });

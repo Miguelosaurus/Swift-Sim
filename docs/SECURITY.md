@@ -43,7 +43,7 @@ The gateway accepts health plus token-protected single-build status, logs, page,
 
 The public companion build uses App Transport Security defaults. Simulator sessions connect through private Tailscale HTTPS; device installs use temporary public HTTPS. Plain HTTP remote URLs are intentionally unsupported in public builds.
 
-Remote hot reload is a third, optional path. It uses InjectionNext's device port 8887 only across the user's private Tailnet. Swift Sim must never expose this port through Tailscale Funnel, Cloudflare Quick Tunnel, public DNS tunneling, router forwarding, or a public firewall rule. The live client and injected dynamic libraries are permitted only in development-signed Debug builds.
+Remote hot reload is a third, optional path. It uses the live engine's device port 8887 only across the user's private Tailnet. Swift Sim must never expose this port through Tailscale Funnel, Cloudflare Quick Tunnel, public DNS tunneling, router forwarding, or a public firewall rule. The live client and injected dynamic libraries are permitted only in development-signed Debug builds.
 
 ## Tokens
 
@@ -113,7 +113,7 @@ The Apple account configured in Xcode is only a signing identity. Swift Sim does
 
 ## Live Patch Signing
 
-InjectionNext compiles patches on the Mac and signs them with the development identity selected for the running app. iOS library validation still applies: an unrelated or unsigned library is not accepted as a valid patch.
+Swift Sim's private engine compiles patches on the Mac and signs them with the development identity used by the running app. iOS library validation still applies: an unrelated or unsigned library is not accepted as a valid patch.
 
 The lane is deliberately excluded from Release, TestFlight, and App Store workflows. Downloaded executable code is not an acceptable general distribution mechanism. Swift Sim's classifier sends any declaration, stored-state, signature, package, resource, capability, entitlement, or signing change back through the full signed-build path.
 
@@ -129,7 +129,7 @@ A public companion build cannot be entitled for every private `*.ts.net` or rand
 
 V1 wraps the installed `serve-sim` package instead of copying its implementation. The adapter discovers supported CLI behavior and scopes lifecycle operations to one Simulator UDID.
 
-The optional live runtime pins InjectionNext to an audited commit through Swift Package Manager. Swift Sim does not vendor or modify its source. Updating that revision requires a source review and both Swift and Node regression tests.
+The optional live runtime pins a thin Swift Sim fork of InjectionNext through Swift Package Manager. The fork's `main` mirrors upstream; engine-only changes live on `swift-sim-engine` so upstream security and compatibility fixes remain mergeable. The downloaded headless app is pinned by version and SHA-256, verified with `codesign`, and includes the upstream MIT license. Updating either revision or binary requires source review, checksum rotation, physical-device proof, and both Swift and Node regression tests.
 
 Never run an unscoped `serve-sim --kill` from Swift Sim automation. It can terminate unrelated simulator mirrors.
 

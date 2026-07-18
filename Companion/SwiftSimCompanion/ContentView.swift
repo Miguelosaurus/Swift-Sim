@@ -935,17 +935,23 @@ private struct DeviceBuildView: View {
     }
 
     private var liveReloadCard: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: "bolt.horizontal.circle.fill")
+        let live = status?.liveReload
+        let isReady = live?.engineReady == true && live?.compilerReady == true
+        let tint: Color = isReady ? .mint : .secondary
+
+        return HStack(alignment: .top, spacing: 14) {
+            Image(systemName: isReady ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.mint)
+                .foregroundStyle(tint)
                 .frame(width: 44, height: 44)
-                .liquidGlassCircle(tint: Color.mint.opacity(0.14), interactive: false)
+                .liquidGlassCircle(tint: tint.opacity(0.14), interactive: false)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Live edits capable")
+                Text(isReady ? "Live edits ready" : "Live edits preparing")
                     .font(.headline.weight(.semibold))
-                Text("When its private Mac connection is active, compatible SwiftUI and function-body changes can update without another install.")
+                Text(isReady
+                     ? "Compatible edits can update this Debug app through its private Mac connection. SwiftUI changes are verified on-screen."
+                     : "This Debug build supports live edits. Swift Sim will use them after the Mac engine and compiler baseline are ready.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -954,7 +960,7 @@ private struct DeviceBuildView: View {
             Spacer(minLength: 0)
         }
         .padding(17)
-        .liquidGlassPanel(cornerRadius: 26, tint: Color.mint.opacity(0.08), interactive: false)
+        .liquidGlassPanel(cornerRadius: 26, tint: tint.opacity(0.08), interactive: false)
         .accessibilityElement(children: .combine)
     }
 

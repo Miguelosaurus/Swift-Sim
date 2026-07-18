@@ -93,16 +93,18 @@ The Mac helper reconciles requested installs in the background through `xcrun de
 
 The optional live lane is a Debug-only layer on top of an already-installed signed app:
 
-1. The project links `SwiftSimLive`, which links the pinned InjectionNext client only in Debug.
+1. The project links `SwiftSimLive`, which links Swift Sim's pinned live client only in Debug.
 2. The app root uses `.swiftSimLive()` once. It observes the injection completion notification and invalidates the root SwiftUI identity.
-3. InjectionNext watches project saves and reuses compiler commands from the initial Debug build.
+3. The helper provisions a headless engine under `~/.swift-sim`, starts it without UI, and captures exact Swift frontend commands from the initial Debug build.
 4. Compatible source is compiled into a small dynamic library and signed with the app's development identity.
 5. The patch travels over raw TCP port 8887 on the private Tailnet and is loaded by the running app.
-6. `swift-sim route-change` compares declaration surfaces. Structural or non-Swift changes bypass live injection and use the normal Device Build Path.
+6. `swift-sim route-change` compares declaration surfaces. Structural or non-Swift changes bypass live injection and use the normal Device Build Path. SwiftUI success also requires a changed screenshot from the running app.
 
-The live path is not exposed by the public Quick Tunnel and does not use the Simulator video transport. The iPhone runs the real app code. Release compilation removes the Swift Sim root observer, and the InjectionNext package does not compile its client when Swift Package `DEBUG` is absent.
+The live path is not exposed by the public Quick Tunnel and does not use the Simulator video transport. The iPhone runs the real app code. Release compilation removes the Swift Sim root observer, and the live client is excluded when Swift Package `DEBUG` is absent.
 
 The classifier is intentionally stricter than the underlying engine. It treats imports, declarations, stored state, signatures, macros, resources, packages, and build metadata as rebuild boundaries. This avoids treating a compiler success as proof that live Swift metadata can be reshaped safely.
+
+The engine is a thin branch of [InjectionNext](https://github.com/johnno1962/InjectionNext): upstream `main` remains untouched, while `swift-sim-engine` adds headless control, deterministic compiler registration, correlated injection results, and private Tailscale proxy handling. Swift Sim pins both source and a signed engine asset by commit and SHA-256. Upstream improvements remain mergeable into the thin branch.
 
 ## Stream Recovery
 

@@ -54,7 +54,7 @@ node --test test/liveReload.test.js
 swift-sim classify-change --before /tmp/before.swift --after /tmp/after.swift
 ```
 
-The Swift package pins InjectionNext by commit for reproducibility. Update that revision intentionally and rerun both Swift and Node test suites. The Node classifier must remain conservative: false rebuilds cost time, but a false live-safe result can destabilize the running process.
+The Swift package pins the `swift-sim-engine` branch of the Swift Sim InjectionNext fork by commit for reproducibility. Keep the fork branch thin and regularly merge reviewed upstream changes. Engine assets are separately versioned, signed, checksum-pinned, and license-attributed. Update those pins intentionally and rerun physical-device, Swift, and Node tests. The classifier and success contract must remain conservative: false rebuilds cost time, but a false live-safe or false-success result is worse.
 
 ## Manual Session Test
 

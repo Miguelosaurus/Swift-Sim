@@ -114,17 +114,17 @@ Building the same bundle again updates the existing app and preserves its contai
 
 ## Optional Remote Hot Reload
 
-Swift Sim can accelerate an already-installed Debug app without turning it into a livestream or requiring the iPhone to share Wi-Fi with the Mac. The optional live lane uses [InjectionNext](https://github.com/johnno1962/InjectionNext) to compile same-team-signed implementation patches on the Mac and deliver them directly to the running app over a private Tailscale connection.
+Swift Sim can accelerate an already-installed Debug app without turning it into a livestream or requiring the iPhone to share Wi-Fi with the Mac. `swift-sim setup` installs and manages a private, headless live engine; users do not install, open, or configure another Mac app. Compatible same-team-signed patches travel directly to the running app over the user's private Tailscale connection.
 
 The project adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at its root view. It does not add Swift Sim code to every view or every source line. Release builds make the modifier a no-op.
 
 The coding-agent integration runs `swift-sim route-change` to choose the safe path:
 
-- SwiftUI composition, styling, literals, and function-body edits can hot reload when the live lane is connected.
+- Compatible implementation and SwiftUI body edits are attempted when the live lane is connected. SwiftUI changes count as successful only when Swift Sim can prove that the visible screen changed.
 - Stored properties, type shape, function signatures, imports, packages, resources, assets, configuration, entitlements, and signing changes create a fresh signed update link.
 - If live compilation or delivery cannot be proved within a few seconds, the agent falls back to a normal build.
 
-This is a development feature, not downloadable-code support for App Store builds. It requires one initial live-enabled Debug install, InjectionNext on the Mac, and Tailscale on both devices. See [Setup](docs/SETUP.md) for the one-time preparation.
+This is a development feature, not downloadable-code support for App Store builds. It requires one initial live-enabled Debug install and Tailscale on both devices. See [Setup](docs/SETUP.md) for the one-time preparation.
 
 ## Optional Live Simulator
 
@@ -155,7 +155,6 @@ Live Simulator control requires Tailscale on the Mac and iPhone because interact
 ### Optional remote hot reload
 
 - A live-enabled Debug build installed and running on the iPhone
-- InjectionNext on the Mac
 - Tailscale on the Mac and iPhone
 - The same Apple development signing team for the app and injected patches
 

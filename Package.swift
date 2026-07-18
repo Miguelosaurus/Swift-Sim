@@ -13,8 +13,8 @@ let package = Package(
     ],
     dependencies: [
         .package(
-            url: "https://github.com/johnno1962/InjectionNext.git",
-            revision: "39eef8a203b5093a8fbb7334d3a59f03624d2c01"
+            url: "https://github.com/Miguelosaurus/InjectionNext.git",
+            revision: "547f900b7f784eb1ca29415f0030bed3e847e3e1"
         ),
     ],
     targets: [

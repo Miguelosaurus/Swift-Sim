@@ -126,11 +126,11 @@ swift-sim route-change \
   --project "<project.pbxproj>"
 ```
 
-An `action` of `hot-reload` is allowed only when the declaration surface is unchanged and the private live lane is ready. An action of `build-device` means the agent should immediately produce a normal update link with the existing bundle identity. Non-Swift changes and multi-file edits containing any structural change always rebuild.
+An `action` of `hot-reload` is allowed only when the declaration surface is unchanged, the private live lane completed, and—when editing SwiftUI—the rendered screen changed. `hot-reload-failed` and `build-device` both mean the agent should immediately produce a normal update link with the existing bundle identity. Non-Swift changes and multi-file edits containing any structural change always rebuild.
 
 The one-time project integration is one `SwiftSimLive` package product, one root `.swiftSimLive()` modifier, and Debug-only injection build settings. Agents must not scatter observer properties or package calls across every view. They must not enable live loading in Release, TestFlight, or App Store builds.
 
-Do not claim success merely because a file was saved. Confirm that the injection engine reported a successful patch. If confirmation does not arrive within a few seconds, rebuild and return the new Swift Sim update link.
+Do not claim success merely because a file compiled or a patch library loaded. Require correlated completion and the applicable visual proof. If confirmation does not arrive within a few seconds, rebuild and return the new Swift Sim update link.
 
 ## Live Simulator Preview
 

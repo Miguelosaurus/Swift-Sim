@@ -4,9 +4,9 @@
     {
       "identity" : "injectionnext",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/johnno1962/InjectionNext.git",
+      "location" : "https://github.com/Miguelosaurus/InjectionNext.git",
       "state" : {
-        "revision" : "39eef8a203b5093a8fbb7334d3a59f03624d2c01"
+        "revision" : "547f900b7f784eb1ca29415f0030bed3e847e3e1"
       }
     }
   ],

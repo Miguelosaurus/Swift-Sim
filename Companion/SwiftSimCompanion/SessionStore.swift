@@ -1483,6 +1483,10 @@ struct DeviceBuildStatus: Decodable, Equatable {
 struct DeviceBuildLiveReload: Decodable, Equatable {
     let eligible: Bool
     let mode: String
+    let engineReady: Bool?
+    let compilerReady: Bool?
+    let capturedCompilations: Int?
+    let error: String?
 }
 
 struct DeviceBuildApp: Decodable, Equatable {
