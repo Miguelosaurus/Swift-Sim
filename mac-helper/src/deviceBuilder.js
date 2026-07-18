@@ -148,12 +148,19 @@ export function deviceBuildLinks(build, remoteBaseUrl = "") {
 }
 
 export function publicDeviceBuild(build) {
+  const liveReloadEligible = String(build.configuration || "").toLowerCase() === "debug"
+    && (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"));
   return {
     id: build.id,
     createdAt: build.createdAt,
     updatedAt: build.updatedAt,
     expiresAt: build.expiresAt,
     state: build.state,
+    configuration: build.configuration || "Release",
+    liveReload: {
+      eligible: liveReloadEligible,
+      mode: "debug-only",
+    },
     app: build.app,
     signing: {
       method: build.signing.method,

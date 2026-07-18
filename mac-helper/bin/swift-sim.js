@@ -6,6 +6,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
+import {
+  classifyLiveChange,
+  inspectLiveReload,
+  routeLiveChange,
+  startLiveReload,
+} from "../src/liveReload.js";
 
 const rootDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const helperPath = join(rootDirectory, "mac-helper", "bin", "swift-sim-helper.js");
@@ -30,6 +36,10 @@ async function main() {
   if (command === "setup") return setup(args);
   if (command === "doctor" || command === "status") return doctor(args);
   if (command === "update") return update();
+  if (command === "live-status") return liveStatus(args);
+  if (command === "live-start") return liveStart(args);
+  if (command === "classify-change") return classifyChange(args);
+  if (command === "route-change") return routeChange(args);
 
   if (command === "serve") return runHelper(["serve", ...args], { inherit: true });
 
@@ -54,6 +64,62 @@ async function main() {
   }
 
   throw new Error(`Unknown command: ${command}. Run swift-sim help.`);
+}
+
+function liveStatus(args) {
+  const { values } = parseArgs({ args, options: liveOptions() });
+  console.log(JSON.stringify(inspectLiveReload({
+    project: values.project,
+    host: values.host,
+  }), null, 2));
+}
+
+function liveStart(args) {
+  const { values } = parseArgs({ args, options: liveOptions() });
+  const result = startLiveReload({
+    project: values.project,
+    host: values.host,
+  });
+  console.log(JSON.stringify(result, null, 2));
+  if (!result.started) process.exitCode = 1;
+}
+
+function classifyChange(args) {
+  const { values } = parseArgs({
+    args,
+    options: {
+      before: { type: "string" },
+      after: { type: "string" },
+    },
+  });
+  console.log(JSON.stringify(classifyLiveChange({
+    beforePath: values.before,
+    afterPath: values.after,
+  }), null, 2));
+}
+
+function routeChange(args) {
+  const { values } = parseArgs({
+    args,
+    options: {
+      ...liveOptions(),
+      before: { type: "string" },
+      after: { type: "string" },
+    },
+  });
+  console.log(JSON.stringify(routeLiveChange({
+    beforePath: values.before,
+    afterPath: values.after,
+    project: values.project,
+    host: values.host,
+  }), null, 2));
+}
+
+function liveOptions() {
+  return {
+    project: { type: "string" },
+    host: { type: "string" },
+  };
 }
 
 async function setup(args) {
@@ -182,6 +248,7 @@ async function buildDoctorReport() {
   const readyAgentNames = Object.entries(agents).filter(([, value]) => value.ready).map(([name]) => displayAgentName(name));
   const agentIntegrationsReady = readyAgentNames.length > 0;
   const xcodeReady = xcode.status === 0;
+  const liveReload = inspectLiveReload();
 
   return {
     version: packageJSON.version,
@@ -197,6 +264,16 @@ async function buildDoctorReport() {
         : "Install Codex, Cursor, Claude Code, or OpenCode, then rerun swift-sim setup"),
       agents,
       codexPlugin: check(codexReady, codexReady ? "Codex plugin is installed and enabled" : "Codex plugin is not installed"),
+    },
+    remoteHotReload: {
+      optional: true,
+      ready: liveReload.injectionApp.ready && Boolean(liveReload.host),
+      engine: check(liveReload.injectionApp.ready, liveReload.injectionApp.ready
+        ? "InjectionNext patch engine is installed"
+        : "Install InjectionNext.app to enable body-only live patches"),
+      tailscale: check(Boolean(liveReload.host), liveReload.host
+        ? `Private device route is available at ${liveReload.host}`
+        : "Connect this Mac and the iPhone to Tailscale for remote hot reload"),
     },
     simulatorPreview: {
       optional: true,
@@ -495,6 +572,10 @@ function printDoctorReport(report) {
     if (agent.detected) printCheck(`  ${displayAgentName(name)}`, agent);
   }
   console.log("");
+  console.log("Remote iPhone hot reload (optional, Debug only)");
+  printCheck("Patch engine", report.remoteHotReload.engine);
+  printCheck("Private route", report.remoteHotReload.tailscale);
+  console.log("");
   console.log("Live Simulator preview (optional)");
   printCheck("Tailscale", report.simulatorPreview.tailscale);
   printCheck("Private route", report.simulatorPreview.privateServe);
@@ -609,6 +690,10 @@ Usage:
   swift-sim doctor [--json]       Check install and optional Simulator setup
   swift-sim update                Update Homebrew and detected agent integrations
   swift-sim build-device ...      Build a signed iPhone install
+  swift-sim live-status ...       Check remote on-device hot reload readiness
+  swift-sim live-start ...        Launch the debug-only live patch engine
+  swift-sim classify-change ...   Decide whether a Swift edit can hot reload
+  swift-sim route-change ...      Choose hot reload or a new signed build
   swift-sim list-apps [--archived] List managed prototype apps and build history
   swift-sim verify-device-build    Verify an install on a reachable iPhone
   swift-sim archive-app ...        Archive or restore an app from the library
@@ -617,6 +702,7 @@ Usage:
   swift-sim pair ...              Pair optional Simulator diagnostics
   swift-sim serve                 Run the local helper in the foreground
 
-iPhone app installs are the primary workflow and do not require Tailscale.
+iPhone app installs are the universal workflow and do not require Tailscale.
+Remote hot reload is optional, debug-only, and falls back to a signed update link.
 Live Simulator preview is optional and uses private Tailscale access.`);
 }

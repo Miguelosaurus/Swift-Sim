@@ -1,6 +1,6 @@
 # Security
 
-Swift Sim uses two deliberately separate network boundaries: private Tailscale access for simulator control, and a short-lived public gateway for signed iPhone build delivery.
+Swift Sim uses deliberately separate network boundaries: private Tailscale access for simulator control and optional Debug patches, plus a short-lived public gateway for signed iPhone build delivery.
 
 ## Trust Boundary
 
@@ -42,6 +42,8 @@ Default device-build exposure:
 The gateway accepts health plus token-protected single-build status, logs, page, manifest, and IPA routes. Two narrow token-protected `POST` actions record an install request or ask Apple developer tooling to verify that build. It rejects app-library mutation, pairing, session control, build creation, and build listing routes. The manager stops the gateway and tunnel after the build TTL. [Cloudflare documents Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/) as temporary development/testing infrastructure and provides no uptime guarantee; a failed link should be regenerated rather than treated as durable hosting.
 
 The public companion build uses App Transport Security defaults. Simulator sessions connect through private Tailscale HTTPS; device installs use temporary public HTTPS. Plain HTTP remote URLs are intentionally unsupported in public builds.
+
+Remote hot reload is a third, optional path. It uses InjectionNext's device port 8887 only across the user's private Tailnet. Swift Sim must never expose this port through Tailscale Funnel, Cloudflare Quick Tunnel, public DNS tunneling, router forwarding, or a public firewall rule. The live client and injected dynamic libraries are permitted only in development-signed Debug builds.
 
 ## Tokens
 
@@ -109,6 +111,14 @@ This default update path is what preserves app data.
 
 The Apple account configured in Xcode is only a signing identity. Swift Sim does not use Apple ID cookies, passwords, or Xcode account tokens to authenticate network delivery. The default Quick Tunnel requires no separate account.
 
+## Live Patch Signing
+
+InjectionNext compiles patches on the Mac and signs them with the development identity selected for the running app. iOS library validation still applies: an unrelated or unsigned library is not accepted as a valid patch.
+
+The lane is deliberately excluded from Release, TestFlight, and App Store workflows. Downloaded executable code is not an acceptable general distribution mechanism. Swift Sim's classifier sends any declaration, stored-state, signature, package, resource, capability, entitlement, or signing change back through the full signed-build path.
+
+Source files remain on the Mac. The iPhone receives only the compiled patch bytes over the private Tailnet. A live-enabled Debug app should not be shared as a production artifact.
+
 ## Universal Links
 
 Universal links require an Associated Domains entitlement for the exact HTTPS hostname serving the AASA file.
@@ -118,6 +128,8 @@ A public companion build cannot be entitled for every private `*.ts.net` or rand
 ## Dependency Boundary
 
 V1 wraps the installed `serve-sim` package instead of copying its implementation. The adapter discovers supported CLI behavior and scopes lifecycle operations to one Simulator UDID.
+
+The optional live runtime pins InjectionNext to an audited commit through Swift Package Manager. Swift Sim does not vendor or modify its source. Updating that revision requires a source review and both Swift and Node regression tests.
 
 Never run an unscoped `serve-sim --kill` from Swift Sim automation. It can terminate unrelated simulator mirrors.
 

@@ -46,6 +46,16 @@ The shared plugin source is `plugins/swift-sim-companion`. It contains Codex, Cu
 4. Run `swift-sim setup` to refresh detected local hosts.
 5. Start a new agent session so the new skill text is loaded.
 
+Validate the optional live runtime and change router:
+
+```sh
+swift test
+node --test test/liveReload.test.js
+swift-sim classify-change --before /tmp/before.swift --after /tmp/after.swift
+```
+
+The Swift package pins InjectionNext by commit for reproducibility. Update that revision intentionally and rerun both Swift and Node test suites. The Node classifier must remain conservative: false rebuilds cost time, but a false live-safe result can destabilize the running process.
+
 ## Manual Session Test
 
 1. Build and launch an app on a booted simulator.

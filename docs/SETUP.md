@@ -124,6 +124,43 @@ Only configure this lane when you want to control the Mac Simulator from Swift S
 
 Same Wi-Fi is not required. Do not use Tailscale Funnel; Simulator controls should remain private to the Tailnet.
 
+## Optional Remote iPhone Hot Reload
+
+Remote hot reload is separate from Simulator preview. It keeps a regular development-signed Debug app on the iPhone and replaces compatible function implementations while it runs. Same Wi-Fi is not required, but the Mac and iPhone must be connected to the same private Tailnet.
+
+One-time setup:
+
+1. Install [InjectionNext](https://github.com/johnno1962/InjectionNext/releases) in `/Applications`.
+2. In the target project, add `https://github.com/Miguelosaurus/Swift-Sim` as a package dependency and link `SwiftSimLive`.
+3. Add `.swiftSimLive()` once to the root SwiftUI view.
+4. Add the Debug-only linker flags `-Xlinker` and `-interposable`. Set `EMIT_FRONTEND_COMMAND_LINES=YES` and `COMPILATION_CACHE_ENABLE_CACHING=NO` for Debug.
+5. Connect Tailscale on the Mac and iPhone.
+6. Run `swift-sim live-start --project "/absolute/App.xcodeproj/project.pbxproj"`, enable **Enable Devices** in InjectionNext, and select the development signing identity when it asks.
+
+Check the machine-readable setup state:
+
+```sh
+swift-sim live-status \
+  --project "/absolute/App.xcodeproj/project.pbxproj"
+```
+
+Build the first live-enabled app with the returned `host`:
+
+```sh
+INJECTION_HOST="<mac-tailscale-ip>" swift-sim build-device \
+  --project "/absolute/App.xcodeproj" \
+  --scheme "App" \
+  --configuration Debug \
+  --build-setting EMIT_FRONTEND_COMMAND_LINES=YES \
+  --build-setting COMPILATION_CACHE_ENABLE_CACHING=NO \
+  --build-setting 'OTHER_LDFLAGS=$(inherited) -Xlinker -interposable' \
+  --allow-provisioning-updates
+```
+
+Install that build normally through Swift Sim, open it, and leave it running while editing. The shared agent skill routes compatible body changes through live injection and automatically returns to the normal signed-update workflow for structural changes.
+
+Do not publish port 8887 through Funnel, Cloudflare Quick Tunnel, router port forwarding, or a public firewall rule. Do not add the live package or flags to Release/App Store configurations.
+
 ## Updating Swift Sim
 
 ```sh

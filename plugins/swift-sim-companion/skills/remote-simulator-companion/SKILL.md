@@ -1,16 +1,17 @@
 ---
 name: remote-simulator-companion
-description: Use when a Codex, Cursor, Claude Code, or OpenCode agent should install or update a signed iOS app on an iPhone through Swift Sim, help configure Swift Sim, or preview an iOS app through the optional live Simulator companion.
+description: Use when a Codex, Cursor, Claude Code, or OpenCode agent should hot reload a supported Swift edit on a remote iPhone, install or update a signed iOS app through Swift Sim, help configure Swift Sim, or preview an iOS app through the optional live Simulator companion.
 ---
 
 # Remote Simulator Companion
 
-The host remains the only coding agent. This skill uses the lightweight Swift Sim helper for two workflows, in this priority order:
+The host remains the only coding agent. This skill uses Swift Sim for three workflows:
 
+- Hot reload compatible implementation and SwiftUI body edits into a running Debug app on a remote iPhone.
 - Build, sign, and serve a real iPhone `.ipa` install/update from the Mac.
 - Preview an app in the Mac-hosted Xcode Simulator from the native Swift Sim iOS companion app.
 
-Real iPhone installs are the primary workflow. They work without Tailscale, simulator pairing, or a Swift Sim account. Live Simulator preview is an optional faster loop that requires private Tailscale setup.
+Real iPhone installs are the universal fallback. They work without Tailscale, simulator pairing, or a Swift Sim account. Remote hot reload is an optional Debug-only acceleration lane over the user's private Tailnet. Live Simulator preview is a separate optional workflow.
 
 Important transport reality:
 
@@ -44,6 +45,15 @@ Also prefer the device-build lane when the user simply asks to test on their pho
 
 Use the simulator lane when the user explicitly asks for a quick preview, live Simulator interaction, Simulator logs, or a local agent preview.
 
+Use the remote hot-reload lane only when all of these are true:
+
+- The app already has a Swift Sim live-enabled Debug build running on the iPhone.
+- `swift-sim live-status --project "<path-to-project.pbxproj>"` reports `ready: true`.
+- The Mac and iPhone are connected to the same private Tailnet.
+- The proposed edit changes implementation bodies, literal styling, layout, modifiers, or computed SwiftUI composition without changing declarations.
+
+Stored-property changes, new or removed declarations, signature changes, imports, assets, localized strings, package dependencies, build settings, resources, Info.plist, entitlements, capabilities, and signing changes always use the device-build lane.
+
 Do not uninstall the user's app for the device-build lane. Swift Sim's default path preserves app data by installing over the existing app. Warn the user if bundle identifier, signing team, or entitlements changed.
 
 ## Required Inputs
@@ -75,9 +85,10 @@ swift-sim setup
 
 `swift-sim setup` starts the helper, installs or refreshes the Swift Sim integration for every detected supported agent, and prints a readiness summary. It configures Codex, Cursor, Claude Code, and OpenCode independently from the same packaged skill. After setup, use `swift-sim doctor --json` to diagnose only what remains.
 
-Read the report as two independent sections:
+Read the report as three independent sections:
 
 - `deviceInstalls`: primary workflow. Xcode, helper, and at least one supported agent integration must be ready. Tailscale is irrelevant.
+- `remoteHotReload`: optional Debug-only workflow. It needs InjectionNext and a private Tailscale device route.
 - `simulatorPreview`: optional workflow. Only require this section when the user requested live Simulator preview.
 
 When something is missing, explain and fix only the reported `needs-attention` item. Never dump the entire setup guide. If Xcode signing is informational, continue; the first project build provides the authoritative signing check.
@@ -184,6 +195,62 @@ When setup is healthy and the app is unpaired, the coding agent should give the 
    ```
 
    If the session uses a per-user Tailscale host, also include the `swift-sim://session/...` fallback link or code block. Tell the user to paste that fallback into Swift Sim's Paste Link sheet if ChatGPT opens the HTTPS link in a browser.
+
+## Remote Hot Reload Workflow
+
+This lane keeps a regular signed Debug app installed on the iPhone, then sends same-team-signed implementation patches to the running process. It does not stream a Simulator. It is never a Release, TestFlight, or App Store mechanism.
+
+One-time project preparation:
+
+1. Add `https://github.com/Miguelosaurus/Swift-Sim` as a Swift Package dependency and link the `SwiftSimLive` product to the app target.
+2. Add `.swiftSimLive()` once to the app's root SwiftUI view. Do not add it to every view or every source line.
+3. For Debug only, add `-Xlinker` and `-interposable` as separate `OTHER_LDFLAGS` entries. Also set `EMIT_FRONTEND_COMMAND_LINES=YES` and `COMPILATION_CACHE_ENABLE_CACHING=NO`.
+4. Install `InjectionNext.app` from its official release, launch it through Swift Sim, and enable its **Enable Devices** setting. Selecting the app's expanded development signing identity is a one-time upstream requirement.
+5. Connect both devices to the same private Tailnet. Never expose injection port 8887 through Tailscale Funnel, a public tunnel, or a public firewall rule.
+
+Inspect and launch the lane:
+
+```bash
+swift-sim live-status \
+  --project "<absolute-project.xcodeproj/project.pbxproj>"
+
+swift-sim live-start \
+  --project "<absolute-project.xcodeproj/project.pbxproj>"
+```
+
+Use the returned Tailscale `host` for the initial Debug device build. It must be present in the environment while Xcode resolves the injection package:
+
+```bash
+INJECTION_HOST="<mac-tailscale-ip>" swift-sim build-device \
+  --project "<absolute-project-path>" \
+  --scheme "<scheme>" \
+  --configuration Debug \
+  --build-setting EMIT_FRONTEND_COMMAND_LINES=YES \
+  --build-setting COMPILATION_CACHE_ENABLE_CACHING=NO \
+  --build-setting 'OTHER_LDFLAGS=$(inherited) -Xlinker -interposable' \
+  --allow-provisioning-updates
+```
+
+The user installs this initial build through the normal **Open in Swift Sim to Install** handoff. After it launches and connects, future compatible saves can arrive without rebuilding or reinstalling the `.ipa`.
+
+Before or immediately after each Swift edit, compare the prior file and proposed/current file:
+
+```bash
+swift-sim route-change \
+  --before "<path-to-before.swift>" \
+  --after "<path-to-current.swift>" \
+  --project "<absolute-project.xcodeproj/project.pbxproj>"
+```
+
+Honor the returned `action`:
+
+- `hot-reload`: keep the app running and save the file. Report the patch as applied only after the injection engine reports success; otherwise use the normal device build.
+- `build-device`: immediately use the Device Build Workflow and return a fresh update link. Do not ask the user to decide which lane to use.
+- `none`: no runtime action is needed.
+
+The classifier is intentionally conservative. The engine can replace compiled function implementations; it cannot safely reshape live Swift metadata. If a multi-file change includes even one rebuild-required file, rebuild the whole app. Non-Swift file changes always rebuild.
+
+Hot reload is a speed feature, not a delivery guarantee. If the patch does not appear within a few seconds, the app disconnected, compilation failed, the device locked, the Tailnet route is unavailable, or the agent cannot prove injection success, fall back to `swift-sim build-device`. Preserve the existing bundle identifier and team so app data remains intact.
 
 ## Device Build Workflow
 

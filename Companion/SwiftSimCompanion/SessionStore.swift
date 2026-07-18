@@ -1381,6 +1381,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
     let updatedAt: String
     let expiresAt: String
     let state: String
+    let configuration: String?
+    let liveReload: DeviceBuildLiveReload?
     let app: DeviceBuildApp
     let signing: DeviceBuildSigning
     let delivery: DeviceBuildDelivery?
@@ -1403,6 +1405,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
             updatedAt: updatedAt,
             expiresAt: expiresAt,
             state: state,
+            configuration: configuration,
+            liveReload: liveReload,
             app: app,
             signing: signing,
             delivery: delivery,
@@ -1423,6 +1427,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
         updatedAt = createdAt
         expiresAt = build.expiresAt.map { ISO8601DateFormatter().string(from: $0) } ?? ""
         state = build.state
+        configuration = nil
+        liveReload = nil
         app = DeviceBuildApp(
             identity: build.appID,
             name: build.displayName,
@@ -1449,6 +1455,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
         updatedAt: String,
         expiresAt: String,
         state: String,
+        configuration: String?,
+        liveReload: DeviceBuildLiveReload?,
         app: DeviceBuildApp,
         signing: DeviceBuildSigning,
         delivery: DeviceBuildDelivery?,
@@ -1461,6 +1469,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
         self.updatedAt = updatedAt
         self.expiresAt = expiresAt
         self.state = state
+        self.configuration = configuration
+        self.liveReload = liveReload
         self.app = app
         self.signing = signing
         self.delivery = delivery
@@ -1468,6 +1478,11 @@ struct DeviceBuildStatus: Decodable, Equatable {
         self.installation = installation
         self.links = links
     }
+}
+
+struct DeviceBuildLiveReload: Decodable, Equatable {
+    let eligible: Bool
+    let mode: String
 }
 
 struct DeviceBuildApp: Decodable, Equatable {

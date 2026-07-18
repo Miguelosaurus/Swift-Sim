@@ -8,6 +8,8 @@ function fixtureBuild() {
     token: "secret-token",
     remoteBaseUrl: "https://mac.example.ts.net",
     scheme: "Example",
+    configuration: "Debug",
+    buildSettings: ["OTHER_LDFLAGS=$(inherited) -Xlinker -interposable"],
     state: "ready",
     createdAt: "2026-06-25T00:00:00.000Z",
     updatedAt: "2026-06-25T00:00:00.000Z",
@@ -76,5 +78,7 @@ test("public device build hides artifact paths", () => {
   assert.equal(publicBuild.links.universalLink, "https://mac.example.ts.net/d/build-123?token=secret-token");
   assert.equal(publicBuild.delivery.mode, "quick-tunnel");
   assert.equal(publicBuild.installation.state, "requested");
+  assert.equal(publicBuild.configuration, "Debug");
+  assert.equal(publicBuild.liveReload.eligible, true);
   assert.equal(JSON.stringify(publicBuild).includes("/Users/example"), false);
 });

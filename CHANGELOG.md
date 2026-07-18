@@ -4,8 +4,14 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+## 0.3.0 - 2026-07-18
+
 ### Added
 
+- Debug-only remote iPhone hot reload over a private Tailnet using the new `SwiftSimLive` root modifier and pinned InjectionNext engine.
+- `live-status`, `live-start`, `classify-change`, and `route-change` commands for setup diagnosis and automatic hot-reload-versus-rebuild routing.
+- A conservative Swift declaration-surface classifier with normal signed-build fallback for structural and non-Swift changes.
+- A native Live Edits card for compatible Debug builds in the iPhone companion.
 - Automatic background reconciliation of requested iPhone installs with exact version and build matching.
 - In-app creation of a fresh install link after an existing link expires.
 - Native iOS regression tests for install-state behavior and paired-Mac fallback.
@@ -14,6 +20,7 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Changed
 
+- Expanded the shared agent contract so Codex, Cursor, Claude Code, and OpenCode select the live lane only when it is safe and provably connected.
 - Reworked the iPhone install screen around plain-language status, app-data behavior, link availability, and optional technical details.
 - Simplified app-library, history, Simulator, and Mac-connection copy.
 - Made the install handoff resilient to the initial status refresh and external iOS URL callback, so the first tap can complete the install flow.

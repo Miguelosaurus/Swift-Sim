@@ -89,6 +89,21 @@ The helper derives one opaque app identity from the bundle identifier and signin
 
 The Mac helper reconciles requested installs in the background through `xcrun devicectl device info apps` when a trusted physical iPhone is available over the local network or USB. It matches the exact version and build. Public responses include only the friendly device name and installed version/build; they omit UDIDs, serial numbers, and CoreDevice identifiers.
 
+## Remote Hot Reload Path
+
+The optional live lane is a Debug-only layer on top of an already-installed signed app:
+
+1. The project links `SwiftSimLive`, which links the pinned InjectionNext client only in Debug.
+2. The app root uses `.swiftSimLive()` once. It observes the injection completion notification and invalidates the root SwiftUI identity.
+3. InjectionNext watches project saves and reuses compiler commands from the initial Debug build.
+4. Compatible source is compiled into a small dynamic library and signed with the app's development identity.
+5. The patch travels over raw TCP port 8887 on the private Tailnet and is loaded by the running app.
+6. `swift-sim route-change` compares declaration surfaces. Structural or non-Swift changes bypass live injection and use the normal Device Build Path.
+
+The live path is not exposed by the public Quick Tunnel and does not use the Simulator video transport. The iPhone runs the real app code. Release compilation removes the Swift Sim root observer, and the InjectionNext package does not compile its client when Swift Package `DEBUG` is absent.
+
+The classifier is intentionally stricter than the underlying engine. It treats imports, declarations, stored state, signatures, macros, resources, packages, and build metadata as rebuild boundaries. This avoids treating a compiler success as proof that live Swift metadata can be reshaped safely.
+
 ## Stream Recovery
 
 The iOS decoder never intentionally drops arbitrary H.264 delta frames. It queues samples in order and reconnects when:

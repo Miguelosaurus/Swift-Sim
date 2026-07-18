@@ -74,6 +74,32 @@ swift-sim build-device \
 
 Use `--workspace` for workspace-based projects. Report the exact Xcode signing error rather than replacing the app or changing its bundle identifier automatically.
 
+## Remote Hot Reload Is Unavailable
+
+Run:
+
+```sh
+swift-sim live-status \
+  --project "/absolute/App.xcodeproj/project.pbxproj"
+```
+
+The JSON reports the missing prerequisite. Common causes are:
+
+- InjectionNext is not installed in `/Applications`.
+- Tailscale is disconnected on the Mac or iPhone.
+- The project does not link `SwiftSimLive`.
+- Debug `OTHER_LDFLAGS` does not contain `-Xlinker -interposable`.
+- InjectionNext **Enable Devices** is off or the development signing identity was not selected.
+- The installed app is a Release build rather than the prepared Debug build.
+
+Do not make port 8887 public to work around connectivity. Use the normal Swift Sim signed update link until the private lane is healthy.
+
+## A Live Edit Did Not Appear
+
+Run `swift-sim route-change` with the before and after Swift files. If it returns `build-device`, the change crossed a structural boundary and needs a new link.
+
+If it returns `hot-reload`, keep the app in the foreground and unlocked, confirm both devices are on Tailscale, and inspect InjectionNext for a green success or yellow compile failure. Compiler errors, a disconnected app, a locked device, or no success confirmation should trigger the normal `swift-sim build-device` fallback. Do not repeatedly inject a structural change.
+
 ## Temporary Delivery Tunnel Fails
 
 Check the restricted delivery process:

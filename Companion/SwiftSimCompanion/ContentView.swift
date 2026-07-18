@@ -773,6 +773,9 @@ private struct DeviceBuildView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         buildHero
                         installStatusCard
+                        if status?.liveReload?.eligible == true {
+                            liveReloadCard
+                        }
                         installDetailsCard
                         if !actionableWarnings.isEmpty {
                             warningCard
@@ -929,6 +932,30 @@ private struct DeviceBuildView: View {
         .font(.callout)
         .padding(17)
         .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.16), interactive: false)
+    }
+
+    private var liveReloadCard: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "bolt.horizontal.circle.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.mint)
+                .frame(width: 44, height: 44)
+                .liquidGlassCircle(tint: Color.mint.opacity(0.14), interactive: false)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Live edits capable")
+                    .font(.headline.weight(.semibold))
+                Text("When its private Mac connection is active, compatible SwiftUI and function-body changes can update without another install.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(17)
+        .liquidGlassPanel(cornerRadius: 26, tint: Color.mint.opacity(0.08), interactive: false)
+        .accessibilityElement(children: .combine)
     }
 
     private var warningCard: some View {

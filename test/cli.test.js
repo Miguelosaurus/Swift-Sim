@@ -15,8 +15,10 @@ test("swift-sim exposes the packaged version and install-first help", () => {
 
   const help = spawnSync(process.execPath, [cli.pathname, "help"], { encoding: "utf8" });
   assert.equal(help.status, 0);
-  assert.match(help.stdout, /iPhone app installs are the primary workflow/);
+  assert.match(help.stdout, /iPhone app installs are the universal workflow/);
   assert.match(help.stdout, /Live Simulator preview is optional/);
+  assert.match(help.stdout, /Remote hot reload is optional, debug-only/);
+  assert.match(help.stdout, /route-change/);
   assert.match(help.stdout, /detected coding agents/);
 });
 

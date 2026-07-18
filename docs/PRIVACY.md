@@ -1,6 +1,6 @@
 # Swift Sim Privacy Policy
 
-Effective July 3, 2026
+Effective July 18, 2026
 
 Swift Sim is a companion for controlling an iOS Simulator and installing development builds produced on a Mac owned by the user. SEA & SEA LLC does not operate a Swift Sim account, artifact-storage, analytics, or advertising service and does not collect personal data through the Swift Sim iPhone app.
 
@@ -17,6 +17,8 @@ The app handles the following data only to provide its core functionality:
 
 The app stores pairing information and recent sessions locally on the iPhone. Simulator frames and logs are displayed in the app and are not uploaded to SEA & SEA LLC.
 
+When optional remote hot reload is enabled, project source remains on the Mac. The running development app receives a compiled code patch directly from the Mac over the user's private Tailscale network.
+
 ## Network and Third-Party Services
 
 Simulator sessions connect directly to the user's Mac through the user's private Tailscale network. Tailscale processes that traffic according to its own terms and privacy policy.
@@ -24,6 +26,8 @@ Simulator sessions connect directly to the user's Mac through the user's private
 For real-device installs, the Mac may start an account-free Cloudflare Quick Tunnel. The signed IPA, install manifest, build metadata, and network information pass through Cloudflare while the iPhone downloads the build. Swift Sim does not upload the IPA to storage operated by SEA & SEA LLC, and the temporary tunnel is stopped automatically. Cloudflare processes tunnel traffic according to its own terms and privacy policy.
 
 The user's selected coding agent and bundled Swift Sim integration orchestrate builds and simulator sessions on the user's Mac. Supported hosts are Codex, Cursor, Claude Code, and OpenCode. Project source code remains on the Mac. Signed device-build artifacts are delivered to the user's iPhone, but are not sent to SEA & SEA LLC.
+
+The optional hot-reload lane uses the open-source InjectionNext engine locally on the Mac. Tailscale carries the compiled Debug patch to the user's iPhone. Swift Sim does not send that patch to SEA & SEA LLC or through its Cloudflare install tunnel.
 
 ## Retention and Deletion
 

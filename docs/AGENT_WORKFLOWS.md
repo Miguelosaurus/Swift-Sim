@@ -83,6 +83,7 @@ If the CLI is missing, install it through Homebrew and run `swift-sim setup`. Ot
 The doctor report separates:
 
 - `deviceInstalls`: primary real-iPhone workflow; no Tailscale requirement
+- `remoteHotReload`: optional Debug-only real-iPhone workflow; private Tailscale requirement
 - `simulatorPreview`: optional live Simulator workflow; private Tailscale requirement
 
 ## Build To iPhone
@@ -111,6 +112,25 @@ swift-sim build-device \
 Use uppercase Xcode setting names and quote the complete `KEY=VALUE` argument.
 
 Never uninstall first. Matching bundle identifier, team, and compatible entitlements preserve the existing app container.
+
+## Remote Hot Reload
+
+Remote hot reload is an acceleration lane for a prepared, running Debug build. It is not a replacement for the signed-device workflow.
+
+Agents must run `swift-sim live-status --project "<project.pbxproj>"` and preflight each Swift change. Use:
+
+```sh
+swift-sim route-change \
+  --before "<prior.swift>" \
+  --after "<proposed.swift>" \
+  --project "<project.pbxproj>"
+```
+
+An `action` of `hot-reload` is allowed only when the declaration surface is unchanged and the private live lane is ready. An action of `build-device` means the agent should immediately produce a normal update link with the existing bundle identity. Non-Swift changes and multi-file edits containing any structural change always rebuild.
+
+The one-time project integration is one `SwiftSimLive` package product, one root `.swiftSimLive()` modifier, and Debug-only injection build settings. Agents must not scatter observer properties or package calls across every view. They must not enable live loading in Release, TestFlight, or App Store builds.
+
+Do not claim success merely because a file was saved. Confirm that the injection engine reported a successful patch. If confirmation does not arrive within a few seconds, rebuild and return the new Swift Sim update link.
 
 ## Live Simulator Preview
 

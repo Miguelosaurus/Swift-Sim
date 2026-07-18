@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/SwiftUI-native-orange.svg" alt="Native SwiftUI companion">
 </p>
 
-Swift Sim closes the remote iOS development loop. Your existing coding agent edits the project on your Mac, Xcode signs it with your Apple Developer account, and your iPhone receives a temporary **Open in Swift Sim to Install** link. The agent stays the agent; Swift Sim only provides the build, delivery, app-library, and optional Simulator companion.
+Swift Sim closes the remote iOS development loop. Your existing coding agent edits the project on your Mac, Xcode signs it with your Apple Developer account, and your iPhone receives a temporary **Open in Swift Sim to Install** link. For prepared Debug apps, compatible Swift and SwiftUI body edits can also patch the running app over a private Tailnet. The agent stays the agent; Swift Sim provides the build, delivery, change routing, app library, and optional Simulator companion.
 
 Swift Sim is in public beta. The install workflow is usable today, but commands and stored state may still change between tagged releases. Run `swift-sim update` before reporting a problem.
 
@@ -45,6 +45,7 @@ flowchart LR
     Xcode --> Build["Signed iPhone app"]
     Build --> Tunnel["Temporary protected install link"]
     Tunnel --> Phone["Swift Sim on iPhone"]
+    Helper -. "Optional Debug live patch" .-> Build
     Helper -. "Optional private Simulator session" .-> Phone
 ```
 
@@ -111,6 +112,20 @@ If Swift Sim is not installed, the HTTPS page still offers **Install directly**.
 
 Building the same bundle again updates the existing app and preserves its container when the bundle identifier, Apple team, and entitlements remain compatible. Swift Sim keeps one library card per app and adds each update to that app's build history.
 
+## Optional Remote Hot Reload
+
+Swift Sim can accelerate an already-installed Debug app without turning it into a livestream or requiring the iPhone to share Wi-Fi with the Mac. The optional live lane uses [InjectionNext](https://github.com/johnno1962/InjectionNext) to compile same-team-signed implementation patches on the Mac and deliver them directly to the running app over a private Tailscale connection.
+
+The project adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at its root view. It does not add Swift Sim code to every view or every source line. Release builds make the modifier a no-op.
+
+The coding-agent integration runs `swift-sim route-change` to choose the safe path:
+
+- SwiftUI composition, styling, literals, and function-body edits can hot reload when the live lane is connected.
+- Stored properties, type shape, function signatures, imports, packages, resources, assets, configuration, entitlements, and signing changes create a fresh signed update link.
+- If live compilation or delivery cannot be proved within a few seconds, the agent falls back to a normal build.
+
+This is a development feature, not downloadable-code support for App Store builds. It requires one initial live-enabled Debug install, InjectionNext on the Mac, and Tailscale on both devices. See [Setup](docs/SETUP.md) for the one-time preparation.
+
 ## Optional Live Simulator
 
 For a faster visual loop, ask:
@@ -137,6 +152,13 @@ Live Simulator control requires Tailscale on the Mac and iPhone because interact
 - Tailscale on the Mac and iPhone
 - Swift Sim on the iPhone
 
+### Optional remote hot reload
+
+- A live-enabled Debug build installed and running on the iPhone
+- InjectionNext on the Mac
+- Tailscale on the Mac and iPhone
+- The same Apple development signing team for the app and injected patches
+
 ## What Runs Where
 
 - **Coding agent:** edits and orchestrates from the Mac; mobile is its remote-control surface.
@@ -144,6 +166,7 @@ Live Simulator control requires Tailscale on the Mac and iPhone because interact
 - **iPhone:** installs the signed app or views and controls the Mac Simulator.
 - **Cloudflare Quick Tunnel:** temporarily carries only token-protected build downloads.
 - **Tailscale Serve:** carries only optional private Simulator traffic.
+- **Private Tailnet route:** carries optional Debug-only live patches directly from the Mac to the running app.
 
 Swift Sim never reads or transmits your Apple ID password. Xcode owns signing credentials and provisioning.
 
@@ -163,6 +186,8 @@ Swift Sim never reads or transmits your Apple ID password. Xcode owns signing cr
 - Quick Tunnel links are temporary and have no uptime guarantee. Generate a new build if one ends early.
 - iOS does not report OTA install completion to another app. The Mac helper confirms requested installs automatically when the paired iPhone is available over the local network or USB, and the companion syncs that result when opened.
 - Simulator multi-touch fidelity depends on the pinned `serve-sim` transport.
+- Remote hot reload cannot change live Swift metadata. Structural and non-Swift changes still require a new build.
+- Remote hot reload is Debug-only and requires the app to remain running and reachable through Tailscale.
 - Cursor and Claude mobile workflows must control a local Mac agent session; their cloud agents cannot access your Mac's Xcode environment.
 
 ## Contributing
