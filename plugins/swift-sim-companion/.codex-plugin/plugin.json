@@ -1,6 +1,6 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.3.0+codex.20260718181500",
+  "version": "0.4.0+codex.20260721191000",
   "description": "Build, install, update, and manage signed iPhone apps from a Mac-hosted Codex session.",
   "author": {
     "name": "Swift Sim",

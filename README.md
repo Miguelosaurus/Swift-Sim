@@ -120,9 +120,9 @@ The project adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier a
 
 The coding-agent integration runs `swift-sim route-change` to choose the safe path:
 
-- Compatible implementation and SwiftUI body edits are attempted when the live lane is connected. SwiftUI changes count as successful only when Swift Sim can prove that the visible screen changed.
+- Compatible implementation and SwiftUI body edits are attempted when the live lane is connected. SwiftUI changes use compiler-supported dynamic replacement and count as successful only after the running app acknowledges a new root revision.
 - Stored properties, type shape, function signatures, imports, packages, resources, assets, configuration, entitlements, and signing changes create a fresh signed update link.
-- If live compilation or delivery cannot be proved within a few seconds, the agent falls back to a normal build.
+- If compilation, delivery, runtime replacement, or root refresh cannot be proved within a few seconds, the agent falls back to a normal build.
 
 This is a development feature, not downloadable-code support for App Store builds. It requires one initial live-enabled Debug install and Tailscale on both devices. See [Setup](docs/SETUP.md) for the one-time preparation.
 

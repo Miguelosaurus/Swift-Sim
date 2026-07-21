@@ -70,8 +70,8 @@ Device builds are artifact delivery, not streaming.
 
 ```text
 User project on Mac
-  -> xcodebuild archive
-  -> xcodebuild -exportArchive
+  -> xcodebuild archive + export for normal builds
+  -> or managed xcodebuild build + IPA packaging for live-enabled Debug builds
   -> signed .ipa under ~/.swift-sim/device-builds/<id>
   -> localhost device-build-only gateway
   -> account-free Cloudflare Quick Tunnel
@@ -95,10 +95,10 @@ The optional live lane is a Debug-only layer on top of an already-installed sign
 
 1. The project links `SwiftSimLive`, which links Swift Sim's pinned live client only in Debug.
 2. The app root uses `.swiftSimLive()` once. It observes the injection completion notification and invalidates the root SwiftUI identity.
-3. The helper provisions a headless engine under `~/.swift-sim`, starts it without UI, and captures exact Swift frontend commands from the initial Debug build.
-4. Compatible source is compiled into a small dynamic library and signed with the app's development identity.
+3. The helper provisions a headless engine under `~/.swift-sim`, starts it without UI, applies the required Debug build settings, and captures exact Swift frontend commands from the initial Debug build.
+4. SwiftUI bodies are regenerated as compiler-supported dynamic replacements in a small dylib. Other compatible implementations use the engine's normal interposition path. The dylib is signed with the app's development identity.
 5. The patch travels over raw TCP port 8887 on the private Tailnet and is loaded by the running app.
-6. `swift-sim route-change` compares declaration surfaces. Structural or non-Swift changes bypass live injection and use the normal Device Build Path. SwiftUI success also requires a changed screenshot from the running app.
+6. `swift-sim route-change` compares declaration surfaces. Structural or non-Swift changes bypass live injection and use the normal Device Build Path. A SwiftUI patch succeeds only when the dylib contains a replacement descriptor and `SwiftSimLive` acknowledges the resulting root revision; screenshots are not part of the edit loop.
 
 The live path is not exposed by the public Quick Tunnel and does not use the Simulator video transport. The iPhone runs the real app code. Release compilation removes the Swift Sim root observer, and the live client is excluded when Swift Package `DEBUG` is absent.
 

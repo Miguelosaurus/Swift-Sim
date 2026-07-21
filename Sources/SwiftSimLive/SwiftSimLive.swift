@@ -15,9 +15,14 @@ private final class SwiftSimLiveObserver: ObservableObject {
         cancellable = NotificationCenter.default.publisher(
             for: Notification.Name("INJECTION_BUNDLE_NOTIFICATION")
         )
-        .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
-            self?.revision &+= 1
+            guard let self else { return }
+            self.revision &+= 1
+            NotificationCenter.default.post(
+                name: Notification.Name("SWIFT_SIM_LIVE_REVISION_APPLIED"),
+                object: nil,
+                userInfo: ["revision": self.revision]
+            )
         }
     }
 }

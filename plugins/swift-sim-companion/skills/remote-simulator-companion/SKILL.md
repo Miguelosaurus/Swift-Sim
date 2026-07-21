@@ -204,9 +204,8 @@ One-time project preparation:
 
 1. Add `https://github.com/Miguelosaurus/Swift-Sim` as a Swift Package dependency and link the `SwiftSimLive` product to the app target.
 2. Add `.swiftSimLive()` once to the app's root SwiftUI view. Do not add it to every view or every source line.
-3. For Debug only, add `-Xlinker` and `-interposable` as separate `OTHER_LDFLAGS` entries. Also set `EMIT_FRONTEND_COMMAND_LINES=YES` and `COMPILATION_CACHE_ENABLE_CACHING=NO`.
-4. Run `swift-sim setup`. Swift Sim installs and manages its checksum-verified headless engine and resolves the app's development identity; never ask the user to install or operate a separate injection app.
-5. Connect both devices to the same private Tailnet. Never expose injection port 8887 through Tailscale Funnel, a public tunnel, or a public firewall rule.
+3. Run `swift-sim setup`. Swift Sim installs and manages its checksum-verified headless engine and resolves the app's development identity; never ask the user to install or operate a separate injection app.
+4. Connect both devices to the same private Tailnet. Never expose injection port 8887 through Tailscale Funnel, a public tunnel, or a public firewall rule.
 
 Inspect and launch the lane:
 
@@ -218,16 +217,13 @@ swift-sim live-start \
   --project "<absolute-project.xcodeproj/project.pbxproj>"
 ```
 
-Use the returned Tailscale `host` for the initial Debug device build. It must be present in the environment while Xcode resolves the injection package:
+Create the initial Debug device build normally. Swift Sim supplies the Tailscale host and all required Debug compiler/linker settings:
 
 ```bash
-INJECTION_HOST="<mac-tailscale-ip>" swift-sim build-device \
+swift-sim build-device \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
   --configuration Debug \
-  --build-setting EMIT_FRONTEND_COMMAND_LINES=YES \
-  --build-setting COMPILATION_CACHE_ENABLE_CACHING=NO \
-  --build-setting 'OTHER_LDFLAGS=$(inherited) -Xlinker -interposable' \
   --allow-provisioning-updates
 ```
 
@@ -244,7 +240,7 @@ swift-sim route-change \
 
 Honor the returned `action`:
 
-- `hot-reload`: report the patch only after correlated engine completion. For SwiftUI source, Swift Sim also requires visual change proof.
+- `hot-reload`: report the patch only after the correlated engine report confirms a real replacement, root refresh acknowledgment, and nonzero revision. Do not capture or analyze a screenshot for each edit.
 - `hot-reload-failed`: immediately use the Device Build Workflow and return a fresh update link. Do not describe the failed attempt as a partial success.
 - `build-device`: immediately use the Device Build Workflow and return a fresh update link. Do not ask the user to decide which lane to use.
 - `none`: no runtime action is needed.

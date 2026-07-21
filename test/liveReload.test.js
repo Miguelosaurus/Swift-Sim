@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   classifySwiftSource,
-  requiresLiveVisualProof,
+  generateDynamicReplacementSource,
 } from "../mac-helper/src/liveReload.js";
 
 test("routes SwiftUI body edits through hot reload", () => {
@@ -51,20 +51,46 @@ test("ignores declaration words inside comments and strings", () => {
   assert.equal(classifySwiftSource(before, after).route, "hot-reload");
 });
 
-test("requires visual proof for a SwiftUI view body", () => {
-  assert.equal(
-    requiresLiveVisualProof(`
+test("generates a private-source dynamic replacement for SwiftUI bodies", () => {
+  const generated = generateDynamicReplacementSource({
+    source: `
+      import SwiftUI
       struct Card: View {
-        var body: some View { Text("Ready") }
+        @State private var count = 0
+        var body: some View { Text("Count: \\(count)").padding() }
       }
-    `),
-    true
-  );
+    `,
+    sourcePath: "/tmp/Card.swift",
+    moduleName: "ExampleApp",
+  });
+  assert.match(generated, /@_private\(sourceFile: "Card\.swift"\) import ExampleApp/);
+  assert.match(generated, /extension Card/);
+  assert.match(generated, /@_dynamicReplacement\(for: body\)/);
+  assert.ok(generated.includes(`Text("Count: \\(count)").padding()`));
 });
 
-test("does not require visual proof for non-UI implementation code", () => {
-  assert.equal(
-    requiresLiveVisualProof(`func greeting() -> String { "Ready" }`),
-    false
-  );
+test("does not generate a SwiftUI replacement for non-view source", () => {
+  assert.equal(generateDynamicReplacementSource({
+    source: `func greeting() -> String { "Ready" }`,
+    sourcePath: "/tmp/Logic.swift",
+    moduleName: "ExampleApp",
+  }), "");
+});
+
+test("generates qualified replacements for nested SwiftUI views", () => {
+  const generated = generateDynamicReplacementSource({
+    source: `
+      import SwiftUI
+      struct Screen: View {
+        struct Row: View {
+          var body: some View { Text("Row") }
+        }
+        var body: some View { Row() }
+      }
+    `,
+    sourcePath: "/tmp/Screen.swift",
+    moduleName: "ExampleApp",
+  });
+  assert.match(generated, /extension Screen\.Row/);
+  assert.match(generated, /extension Screen \{/);
 });

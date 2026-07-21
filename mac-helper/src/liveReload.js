@@ -12,11 +12,11 @@ import {
 } from "node:fs";
 import { createConnection } from "node:net";
 import { arch, homedir } from "node:os";
-import { dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 
-const ENGINE_VERSION = "0.3.1";
-const ENGINE_SHA256 = "79da2ab48cc344570808b11ac49f7258d1ef0c138dfc9b810c2c922e54177d44";
-const ENGINE_URL = `https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-${ENGINE_VERSION}/swift-sim-engine-${ENGINE_VERSION}-arm64-signed.zip`;
+const ENGINE_VERSION = "0.4.0";
+const ENGINE_SHA256 = "fa376ea1dbcc1fbd3f451885459255f789759bcb246805b339d8734e28ba2083";
+const ENGINE_URL = `https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-${ENGINE_VERSION}/swift-sim-engine-${ENGINE_VERSION}-arm64-signed.zip?sha256=${ENGINE_SHA256}`;
 const ENGINE_ROOT = join(homedir(), ".swift-sim", "engine");
 const ENGINE_APP = join(ENGINE_ROOT, "InjectionNext.app");
 const ENGINE_EXECUTABLE = join(ENGINE_APP, "Contents", "MacOS", "InjectionNext");
@@ -26,6 +26,8 @@ const ENGINE_SESSION = join(ENGINE_ROOT, "session.json");
 const LIVE_ROOT = join(homedir(), ".swift-sim", "live");
 const ENGINE_SOCKET = join(LIVE_ROOT, "engine.sock");
 const ENGINE_LOG = join(LIVE_ROOT, "engine.log");
+const LIVE_MANIFEST = join(LIVE_ROOT, "compilations.json");
+const LIVE_PATCH_ROOT = join(LIVE_ROOT, "patches");
 
 export function classifyLiveChange({ beforePath, afterPath }) {
   const before = requiredSwiftSource(beforePath, "before");
@@ -74,7 +76,9 @@ export async function inspectLiveReload({ project = "", host = "" } = {}) {
   const projectSource = projectPath && existsSync(projectPath)
     ? readFileSync(projectPath, "utf8")
     : "";
-  const tailnet = discoverTailnet();
+  const tailnet = host
+    ? { command: "", prefix: [], socket: "", host }
+    : discoverTailnet();
   const tailscaleHost = host || tailnet.host;
   const packageConfigured = /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(projectSource);
   const interposableConfigured = /-interposable/.test(projectSource);
@@ -91,7 +95,6 @@ export async function inspectLiveReload({ project = "", host = "" } = {}) {
   const configured = Boolean(
     tailscaleHost
     && packageConfigured
-    && interposableConfigured
     && engineInstalled
   );
 
@@ -134,12 +137,17 @@ export async function inspectLiveReload({ project = "", host = "" } = {}) {
       readable: Boolean(projectSource),
       packageConfigured,
       interposableConfigured,
+      buildSettingsManagedBySwiftSim: packageConfigured,
     },
     requiredBuildSettings: {
       configuration: "Debug",
       INJECTION_HOST: tailscaleHost || "<mac-tailscale-ip>",
       EMIT_FRONTEND_COMMAND_LINES: "YES",
       COMPILATION_CACHE_ENABLE_CACHING: "NO",
+      ENABLE_DEBUG_DYLIB: "YES",
+      ENABLE_XOJIT_PREVIEWS: "YES",
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone",
+      OTHER_SWIFT_FLAGS: ["$(inherited)", "-Xfrontend", "-enable-implicit-dynamic", "-enable-private-imports"],
       OTHER_LDFLAGS: ["$(inherited)", "-Xlinker", "-interposable"],
     },
     limitations: [
@@ -202,7 +210,7 @@ export async function ensureLiveEngineInstalled() {
   writeFileSync(ENGINE_MANIFEST, `${JSON.stringify({
     version: ENGINE_VERSION,
     sha256: ENGINE_SHA256,
-    sourceRevision: "4d026ba5f358ef63f1b8c4d62754a0c5693a8092",
+    sourceRevision: "9855a405d73107cff1a720abea81a1d08a4434e3",
   }, null, 2)}\n`, { mode: 0o600 });
   rmSync(stagingPath, { recursive: true, force: true });
   rmSync(archivePath, { force: true });
@@ -242,6 +250,7 @@ export async function registerLiveBuildResult({ resultBundle }) {
     .filter(Boolean);
   let registered = 0;
   const sources = new Set();
+  const compilationContexts = [];
   for (const command of commands) {
     const response = await engineControl({
       action: "register_compilations",
@@ -252,13 +261,70 @@ export async function registerLiveBuildResult({ resultBundle }) {
     }
     registered += Number(response.data?.registered_count || 0);
     for (const source of response.data?.sources || []) sources.add(source);
+    const context = dynamicReplacementContext(command);
+    if (context) compilationContexts.push(context);
   }
   if (registered === 0) {
     throw new Error(
       "The build completed without capturable Swift frontend commands. Make a clean Debug build with EMIT_FRONTEND_COMMAND_LINES=YES."
     );
   }
+  mkdirSync(LIVE_ROOT, { recursive: true });
+  writeFileSync(LIVE_MANIFEST, `${JSON.stringify({
+    version: 1,
+    capturedAt: new Date().toISOString(),
+    compilations: compilationContexts,
+  }, null, 2)}\n`, { mode: 0o600 });
   return { registered, sources: [...sources].sort() };
+}
+
+function dynamicReplacementContext(command) {
+  const args = command.arguments || [];
+  const moduleName = argumentValue(args, "-module-name");
+  const sdk = argumentValue(args, "-sdk");
+  const target = argumentValue(args, "-target");
+  if (!moduleName || !sdk || !target) return null;
+
+  const sources = args
+    .filter((value) => value.endsWith(".swift") && existsSync(resolveFrom(command.working_directory, value)))
+    .map((value) => resolveFrom(command.working_directory, value));
+  if (sources.length === 0) return null;
+
+  const compilerArguments = ["-sdk", sdk, "-target", target];
+  const valueFlags = new Set([
+    "-I", "-F", "-Fsystem", "-L", "-D", "-swift-version",
+    "-enable-upcoming-feature", "-enable-experimental-feature",
+  ]);
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (valueFlags.has(value) && args[index + 1]) {
+      compilerArguments.push(value, args[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (value === "-Xcc" && args[index + 1]) {
+      const clangArgument = args[index + 1];
+      if (/^(?:-fmodule-map-file=|-I|-F|-isystem)/.test(clangArgument)) {
+        compilerArguments.push(value, clangArgument);
+      }
+      index += 1;
+    }
+  }
+  return {
+    moduleName,
+    sources,
+    workingDirectory: command.working_directory || "",
+    compilerArguments,
+  };
+}
+
+function argumentValue(args, flag) {
+  const index = args.indexOf(flag);
+  return index >= 0 ? args[index + 1] || "" : "";
+}
+
+function resolveFrom(workingDirectory, path) {
+  return resolve(workingDirectory || process.cwd(), path);
 }
 
 export async function startLiveReload({ project = "", host = "" } = {}) {
@@ -274,11 +340,11 @@ export async function startLiveReload({ project = "", host = "" } = {}) {
   if (!status.host) {
     return { ...status, started: false, error: "Connect this Mac to Tailscale first." };
   }
-  if (!status.project.packageConfigured || !status.project.interposableConfigured) {
+  if (!status.project.packageConfigured) {
     return {
       ...status,
       started: false,
-      error: "The project needs SwiftSimLive and the Debug -interposable linker setting.",
+      error: "The project needs the SwiftSimLive package and one .swiftSimLive() modifier at its root view.",
     };
   }
 
@@ -427,22 +493,7 @@ export async function routeLiveChange({ beforePath, afterPath, project = "", hos
     return { action: "none", change, live };
   }
   if (change.hotReloadable && live.ready) {
-    const requiresVisualProof = isSwiftUIViewSource(afterPath);
-    const beforeScreenshot = requiresVisualProof
-      ? await captureLiveScreenshot()
-      : null;
     const patch = await injectLiveSource(afterPath);
-    if (patch.succeeded && beforeScreenshot) {
-      await delay(150);
-      const afterScreenshot = await captureLiveScreenshot();
-      if (afterScreenshot && afterScreenshot === beforeScreenshot) {
-        patch.succeeded = false;
-        patch.error = "The patch loaded, but the SwiftUI screen did not change. Create a new signed update link.";
-        patch.visualProof = "unchanged";
-      } else if (afterScreenshot) {
-        patch.visualProof = "changed";
-      }
-    }
     if (!patch.succeeded) {
       return {
         action: "hot-reload-failed",
@@ -474,10 +525,32 @@ export async function routeLiveChange({ beforePath, afterPath, project = "", hos
 export async function injectLiveSource(sourcePath) {
   const source = resolve(sourcePath || "");
   const startedAt = Date.now();
-  const queued = await engineControl({ action: "inject_source", path: source });
+  let mode = "interposition";
+  let queued;
+  try {
+    const generated = compileDynamicReplacement(source);
+    if (generated) {
+      mode = "swift-dynamic-replacement";
+      queued = await engineControl({
+        action: "inject_dylib",
+        path: generated.dylibPath,
+        source,
+      });
+    } else {
+      queued = await engineControl({ action: "inject_source", path: source });
+    }
+  } catch (error) {
+    return {
+      succeeded: false,
+      mode: "swift-dynamic-replacement",
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
   if (!queued?.success) {
     return {
       succeeded: false,
+      mode,
       durationMs: Date.now() - startedAt,
       error: queued?.error || "The live engine did not accept the source file.",
     };
@@ -490,8 +563,10 @@ export async function injectLiveSource(sourcePath) {
       const succeeded = status?.data?.last_injection_succeeded === true;
       return {
         succeeded,
+        mode,
         requestID,
         durationMs: Date.now() - startedAt,
+        report: status?.data?.last_patch_report || null,
         error: succeeded
           ? ""
           : status?.data?.last_error || "The patch was compiled but the running app rejected it.",
@@ -501,31 +576,130 @@ export async function injectLiveSource(sourcePath) {
   }
   return {
     succeeded: false,
+    mode,
     requestID,
     durationMs: Date.now() - startedAt,
     error: "The live patch timed out. Keep the app foregrounded or create a new signed update link.",
   };
 }
 
-async function captureLiveScreenshot() {
-  const response = await engineControl({ action: "take_screenshot" });
-  const data = response?.success ? response.data?.data : "";
-  return typeof data === "string" && data
-    ? createHash("sha256").update(data).digest("hex")
-    : null;
-}
+function compileDynamicReplacement(sourcePath) {
+  const source = readFileSync(sourcePath, "utf8");
+  const manifest = readJSONFile(LIVE_MANIFEST);
+  const context = manifest?.compilations?.find((item) =>
+    item.sources?.some((candidate) => resolve(candidate) === sourcePath)
+  );
+  if (!context) return null;
+  const replacement = generateDynamicReplacementSource({
+    source,
+    sourcePath,
+    moduleName: context.moduleName,
+  });
+  if (!replacement) return null;
 
-function isSwiftUIViewSource(path) {
-  try {
-    return requiresLiveVisualProof(readFileSync(path, "utf8"));
-  } catch {
-    return false;
+  const identifier = `${Date.now()}-${process.pid}`;
+  const patchDirectory = join(LIVE_PATCH_ROOT, identifier);
+  const moduleName = `SwiftSimLivePatch_${identifier.replaceAll("-", "_")}`;
+  const generatedPath = join(patchDirectory, "SwiftSimLivePatch.swift");
+  const dylibPath = join(patchDirectory, `eval_injection_swift_sim_dynamic_${identifier}.dylib`);
+  mkdirSync(patchDirectory, { recursive: true });
+  writeFileSync(generatedPath, replacement, { mode: 0o600 });
+  const result = spawnSync("xcrun", [
+    "swiftc", "-emit-library", generatedPath,
+    "-module-name", moduleName,
+    ...(context.compilerArguments || []),
+    "-Xfrontend", "-disable-access-control",
+    "-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup",
+    "-o", dylibPath,
+  ], {
+    cwd: context.workingDirectory || process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (result.status !== 0 || !existsSync(dylibPath)) {
+    throw new Error(cleanCompilerError(result.stderr || result.stdout));
   }
+  return { dylibPath, generatedPath };
 }
 
-export function requiresLiveVisualProof(source) {
-  return /\b(?:struct|class)\s+\w+(?:\s*<[^>{}]+>)?\s*:\s*[^{\n]*\bView\b/.test(source)
-    && /\bvar\s+body\s*:\s*some\s+View\b/.test(source);
+function cleanCompilerError(output) {
+  const lines = String(output || "The SwiftUI replacement could not be compiled.")
+    .split(/\r?\n/)
+    .filter((line) => !line.includes("remark: Incremental compilation"));
+  return lines.slice(-20).join("\n").trim();
+}
+
+export function generateDynamicReplacementSource({ source, sourcePath, moduleName }) {
+  const views = swiftUIViewBodies(source);
+  if (views.length === 0) return "";
+  const imports = [...source.matchAll(/^\s*(?:@testable\s+)?import\s+([A-Za-z_][A-Za-z0-9_]*)[^\n]*$/gm)]
+    .map((match) => match[0].trim())
+    .filter((line) => !line.endsWith(` ${moduleName}`));
+  const sourceFile = basename(sourcePath).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+  const replacements = views.map((view, index) => `
+extension ${view.qualifiedName} {
+    @_dynamicReplacement(for: body)
+    private var __swiftSim_body_${index + 1}: some View ${view.body}
+}`).join("\n");
+  return `@_private(sourceFile: "${sourceFile}") import ${moduleName}\n${imports.join("\n")}\n${replacements}\n`;
+}
+
+function swiftUIViewBodies(source) {
+  const masked = maskCommentsAndStrings(source);
+  const candidates = [];
+  const declaration = /\b(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)[^{}\n]*:\s*[^{}\n]*\bView\b[^{}]*\{/g;
+  for (const match of masked.matchAll(declaration)) {
+    const open = match.index + match[0].lastIndexOf("{");
+    const close = matchingBrace(masked, open);
+    if (close < 0) continue;
+    candidates.push({ name: match[1], open, close });
+  }
+  candidates.sort((left, right) => left.open - right.open);
+  for (const candidate of candidates) {
+    const parent = candidates
+      .filter((possible) => possible.open < candidate.open && possible.close > candidate.close)
+      .sort((left, right) => right.open - left.open)[0];
+    candidate.qualifiedName = parent
+      ? `${parent.qualifiedName || parent.name}.${candidate.name}`
+      : candidate.name;
+  }
+
+  const output = [];
+  for (const candidate of candidates) {
+    const memberSource = masked.slice(candidate.open + 1, candidate.close);
+    const bodyPattern = /\bvar\s+body\s*:\s*some\s+(?:SwiftUI\.)?View\s*\{/g;
+    for (const match of memberSource.matchAll(bodyPattern)) {
+      const declarationOffset = candidate.open + 1 + match.index;
+      if (braceDepth(masked, candidate.open + 1, declarationOffset) !== 0) continue;
+      const bodyOpen = declarationOffset + match[0].lastIndexOf("{");
+      const bodyClose = matchingBrace(masked, bodyOpen);
+      if (bodyClose < 0 || bodyClose > candidate.close) continue;
+      output.push({
+        qualifiedName: candidate.qualifiedName,
+        body: source.slice(bodyOpen, bodyClose + 1),
+      });
+      break;
+    }
+  }
+  return output;
+}
+
+function matchingBrace(source, open) {
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+function braceDepth(source, start, end) {
+  let depth = 0;
+  for (let index = start; index < end; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") depth -= 1;
+  }
+  return depth;
 }
 
 function installedEngineMatchesManifest() {
@@ -692,7 +866,9 @@ function discoverTailnet() {
   ].filter(Boolean);
 
   for (const command of [...new Set(commands)]) {
-    for (const socket of [undefined, ...sockets]) {
+    // The regular CLI can spend several seconds waiting for the system daemon
+    // when Swift Sim is using a userspace socket. Try known live sockets first.
+    for (const socket of [...sockets, undefined]) {
       const prefix = socket ? [`--socket=${socket}`] : [];
       const result = spawnSync(command, [...prefix, "ip", "-4"], { encoding: "utf8" });
       const host = validTailnetIPv4(result.status === 0 ? result.stdout : "");

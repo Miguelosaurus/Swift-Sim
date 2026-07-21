@@ -88,7 +88,7 @@ The JSON reports the missing prerequisite. Common causes are:
 - The private engine was not provisioned by `swift-sim setup`.
 - Tailscale is disconnected on the Mac or iPhone.
 - The project does not link `SwiftSimLive`.
-- Debug `OTHER_LDFLAGS` does not contain `-Xlinker -interposable`.
+- The installed Debug app predates Swift Sim's managed live build settings.
 - Swift Sim could not find the development identity used by the installed app.
 - The installed app is a Release build rather than the prepared Debug build.
 
@@ -98,7 +98,7 @@ Do not make port 8887 public to work around connectivity. Use the normal Swift S
 
 Run `swift-sim route-change` with the before and after Swift files. If it returns `build-device`, the change crossed a structural boundary and needs a new link.
 
-If it returns `hot-reload`, Swift Sim proved the patch completed. For SwiftUI source it also proved the rendered screen changed. `hot-reload-failed` is actionable fallback—not partial success—so immediately run the normal `swift-sim build-device` flow and return a fresh update link. A compiler error, disconnected or locked device, timeout, or visually unchanged SwiftUI patch all take that fallback. Do not repeatedly inject a structural change.
+If it returns `hot-reload`, Swift Sim proved the patch completed and the running app acknowledged a new root revision. `hot-reload-failed` is actionable fallback—not partial success—so immediately run the normal `swift-sim build-device` flow and return a fresh update link. A compiler error, missing replacement descriptor, missing refresh acknowledgment, disconnected or locked device, or timeout all take that fallback. Do not repeatedly inject a structural change or capture a screenshot for each edit.
 
 ## Temporary Delivery Tunnel Fails
 

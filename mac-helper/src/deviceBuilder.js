@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity } from "./deviceBuildStore.js";
@@ -22,7 +22,13 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     build.state = "preparing";
     saveBuild();
     const target = resolveTarget(build);
-    const buildSettingArgs = xcodeBuildSettingArgs(build.buildSettings);
+    const requestedBuildSettingArgs = xcodeBuildSettingArgs(build.buildSettings);
+    const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
+      && target.type === "project"
+      && projectHasLivePackage(target);
+    const buildSettingArgs = liveEligible
+      ? [...requestedBuildSettingArgs, ...managedLiveBuildSettings()]
+      : requestedBuildSettingArgs;
     const root = join(homedir(), ".swift-sim", "device-builds", build.id);
     const archivePath = join(root, `${safeName(build.scheme || "App")}.xcarchive`);
     const exportPath = join(root, "export");
@@ -58,8 +64,6 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
 
     build.state = "archiving";
     saveBuild();
-    const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
-      && (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"));
     let liveSession = null;
     if (liveEligible && target.type === "project") {
       try {
@@ -85,27 +89,37 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
         log("Live patch preparation was unavailable; the signed install will still continue.");
       }
     }
-    log("Archiving for generic iOS device.");
-    await runLogged("xcodebuild", [
-      ...targetArgs(target),
-      "-scheme", required(build.scheme, "scheme"),
-      "-configuration", build.configuration || "Release",
-      ...buildSettingArgs,
-      "-destination", "generic/platform=iOS",
-      "-archivePath", archivePath,
-      ...(liveSession?.started ? ["-resultBundlePath", resultBundlePath] : []),
-      ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
-      "archive",
-    ], log, {
-      env: liveSession?.started
-        ? {
+    if (liveSession?.started) {
+      build.state = "building";
+      saveBuild();
+      const derivedDataPath = join(root, "DerivedData");
+      log("Building the signed live-enabled Debug app.");
+      await runLogged("xcodebuild", [
+        ...targetArgs(target),
+        "-scheme", required(build.scheme, "scheme"),
+        "-configuration", build.configuration || "Debug",
+        ...buildSettingArgs,
+        "-destination", "generic/platform=iOS",
+        "-derivedDataPath", derivedDataPath,
+        "-resultBundlePath", resultBundlePath,
+        ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
+        "build",
+      ], log, {
+        env: {
           ...process.env,
           INJECTION_HOST: liveSession.host,
-        }
-        : process.env,
-    });
+        },
+      });
 
-    if (liveSession?.started) {
+      const appPath = findBuiltApp(join(derivedDataPath, "Build", "Products"), build.scheme);
+      if (!appPath) {
+        throw new DeviceBuildError("Xcode finished, but the signed Debug app could not be found.");
+      }
+      if (!containsDebugDylib(appPath)) {
+        throw new DeviceBuildError(
+          "Xcode did not produce the required Debug dylib. Swift Sim cannot safely enable hot reload for this build."
+        );
+      }
       try {
         const capture = await registerLiveBuildResult({ resultBundle: resultBundlePath });
         build.liveReload = {
@@ -117,16 +131,34 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
         };
         log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
       } catch (error) {
-        build.liveReload = {
-          eligible: true,
-          engineReady: true,
-          compilerReady: false,
-          host: liveSession.host,
-          error: error instanceof Error ? error.message : String(error),
-        };
-        log("The build is installable, but live patching needs a new baseline build.");
+        throw new DeviceBuildError(
+          `The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
+
+      build.state = "exporting";
+      saveBuild();
+      log("Packaging the signed Debug app as an installable IPA.");
+      const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
+      build.artifacts.ipaPath = ipaPath;
+      build.app.name = displayNameFromIpa(ipaPath) || build.scheme || basename(ipaPath, ".ipa");
+      build.state = "ready";
+      saveBuild();
+      log("Build is ready to install and hot reload.");
+      return build;
     }
+
+    log("Archiving for generic iOS device.");
+    await runLogged("xcodebuild", [
+      ...targetArgs(target),
+      "-scheme", required(build.scheme, "scheme"),
+      "-configuration", build.configuration || "Release",
+      ...buildSettingArgs,
+      "-destination", "generic/platform=iOS",
+      "-archivePath", archivePath,
+      ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
+      "archive",
+    ], log);
 
     build.state = "exporting";
     saveBuild();
@@ -213,7 +245,8 @@ export function deviceBuildLinks(build, remoteBaseUrl = "") {
 
 export function publicDeviceBuild(build) {
   const liveReloadEligible = String(build.configuration || "").toLowerCase() === "debug"
-    && (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"));
+    && Boolean(build.liveReload?.eligible
+      || (build.buildSettings || []).some((setting) => String(setting).includes("-interposable")));
   return {
     id: build.id,
     createdAt: build.createdAt,
@@ -404,6 +437,67 @@ function findIpa(exportPath) {
     .filter((file) => file.endsWith(".ipa"))
     .map((file) => join(exportPath, file));
   return candidates[0] || "";
+}
+
+function projectHasLivePackage(target) {
+  try {
+    return /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(
+      readFileSync(join(target.path, "project.pbxproj"), "utf8")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function managedLiveBuildSettings() {
+  return [
+    "ENABLE_DEBUG_DYLIB=YES",
+    "ENABLE_PREVIEWS=NO",
+    "ENABLE_XOJIT_PREVIEWS=YES",
+    "SWIFT_OPTIMIZATION_LEVEL=-Onone",
+    "EMIT_FRONTEND_COMMAND_LINES=YES",
+    "COMPILATION_CACHE_ENABLE_CACHING=NO",
+    "OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -enable-implicit-dynamic -enable-private-imports",
+    "OTHER_LDFLAGS=$(inherited) -Xlinker -interposable",
+  ];
+}
+
+function findBuiltApp(directory, scheme) {
+  if (!existsSync(directory)) return "";
+  const preferred = `${safeName(scheme)}.app`;
+  const apps = [];
+  const visit = (path) => {
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      const candidate = join(path, entry.name);
+      if (entry.isDirectory() && entry.name.endsWith(".app")) apps.push(candidate);
+      else if (entry.isDirectory()) visit(candidate);
+    }
+  };
+  visit(directory);
+  return apps.find((path) => basename(path) === preferred)
+    || apps.find((path) => !path.includes("PackageFrameworks"))
+    || "";
+}
+
+function containsDebugDylib(appPath) {
+  return readdirSync(appPath).some((name) => name.endsWith(".debug.dylib"));
+}
+
+function packageBuiltApp(appPath, exportPath, scheme) {
+  const staging = join(exportPath, ".ipa-staging");
+  const payload = join(staging, "Payload");
+  const ipaPath = join(exportPath, `${safeName(scheme || basename(appPath, ".app"))}.ipa`);
+  rmSync(staging, { recursive: true, force: true });
+  mkdirSync(payload, { recursive: true });
+  cpSync(appPath, join(payload, basename(appPath)), { recursive: true, preserveTimestamps: true });
+  const result = spawnSync("/usr/bin/ditto", [
+    "-c", "-k", "--sequesterRsrc", "--keepParent", payload, ipaPath,
+  ], { encoding: "utf8" });
+  rmSync(staging, { recursive: true, force: true });
+  if (result.status !== 0 || !existsSync(ipaPath)) {
+    throw new DeviceBuildError(String(result.stderr || "Unable to package the signed Debug app.").trim());
+  }
+  return ipaPath;
 }
 
 function displayNameFromIpa(ipaPath) {
