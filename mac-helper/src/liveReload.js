@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -13,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createConnection } from "node:net";
-import { arch, homedir } from "node:os";
+import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 const ENGINE_VERSION = "0.4.0";
@@ -35,6 +37,34 @@ export function classifyLiveChange({ beforePath, afterPath }) {
   const before = requiredSwiftSource(beforePath, "before");
   const after = requiredSwiftSource(afterPath, "after");
   return classifySwiftSource(before, after, { beforePath, afterPath });
+}
+
+export function classifyLiveChanges({ beforePaths = [], afterPaths = [] }) {
+  if (beforePaths.length === 0 || beforePaths.length !== afterPaths.length) {
+    throw new Error("Pass the same nonzero number of --before and --after Swift files.");
+  }
+  const changes = beforePaths.map((beforePath, index) => classifyLiveChange({
+    beforePath,
+    afterPath: afterPaths[index],
+  }));
+  const rebuild = changes.find((change) => change.route === "rebuild-required");
+  if (rebuild) {
+    return {
+      route: "rebuild-required",
+      hotReloadable: false,
+      reason: rebuild.reason,
+      changes,
+    };
+  }
+  const changed = changes.filter((change) => change.route === "hot-reload");
+  return {
+    route: changed.length > 0 ? "hot-reload" : "no-change",
+    hotReloadable: true,
+    reason: changed.length > 0
+      ? `${changed.length} implementation ${changed.length === 1 ? "file is" : "files are"} hot-reloadable.`
+      : "The Swift sources are unchanged.",
+    changes,
+  };
 }
 
 export function classifySwiftSource(before, after, paths = {}) {
@@ -360,6 +390,14 @@ export async function startLiveReload({ project = "", host = "" } = {}) {
       error: "No matching Apple Development signing identity was found.",
     };
   }
+  const signing = verifySigningIdentity(signingIdentity);
+  if (!signing.ready) {
+    return {
+      ...status,
+      started: false,
+      error: signing.error,
+    };
+  }
 
   const running = await engineControl({ action: "status" });
   const session = readJSONFile(ENGINE_SESSION);
@@ -491,30 +529,46 @@ async function primeEngineWatcher(projectRoot) {
 }
 
 export async function routeLiveChange({ beforePath, afterPath, project = "", host = "" }) {
-  const change = classifyLiveChange({ beforePath, afterPath });
+  return routeLiveChanges({
+    beforePaths: [beforePath],
+    afterPaths: [afterPath],
+    project,
+    host,
+  });
+}
+
+export async function routeLiveChanges({ beforePaths = [], afterPaths = [], project = "", host = "" }) {
+  const change = classifyLiveChanges({ beforePaths, afterPaths });
   const live = await inspectLiveReload({ project, host });
 
   if (change.route === "no-change") {
     return { action: "none", change, live };
   }
   if (change.hotReloadable && live.ready) {
-    const patch = await injectLiveSource(afterPath);
-    if (!patch.succeeded) {
-      return {
-        action: "hot-reload-failed",
-        change,
-        live: await inspectLiveReload({ project, host }),
-        patch,
-        message: patch.error
-          || "The live patch did not complete. Fix the compile error or create a new signed update link.",
-      };
+    const patches = [];
+    for (const file of change.changes.filter((item) => item.route === "hot-reload")) {
+      const patch = await injectLiveSource(file.after);
+      patches.push(patch);
+      if (!patch.succeeded) {
+        return {
+          action: "hot-reload-failed",
+          change,
+          live: await inspectLiveReload({ project, host }),
+          patch,
+          patches,
+          message: patch.error
+            || "The live patch did not complete. Fix the compile error or create a new signed update link.",
+        };
+      }
     }
+    const durationMs = patches.reduce((total, patch) => total + patch.durationMs, 0);
     return {
       action: "hot-reload",
       change,
       live: await inspectLiveReload({ project, host }),
-      patch,
-      message: `Patch applied in ${patch.durationMs} ms without a new build or install.`,
+      patch: patches[0],
+      patches,
+      message: `${patches.length === 1 ? "Patch" : `${patches.length} patches`} applied in ${durationMs} ms without a new build or install.`,
     };
   }
   return {
@@ -525,6 +579,29 @@ export async function routeLiveChange({ beforePath, afterPath, project = "", hos
       ? "The edit is hot-reloadable, but the live lane is not ready. Create a new Swift Sim update link."
       : "The edit changes compiled structure. Create a new Swift Sim update link.",
   };
+}
+
+function verifySigningIdentity(identity) {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-signing-"));
+  const executable = join(directory, "signing-probe");
+  try {
+    copyFileSync(ENGINE_EXECUTABLE, executable);
+    const result = spawnSync(
+      "/usr/bin/codesign",
+      ["--force", "--timestamp=none", "--sign", identity, executable],
+      { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    if (result.status === 0) return { ready: true, error: "" };
+    const detail = result.error?.code === "ETIMEDOUT"
+      ? "macOS did not grant private-key access within 10 seconds."
+      : String(result.stderr || result.stdout || "The signing probe failed.").trim();
+    return {
+      ready: false,
+      error: `The matching Apple Development identity cannot sign a live patch noninteractively. ${detail} Open the app once from Xcode and choose Always Allow if macOS asks for key access.`,
+    };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 export async function injectLiveSource(sourcePath) {

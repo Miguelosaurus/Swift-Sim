@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeviceBuildStore, deviceAppIdentity } from "../mac-helper/src/deviceBuildStore.js";
+import {
+  DeviceBuildStore,
+  MAX_DEVICE_BUILD_LOG_LINES,
+  deviceAppIdentity,
+} from "../mac-helper/src/deviceBuildStore.js";
 
 function withStore(run) {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-store-test-"));
@@ -43,6 +47,20 @@ test("same bundle signed by another team remains a different app", () => withSto
   completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
   completeBuild(store, "Example", "com.example.app", "TEAM999", "1.0", "1");
   assert.equal(store.listApps().length, 2);
+}));
+
+test("device build logs stay bounded to the user-visible diagnostic tail", () => withStore((store) => {
+  const build = store.create({ scheme: "Example" });
+  build.logs = Array.from(
+    { length: MAX_DEVICE_BUILD_LOG_LINES + 25 },
+    (_, index) => `line-${index}`
+  );
+  store.save(build);
+
+  const saved = store.get(build.id);
+  assert.equal(saved.logs.length, MAX_DEVICE_BUILD_LOG_LINES);
+  assert.equal(saved.logs[0], "line-25");
+  assert.equal(saved.logs.at(-1), `line-${MAX_DEVICE_BUILD_LOG_LINES + 24}`);
 }));
 
 test("archive hides an app without deleting its build history", () => withStore((store) => {

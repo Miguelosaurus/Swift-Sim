@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { homedir } from "node:os";
-import { deviceAppIdentity } from "./deviceBuildStore.js";
+import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
 import {
   registerLiveBuildResult,
   startLiveReload,
@@ -12,10 +12,18 @@ export class DeviceBuildError extends Error {}
 
 export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
   const saveBuild = () => save?.(build);
+  let lastLogSaveAt = 0;
   const log = (message) => {
     build.logs.push(message);
+    if (build.logs.length > MAX_DEVICE_BUILD_LOG_LINES) {
+      build.logs.splice(0, build.logs.length - MAX_DEVICE_BUILD_LOG_LINES);
+    }
     logger(message);
-    saveBuild();
+    const now = Date.now();
+    if (now - lastLogSaveAt >= 1_000) {
+      lastLogSaveAt = now;
+      saveBuild();
+    }
   };
 
   try {

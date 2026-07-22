@@ -118,13 +118,14 @@ Swift Sim can accelerate an already-installed Debug app without turning it into 
 
 This path is validated end to end on a physical iPhone: consecutive SwiftUI body edits compiled, crossed the private Tailnet, loaded into the regular signed app, and returned runtime refresh acknowledgments in 650 ms and 546 ms. That proves the mechanism and latency, not a universal percentage of app edits; Swift Sim still classifies every change and rebuilds when live Swift metadata would change.
 
-The project adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at its root view. It does not add Swift Sim code to every view or every source line. Release builds make the modifier a no-op.
+The coding agent adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at the app's root view as a one-time project change. The user does not operate the engine or scatter Swift Sim code through the app. Release builds make the modifier a no-op.
 
 The coding-agent integration runs `swift-sim route-change` to choose the safe path:
 
 - Compatible implementation and SwiftUI body edits are attempted when the live lane is connected. SwiftUI changes use compiler-supported dynamic replacement and count as successful only after the running app acknowledges a new root revision.
 - Stored properties, type shape, function signatures, imports, packages, resources, assets, configuration, entitlements, and signing changes create a fresh signed update link.
 - If compilation, delivery, runtime replacement, or root refresh cannot be proved within a few seconds, the agent falls back to a normal build.
+- Multi-file implementation edits can reload in one routed operation. If any changed file crosses a structural boundary, the entire edit uses a fresh signed update instead.
 
 This is a development feature, not downloadable-code support for App Store builds. It requires one initial live-enabled Debug install and Tailscale on both devices. See [Setup](docs/SETUP.md) for the one-time preparation.
 

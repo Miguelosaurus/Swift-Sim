@@ -4,6 +4,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+## 0.5.0 - 2026-07-22
+
 ### Added
 
 - A user-transparent headless live engine that Swift Sim provisions, verifies, launches, and configures without a separate Mac app workflow.
@@ -11,6 +13,7 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Private Tailscale userspace forwarding for remote iPhones that are not on the Mac's Wi-Fi.
 - Compiler-supported SwiftUI dynamic replacements with a root-revision acknowledgment, so zero-effect patches fail without screenshot analysis.
 - Physical-iPhone end-to-end proof over a private Tailnet, including two consecutive acknowledged SwiftUI replacements in under one second each without rebuilding or reinstalling the app.
+- Multi-file hot reload routing that patches implementation-only Swift changes together and sends the entire edit through a signed rebuild when any file changes structure.
 
 ### Changed
 
@@ -20,6 +23,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Made first-time development provisioning select a reachable physical iPhone so Xcode can register it automatically, and made userspace Tailscale discovery fail fast instead of hanging behind a stale system CLI.
 - Updated the pinned engine to avoid multicast loops on Swift Sim's explicit Tailnet route and to sign physical-device patches without blocking its main queue.
 - Bounded stale live-engine logs on restart so a transport failure cannot leave an unbounded diagnostic file.
+- Added a noninteractive signing preflight before engine startup, avoiding a delayed first-patch failure when macOS has not granted private-key access.
+- Bounded persisted device-build logs and throttled progress writes to keep long Xcode builds responsive.
+- Switched Homebrew releases to checksum-pinned, explicit GitHub release bundles that are never replaced in place.
 
 ## 0.3.0 - 2026-07-18
 

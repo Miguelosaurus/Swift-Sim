@@ -18,7 +18,7 @@ if (args === "plugin marketplace list --json") {
   writeFileSync(`${state}.marketplace`, "removed\n");
 } else if (args === "plugin list --json") {
   console.log(JSON.stringify(existsSync(`${state}.plugin`)
-    ? [{ id: "swift-sim-companion@swift-sim", version: process.env.FAKE_CLAUDE_PLUGIN_VERSION || "0.4.0", enabled: true }]
+    ? [{ id: "swift-sim-companion@swift-sim", version: process.env.FAKE_CLAUDE_PLUGIN_VERSION || "0.5.0", enabled: true }]
     : []));
 } else if (args.startsWith("plugin install ") || args.startsWith("plugin update ") || args.startsWith("plugin enable ")) {
   writeFileSync(`${state}.plugin`, "ready\n");

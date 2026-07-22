@@ -131,8 +131,8 @@ Remote hot reload is separate from Simulator preview. It keeps a regular develop
 One-time setup:
 
 1. Run `swift-sim setup`. Swift Sim downloads its pinned, checksum-verified headless engine into `~/.swift-sim`; there is no separate app to install or configure.
-2. In the target project, add `https://github.com/Miguelosaurus/Swift-Sim` as a package dependency and link `SwiftSimLive`.
-3. Add `.swiftSimLive()` once to the root SwiftUI view.
+2. Ask the coding agent to enable Swift Sim live edits. It adds `https://github.com/Miguelosaurus/Swift-Sim`, links `SwiftSimLive`, and adds `.swiftSimLive()` once to the root SwiftUI view.
+3. Review that one-time project diff if desired; there is no separate injection app or per-view setup.
 4. Connect Tailscale on the Mac and iPhone.
 5. Run `swift-sim live-start --project "/absolute/App.xcodeproj/project.pbxproj"`. Swift Sim selects the matching development identity and configures the private route automatically.
 

@@ -200,9 +200,9 @@ When setup is healthy and the app is unpaired, the coding agent should give the 
 
 This lane keeps a regular signed Debug app installed on the iPhone, then sends same-team-signed implementation patches to the running process. It does not stream a Simulator. It is never a Release, TestFlight, or App Store mechanism.
 
-One-time project preparation:
+One-time project preparation (perform this for the user as part of enabling remote hot reload):
 
-1. Add `https://github.com/Miguelosaurus/Swift-Sim` as a Swift Package dependency and link the `SwiftSimLive` product to the app target.
+1. Add `https://github.com/Miguelosaurus/Swift-Sim` as a Swift Package dependency and link the `SwiftSimLive` product to the app target. Inspect the existing Xcode project first and preserve its current package and target structure.
 2. Add `.swiftSimLive()` once to the app's root SwiftUI view. Do not add it to every view or every source line.
 3. Run `swift-sim setup`. Swift Sim installs and manages its checksum-verified headless engine and resolves the app's development identity; never ask the user to install or operate a separate injection app.
 4. Connect both devices to the same private Tailnet. Never expose injection port 8887 through Tailscale Funnel, a public tunnel, or a public firewall rule.
@@ -239,6 +239,8 @@ swift-sim route-change \
   --after "<path-to-current.swift>" \
   --project "<absolute-project.xcodeproj/project.pbxproj>"
 ```
+
+For a multi-file edit, repeat `--before` and `--after` in matching order in the same command. If any file is structural, Swift Sim returns one `build-device` decision for the whole edit. Do not split a mixed structural edit into partial hot reloads.
 
 Honor the returned `action`:
 

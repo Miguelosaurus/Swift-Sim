@@ -10,7 +10,7 @@ if [[ -z "$VERSION" ]]; then
   exit 2
 fi
 
-ARCHIVE_URL="https://github.com/Miguelosaurus/Swift-Sim/archive/refs/tags/v$VERSION.tar.gz"
+ARCHIVE_URL="https://github.com/Miguelosaurus/Swift-Sim/releases/download/v$VERSION/swift-sim-$VERSION.tar.gz"
 TEMP_ARCHIVE="$(mktemp -t swift-sim-release).tar.gz"
 trap 'rm -f "$TEMP_ARCHIVE"' EXIT
 

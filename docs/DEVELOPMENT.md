@@ -113,6 +113,19 @@ When behavior changes:
 - keep screenshots and examples free of real links, tokens, identifiers, and hostnames;
 - update issue or pull-request guidance when contributor expectations change.
 
+## Release Hygiene
+
+Tagged releases use an explicit repository bundle instead of GitHub's regenerated source archive:
+
+1. Update the package, companion, and plugin versions together; move the changelog entries out of `Unreleased`.
+2. Run `npm run check`, `swift test`, the unsigned Simulator build, and both plugin validators.
+3. Commit and push `main`, create the immutable `v<version>` tag, then build `swift-sim-<version>.tar.gz` with `git archive --prefix=swift-sim-<version>/`.
+4. Publish that bundle and its SHA-256 file on the GitHub release.
+5. Run `scripts/release/render-homebrew-formula.sh <version>` only after the assets are public. Commit the resulting formula to `Miguelosaurus/homebrew-tap` and verify a clean Homebrew install.
+6. Run `swift-sim setup` so the installed Codex, Cursor, Claude Code, and OpenCode integrations match the tagged package.
+
+Never replace an asset on an existing release. A changed artifact requires a new version and tag.
+
 ## Scope Rules
 
 - Keep the selected host as the only coding agent; Swift Sim must not spawn another one.

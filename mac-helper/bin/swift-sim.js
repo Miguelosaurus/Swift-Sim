@@ -8,9 +8,11 @@ import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
 import {
   classifyLiveChange,
+  classifyLiveChanges,
   ensureLiveEngineInstalled,
   inspectLiveReload,
   routeLiveChange,
+  routeLiveChanges,
   startLiveReload,
 } from "../src/liveReload.js";
 
@@ -89,14 +91,16 @@ function classifyChange(args) {
   const { values } = parseArgs({
     args,
     options: {
-      before: { type: "string" },
-      after: { type: "string" },
+      before: { type: "string", multiple: true },
+      after: { type: "string", multiple: true },
     },
   });
-  console.log(JSON.stringify(classifyLiveChange({
-    beforePath: values.before,
-    afterPath: values.after,
-  }), null, 2));
+  const beforePaths = values.before || [];
+  const afterPaths = values.after || [];
+  const result = beforePaths.length === 1 && afterPaths.length === 1
+    ? classifyLiveChange({ beforePath: beforePaths[0], afterPath: afterPaths[0] })
+    : classifyLiveChanges({ beforePaths, afterPaths });
+  console.log(JSON.stringify(result, null, 2));
 }
 
 async function routeChange(args) {
@@ -104,16 +108,22 @@ async function routeChange(args) {
     args,
     options: {
       ...liveOptions(),
-      before: { type: "string" },
-      after: { type: "string" },
+      before: { type: "string", multiple: true },
+      after: { type: "string", multiple: true },
     },
   });
-  console.log(JSON.stringify(await routeLiveChange({
-    beforePath: values.before,
-    afterPath: values.after,
-    project: values.project,
-    host: values.host,
-  }), null, 2));
+  const beforePaths = values.before || [];
+  const afterPaths = values.after || [];
+  const result = beforePaths.length === 1 && afterPaths.length === 1
+    ? routeLiveChange({
+      beforePath: beforePaths[0], afterPath: afterPaths[0],
+      project: values.project, host: values.host,
+    })
+    : routeLiveChanges({
+      beforePaths, afterPaths,
+      project: values.project, host: values.host,
+    });
+  console.log(JSON.stringify(await result, null, 2));
 }
 
 function liveOptions() {

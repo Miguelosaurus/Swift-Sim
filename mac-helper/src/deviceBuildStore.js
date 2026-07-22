@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 
+export const MAX_DEVICE_BUILD_LOG_LINES = 500;
+
 export class DeviceBuildStore {
   constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
     this.path = path;
@@ -68,6 +70,7 @@ export class DeviceBuildStore {
   }
 
   save(build) {
+    normalizeBuild(build);
     build.updatedAt = new Date().toISOString();
     this.builds.set(build.id, build);
     this.flush();
@@ -226,6 +229,9 @@ function normalizeBuild(build) {
   build.app = build.app || {};
   build.app.identity = build.app.identity || deviceAppIdentity(build.app);
   build.installation = normalizeInstallation(build.installation);
+  build.logs = Array.isArray(build.logs)
+    ? build.logs.slice(-MAX_DEVICE_BUILD_LOG_LINES)
+    : [];
   return build;
 }
 
