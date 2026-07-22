@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildManifest, deviceBuildLinks, publicDeviceBuild } from "../mac-helper/src/deviceBuilder.js";
+import {
+  buildManifest,
+  deviceBuildLinks,
+  physicalIOSDestination,
+  publicDeviceBuild,
+} from "../mac-helper/src/deviceBuilder.js";
 
 function fixtureBuild() {
   return {
@@ -81,4 +86,23 @@ test("public device build hides artifact paths", () => {
   assert.equal(publicBuild.configuration, "Debug");
   assert.equal(publicBuild.liveReload.eligible, true);
   assert.equal(JSON.stringify(publicBuild).includes("/Users/example"), false);
+});
+
+test("live device builds prefer an available physical iPhone for first-time provisioning", () => {
+  const output = JSON.stringify([
+    {
+      platform: "com.apple.platform.iphonesimulator",
+      simulator: true,
+      available: true,
+      identifier: "SIMULATOR-ID",
+    },
+    {
+      platform: "com.apple.platform.iphoneos",
+      simulator: false,
+      available: true,
+      identifier: "PHYSICAL-ID",
+    },
+  ]);
+  assert.equal(physicalIOSDestination(output), "platform=iOS,id=PHYSICAL-ID");
+  assert.equal(physicalIOSDestination("invalid"), "generic/platform=iOS");
 });

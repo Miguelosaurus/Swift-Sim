@@ -227,6 +227,8 @@ swift-sim build-device \
   --allow-provisioning-updates
 ```
 
+Keep a trusted physical iPhone reachable for the first build. Swift Sim selects it as the Xcode destination so automatic signing can register the device and create the development profile. If macOS presents a one-time private-key access prompt for the target's matching Apple Development identity, tell the user to choose **Always Allow**; do not silently switch signing teams or identities to bypass it.
+
 The user installs this initial build through the normal **Open in Swift Sim to Install** handoff. After it launches and connects, future compatible saves can arrive without rebuilding or reinstalling the `.ipa`.
 
 Before or immediately after each Swift edit, compare the prior file and proposed/current file:

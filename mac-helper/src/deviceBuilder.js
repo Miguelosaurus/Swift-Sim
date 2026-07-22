@@ -93,16 +93,26 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       build.state = "building";
       saveBuild();
       const derivedDataPath = join(root, "DerivedData");
+      const destination = build.allowProvisioningUpdates
+        ? preferredPhysicalIOSDestination()
+        : "generic/platform=iOS";
       log("Building the signed live-enabled Debug app.");
       await runLogged("xcodebuild", [
         ...targetArgs(target),
         "-scheme", required(build.scheme, "scheme"),
         "-configuration", build.configuration || "Debug",
         ...buildSettingArgs,
-        "-destination", "generic/platform=iOS",
+        "-destination", destination,
         "-derivedDataPath", derivedDataPath,
         "-resultBundlePath", resultBundlePath,
-        ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
+        ...(build.allowProvisioningUpdates
+          ? [
+              "-allowProvisioningUpdates",
+              ...(destination === "generic/platform=iOS"
+                ? []
+                : ["-allowProvisioningDeviceRegistration"]),
+            ]
+          : []),
         "build",
       ], log, {
         env: {
@@ -460,6 +470,30 @@ function managedLiveBuildSettings() {
     "OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -enable-implicit-dynamic -enable-private-imports",
     "OTHER_LDFLAGS=$(inherited) -Xlinker -interposable",
   ];
+}
+
+function preferredPhysicalIOSDestination() {
+  const result = spawnSync("xcrun", ["xcdevice", "list", "--timeout", "3"], {
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  return physicalIOSDestination(result.status === 0 ? result.stdout : "");
+}
+
+export function physicalIOSDestination(output) {
+  try {
+    const devices = JSON.parse(String(output || "[]"));
+    const device = devices.find((candidate) =>
+      candidate?.platform === "com.apple.platform.iphoneos"
+      && candidate?.simulator === false
+      && candidate?.available === true
+      && typeof candidate?.identifier === "string"
+      && candidate.identifier
+    );
+    return device ? `platform=iOS,id=${device.identifier}` : "generic/platform=iOS";
+  } catch {
+    return "generic/platform=iOS";
+  }
 }
 
 function findBuiltApp(directory, scheme) {

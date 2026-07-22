@@ -92,6 +92,8 @@ The JSON reports the missing prerequisite. Common causes are:
 - Swift Sim could not find the development identity used by the installed app.
 - The installed app is a Release build rather than the prepared Debug build.
 
+Physical-device patches must be signed by the same Apple team as the installed app. If compilation completes but signing waits, look for the one-time macOS private-key prompt and choose **Always Allow**. Do not switch teams on an installed bundle: iOS rejects that as an incompatible update. If the matching private key is unavailable or cannot be authorized, use the normal signed-build lane.
+
 Do not make port 8887 public to work around connectivity. Use the normal Swift Sim signed update link until the private lane is healthy.
 
 ## A Live Edit Did Not Appear

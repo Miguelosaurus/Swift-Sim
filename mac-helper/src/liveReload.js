@@ -8,6 +8,8 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { createConnection } from "node:net";
@@ -15,7 +17,7 @@ import { arch, homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
 const ENGINE_VERSION = "0.4.0";
-const ENGINE_SHA256 = "fa376ea1dbcc1fbd3f451885459255f789759bcb246805b339d8734e28ba2083";
+const ENGINE_SHA256 = "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696";
 const ENGINE_URL = `https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-${ENGINE_VERSION}/swift-sim-engine-${ENGINE_VERSION}-arm64-signed.zip?sha256=${ENGINE_SHA256}`;
 const ENGINE_ROOT = join(homedir(), ".swift-sim", "engine");
 const ENGINE_APP = join(ENGINE_ROOT, "InjectionNext.app");
@@ -210,7 +212,7 @@ export async function ensureLiveEngineInstalled() {
   writeFileSync(ENGINE_MANIFEST, `${JSON.stringify({
     version: ENGINE_VERSION,
     sha256: ENGINE_SHA256,
-    sourceRevision: "9855a405d73107cff1a720abea81a1d08a4434e3",
+    sourceRevision: "abdf6467318599abd3e952c941fed12e0caef04e",
   }, null, 2)}\n`, { mode: 0o600 });
   rmSync(stagingPath, { recursive: true, force: true });
   rmSync(archivePath, { force: true });
@@ -372,6 +374,9 @@ export async function startLiveReload({ project = "", host = "" } = {}) {
   if (!alreadyWatching) {
     await stopLiveEngine();
     mkdirSync(LIVE_ROOT, { recursive: true });
+    if (existsSync(ENGINE_LOG) && statSync(ENGINE_LOG).size > 8 * 1024 * 1024) {
+      truncateSync(ENGINE_LOG, 0);
+    }
     const output = openSync(ENGINE_LOG, "a");
     const child = spawn(ENGINE_EXECUTABLE, [], {
       detached: true,
@@ -860,9 +865,9 @@ function discoverTailnet() {
   ].filter((path) => path && existsSync(path));
   const commands = [
     process.env.SWIFT_SIM_TAILSCALE_COMMAND,
-    "tailscale",
     "/opt/homebrew/bin/tailscale",
     "/usr/local/bin/tailscale",
+    "tailscale",
   ].filter(Boolean);
 
   for (const command of [...new Set(commands)]) {
@@ -870,7 +875,10 @@ function discoverTailnet() {
     // when Swift Sim is using a userspace socket. Try known live sockets first.
     for (const socket of [...sockets, undefined]) {
       const prefix = socket ? [`--socket=${socket}`] : [];
-      const result = spawnSync(command, [...prefix, "ip", "-4"], { encoding: "utf8" });
+      const result = spawnSync(command, [...prefix, "ip", "-4"], {
+        encoding: "utf8",
+        timeout: 2_000,
+      });
       const host = validTailnetIPv4(result.status === 0 ? result.stdout : "");
       if (host) return { command, prefix, socket: socket || "", host };
     }
@@ -883,7 +891,7 @@ function isPrivateForwardConfigured(tailnet) {
   const status = spawnSync(
     tailnet.command,
     [...tailnet.prefix, "serve", "status", "--json"],
-    { encoding: "utf8" }
+    { encoding: "utf8", timeout: 2_000 }
   );
   try {
     const config = JSON.parse(status.stdout);
@@ -906,7 +914,7 @@ function ensurePrivateTailnetForward(tailnet) {
       "8887",
       "tcp://127.0.0.1:8887",
     ],
-    { encoding: "utf8" }
+    { encoding: "utf8", timeout: 5_000 }
   );
   if (result.status !== 0) {
     throw new Error(

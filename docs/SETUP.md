@@ -136,6 +136,8 @@ One-time setup:
 4. Connect Tailscale on the Mac and iPhone.
 5. Run `swift-sim live-start --project "/absolute/App.xcodeproj/project.pbxproj"`. Swift Sim selects the matching development identity and configures the private route automatically.
 
+On the first development build, keep the target iPhone reachable. With `--allow-provisioning-updates`, Swift Sim selects that physical destination so Xcode can register the device and create the profile instead of failing a generic device build. If macOS asks whether `codesign` may use the matching development key, approve it once; **Always Allow** keeps later headless patches fast.
+
 Check the machine-readable setup state:
 
 ```sh

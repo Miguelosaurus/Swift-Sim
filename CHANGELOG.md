@@ -10,12 +10,16 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Deterministic compiler-command capture and source injection with request-correlated completion in place of file-watcher timing.
 - Private Tailscale userspace forwarding for remote iPhones that are not on the Mac's Wi-Fi.
 - Compiler-supported SwiftUI dynamic replacements with a root-revision acknowledgment, so zero-effect patches fail without screenshot analysis.
+- Physical-iPhone end-to-end proof over a private Tailnet, including two consecutive acknowledged SwiftUI replacements in under one second each without rebuilding or reinstalling the app.
 
 ### Changed
 
 - Pinned the live client to Swift Sim's thin `swift-sim-engine` fork while keeping upstream changes mergeable.
 - Made setup, doctor, build metadata, and agent routing describe one Swift Sim feature instead of exposing the underlying engine.
 - Made live-enabled Debug builds fully managed: Swift Sim supplies the compiler/linker settings, uses Xcode's Debug dylib layout, and packages the signed app as a regular IPA.
+- Made first-time development provisioning select a reachable physical iPhone so Xcode can register it automatically, and made userspace Tailscale discovery fail fast instead of hanging behind a stale system CLI.
+- Updated the pinned engine to avoid multicast loops on Swift Sim's explicit Tailnet route and to sign physical-device patches without blocking its main queue.
+- Bounded stale live-engine logs on restart so a transport failure cannot leave an unbounded diagnostic file.
 
 ## 0.3.0 - 2026-07-18
 

@@ -56,6 +56,8 @@ swift-sim classify-change --before /tmp/before.swift --after /tmp/after.swift
 
 The Swift package pins the `swift-sim-engine` branch of the Swift Sim InjectionNext fork by commit for reproducibility. Keep the fork branch thin and regularly merge reviewed upstream changes. Engine assets are separately versioned, signed, checksum-pinned, and license-attributed. Update those pins intentionally and rerun physical-device, Swift, and Node tests. The classifier and success contract must remain conservative: false rebuilds cost time, but a false live-safe or false-success result is worse.
 
+For physical-device proof, use a regular development-signed Debug app on an iPhone connected through the private Tailnet. Require two consecutive `route-change` results with `action: hot-reload`, `applied: true`, `dynamic_replacements > 0`, `refresh_acknowledged: true`, and increasing nonzero revisions. Record patch duration, verify no rebuild or reinstall occurred between edits, and do not substitute screenshots for the runtime report.
+
 ## Manual Session Test
 
 1. Build and launch an app on a booted simulator.

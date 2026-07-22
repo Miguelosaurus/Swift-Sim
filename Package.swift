@@ -14,7 +14,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/Miguelosaurus/InjectionNext.git",
-            revision: "9855a40"
+            revision: "abdf646"
         ),
     ],
     targets: [

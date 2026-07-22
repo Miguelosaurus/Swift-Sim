@@ -116,6 +116,8 @@ Building the same bundle again updates the existing app and preserves its contai
 
 Swift Sim can accelerate an already-installed Debug app without turning it into a livestream or requiring the iPhone to share Wi-Fi with the Mac. `swift-sim setup` installs and manages a private, headless live engine; users do not install, open, or configure another Mac app. Compatible same-team-signed patches travel directly to the running app over the user's private Tailscale connection.
 
+This path is validated end to end on a physical iPhone: consecutive SwiftUI body edits compiled, crossed the private Tailnet, loaded into the regular signed app, and returned runtime refresh acknowledgments in 650 ms and 546 ms. That proves the mechanism and latency, not a universal percentage of app edits; Swift Sim still classifies every change and rebuilds when live Swift metadata would change.
+
 The project adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at its root view. It does not add Swift Sim code to every view or every source line. Release builds make the modifier a no-op.
 
 The coding-agent integration runs `swift-sim route-change` to choose the safe path:
