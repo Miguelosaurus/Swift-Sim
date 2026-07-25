@@ -1,0 +1,16 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -55,3 +55,3 @@
+             BenchmarkMarkerView(value: "copy-10")
+-            BenchmarkMarkerView(value: "style-01").foregroundStyle(.blue)
++            BenchmarkMarkerView(value: "style-01").foregroundStyle(.purple)
+             BenchmarkMarkerView(value: "style-02").foregroundStyle(.blue)
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -23,3 +23,3 @@
+     let title: String = "Catalog"
+-    let storedSlot01: String = "stored-01"
++    let storedSlot01: String = "stored-edited-01"
+     let storedSlot02: String = "stored-02"

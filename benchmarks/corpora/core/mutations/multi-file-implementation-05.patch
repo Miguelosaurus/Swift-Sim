@@ -1,0 +1,16 @@
+diff --git a/ArchitectureApp/ArchitectureScreen.swift b/ArchitectureApp/ArchitectureScreen.swift
+--- a/ArchitectureApp/ArchitectureScreen.swift
++++ b/ArchitectureApp/ArchitectureScreen.swift
+@@ -22,3 +22,3 @@
+     private func genericSlot04<T>(_ value: T) -> String { "generic-04" }
+-    private struct NestedSlot05: View { var body: some View { BenchmarkMarkerView(value: "nested-05") } }
++    private struct NestedSlot05: View { var body: some View { BenchmarkMarkerView(caseID: "multi-file-implementation-05", value: "nested-edited-05") } }
+     private struct ShapeSlot05 {}
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -38,3 +38,3 @@
+     private func helperSlot04() -> String { "helper-04" }
+-    private func helperSlot05() -> String { "helper-05" }
++    private func helperSlot05() -> String { "helper-edited-05" }
+     private func helperSlot06() -> String { "helper-06" }

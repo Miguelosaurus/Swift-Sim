@@ -9,8 +9,10 @@ import packageJSON from "../../package.json" with { type: "json" };
 import {
   classifyLiveChange,
   classifyLiveChanges,
+  classifyEditSet,
   ensureLiveEngineInstalled,
   inspectLiveReload,
+  routeLiveEditSet,
   routeLiveChange,
   routeLiveChanges,
   startLiveReload,
@@ -93,8 +95,15 @@ function classifyChange(args) {
     options: {
       before: { type: "string", multiple: true },
       after: { type: "string", multiple: true },
+      "changes-manifest": { type: "string" },
     },
   });
+  if (values["changes-manifest"]) {
+    console.log(JSON.stringify(classifyEditSet({
+      files: readChangesManifest(values["changes-manifest"]),
+    }), null, 2));
+    return;
+  }
   const beforePaths = values.before || [];
   const afterPaths = values.after || [];
   const result = beforePaths.length === 1 && afterPaths.length === 1
@@ -110,8 +119,17 @@ async function routeChange(args) {
       ...liveOptions(),
       before: { type: "string", multiple: true },
       after: { type: "string", multiple: true },
+      "changes-manifest": { type: "string" },
     },
   });
+  if (values["changes-manifest"]) {
+    const result = routeLiveEditSet({
+      files: readChangesManifest(values["changes-manifest"]),
+      project: values.project,
+      host: values.host,
+    });
+    return console.log(JSON.stringify(await result, null, 2));
+  }
   const beforePaths = values.before || [];
   const afterPaths = values.after || [];
   const result = beforePaths.length === 1 && afterPaths.length === 1
@@ -124,6 +142,15 @@ async function routeChange(args) {
       project: values.project, host: values.host,
     });
   console.log(JSON.stringify(await result, null, 2));
+}
+
+function readChangesManifest(path) {
+  const manifestPath = realpathSync(path);
+  const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (!Array.isArray(parsed?.files) || parsed.files.length === 0) {
+    throw new Error("The changes manifest must contain a nonempty files array.");
+  }
+  return parsed.files;
 }
 
 function liveOptions() {

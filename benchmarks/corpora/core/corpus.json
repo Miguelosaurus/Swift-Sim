@@ -1,0 +1,3338 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "core-1",
+  "fixtureRevision": "core-fixture-1",
+  "metadata": {
+    "totalCases": 240,
+    "expectedHotReload": 120,
+    "expectedRebuild": 100,
+    "authoringErrors": 20,
+    "multiFileOperations": 25,
+    "smokeHotCases": 24
+  },
+  "cases": [
+    {
+      "id": "copy-literal-01",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-01",
+        "value": "copy-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "copy-literal-02",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-02",
+        "value": "copy-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "copy-literal-03",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-03",
+        "value": "copy-edited-03"
+      }
+    },
+    {
+      "id": "copy-literal-04",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-04",
+        "value": "copy-edited-04"
+      }
+    },
+    {
+      "id": "copy-literal-05",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-05",
+        "value": "copy-edited-05"
+      }
+    },
+    {
+      "id": "copy-literal-06",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-06.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-06",
+        "value": "copy-edited-06"
+      }
+    },
+    {
+      "id": "copy-literal-07",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-07.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-07",
+        "value": "copy-edited-07"
+      }
+    },
+    {
+      "id": "copy-literal-08",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-08.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-08",
+        "value": "copy-edited-08"
+      }
+    },
+    {
+      "id": "copy-literal-09",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-09.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-09",
+        "value": "copy-edited-09"
+      }
+    },
+    {
+      "id": "copy-literal-10",
+      "workload": "CatalogApp",
+      "category": "copy-literal",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/copy-literal-10.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "copy-literal-10",
+        "value": "copy-edited-10"
+      }
+    },
+    {
+      "id": "style-modifier-01",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-01",
+        "value": "style-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "style-modifier-02",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-02",
+        "value": "style-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "style-modifier-03",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-03",
+        "value": "style-edited-03"
+      }
+    },
+    {
+      "id": "style-modifier-04",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-04",
+        "value": "style-edited-04"
+      }
+    },
+    {
+      "id": "style-modifier-05",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-05",
+        "value": "style-edited-05"
+      }
+    },
+    {
+      "id": "style-modifier-06",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-06.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-06",
+        "value": "style-edited-06"
+      }
+    },
+    {
+      "id": "style-modifier-07",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-07.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-07",
+        "value": "style-edited-07"
+      }
+    },
+    {
+      "id": "style-modifier-08",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-08.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-08",
+        "value": "style-edited-08"
+      }
+    },
+    {
+      "id": "style-modifier-09",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-09.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-09",
+        "value": "style-edited-09"
+      }
+    },
+    {
+      "id": "style-modifier-10",
+      "workload": "CatalogApp",
+      "category": "style-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/style-modifier-10.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "style-modifier-10",
+        "value": "style-edited-10"
+      }
+    },
+    {
+      "id": "layout-modifier-01",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-01",
+        "value": "layout-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "layout-modifier-02",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-02",
+        "value": "layout-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "layout-modifier-03",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-03",
+        "value": "layout-edited-03"
+      }
+    },
+    {
+      "id": "layout-modifier-04",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-04",
+        "value": "layout-edited-04"
+      }
+    },
+    {
+      "id": "layout-modifier-05",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-05",
+        "value": "layout-edited-05"
+      }
+    },
+    {
+      "id": "layout-modifier-06",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-06.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-06",
+        "value": "layout-edited-06"
+      }
+    },
+    {
+      "id": "layout-modifier-07",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-07.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-07",
+        "value": "layout-edited-07"
+      }
+    },
+    {
+      "id": "layout-modifier-08",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-08.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-08",
+        "value": "layout-edited-08"
+      }
+    },
+    {
+      "id": "layout-modifier-09",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-09.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-09",
+        "value": "layout-edited-09"
+      }
+    },
+    {
+      "id": "layout-modifier-10",
+      "workload": "CatalogApp",
+      "category": "layout-modifier",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/layout-modifier-10.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "layout-modifier-10",
+        "value": "layout-edited-10"
+      }
+    },
+    {
+      "id": "swiftui-composition-01",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-01",
+        "value": "composition-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "swiftui-composition-02",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-02",
+        "value": "composition-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "swiftui-composition-03",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-03",
+        "value": "composition-edited-03"
+      }
+    },
+    {
+      "id": "swiftui-composition-04",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-04",
+        "value": "composition-edited-04"
+      }
+    },
+    {
+      "id": "swiftui-composition-05",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-05",
+        "value": "composition-edited-05"
+      }
+    },
+    {
+      "id": "swiftui-composition-06",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-06.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-06",
+        "value": "composition-edited-06"
+      }
+    },
+    {
+      "id": "swiftui-composition-07",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-07.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-07",
+        "value": "composition-edited-07"
+      }
+    },
+    {
+      "id": "swiftui-composition-08",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-08.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-08",
+        "value": "composition-edited-08"
+      }
+    },
+    {
+      "id": "swiftui-composition-09",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-09.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-09",
+        "value": "composition-edited-09"
+      }
+    },
+    {
+      "id": "swiftui-composition-10",
+      "workload": "CatalogApp",
+      "category": "swiftui-composition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/swiftui-composition-10.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "swiftui-composition-10",
+        "value": "composition-edited-10"
+      }
+    },
+    {
+      "id": "animation-transition-01",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-01",
+        "value": "animation-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "animation-transition-02",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-02",
+        "value": "animation-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "animation-transition-03",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-03",
+        "value": "animation-edited-03"
+      }
+    },
+    {
+      "id": "animation-transition-04",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-04",
+        "value": "animation-edited-04"
+      }
+    },
+    {
+      "id": "animation-transition-05",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-05",
+        "value": "animation-edited-05"
+      }
+    },
+    {
+      "id": "animation-transition-06",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-06.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-06",
+        "value": "animation-edited-06"
+      }
+    },
+    {
+      "id": "animation-transition-07",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-07.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-07",
+        "value": "animation-edited-07"
+      }
+    },
+    {
+      "id": "animation-transition-08",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-08.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-08",
+        "value": "animation-edited-08"
+      }
+    },
+    {
+      "id": "animation-transition-09",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-09.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-09",
+        "value": "animation-edited-09"
+      }
+    },
+    {
+      "id": "animation-transition-10",
+      "workload": "CatalogApp",
+      "category": "animation-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/animation-transition-10.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "oracle": {
+        "case": "animation-transition-10",
+        "value": "animation-edited-10"
+      }
+    },
+    {
+      "id": "closure-action-01",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-01.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-01",
+        "value": "action-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "closure-action-02",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-02.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-02",
+        "value": "action-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "closure-action-03",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-03.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-03",
+        "value": "action-edited-03"
+      }
+    },
+    {
+      "id": "closure-action-04",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-04.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-04",
+        "value": "action-edited-04"
+      }
+    },
+    {
+      "id": "closure-action-05",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-05.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-05",
+        "value": "action-edited-05"
+      }
+    },
+    {
+      "id": "closure-action-06",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-06.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-06",
+        "value": "action-edited-06"
+      }
+    },
+    {
+      "id": "closure-action-07",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-07.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-07",
+        "value": "action-edited-07"
+      }
+    },
+    {
+      "id": "closure-action-08",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-08.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-08",
+        "value": "action-edited-08"
+      }
+    },
+    {
+      "id": "closure-action-09",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-09.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-09",
+        "value": "action-edited-09"
+      }
+    },
+    {
+      "id": "closure-action-10",
+      "workload": "StateApp",
+      "category": "closure-action",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/closure-action-10.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "closure-action-10",
+        "value": "action-edited-10"
+      }
+    },
+    {
+      "id": "computed-view-01",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-01.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-01",
+        "value": "computed-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "computed-view-02",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-02.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-02",
+        "value": "computed-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "computed-view-03",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-03.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-03",
+        "value": "computed-edited-03"
+      }
+    },
+    {
+      "id": "computed-view-04",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-04.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-04",
+        "value": "computed-edited-04"
+      }
+    },
+    {
+      "id": "computed-view-05",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-05.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-05",
+        "value": "computed-edited-05"
+      }
+    },
+    {
+      "id": "computed-view-06",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-06.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-06",
+        "value": "computed-edited-06"
+      }
+    },
+    {
+      "id": "computed-view-07",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-07.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-07",
+        "value": "computed-edited-07"
+      }
+    },
+    {
+      "id": "computed-view-08",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-08.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-08",
+        "value": "computed-edited-08"
+      }
+    },
+    {
+      "id": "computed-view-09",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-09.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-09",
+        "value": "computed-edited-09"
+      }
+    },
+    {
+      "id": "computed-view-10",
+      "workload": "StateApp",
+      "category": "computed-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/computed-view-10.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "computed-view-10",
+        "value": "computed-edited-10"
+      }
+    },
+    {
+      "id": "helper-function-01",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-01.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-01",
+        "value": "helper-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "helper-function-02",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-02.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-02",
+        "value": "helper-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "helper-function-03",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-03.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-03",
+        "value": "helper-edited-03"
+      }
+    },
+    {
+      "id": "helper-function-04",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-04.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-04",
+        "value": "helper-edited-04"
+      }
+    },
+    {
+      "id": "helper-function-05",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-05.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-05",
+        "value": "helper-edited-05"
+      }
+    },
+    {
+      "id": "helper-function-06",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-06.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-06",
+        "value": "helper-edited-06"
+      }
+    },
+    {
+      "id": "helper-function-07",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-07.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-07",
+        "value": "helper-edited-07"
+      }
+    },
+    {
+      "id": "helper-function-08",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-08.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-08",
+        "value": "helper-edited-08"
+      }
+    },
+    {
+      "id": "helper-function-09",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-09.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-09",
+        "value": "helper-edited-09"
+      }
+    },
+    {
+      "id": "helper-function-10",
+      "workload": "StateApp",
+      "category": "helper-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/helper-function-10.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "helper-function-10",
+        "value": "helper-edited-10"
+      }
+    },
+    {
+      "id": "async-task-01",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-01.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-01",
+        "value": "async-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "async-task-02",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-02.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-02",
+        "value": "async-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "async-task-03",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-03.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-03",
+        "value": "async-edited-03"
+      }
+    },
+    {
+      "id": "async-task-04",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-04.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-04",
+        "value": "async-edited-04"
+      }
+    },
+    {
+      "id": "async-task-05",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-05.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-05",
+        "value": "async-edited-05"
+      }
+    },
+    {
+      "id": "async-task-06",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-06.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-06",
+        "value": "async-edited-06"
+      }
+    },
+    {
+      "id": "async-task-07",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-07.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-07",
+        "value": "async-edited-07"
+      }
+    },
+    {
+      "id": "async-task-08",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-08.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-08",
+        "value": "async-edited-08"
+      }
+    },
+    {
+      "id": "async-task-09",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-09.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-09",
+        "value": "async-edited-09"
+      }
+    },
+    {
+      "id": "async-task-10",
+      "workload": "StateApp",
+      "category": "async-task",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/async-task-10.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "async-task-10",
+        "value": "async-edited-10"
+      }
+    },
+    {
+      "id": "nested-extension-view-01",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-01.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-01",
+        "value": "nested-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "nested-extension-view-02",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-02.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-02",
+        "value": "nested-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "nested-extension-view-03",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-03.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-03",
+        "value": "nested-edited-03"
+      }
+    },
+    {
+      "id": "nested-extension-view-04",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-04.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-04",
+        "value": "nested-edited-04"
+      }
+    },
+    {
+      "id": "nested-extension-view-05",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-05.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-05",
+        "value": "nested-edited-05"
+      }
+    },
+    {
+      "id": "nested-extension-view-06",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-06.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-06",
+        "value": "nested-edited-06"
+      }
+    },
+    {
+      "id": "nested-extension-view-07",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-07.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-07",
+        "value": "nested-edited-07"
+      }
+    },
+    {
+      "id": "nested-extension-view-08",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-08.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-08",
+        "value": "nested-edited-08"
+      }
+    },
+    {
+      "id": "nested-extension-view-09",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-09.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-09",
+        "value": "nested-edited-09"
+      }
+    },
+    {
+      "id": "nested-extension-view-10",
+      "workload": "ArchitectureApp",
+      "category": "nested-extension-view",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/nested-extension-view-10.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "nested-extension-view-10",
+        "value": "nested-edited-10"
+      }
+    },
+    {
+      "id": "generic-actor-body-01",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-01.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-01",
+        "value": "generic-edited-01"
+      },
+      "smoke": true
+    },
+    {
+      "id": "generic-actor-body-02",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-02.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-02",
+        "value": "generic-edited-02"
+      },
+      "smoke": true
+    },
+    {
+      "id": "generic-actor-body-03",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-03.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-03",
+        "value": "generic-edited-03"
+      }
+    },
+    {
+      "id": "generic-actor-body-04",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-04.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-04",
+        "value": "generic-edited-04"
+      }
+    },
+    {
+      "id": "generic-actor-body-05",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-05.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-05",
+        "value": "generic-edited-05"
+      }
+    },
+    {
+      "id": "generic-actor-body-06",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-06.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-06",
+        "value": "generic-edited-06"
+      }
+    },
+    {
+      "id": "generic-actor-body-07",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-07.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-07",
+        "value": "generic-edited-07"
+      }
+    },
+    {
+      "id": "generic-actor-body-08",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-08.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-08",
+        "value": "generic-edited-08"
+      }
+    },
+    {
+      "id": "generic-actor-body-09",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-09.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-09",
+        "value": "generic-edited-09"
+      }
+    },
+    {
+      "id": "generic-actor-body-10",
+      "workload": "ArchitectureApp",
+      "category": "generic-actor-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "mutation": "mutations/generic-actor-body-10.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      },
+      "oracle": {
+        "case": "generic-actor-body-10",
+        "value": "generic-edited-10"
+      }
+    },
+    {
+      "id": "multi-file-implementation-01",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-01.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-01",
+        "value": "nested-edited-01"
+      },
+      "multiFile": true,
+      "smoke": true
+    },
+    {
+      "id": "multi-file-implementation-02",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-02.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-02",
+        "value": "nested-edited-02"
+      },
+      "multiFile": true,
+      "smoke": true
+    },
+    {
+      "id": "multi-file-implementation-03",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-03.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-03",
+        "value": "nested-edited-03"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "multi-file-implementation-04",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-04.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-04",
+        "value": "nested-edited-04"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "multi-file-implementation-05",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-05.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-05",
+        "value": "nested-edited-05"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "multi-file-implementation-06",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-06.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-06",
+        "value": "nested-edited-06"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "multi-file-implementation-07",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-07.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-07",
+        "value": "nested-edited-07"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "multi-file-implementation-08",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-08.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-08",
+        "value": "nested-edited-08"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "multi-file-implementation-09",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-09.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-09",
+        "value": "nested-edited-09"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "multi-file-implementation-10",
+      "workload": "ArchitectureApp",
+      "category": "multi-file-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "mutation": "mutations/multi-file-implementation-10.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "oracle": {
+        "case": "multi-file-implementation-10",
+        "value": "nested-edited-10"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-01",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-02",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-03",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-04",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-05",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-06",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-06.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-07",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-07.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-08",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-08.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-09",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-09.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-10",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-10.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-11",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-11.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-12",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-12.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-13",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-13.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-14",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-14.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "stored-property-15",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-15.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "stored-property-16",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-16.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "stored-property-17",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-17.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "stored-property-18",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-18.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "stored-property-19",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-19.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "stored-property-20",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/stored-property-20.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "signature-change-01",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-01.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-02",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-02.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-03",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-03.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-04",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-04.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-05",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-05.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-06",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-06.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-07",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-07.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-08",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-08.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-09",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-09.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-10",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-10.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-11",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-11.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-12",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-12.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-13",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-13.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-14",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-14.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "signature-change-15",
+      "workload": "StateApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/signature-change-15.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "type-shape-01",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-01.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-02",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-02.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-03",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-03.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-04",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-04.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-05",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-05.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-06",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-06.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-07",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-07.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-08",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-08.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-09",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-09.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-10",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-10.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-11",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-11.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-12",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-12.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-13",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-13.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-14",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-14.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "type-shape-15",
+      "workload": "ArchitectureApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/type-shape-15.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-01",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-01.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-02",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-02.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-03",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-03.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-04",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-04.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-05",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-05.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-06",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-06.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-07",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-07.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-08",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-08.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-09",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-09.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "enum-protocol-10",
+      "workload": "ArchitectureApp",
+      "category": "enum-protocol-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/enum-protocol-10.patch",
+      "baselineHashes": {
+        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+      }
+    },
+    {
+      "id": "access-attribute-01",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-01.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-02",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-02.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-03",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-03.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-04",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-04.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-05",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-05.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-06",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-06.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-07",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-07.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-08",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-08.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-09",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-09.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "access-attribute-10",
+      "workload": "StateApp",
+      "category": "access-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/access-attribute-10.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "import-change-01",
+      "workload": "CatalogApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/import-change-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "import-change-02",
+      "workload": "CatalogApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/import-change-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "import-change-03",
+      "workload": "CatalogApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/import-change-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "import-change-04",
+      "workload": "CatalogApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/import-change-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "import-change-05",
+      "workload": "CatalogApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/import-change-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "macro-change-01",
+      "workload": "CatalogApp",
+      "category": "macro-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/macro-change-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "macro-change-02",
+      "workload": "CatalogApp",
+      "category": "macro-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/macro-change-02.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "macro-change-03",
+      "workload": "CatalogApp",
+      "category": "macro-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/macro-change-03.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "macro-change-04",
+      "workload": "CatalogApp",
+      "category": "macro-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/macro-change-04.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "macro-change-05",
+      "workload": "CatalogApp",
+      "category": "macro-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/macro-change-05.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      }
+    },
+    {
+      "id": "file-added-01",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-added-01.patch",
+      "baselineHashes": {}
+    },
+    {
+      "id": "file-added-02",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-added-02.patch",
+      "baselineHashes": {}
+    },
+    {
+      "id": "file-added-03",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-added-03.patch",
+      "baselineHashes": {}
+    },
+    {
+      "id": "file-added-04",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-added-04.patch",
+      "baselineHashes": {}
+    },
+    {
+      "id": "file-added-05",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-added-05.patch",
+      "baselineHashes": {}
+    },
+    {
+      "id": "file-deleted-01",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-deleted-01.patch",
+      "baselineHashes": {
+        "CatalogApp/OldFile01.swift": "abe4db385740438af04a070bb85daee53ddc064ee5bc92e3a513da84c33eadd4"
+      }
+    },
+    {
+      "id": "file-deleted-02",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-deleted-02.patch",
+      "baselineHashes": {
+        "CatalogApp/OldFile02.swift": "b3786a3b3db21e71d5f7223b9ed83430eac16effbcad1828ffa358f117831684"
+      }
+    },
+    {
+      "id": "file-deleted-03",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-deleted-03.patch",
+      "baselineHashes": {
+        "CatalogApp/OldFile03.swift": "de837aa69e1d0770ca3720587328c7f8cea6af75c57bbb85b60806e3e7462831"
+      }
+    },
+    {
+      "id": "file-deleted-04",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-deleted-04.patch",
+      "baselineHashes": {
+        "CatalogApp/OldFile04.swift": "33510e6e9e1f42d614e20bce69f5275f1b36b14621cbb0ea4cb44e9fc90c38a3"
+      }
+    },
+    {
+      "id": "file-deleted-05",
+      "workload": "CatalogApp",
+      "category": "file-lifecycle",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/file-deleted-05.patch",
+      "baselineHashes": {
+        "CatalogApp/OldFile05.swift": "288db53606edea360690617adb5fad07b59bd1e1cd7869a4b13ec58eedbb3a6b"
+      }
+    },
+    {
+      "id": "resource-change-01",
+      "workload": "CatalogApp",
+      "category": "resource-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/resource-change-01.patch",
+      "baselineHashes": {
+        "CatalogApp/Resources/Labels.txt": "0a0ecc4ffa048f9451dc9c9a0104f2adcdc894b5f3fc54052db3d77c3f836fb3"
+      }
+    },
+    {
+      "id": "resource-change-02",
+      "workload": "CatalogApp",
+      "category": "resource-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/resource-change-02.patch",
+      "baselineHashes": {
+        "CatalogApp/Resources/Labels.txt": "0a0ecc4ffa048f9451dc9c9a0104f2adcdc894b5f3fc54052db3d77c3f836fb3"
+      }
+    },
+    {
+      "id": "resource-change-03",
+      "workload": "CatalogApp",
+      "category": "resource-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/resource-change-03.patch",
+      "baselineHashes": {
+        "CatalogApp/Resources/Labels.txt": "0a0ecc4ffa048f9451dc9c9a0104f2adcdc894b5f3fc54052db3d77c3f836fb3"
+      }
+    },
+    {
+      "id": "resource-change-04",
+      "workload": "CatalogApp",
+      "category": "resource-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/resource-change-04.patch",
+      "baselineHashes": {
+        "CatalogApp/Resources/Labels.txt": "0a0ecc4ffa048f9451dc9c9a0104f2adcdc894b5f3fc54052db3d77c3f836fb3"
+      }
+    },
+    {
+      "id": "resource-change-05",
+      "workload": "CatalogApp",
+      "category": "resource-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/resource-change-05.patch",
+      "baselineHashes": {
+        "CatalogApp/Resources/Labels.txt": "0a0ecc4ffa048f9451dc9c9a0104f2adcdc894b5f3fc54052db3d77c3f836fb3"
+      }
+    },
+    {
+      "id": "build-settings-01",
+      "workload": "CatalogApp",
+      "category": "package-build-setting",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/build-settings-01.patch",
+      "baselineHashes": {
+        "BuildSettings.xcconfig": "0d929eba3826cfd142b579b640f349a014a613a74bf42a57bd0043a2d0f8e313"
+      }
+    },
+    {
+      "id": "build-settings-02",
+      "workload": "CatalogApp",
+      "category": "package-build-setting",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/build-settings-02.patch",
+      "baselineHashes": {
+        "BuildSettings.xcconfig": "0d929eba3826cfd142b579b640f349a014a613a74bf42a57bd0043a2d0f8e313"
+      }
+    },
+    {
+      "id": "build-settings-03",
+      "workload": "CatalogApp",
+      "category": "package-build-setting",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/build-settings-03.patch",
+      "baselineHashes": {
+        "BuildSettings.xcconfig": "0d929eba3826cfd142b579b640f349a014a613a74bf42a57bd0043a2d0f8e313"
+      }
+    },
+    {
+      "id": "build-settings-04",
+      "workload": "CatalogApp",
+      "category": "package-build-setting",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/build-settings-04.patch",
+      "baselineHashes": {
+        "BuildSettings.xcconfig": "0d929eba3826cfd142b579b640f349a014a613a74bf42a57bd0043a2d0f8e313"
+      }
+    },
+    {
+      "id": "mixed-hot-and-structural-01",
+      "workload": "CatalogApp",
+      "category": "mixed-edit-set",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/mixed-hot-and-structural-01.patch",
+      "baselineHashes": {
+        "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a"
+      },
+      "multiFile": true
+    },
+    {
+      "id": "authoring-error-01",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-01.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-02",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-02.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-03",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-03.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-04",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-04.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-05",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-05.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-06",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-06.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-07",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-07.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-08",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-08.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-09",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-09.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-10",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-10.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-11",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-11.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-12",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-12.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-13",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-13.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-14",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-14.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-15",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-15.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-16",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-16.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-17",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-17.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-18",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-18.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-19",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-19.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    },
+    {
+      "id": "authoring-error-20",
+      "workload": "StateApp",
+      "category": "syntax-or-type-error",
+      "validity": "authoring-error",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "unverified",
+      "mutation": "mutations/authoring-error-20.patch",
+      "baselineHashes": {
+        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+      }
+    }
+  ]
+}

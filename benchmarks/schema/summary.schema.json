@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swift-sim.dev/schemas/summary.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "classifier", "device", "workflow"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "classifier": { "type": "object" },
+    "device": { "type": "object" },
+    "workflow": { "type": "object" }
+  },
+  "additionalProperties": true
+}

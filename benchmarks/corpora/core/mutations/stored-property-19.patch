@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -41,3 +41,3 @@
+     let storedSlot18: String = "stored-18"
+-    let storedSlot19: String = "stored-19"
++    let storedSlot19: String = "stored-edited-19"
+     let storedSlot20: String = "stored-20"

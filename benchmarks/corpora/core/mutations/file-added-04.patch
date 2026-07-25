@@ -1,0 +1,7 @@
+diff --git a/CatalogApp/NewFile04.swift b/CatalogApp/NewFile04.swift
+new file mode 100644
+--- /dev/null
++++ b/CatalogApp/NewFile04.swift
+@@ -0,0 +1,2 @@
++import SwiftUI
++struct NewFile04: View { var body: some View { Text("new") } }

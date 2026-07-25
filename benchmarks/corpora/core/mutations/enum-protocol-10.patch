@@ -1,0 +1,8 @@
+diff --git a/ArchitectureApp/ArchitectureScreen.swift b/ArchitectureApp/ArchitectureScreen.swift
+--- a/ArchitectureApp/ArchitectureScreen.swift
++++ b/ArchitectureApp/ArchitectureScreen.swift
+@@ -44,3 +44,3 @@
+     private struct ShapeSlot10 {}
+-    private enum ChoiceSlot10 { case first }
++    private enum ChoiceSlot10 { case first } { case changed }
+     private func genericSlot10<T>(_ value: T) -> String { "generic-10" }

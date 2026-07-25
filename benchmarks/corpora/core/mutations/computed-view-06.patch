@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -24,3 +24,3 @@
+     private var computedSlot05: some View { Text("computed-05") }
+-    private var computedSlot06: some View { Text("computed-06") }
++    private var computedSlot06: some View { Text("computed-edited-06") }
+     private var computedSlot07: some View { Text("computed-07") }

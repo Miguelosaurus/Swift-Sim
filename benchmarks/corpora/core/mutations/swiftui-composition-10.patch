@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -84,3 +84,3 @@
+             if true { BenchmarkMarkerView(value: "composition-09") }
+-            if true { BenchmarkMarkerView(value: "composition-10") }
++            if false { BenchmarkMarkerView(caseID: "swiftui-composition-10", value: "composition-edited-10") }
+             BenchmarkMarkerView(value: "animation-01").animation(.easeInOut(duration: 0.2), value: title)

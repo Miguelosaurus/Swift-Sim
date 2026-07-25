@@ -1,0 +1,8 @@
+diff --git a/ArchitectureApp/ArchitectureScreen.swift b/ArchitectureApp/ArchitectureScreen.swift
+--- a/ArchitectureApp/ArchitectureScreen.swift
++++ b/ArchitectureApp/ArchitectureScreen.swift
+@@ -55,3 +55,3 @@
+     private struct NestedSlot13: View { var body: some View { BenchmarkMarkerView(value: "nested-13") } }
+-    private struct ShapeSlot13 {}
++    private struct ShapeSlot13 { var changed: Bool = true }
+     private enum ChoiceSlot13 { case first }

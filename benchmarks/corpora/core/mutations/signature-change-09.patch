@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -72,3 +72,3 @@
+     private func signatureSlot08(_ value: Int) -> String { "signature-08" }
+-    private func signatureSlot09(_ value: Int) -> String { "signature-09" }
++    private func signatureSlot09(_ value: Int, extra: Bool) -> String { "signature-09" }
+     private func signatureSlot10(_ value: Int) -> String { "signature-10" }

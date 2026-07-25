@@ -1,0 +1,7 @@
+diff --git a/BuildSettings.xcconfig b/BuildSettings.xcconfig
+--- a/BuildSettings.xcconfig
++++ b/BuildSettings.xcconfig
+@@ -1,2 +1,2 @@
+-SWIFT_VERSION = 6.0
++SWIFT_VERSION = 6.1
+ SWIFT_OPTIMIZATION_LEVEL = -Onone

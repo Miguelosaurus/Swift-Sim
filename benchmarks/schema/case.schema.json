@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swift-sim.dev/schemas/case.schema.json",
+  "type": "object",
+  "required": ["id", "workload", "category", "validity", "expectedLane", "mutation"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "workload": { "type": "string", "minLength": 1 },
+    "category": { "type": "string", "minLength": 1 },
+    "validity": { "enum": ["valid", "authoring-error"] },
+    "expectedLane": { "enum": ["hot-reload", "build-device", "none"] },
+    "confirmationPolicy": { "enum": ["swiftui-body", "interposed-function", "unverified"] },
+    "mutation": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
+    "baselineHashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    },
+    "oracle": { "type": "object" },
+    "multiFile": { "type": "boolean" },
+    "smoke": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

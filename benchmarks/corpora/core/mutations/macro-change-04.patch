@@ -1,0 +1,7 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -14,2 +14,3 @@
+ // macroSlot03
++#attached(member, names: named(changed))
+ // macroSlot04

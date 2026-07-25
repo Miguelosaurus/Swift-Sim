@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swift-sim.dev/schemas/attempt.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "attemptId", "caseId", "expectedLane", "terminalState"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "attemptId": { "type": "string", "minLength": 1 },
+    "caseId": { "type": "string", "minLength": 1 },
+    "iteration": { "type": "integer", "minimum": 1 },
+    "expectedLane": { "enum": ["hot-reload", "build-device", "none"] },
+    "predictedLane": { "enum": ["hot-reload", "build-device", "none", null] },
+    "terminalState": { "type": "string", "minLength": 1 },
+    "timing": { "type": "object" },
+    "errorCode": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -40,3 +40,3 @@
+     private func helperSlot06() -> String { "helper-06" }
+-    private func helperSlot07() -> String { "helper-07" }
++    private func helperSlot07() -> String { "helper-edited-07" }
+     private func helperSlot08() -> String { "helper-08" }

@@ -1,0 +1,7 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -5,2 +5,3 @@
+ // importSlot04
++import Foundation
+ // importSlot05

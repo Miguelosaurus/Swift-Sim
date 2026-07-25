@@ -4,6 +4,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+### Added
+
+- A deterministic 240-case hot-reload benchmark with conservative edit-set routing, schema validation, static safety scoring, semantic case/revision markers, and an injected physical-device runner.
+- Unsigned iOS Simulator fixture builds for Catalog, State, and Architecture workloads plus resumable sanitized JSONL reports.
+
 ## 0.5.0 - 2026-07-22
 
 ### Added

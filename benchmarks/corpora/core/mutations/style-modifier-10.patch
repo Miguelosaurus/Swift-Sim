@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -64,3 +64,3 @@
+             BenchmarkMarkerView(value: "style-09").foregroundStyle(.blue)
+-            BenchmarkMarkerView(value: "style-10").foregroundStyle(.blue)
++            BenchmarkMarkerView(caseID: "style-modifier-10", value: "style-edited-10").foregroundStyle(.purple)
+             BenchmarkMarkerView(value: "layout-01").padding(8)

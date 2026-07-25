@@ -1,0 +1,7 @@
+diff --git a/CatalogApp/OldFile05.swift b/CatalogApp/OldFile05.swift
+deleted file mode 100644
+--- a/CatalogApp/OldFile05.swift
++++ /dev/null
+@@ -1,2 +0,0 @@
+-import SwiftUI
+-struct OldFile05: View { var body: some View { Text("old") } }

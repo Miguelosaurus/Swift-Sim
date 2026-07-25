@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -107,3 +107,3 @@
+     private func errorSlot13() -> String { "error-13" }
+-    private func errorSlot14() -> String { "error-14" }
++    private func errorSlot14() -> String { "error-14" } {
+     private func errorSlot15() -> String { "error-15" }

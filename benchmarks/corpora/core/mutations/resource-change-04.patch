@@ -1,0 +1,7 @@
+diff --git a/CatalogApp/Resources/Labels.txt b/CatalogApp/Resources/Labels.txt
+--- a/CatalogApp/Resources/Labels.txt
++++ b/CatalogApp/Resources/Labels.txt
+@@ -1,2 +1,2 @@
+-catalog.label=Catalog
++catalog.label=Catalog 04
+ edit.label=Edit

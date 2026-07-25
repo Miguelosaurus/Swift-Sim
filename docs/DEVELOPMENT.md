@@ -60,6 +60,31 @@ For physical-device proof, use a regular development-signed Debug app on an iPho
 
 The implementation contract for the repeatable classifier, physical-device, and real-workflow benchmark is in [Remote Hot Reload Benchmark Plan](HOT_RELOAD_BENCHMARK_PLAN.md). Keep its three scoreboards separate: a curated routing corpus cannot establish the percentage of chronological real-app edits accelerated.
 
+Run the deterministic benchmark gates locally:
+
+```sh
+npm run benchmark:validate
+npm run benchmark:static -- --output /tmp/swift-sim-static-benchmark
+```
+
+The physical runner requires an explicitly named, unlocked trusted iPhone and
+an automatic-signing override when the fixture project has no committed team:
+
+```sh
+npm run benchmark:device -- \
+  --project benchmarks/fixtures/HotReloadBenchmarks.xcodeproj \
+  --scheme CatalogApp \
+  --device "<trusted-device-name>" \
+  --build-setting DEVELOPMENT_TEAM=<your-team-id> \
+  --smoke
+```
+
+It launches the signed Debug fixture through `xcrun devicectl`, captures the
+machine-readable marker stream, and writes resumable `attempts.jsonl`,
+`summary.json`, and `report.md`. A locked or disconnected phone is a failed
+hardware gate; Simulator builds and static results never count as physical
+device proof.
+
 ## Manual Session Test
 
 1. Build and launch an app on a booted simulator.

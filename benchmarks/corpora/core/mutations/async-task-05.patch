@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -53,3 +53,3 @@
+     private func asyncSlot04() async -> String { "async-04" }
+-    private func asyncSlot05() async -> String { "async-05" }
++    private func asyncSlot05() async -> String { "async-edited-05" }
+     private func asyncSlot06() async -> String { "async-06" }

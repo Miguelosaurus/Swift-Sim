@@ -1,0 +1,8 @@
+diff --git a/ArchitectureApp/ArchitectureScreen.swift b/ArchitectureApp/ArchitectureScreen.swift
+--- a/ArchitectureApp/ArchitectureScreen.swift
++++ b/ArchitectureApp/ArchitectureScreen.swift
+@@ -4,3 +4,3 @@
+     private struct NestedCard: View {
+-        var body: some View { BenchmarkMarkerView(value: "nested-01") }
++        var body: some View { BenchmarkMarkerView(caseID: "nested-extension-view-01", value: "nested-edited-01") }
+     }

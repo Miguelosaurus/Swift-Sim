@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -18,6 +18,27 @@ import { createConnection } from "node:net";
 import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
+export const ROUTING_SCHEMA_VERSION = 1;
+export const CLASSIFIER_VERSION = 1;
+
+export const LIVE_REASON_CODES = Object.freeze({
+  NO_CHANGE: "NO_CHANGE",
+  IMPLEMENTATION_ONLY: "IMPLEMENTATION_ONLY",
+  NON_SWIFT_FILE: "NON_SWIFT_FILE",
+  FILE_ADDED_OR_REMOVED: "FILE_ADDED_OR_REMOVED",
+  IMPORT_CHANGED: "IMPORT_CHANGED",
+  DECLARATION_CHANGED: "DECLARATION_CHANGED",
+  STORED_PROPERTY_CHANGED: "STORED_PROPERTY_CHANGED",
+  SIGNATURE_CHANGED: "SIGNATURE_CHANGED",
+  MACRO_OR_EXPLICIT_REPLACEMENT: "MACRO_OR_EXPLICIT_REPLACEMENT",
+  MIXED_EDIT_SET: "MIXED_EDIT_SET",
+  LIVE_NOT_READY: "LIVE_NOT_READY",
+  PATCH_COMPILE_FAILED: "PATCH_COMPILE_FAILED",
+  PATCH_LOAD_FAILED: "PATCH_LOAD_FAILED",
+  REFRESH_NOT_ACKNOWLEDGED: "REFRESH_NOT_ACKNOWLEDGED",
+  PATCH_TIMEOUT: "PATCH_TIMEOUT",
+});
+
 const ENGINE_VERSION = "0.4.0";
 const ENGINE_SHA256 = "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696";
 const ENGINE_URL = `https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-${ENGINE_VERSION}/swift-sim-engine-${ENGINE_VERSION}-arm64-signed.zip?sha256=${ENGINE_SHA256}`;
@@ -34,42 +55,117 @@ const LIVE_MANIFEST = join(LIVE_ROOT, "compilations.json");
 const LIVE_PATCH_ROOT = join(LIVE_ROOT, "patches");
 
 export function classifyLiveChange({ beforePath, afterPath }) {
-  const before = requiredSwiftSource(beforePath, "before");
-  const after = requiredSwiftSource(afterPath, "after");
-  return classifySwiftSource(before, after, { beforePath, afterPath });
+  return classifyEditSet({
+    files: [{
+      path: afterPath || beforePath,
+      status: "modified",
+      kind: "swift",
+      beforePath,
+      afterPath,
+    }],
+  }).changes[0];
 }
 
 export function classifyLiveChanges({ beforePaths = [], afterPaths = [] }) {
   if (beforePaths.length === 0 || beforePaths.length !== afterPaths.length) {
     throw new Error("Pass the same nonzero number of --before and --after Swift files.");
   }
-  const changes = beforePaths.map((beforePath, index) => classifyLiveChange({
-    beforePath,
-    afterPath: afterPaths[index],
-  }));
+  return classifyEditSet({
+    files: beforePaths.map((beforePath, index) => ({
+      path: afterPaths[index] || beforePath,
+      status: "modified",
+      kind: "swift",
+      beforePath,
+      afterPath: afterPaths[index],
+    })),
+  });
+}
+
+/**
+ * Classify a complete edit operation. This is the canonical internal API used
+ * by the benchmark and by the compatibility wrappers above. A single
+ * structural or non-Swift member makes the complete operation rebuild-safe.
+ */
+export function classifyEditSet({ files = [] } = {}) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error("Pass a nonempty edit set.");
+  }
+
+  const changes = files.map((file) => classifyEditFile(file));
   const rebuild = changes.find((change) => change.route === "rebuild-required");
   if (rebuild) {
-    return {
+    return normalizedClassification({
       route: "rebuild-required",
       hotReloadable: false,
       reason: rebuild.reason,
+      reasonCode: changes.length > 1
+        && changes.some((change) => change.route === "hot-reload")
+        ? LIVE_REASON_CODES.MIXED_EDIT_SET
+        : rebuild.reasonCode,
       changes,
-    };
+    });
   }
+
   const changed = changes.filter((change) => change.route === "hot-reload");
-  return {
+  return normalizedClassification({
     route: changed.length > 0 ? "hot-reload" : "no-change",
     hotReloadable: true,
     reason: changed.length > 0
       ? `${changed.length} implementation ${changed.length === 1 ? "file is" : "files are"} hot-reloadable.`
       : "The Swift sources are unchanged.",
+    reasonCode: changed.length > 0
+      ? LIVE_REASON_CODES.IMPLEMENTATION_ONLY
+      : LIVE_REASON_CODES.NO_CHANGE,
     changes,
+  });
+}
+
+function classifyEditFile(file = {}) {
+  const path = String(file.path || file.afterPath || file.beforePath || "");
+  const kind = String(file.kind || (extname(path).toLowerCase() === ".swift" ? "swift" : "other"))
+    .toLowerCase();
+  const status = String(file.status || "modified").toLowerCase();
+  const paths = {
+    beforePath: file.beforePath || "",
+    afterPath: file.afterPath || "",
+    path,
   };
+
+  if (kind !== "swift" || extname(path).toLowerCase() !== ".swift") {
+    return result(
+      "rebuild-required",
+      false,
+      "A non-Swift file changed.",
+      paths,
+      LIVE_REASON_CODES.NON_SWIFT_FILE,
+    );
+  }
+  const hasBefore = Boolean(file.beforePath) || file.beforeSource !== undefined;
+  const hasAfter = Boolean(file.afterPath) || file.afterSource !== undefined;
+  if (status !== "modified" || !hasBefore || !hasAfter) {
+    return result(
+      "rebuild-required",
+      false,
+      "A Swift file was added, removed, or renamed.",
+      paths,
+      LIVE_REASON_CODES.FILE_ADDED_OR_REMOVED,
+    );
+  }
+
+  const before = file.beforeSource ?? requiredSwiftSource(file.beforePath, "before");
+  const after = file.afterSource ?? requiredSwiftSource(file.afterPath, "after");
+  return classifySwiftSource(before, after, paths);
 }
 
 export function classifySwiftSource(before, after, paths = {}) {
   if (before === after) {
-    return result("no-change", true, "The Swift source is unchanged.", paths);
+    return result(
+      "no-change",
+      true,
+      "The Swift source is unchanged.",
+      paths,
+      LIVE_REASON_CODES.NO_CHANGE,
+    );
   }
 
   const beforeSurface = declarationSurface(before);
@@ -79,19 +175,54 @@ export function classifySwiftSource(before, after, paths = {}) {
       "rebuild-required",
       false,
       beforeSurface.unsupported || afterSurface.unsupported,
-      paths
+      paths,
+      LIVE_REASON_CODES.MACRO_OR_EXPLICIT_REPLACEMENT,
     );
   }
 
   if (beforeSurface.imports !== afterSurface.imports) {
-    return result("rebuild-required", false, "Imports changed.", paths);
+    return result(
+      "rebuild-required",
+      false,
+      "Imports changed.",
+      paths,
+      LIVE_REASON_CODES.IMPORT_CHANGED,
+    );
+  }
+  if (beforeSurface.modifiers !== afterSurface.modifiers) {
+    return result(
+      "rebuild-required",
+      false,
+      "A declaration access modifier or attribute changed.",
+      paths,
+      LIVE_REASON_CODES.DECLARATION_CHANGED,
+    );
+  }
+  if (beforeSurface.storedProperties !== afterSurface.storedProperties) {
+    return result(
+      "rebuild-required",
+      false,
+      "A stored property or its initializer changed.",
+      paths,
+      LIVE_REASON_CODES.STORED_PROPERTY_CHANGED,
+    );
+  }
+  if (beforeSurface.signatures !== afterSurface.signatures) {
+    return result(
+      "rebuild-required",
+      false,
+      "A function, initializer, subscript, or type signature changed.",
+      paths,
+      LIVE_REASON_CODES.SIGNATURE_CHANGED,
+    );
   }
   if (beforeSurface.declarations !== afterSurface.declarations) {
     return result(
       "rebuild-required",
       false,
       "A declaration, stored property, type shape, or function signature changed.",
-      paths
+      paths,
+      LIVE_REASON_CODES.DECLARATION_CHANGED,
     );
   }
 
@@ -99,7 +230,8 @@ export function classifySwiftSource(before, after, paths = {}) {
     "hot-reload",
     true,
     "Only implementation bodies or literal values changed.",
-    paths
+    paths,
+    LIVE_REASON_CODES.IMPLEMENTATION_ONLY,
   );
 }
 
@@ -537,48 +669,150 @@ export async function routeLiveChange({ beforePath, afterPath, project = "", hos
   });
 }
 
-export async function routeLiveChanges({ beforePaths = [], afterPaths = [], project = "", host = "" }) {
-  const change = classifyLiveChanges({ beforePaths, afterPaths });
-  const live = await inspectLiveReload({ project, host });
+export async function routeLiveChanges({ beforePaths = [], afterPaths = [], project = "", host = "", runtime } = {}) {
+  if (beforePaths.length === 0 || beforePaths.length !== afterPaths.length) {
+    throw new Error("Pass the same nonzero number of --before and --after Swift files.");
+  }
+  return routeLiveEditSet({
+    files: beforePaths.map((beforePath, index) => ({
+      path: afterPaths[index] || beforePath,
+      status: "modified",
+      kind: "swift",
+      beforePath,
+      afterPath: afterPaths[index],
+    })),
+    project,
+    host,
+    runtime,
+  });
+}
+
+export async function routeLiveEditSet({ files = [], project = "", host = "", runtime = {} } = {}) {
+  const now = runtime.now || (() => Date.now());
+  const startedAt = now();
+  const requestId = runtime.requestId || randomUUID();
+  const change = runtime.classify
+    ? runtime.classify({ files })
+    : classifyEditSet({ files });
+  const classificationMs = Math.max(0, now() - startedAt);
+  const inspect = runtime.inspect || ((options) => inspectLiveReload(options));
+  const inject = runtime.inject || ((sourcePath) => injectLiveSource(sourcePath, runtime));
+  const live = await inspect({ project, host });
 
   if (change.route === "no-change") {
-    return { action: "none", change, live };
+    return routeResult({
+      action: "none",
+      change,
+      live,
+      requestId,
+      timing: { classificationMs, totalMs: Math.max(0, now() - startedAt) },
+    });
   }
   if (change.hotReloadable && live.ready) {
     const patches = [];
     for (const file of change.changes.filter((item) => item.route === "hot-reload")) {
-      const patch = await injectLiveSource(file.after);
+      const patch = await inject(file.after);
       patches.push(patch);
-      if (!patch.succeeded) {
-        return {
+      if (!patch.succeeded || hasZeroDynamicReplacements(patch) || hasUnacknowledgedRefresh(patch)) {
+        return routeResult({
           action: "hot-reload-failed",
           change,
-          live: await inspectLiveReload({ project, host }),
+          reasonCode: patchFailureReason(patch),
+          live: await inspect({ project, host }),
           patch,
           patches,
+          requestId: patch.requestID || requestId,
+          timing: {
+            classificationMs,
+            compileMs: patch.compileMs || 0,
+            loadAckMs: patch.loadAckMs || 0,
+            refreshAckMs: patch.refreshAckMs || 0,
+            totalMs: Math.max(0, now() - startedAt),
+          },
           message: patch.error
             || "The live patch did not complete. Fix the compile error or create a new signed update link.",
-        };
+        });
       }
     }
     const durationMs = patches.reduce((total, patch) => total + patch.durationMs, 0);
-    return {
+    return routeResult({
       action: "hot-reload",
       change,
-      live: await inspectLiveReload({ project, host }),
+      live: await inspect({ project, host }),
       patch: patches[0],
       patches,
+      requestId: patches.at(-1)?.requestID || requestId,
+      timing: {
+        classificationMs,
+        compileMs: patches.reduce((total, patch) => total + (patch.compileMs || 0), 0),
+        loadAckMs: patches.reduce((total, patch) => total + (patch.loadAckMs || 0), 0),
+        refreshAckMs: patches.reduce((total, patch) => total + (patch.refreshAckMs || 0), 0),
+        totalMs: Math.max(0, now() - startedAt),
+      },
       message: `${patches.length === 1 ? "Patch" : `${patches.length} patches`} applied in ${durationMs} ms without a new build or install.`,
-    };
+    });
   }
-  return {
+  return routeResult({
     action: "build-device",
     change,
+    reasonCode: change.hotReloadable ? LIVE_REASON_CODES.LIVE_NOT_READY : change.reasonCode,
     live,
+    requestId,
+    timing: { classificationMs, totalMs: Math.max(0, now() - startedAt) },
     message: change.hotReloadable
       ? "The edit is hot-reloadable, but the live lane is not ready. Create a new Swift Sim update link."
       : "The edit changes compiled structure. Create a new Swift Sim update link.",
+  });
+}
+
+function hasZeroDynamicReplacements(patch = {}) {
+  const report = patch.report;
+  if (!report || typeof report !== "object") return false;
+  const count = report.dynamic_replacements ?? report.dynamicReplacements;
+  return count !== undefined && Number(count) === 0;
+}
+
+function hasUnacknowledgedRefresh(patch = {}) {
+  const report = patch.report;
+  if (!report || typeof report !== "object") return false;
+  const acknowledged = report.refresh_acknowledged ?? report.refreshAcknowledged;
+  return acknowledged !== undefined && acknowledged !== true;
+}
+
+function routeResult({ action, change, live, reasonCode, requestId = "", patch, patches, timing, message }) {
+  return {
+    schemaVersion: ROUTING_SCHEMA_VERSION,
+    classifierVersion: CLASSIFIER_VERSION,
+    action,
+    reasonCode: reasonCode || change.reasonCode,
+    requestId,
+    files: change.changes || [],
+    change,
+    live,
+    ...(patch ? { patch } : {}),
+    ...(patches ? { patches } : {}),
+    timing: {
+      classificationMs: timing?.classificationMs || 0,
+      compileMs: timing?.compileMs || 0,
+      loadAckMs: timing?.loadAckMs || 0,
+      refreshAckMs: timing?.refreshAckMs || 0,
+      oracleMs: timing?.oracleMs || 0,
+      totalMs: timing?.totalMs || 0,
+    },
+    ...(message ? { message } : {}),
   };
+}
+
+function patchFailureReason(patch = {}) {
+  if (hasUnacknowledgedRefresh(patch)) return LIVE_REASON_CODES.REFRESH_NOT_ACKNOWLEDGED;
+  if (/timed out/i.test(patch.error || "")) return LIVE_REASON_CODES.PATCH_TIMEOUT;
+  if (/compile|replacement could not be compiled/i.test(patch.error || "")) {
+    return LIVE_REASON_CODES.PATCH_COMPILE_FAILED;
+  }
+  if (/refresh|revision|acknowledge/i.test(patch.error || "")) {
+    return LIVE_REASON_CODES.REFRESH_NOT_ACKNOWLEDGED;
+  }
+  return LIVE_REASON_CODES.PATCH_LOAD_FAILED;
 }
 
 function verifySigningIdentity(identity) {
@@ -604,28 +838,40 @@ function verifySigningIdentity(identity) {
   }
 }
 
-export async function injectLiveSource(sourcePath) {
+export async function injectLiveSource(sourcePath, runtime = {}) {
   const source = resolve(sourcePath || "");
-  const startedAt = Date.now();
+  const now = runtime.now || (() => Date.now());
+  const control = runtime.engineControl || engineControl;
+  const compile = runtime.compile || compileDynamicReplacement;
+  const wait = runtime.delay || delay;
+  const startedAt = now();
   let mode = "interposition";
   let queued;
+  let compileMs = 0;
+  let loadAckMs = 0;
+  let refreshAckMs = 0;
   try {
-    const generated = compileDynamicReplacement(source);
+    const compileStartedAt = now();
+    const generated = compile(source);
+    compileMs = Math.max(0, now() - compileStartedAt);
     if (generated) {
       mode = "swift-dynamic-replacement";
-      queued = await engineControl({
+      queued = await control({
         action: "inject_dylib",
         path: generated.dylibPath,
         source,
       });
     } else {
-      queued = await engineControl({ action: "inject_source", path: source });
+      queued = await control({ action: "inject_source", path: source });
     }
   } catch (error) {
     return {
       succeeded: false,
       mode: "swift-dynamic-replacement",
-      durationMs: Date.now() - startedAt,
+      compileMs,
+      loadAckMs,
+      refreshAckMs,
+      durationMs: Math.max(0, now() - startedAt),
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -633,34 +879,47 @@ export async function injectLiveSource(sourcePath) {
     return {
       succeeded: false,
       mode,
-      durationMs: Date.now() - startedAt,
+      compileMs,
+      loadAckMs,
+      refreshAckMs,
+      durationMs: Math.max(0, now() - startedAt),
       error: queued?.error || "The live engine did not accept the source file.",
     };
   }
   const requestID = Number(queued.data?.request_id || 0);
+  const loadStartedAt = now();
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const status = await engineControl({ action: "status" });
+    const status = await control({ action: "status" });
     const completed = Number(status?.data?.completed_injection_request_id || 0);
     if (completed >= requestID) {
+      loadAckMs = Math.max(0, now() - loadStartedAt);
       const succeeded = status?.data?.last_injection_succeeded === true;
+      const report = status?.data?.last_patch_report || null;
+      refreshAckMs = Number(report?.refreshAckMs ?? report?.refresh_ack_ms ?? 0) || 0;
       return {
         succeeded,
         mode,
         requestID,
-        durationMs: Date.now() - startedAt,
-        report: status?.data?.last_patch_report || null,
+        compileMs,
+        loadAckMs,
+        refreshAckMs,
+        durationMs: Math.max(0, now() - startedAt),
+        report,
         error: succeeded
           ? ""
           : status?.data?.last_error || "The patch was compiled but the running app rejected it.",
       };
     }
-    await delay(200);
+    await wait(200);
   }
   return {
     succeeded: false,
     mode,
     requestID,
-    durationMs: Date.now() - startedAt,
+    compileMs,
+    loadAckMs,
+    refreshAckMs,
+    durationMs: Math.max(0, now() - startedAt),
     error: "The live patch timed out. Keep the app foregrounded or create a new signed update link.",
   };
 }
@@ -1035,7 +1294,14 @@ function declarationSurface(source) {
     .sort()
     .join("\n");
   const declarations = [];
+  const signatures = [];
+  const storedProperties = [];
+  const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
+    .map((match) => compact(match[1]))
+    .sort()
+    .join("\n");
   const declarationPattern = /\b(actor|associatedtype|case|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b/gm;
+  const typeRanges = typeDeclarationRanges(clean);
 
   for (const match of clean.matchAll(declarationPattern)) {
     if (match[1] === "class" && /^\s+(?:func|var|subscript)\b/.test(clean.slice(match.index + match[0].length))) {
@@ -1044,8 +1310,70 @@ function declarationSurface(source) {
     const start = match.index;
     const signature = readDeclarationSignature(clean, start, match[1]);
     declarations.push(compact(signature));
+    if (["func", "init", "subscript", "typealias", "operator", "precedencegroup"].includes(match[1])) {
+      signatures.push(compact(signature));
+    }
+    if (["let", "var"].includes(match[1]) && isStoredProperty(clean, start, typeRanges, signature)) {
+      storedProperties.push(compact(readStoredProperty(source, start)));
+    }
   }
-  return { imports, declarations: declarations.join("\n"), unsupported: "" };
+  return {
+    imports,
+    declarations: declarations.join("\n"),
+    signatures: signatures.join("\n"),
+    storedProperties: storedProperties.join("\n"),
+    modifiers,
+    unsupported: "",
+  };
+}
+
+function typeDeclarationRanges(source) {
+  const ranges = [];
+  const declaration = /\b(?:actor|class|enum|protocol|struct)\b[^{}\n]*\{/g;
+  for (const match of source.matchAll(declaration)) {
+    const open = match.index + match[0].lastIndexOf("{");
+    const close = matchingBrace(source, open);
+    if (close >= 0) ranges.push({ open, close });
+  }
+  return ranges;
+}
+
+function isStoredProperty(source, start, ranges, signature) {
+  const owner = ranges
+    .filter((range) => range.open < start && range.close > start)
+    .sort((left, right) => right.open - left.open)[0];
+  if (!owner) return false;
+  const signatureEnd = start + String(signature).length;
+  const next = source.slice(signatureEnd).match(/\S/)?.[0] || "";
+  if (next === "{") return false;
+  return braceDepth(source, owner.open + 1, start) === 0;
+}
+
+function readStoredProperty(source, start) {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      if (depth === 0) return source.slice(start, index);
+      depth -= 1;
+    } else if ((char === "\n" || char === ";") && depth === 0) {
+      return source.slice(start, index);
+    }
+  }
+  return source.slice(start);
 }
 
 function readDeclarationSignature(source, start, kind) {
@@ -1140,12 +1468,34 @@ function compact(value) {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
-function result(route, hotReloadable, reason, paths) {
+function normalizedClassification({
+  route,
+  hotReloadable,
+  reason,
+  reasonCode,
+  changes,
+}) {
   return {
+    schemaVersion: ROUTING_SCHEMA_VERSION,
+    classifierVersion: CLASSIFIER_VERSION,
     route,
     hotReloadable,
     reason,
+    reasonCode,
+    changes,
+  };
+}
+
+function result(route, hotReloadable, reason, paths, reasonCode) {
+  return {
+    schemaVersion: ROUTING_SCHEMA_VERSION,
+    classifierVersion: CLASSIFIER_VERSION,
+    route,
+    hotReloadable,
+    reason,
+    reasonCode,
     before: paths.beforePath || "",
     after: paths.afterPath || "",
+    path: paths.path || "",
   };
 }

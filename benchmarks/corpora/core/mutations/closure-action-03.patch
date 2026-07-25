@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -6,3 +6,3 @@
+     private func actionSlot02() -> String { "action-02" }
+-    private func actionSlot03() -> String { "action-03" }
++    private func actionSlot03() -> String { "action-edited-03" }
+     private func actionSlot04() -> String { "action-04" }

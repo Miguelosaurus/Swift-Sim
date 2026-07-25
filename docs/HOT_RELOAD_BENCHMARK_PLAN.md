@@ -5,6 +5,12 @@ Target: Swift Sim 0.6 development cycle
 Owner of architecture: Swift Sim maintainers  
 Implementation profile: deterministic Node tooling plus disposable SwiftUI fixture apps
 
+Implementation checkpoint: Phases 1–2 are complete, and the Phase 3 fixture
+apps/oracle implementation is in place with all three unsigned Simulator builds
+passing. The Phase 3 physical-device probe and restore gate remains pending
+until the explicitly selected iPhone is unlocked; no Simulator or static result
+is a substitute for that gate.
+
 ## Objective
 
 Build a reproducible benchmark that answers three different questions without
@@ -856,4 +862,3 @@ The benchmark implementation is complete when:
 - Screenshot or computer-vision correctness scoring
 - A public stable `swift-sim benchmark` CLI
 - A universal coverage percentage before chronological real-app evidence
-

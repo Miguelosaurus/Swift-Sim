@@ -1,0 +1,16 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -32,3 +32,3 @@
+     let storedSlot09: String = "stored-09"
+-    let storedSlot10: String = "stored-10"
++    let storedSlot10: String = "stored-edited-10"
+     let storedSlot11: String = "stored-11"
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -64,3 +64,3 @@
+     private func asyncSlot15() async -> String { "async-15" }
+-    private func signatureSlot01(_ value: Int) -> String { "signature-01" }
++    private func signatureSlot01(_ value: Int, extra: Bool) -> String { "signature-01" }
+     private func signatureSlot02(_ value: Int) -> String { "signature-02" }

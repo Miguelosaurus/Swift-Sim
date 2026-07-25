@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -81,3 +81,3 @@
+     private func accessSlot02() -> String { "access-02" }
+-    private func accessSlot03() -> String { "access-03" }
++    internal func accessSlot03() -> String { "access-03" }
+     private func accessSlot04() -> String { "access-04" }

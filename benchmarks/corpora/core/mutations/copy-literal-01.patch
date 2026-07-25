@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -45,3 +45,3 @@
+         VStack {
+-            BenchmarkMarkerView(value: "copy-01")
++            BenchmarkMarkerView(caseID: "copy-literal-01", value: "copy-edited-01")
+             BenchmarkMarkerView(value: "copy-02")

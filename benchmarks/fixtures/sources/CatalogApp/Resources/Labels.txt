@@ -1,0 +1,2 @@
+catalog.label=Catalog
+edit.label=Edit

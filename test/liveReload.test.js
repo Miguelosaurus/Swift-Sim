@@ -2,8 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   classifySwiftSource,
+  classifyEditSet,
   classifyLiveChanges,
   generateDynamicReplacementSource,
+  LIVE_REASON_CODES,
+  routeLiveEditSet,
+  injectLiveSource,
 } from "../mac-helper/src/liveReload.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,6 +51,40 @@ test("requires a rebuild when imports change", () => {
   const before = `import SwiftUI\nstruct Card: View { var body: some View { Text("A") } }`;
   const after = `import SwiftUI\nimport MapKit\nstruct Card: View { var body: some View { Text("A") } }`;
   assert.equal(classifySwiftSource(before, after).route, "rebuild-required");
+});
+
+test("requires a rebuild when only a stored-property initializer changes", () => {
+  const before = `struct Card { var title = "Old"; func value() -> String { title } }`;
+  const after = `struct Card { var title = "New"; func value() -> String { title } }`;
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.route, "rebuild-required");
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.STORED_PROPERTY_CHANGED);
+});
+
+test("canonical edit sets fail closed for non-Swift and file lifecycle changes", () => {
+  const nonSwift = classifyEditSet({ files: [{ path: "Assets.xcassets", kind: "resource", status: "modified" }] });
+  assert.equal(nonSwift.route, "rebuild-required");
+  assert.equal(nonSwift.reasonCode, LIVE_REASON_CODES.NON_SWIFT_FILE);
+
+  const added = classifyEditSet({ files: [{ path: "New.swift", kind: "swift", status: "added" }] });
+  assert.equal(added.route, "rebuild-required");
+  assert.equal(added.reasonCode, LIVE_REASON_CODES.FILE_ADDED_OR_REMOVED);
+});
+
+test("canonical edit sets identify mixed edits as one rebuild operation", () => {
+  const result = classifyEditSet({ files: [
+    {
+      path: "Card.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `struct Card: View { var body: some View { Text("A") } }`,
+      afterSource: `struct Card: View { var body: some View { Text("B") } }`,
+    },
+    { path: "Info.plist", kind: "resource", status: "modified" },
+  ] });
+  assert.equal(result.route, "rebuild-required");
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.MIXED_EDIT_SET);
+  assert.equal(result.changes.length, 2);
 });
 
 test("ignores declaration words inside comments and strings", () => {
@@ -128,4 +166,91 @@ test("generates qualified replacements for nested SwiftUI views", () => {
   });
   assert.match(generated, /extension Screen\.Row/);
   assert.match(generated, /extension Screen \{/);
+});
+
+test("canonical routing returns stable phase timings through injected engine seams", async () => {
+  let clock = 0;
+  const result = await routeLiveEditSet({
+    files: [{
+      path: "Card.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `struct Card: View { var body: some View { Text("A") } }`,
+      afterSource: `struct Card: View { var body: some View { Text("B") } }`,
+    }],
+    runtime: {
+      now: () => { clock += 3; return clock; },
+      inspect: async () => ({ ready: true }),
+      inject: async () => ({ succeeded: true, durationMs: 4, compileMs: 2, loadAckMs: 1, refreshAckMs: 1, requestID: "request-test" }),
+    },
+  });
+  assert.equal(result.action, "hot-reload");
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.IMPLEMENTATION_ONLY);
+  assert.equal(result.requestId, "request-test");
+  assert.ok(result.timing.classificationMs >= 0);
+  assert.ok(result.timing.compileMs >= 0);
+  assert.ok(result.timing.loadAckMs >= 0);
+  assert.ok(result.timing.refreshAckMs >= 0);
+  assert.ok(result.timing.totalMs >= result.timing.classificationMs);
+});
+
+test("live injection reports compile, load, and refresh phases through injected seams", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-injection-"));
+  const sourcePath = join(directory, "Card.swift");
+  writeFileSync(sourcePath, `struct Card { var body: String { "Ready" } }`);
+  let clock = 0;
+  let statusCalls = 0;
+  const result = await injectLiveSource(sourcePath, {
+    now: () => { clock += 2; return clock; },
+    compile: () => null,
+    engineControl: async (request) => {
+      if (request.action === "inject_source") return { success: true, data: { request_id: 7 } };
+      statusCalls += 1;
+      return { data: { completed_injection_request_id: 7, last_injection_succeeded: true, last_patch_report: { refreshAckMs: 3 } } };
+    },
+    delay: async () => {},
+  });
+  assert.equal(result.succeeded, true);
+  assert.equal(result.requestID, 7);
+  assert.ok(result.compileMs >= 0);
+  assert.ok(result.loadAckMs >= 0);
+  assert.equal(result.refreshAckMs, 3);
+  assert.ok(result.durationMs >= result.compileMs);
+  assert.equal(statusCalls, 1);
+});
+
+test("a successful engine response with zero dynamic replacements is not a live success", async () => {
+  const result = await routeLiveEditSet({
+    files: [{
+      path: "Card.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `struct Card: View { var body: some View { Text("A") } }`,
+      afterSource: `struct Card: View { var body: some View { Text("B") } }`,
+    }],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      inject: async () => ({ succeeded: true, report: { dynamic_replacements: 0 }, requestID: "request-zero" }),
+    },
+  });
+  assert.equal(result.action, "hot-reload-failed");
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.PATCH_LOAD_FAILED);
+});
+
+test("a patch without the root refresh acknowledgement fails closed", async () => {
+  const result = await routeLiveEditSet({
+    files: [{
+      path: "Card.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `struct Card: View { var body: some View { Text("A") } }`,
+      afterSource: `struct Card: View { var body: some View { Text("B") } }`,
+    }],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      inject: async () => ({ succeeded: true, report: { dynamic_replacements: 1, refresh_acknowledged: false }, requestID: "request-no-refresh" }),
+    },
+  });
+  assert.equal(result.action, "hot-reload-failed");
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.REFRESH_NOT_ACKNOWLEDGED);
 });

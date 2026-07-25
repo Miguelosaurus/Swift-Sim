@@ -1,0 +1,16 @@
+diff --git a/ArchitectureApp/ArchitectureScreen.swift b/ArchitectureApp/ArchitectureScreen.swift
+--- a/ArchitectureApp/ArchitectureScreen.swift
++++ b/ArchitectureApp/ArchitectureScreen.swift
+@@ -4,3 +4,3 @@
+     private struct NestedCard: View {
+-        var body: some View { BenchmarkMarkerView(value: "nested-01") }
++        var body: some View { BenchmarkMarkerView(caseID: "multi-file-implementation-01", value: "nested-edited-01") }
+     }
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -34,3 +34,3 @@
+     private var computedSlot15: some View { Text("computed-15") }
+-    private func helperSlot01() -> String { "helper-01" }
++    private func helperSlot01() -> String { "helper-edited-01" }
+     private func helperSlot02() -> String { "helper-02" }

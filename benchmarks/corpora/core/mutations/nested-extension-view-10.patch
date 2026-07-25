@@ -1,0 +1,8 @@
+diff --git a/ArchitectureApp/ArchitectureScreen.swift b/ArchitectureApp/ArchitectureScreen.swift
+--- a/ArchitectureApp/ArchitectureScreen.swift
++++ b/ArchitectureApp/ArchitectureScreen.swift
+@@ -42,3 +42,3 @@
+     private func genericSlot09<T>(_ value: T) -> String { "generic-09" }
+-    private struct NestedSlot10: View { var body: some View { BenchmarkMarkerView(value: "nested-10") } }
++    private struct NestedSlot10: View { var body: some View { BenchmarkMarkerView(caseID: "nested-extension-view-10", value: "nested-edited-10") } }
+     private struct ShapeSlot10 {}

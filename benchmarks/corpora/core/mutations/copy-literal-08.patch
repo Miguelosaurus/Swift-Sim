@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -52,3 +52,3 @@
+             BenchmarkMarkerView(value: "copy-07")
+-            BenchmarkMarkerView(value: "copy-08")
++            BenchmarkMarkerView(caseID: "copy-literal-08", value: "copy-edited-08")
+             BenchmarkMarkerView(value: "copy-09")

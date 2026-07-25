@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swift-sim.dev/schemas/corpus.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "corpusVersion", "fixtureRevision", "cases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "corpusVersion": { "type": "string", "minLength": 1 },
+    "fixtureRevision": { "type": "string", "minLength": 1 },
+    "metadata": { "type": "object" },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "case.schema.json" }
+    }
+  },
+  "additionalProperties": false
+}

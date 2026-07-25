@@ -1,0 +1,8 @@
+diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
+--- a/StateApp/StateScreen.swift
++++ b/StateApp/StateScreen.swift
+@@ -34,3 +34,3 @@
+     private var computedSlot15: some View { Text("computed-15") }
+-    private func helperSlot01() -> String { "helper-01" }
++    private func helperSlot01() -> String { "helper-edited-01" }
+     private func helperSlot02() -> String { "helper-02" }

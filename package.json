@@ -19,9 +19,15 @@
   },
   "scripts": {
     "start": "node mac-helper/bin/swift-sim.js serve",
-    "check": "node --check mac-helper/bin/swift-sim.js && node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && npm run check:docs && node --test",
+    "check": "node --check mac-helper/bin/swift-sim.js && node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && npm run check:docs && npm test",
     "check:docs": "node scripts/verify-docs.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js benchmarks/test/*.test.js",
+    "test:benchmarks": "node --test benchmarks/test/*.test.js",
+    "benchmark:generate": "node benchmarks/src/generateCoreCorpus.js",
+    "benchmark:validate": "node benchmarks/src/cli.js validate",
+    "benchmark:static": "node benchmarks/src/cli.js static",
+    "benchmark:device": "node benchmarks/src/cli.js device",
+    "benchmark:report": "node benchmarks/src/cli.js report"
   },
   "engines": {
     "node": ">=20"

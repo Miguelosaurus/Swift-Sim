@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/CatalogScreen.swift b/CatalogApp/CatalogScreen.swift
+--- a/CatalogApp/CatalogScreen.swift
++++ b/CatalogApp/CatalogScreen.swift
+@@ -91,3 +91,3 @@
+             BenchmarkMarkerView(value: "animation-06").animation(.easeInOut(duration: 0.2), value: title)
+-            BenchmarkMarkerView(value: "animation-07").animation(.easeInOut(duration: 0.2), value: title)
++            BenchmarkMarkerView(caseID: "animation-transition-07", value: "animation-edited-07").animation(.easeInOut(duration: 0.45), value: title)
+             BenchmarkMarkerView(value: "animation-08").animation(.easeInOut(duration: 0.2), value: title)

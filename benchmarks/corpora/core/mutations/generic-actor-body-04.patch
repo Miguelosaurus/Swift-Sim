@@ -1,0 +1,8 @@
+diff --git a/ArchitectureApp/ArchitectureScreen.swift b/ArchitectureApp/ArchitectureScreen.swift
+--- a/ArchitectureApp/ArchitectureScreen.swift
++++ b/ArchitectureApp/ArchitectureScreen.swift
+@@ -21,3 +21,3 @@
+     private enum ChoiceSlot04 { case first }
+-    private func genericSlot04<T>(_ value: T) -> String { "generic-04" }
++    private func genericSlot04<T>(_ value: T) -> String { "generic-edited-04" }
+     private struct NestedSlot05: View { var body: some View { BenchmarkMarkerView(value: "nested-05") } }
