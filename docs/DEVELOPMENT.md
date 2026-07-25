@@ -58,6 +58,8 @@ The Swift package pins the `swift-sim-engine` branch of the Swift Sim InjectionN
 
 For physical-device proof, use a regular development-signed Debug app on an iPhone connected through the private Tailnet. Require two consecutive `route-change` results with `action: hot-reload`, `applied: true`, `dynamic_replacements > 0`, `refresh_acknowledged: true`, and increasing nonzero revisions. Record patch duration, verify no rebuild or reinstall occurred between edits, and do not substitute screenshots for the runtime report.
 
+The implementation contract for the repeatable classifier, physical-device, and real-workflow benchmark is in [Remote Hot Reload Benchmark Plan](HOT_RELOAD_BENCHMARK_PLAN.md). Keep its three scoreboards separate: a curated routing corpus cannot establish the percentage of chronological real-app edits accelerated.
+
 ## Manual Session Test
 
 1. Build and launch an app on a booted simulator.
