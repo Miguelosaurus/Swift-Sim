@@ -17,6 +17,7 @@ if (command === "ci-policy") {
     runBeforeEveryBuild: preferences.buildValidationMode === "always",
     command: preferences.buildValidationCommand || "",
     workingDirectory: preferences.buildValidationWorkingDirectory || "",
+    timeoutSeconds: preferences.buildValidationTimeoutSeconds,
   };
   if (args.includes("--json")) console.log(JSON.stringify(payload, null, 2));
   else if (payload.runBeforeEveryBuild) {
@@ -24,6 +25,7 @@ if (command === "ci-policy") {
     console.log(payload.workingDirectory
       ? `Validation working directory: ${payload.workingDirectory}`
       : "Validation working directory: inferred from --project or --workspace");
+    console.log(`Validation timeout: ${payload.timeoutSeconds} seconds`);
   } else {
     console.log("Run project checks only when the user explicitly requests them.");
   }
@@ -37,7 +39,18 @@ if (command === "setup" && !args.includes("--json") && input.isTTY && output.isT
 await import("./swift-sim.js");
 
 async function configureBuildValidation() {
-  const current = readBuildValidationPreferences();
+  let current;
+  try {
+    current = readBuildValidationPreferences();
+  } catch (error) {
+    console.warn(error instanceof Error ? error.message : String(error));
+    current = {
+      buildValidationMode: "explicit",
+      buildValidationCommand: "",
+      buildValidationWorkingDirectory: "",
+      buildValidationTimeoutSeconds: 900,
+    };
+  }
   const rl = createInterface({ input, output });
   try {
     const answer = (await rl.question(
@@ -54,13 +67,21 @@ async function configureBuildValidation() {
       )).trim();
       if (workingDirectory) current.buildValidationWorkingDirectory = resolve(process.cwd(), workingDirectory);
       else delete current.buildValidationWorkingDirectory;
+      const timeoutAnswer = (await rl.question(
+        `Validation timeout in seconds [${current.buildValidationTimeoutSeconds || 900}]: `
+      )).trim();
+      const parsedTimeout = Number(timeoutAnswer || current.buildValidationTimeoutSeconds || 900);
+      current.buildValidationTimeoutSeconds = Number.isFinite(parsedTimeout)
+        ? Math.max(1, Math.min(3600, Math.floor(parsedTimeout)))
+        : 900;
     } else {
       delete current.buildValidationCommand;
       delete current.buildValidationWorkingDirectory;
+      delete current.buildValidationTimeoutSeconds;
     }
     writePreferences(current);
     console.log(current.buildValidationMode === "always"
-      ? `Swift Sim will run '${current.buildValidationCommand}' before every device build.`
+      ? `Swift Sim will run '${current.buildValidationCommand}' before every device build with a ${current.buildValidationTimeoutSeconds}-second timeout.`
       : "Swift Sim will run project checks only when you explicitly ask.");
   } finally {
     rl.close();
