@@ -5,7 +5,7 @@ import Security
 struct SwiftSimCompanionApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var sessionStore: SessionStore
-    @State private var pendingPairing: PendingPairing?
+    @State private var pairingAlert: PairingAlert?
 
     init() {
         PairingCredentialVault.prepareForSessionStore()
@@ -18,21 +18,40 @@ struct SwiftSimCompanionApp: App {
             ContentView()
                 .environmentObject(sessionStore)
                 .onOpenURL { url in
-                    if let pairing = PendingPairing(url: url) {
-                        pendingPairing = pairing
-                    } else {
+                    guard PairedMac(url: url) != nil else {
                         _ = sessionStore.open(url)
+                        return
+                    }
+                    do {
+                        pairingAlert = .confirmation(try PendingPairing(url: url))
+                    } catch {
+                        pairingAlert = .failure(error.localizedDescription)
                     }
                 }
-                .alert(item: $pendingPairing) { pairing in
-                    Alert(
-                        title: Text(sessionStore.pairedMac == nil ? "Connect this Mac?" : "Replace connected Mac?"),
-                        message: Text("Swift Sim will trust \(pairing.host) and allow it to provide app history, build metadata, and install links. Only continue if you created this pairing link."),
-                        primaryButton: .cancel(),
-                        secondaryButton: .default(Text("Connect")) {
-                            _ = sessionStore.open(pairing.url)
-                        }
-                    )
+                .alert(item: $pairingAlert) { item in
+                    switch item {
+                    case .confirmation(let pairing):
+                        return Alert(
+                            title: Text(sessionStore.pairedMac == nil ? "Connect this Mac?" : "Replace connected Mac?"),
+                            message: Text("Swift Sim will trust \(pairing.host) and allow it to provide app history, build metadata, and install links. Only continue if you created this pairing link."),
+                            primaryButton: .cancel {
+                                PairingCredentialVault.cancelStagedPairing(pairingID: pairing.pairingID)
+                            },
+                            secondaryButton: .default(Text("Connect")) {
+                                guard sessionStore.open(pairing.url) else {
+                                    PairingCredentialVault.cancelStagedPairing(pairingID: pairing.pairingID)
+                                    pairingAlert = .failure("The pairing could not be saved securely. Pair this Mac again.")
+                                    return
+                                }
+                            }
+                        )
+                    case .failure(let message):
+                        return Alert(
+                            title: Text("Unable to connect this Mac"),
+                            message: Text(message),
+                            dismissButton: .default(Text("OK"))
+                        )
+                    }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     guard phase == .active else { return }
@@ -42,15 +61,34 @@ struct SwiftSimCompanionApp: App {
     }
 }
 
+private enum PairingAlert: Identifiable {
+    case confirmation(PendingPairing)
+    case failure(String)
+
+    var id: String {
+        switch self {
+        case .confirmation(let pairing): "confirmation:\(pairing.id.uuidString)"
+        case .failure(let message): "failure:\(message)"
+        }
+    }
+}
+
 private struct PendingPairing: Identifiable {
     let id = UUID()
     let url: URL
     let host: String
+    let pairingID: String
 
-    init?(url: URL) {
-        guard let pairing = PairedMac(url: url) else { return nil }
+    init(url: URL) throws {
+        guard let pairing = PairedMac(url: url) else {
+            throw PairingCredentialVault.credentialError("This pairing link is invalid.")
+        }
+        guard PairingCredentialVault.stagePairing(token: pairing.token, pairingID: pairing.id) else {
+            throw PairingCredentialVault.credentialError("The pairing credential could not be protected in Keychain. Unlock this iPhone and try again.")
+        }
         self.url = url
         self.host = pairing.hostDisplayName
+        self.pairingID = pairing.id
     }
 }
 
@@ -65,14 +103,18 @@ private enum PairingCredentialVault {
     private static var defaultsObserver: NSObjectProtocol?
 
     static func prepareForSessionStore() {
-        guard var object = pairedMacObject(),
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: defaultsKey) else {
+            cleanupWithoutMetadata()
+            return
+        }
+        guard var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let id = object["id"] as? String,
               !id.isEmpty,
               let stored = object["token"] as? String,
               !stored.isEmpty else {
-            if UserDefaults.standard.data(forKey: defaultsKey) == nil {
-                cleanupWithoutMetadata()
-            }
+            defaults.removeObject(forKey: defaultsKey)
+            cleanupWithoutMetadata()
             return
         }
 
@@ -81,7 +123,7 @@ private enum PairingCredentialVault {
             discardAbandonedPendingAccount(except: storedAccount)
             guard storedAccount == expectedAccount,
                   readToken(account: storedAccount)?.isEmpty == false else {
-                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                defaults.removeObject(forKey: defaultsKey)
                 cleanupWithoutMetadata()
                 return
             }
@@ -92,7 +134,7 @@ private enum PairingCredentialVault {
         if stored == legacyMarker {
             guard let token = readToken(account: legacyAccount), !token.isEmpty,
                   storeToken(token, account: expectedAccount) else {
-                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                defaults.removeObject(forKey: defaultsKey)
                 cleanupWithoutMetadata()
                 return
             }
@@ -103,7 +145,7 @@ private enum PairingCredentialVault {
         }
 
         guard storeToken(stored, account: expectedAccount) else {
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            defaults.removeObject(forKey: defaultsKey)
             cleanupWithoutMetadata()
             return
         }
@@ -130,10 +172,33 @@ private enum PairingCredentialVault {
             guard let object = pairedMacObject(),
                   let stored = object["token"] as? String,
                   let currentAccount = account(fromMarker: stored) else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                cleanupWithoutMetadata()
                 return
             }
             reconcileCommittedAccount(currentAccount)
         }
+    }
+
+    static func stagePairing(token: String, pairingID: String) -> Bool {
+        let stagedAccount = account(for: pairingID)
+        guard !token.isEmpty, storeToken(token, account: stagedAccount) else { return false }
+        let defaults = UserDefaults.standard
+        if let previousPending = defaults.string(forKey: pendingAccountKey), previousPending != stagedAccount {
+            deleteToken(account: previousPending)
+        }
+        defaults.set(stagedAccount, forKey: pendingAccountKey)
+        return true
+    }
+
+    static func cancelStagedPairing(pairingID: String) {
+        let stagedAccount = account(for: pairingID)
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: pendingAccountKey) == stagedAccount else { return }
+        if defaults.string(forKey: committedAccountKey) != stagedAccount {
+            deleteToken(account: stagedAccount)
+        }
+        defaults.removeObject(forKey: pendingAccountKey)
     }
 
     static func tokenForDecoding(_ storedValue: String, pairingID: String) throws -> String {
@@ -159,12 +224,13 @@ private enum PairingCredentialVault {
     }
 
     static func markerForEncoding(token: String, pairingID: String) throws -> String {
-        let account = account(for: pairingID)
-        guard !token.isEmpty, storeToken(token, account: account) else {
+        let tokenAccount = account(for: pairingID)
+        let alreadyStaged = readToken(account: tokenAccount) == token
+        guard !token.isEmpty, alreadyStaged || storeToken(token, account: tokenAccount) else {
             throw credentialError("The pairing credential could not be protected in Keychain.")
         }
-        UserDefaults.standard.set(account, forKey: pendingAccountKey)
-        return marker(for: account)
+        UserDefaults.standard.set(tokenAccount, forKey: pendingAccountKey)
+        return marker(for: tokenAccount)
     }
 
     private static func reconcileCommittedAccount(_ currentAccount: String) {
@@ -284,7 +350,7 @@ private enum PairingCredentialVault {
         SecItemDelete(query as CFDictionary)
     }
 
-    private static func credentialError(_ message: String) -> NSError {
+    static func credentialError(_ message: String) -> NSError {
         NSError(domain: "SwiftSimPairingCredential", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
