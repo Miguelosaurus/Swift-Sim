@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/open-source-launch-hardening-round-3-work
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -59,6 +62,7 @@ jobs:
             -default-test-execution-time-allowance 30 \
             -maximum-test-execution-time-allowance 60
       - name: Commit validated changes
+        if: github.event_name == 'push'
         run: |
           git config user.name "swift-sim-review-bot"
           git config user.email "actions@users.noreply.github.com"
