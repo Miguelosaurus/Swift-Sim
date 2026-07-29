@@ -28,7 +28,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply round 3 fixes
-        run: python3 scripts/apply-round3.py
+        run: python3 scripts/run-round3.py
       - run: npm ci
       - run: npm run check
       - run: |
