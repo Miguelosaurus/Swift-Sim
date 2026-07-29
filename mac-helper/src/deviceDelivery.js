@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import {
   DEFAULT_DEVICE_BUILD_TTL_MINUTES,
@@ -19,7 +19,7 @@ export class DeviceDeliveryAdapter {
     statePath = join(homedir(), ".swift-sim", "device-delivery.json"),
     logPath = join(homedir(), ".swift-sim", "device-delivery.log"),
     managerPath = join(moduleDirectory, "..", "bin", "swift-sim-device-delivery.js"),
-    helperPath = join(moduleDirectory, "..", "bin", "swift-sim-helper.js"),
+    helperPath = join(moduleDirectory, "..", "bin", "swift-sim-helper-entry.js"),
     gatewayPort = Number(process.env.SWIFT_SIM_DEVICE_GATEWAY_PORT || 0),
   } = {}) {
     this.statePath = statePath;
@@ -32,8 +32,8 @@ export class DeviceDeliveryAdapter {
   async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES } = {}) {
     ttlMinutes = normalizeDeviceBuildTTLMinutes(ttlMinutes);
     const current = this.status();
-    if (deliveryIsReusable(current, ttlMinutes)) return current;
-    terminateDeliveryProcessGroup(current);
+    if (deliveryIsReusable(current, ttlMinutes, this.managerPath)) return current;
+    terminateOwnedDeliveryProcessGroup(current, this.managerPath);
 
     const generation = randomUUID();
     const gatewayPort = this.gatewayPort || await availableLoopbackPort();
@@ -80,7 +80,7 @@ export class DeviceDeliveryAdapter {
 
   stop() {
     const state = this.status();
-    const stopped = processIsAlive(state.managerPid) || processIsAlive(state.gatewayPid) || processIsAlive(state.tunnelPid);
+    const owned = managerIsOwned(state, this.managerPath);
     const shutdownGeneration = randomUUID();
     mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
     writeFileSync(this.statePath, JSON.stringify({
@@ -90,7 +90,7 @@ export class DeviceDeliveryAdapter {
       publicBaseUrl: "",
       stoppedAt: "",
     }, null, 2), { mode: 0o600 });
-    terminateDeliveryProcessGroup(state);
+    terminateOwnedDeliveryProcessGroup(state, this.managerPath);
     writeFileSync(this.statePath, JSON.stringify({
       ...state,
       generation: shutdownGeneration,
@@ -101,7 +101,7 @@ export class DeviceDeliveryAdapter {
       publicBaseUrl: "",
       stoppedAt: new Date().toISOString(),
     }, null, 2), { mode: 0o600 });
-    return stopped;
+    return owned;
   }
 }
 
@@ -121,38 +121,39 @@ export function parseQuickTunnelUrl(output) {
   return normalized.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i)?.[0] || "";
 }
 
-function deliveryIsReusable(state, ttlMinutes) {
+function deliveryIsReusable(state, ttlMinutes, managerPath) {
   if (state.status !== "ready" || !state.publicBaseUrl) return false;
-  if (!processIsAlive(state.managerPid)) return false;
+  if (!managerIsOwned(state, managerPath)) return false;
   const requiredLifetime = normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60_000 - 30_000;
   if (Date.parse(state.expiresAt || "") <= Date.now() + requiredLifetime) return false;
   return true;
 }
 
-function terminateDeliveryProcessGroup(state) {
+function terminateOwnedDeliveryProcessGroup(state, managerPath) {
   const managerPid = Number(state.managerPid);
-  if (Number.isInteger(managerPid) && managerPid > 0 && processIsAlive(managerPid)) {
-    try { process.kill(-managerPid, "SIGTERM"); } catch { try { process.kill(managerPid, "SIGTERM"); } catch {} }
-    waitForProcessExit(managerPid, 5_000);
-    if (processIsAlive(managerPid)) {
-      try { process.kill(-managerPid, "SIGKILL"); } catch { try { process.kill(managerPid, "SIGKILL"); } catch {} }
-      waitForProcessExit(managerPid, 2_000);
-    }
+  if (!managerIsOwned(state, managerPath)) return false;
+  try { process.kill(-managerPid, "SIGTERM"); } catch { try { process.kill(managerPid, "SIGTERM"); } catch {} }
+  waitForProcessExit(managerPid, 5_000);
+  if (managerIsOwned(state, managerPath)) {
+    try { process.kill(-managerPid, "SIGKILL"); } catch { try { process.kill(managerPid, "SIGKILL"); } catch {} }
+    waitForProcessExit(managerPid, 2_000);
   }
-  cleanupRecordedChildren(state);
+  return true;
 }
 
-function cleanupRecordedChildren(state) {
-  for (const pid of [state.gatewayPid, state.tunnelPid]) {
-    const numericPid = Number(pid);
-    if (!processIsAlive(numericPid)) continue;
-    try { process.kill(numericPid, "SIGTERM"); } catch {}
-    waitForProcessExit(numericPid, 2_000);
-    if (processIsAlive(numericPid)) {
-      try { process.kill(numericPid, "SIGKILL"); } catch {}
-      waitForProcessExit(numericPid, 1_000);
-    }
-  }
+function managerIsOwned(state, managerPath) {
+  const managerPid = Number(state.managerPid);
+  const generation = String(state.generation || "");
+  if (!Number.isInteger(managerPid) || managerPid <= 0 || !generation) return false;
+  return processCommandMatches(managerPid, [managerPath, "--generation", generation]);
+}
+
+function processCommandMatches(pid, requiredFragments) {
+  if (!processIsAlive(pid)) return false;
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+  if (result.status !== 0) return false;
+  const command = String(result.stdout || "");
+  return requiredFragments.every((fragment) => command.includes(String(fragment)));
 }
 
 function processIsAlive(pid) {
