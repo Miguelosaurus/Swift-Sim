@@ -35,6 +35,7 @@ final class InstallationStateTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testPairingEncodingNeverSerializesThePlaintextToken() throws {
         let token = "pairing-secret-\(UUID().uuidString)"
         let mac = PairedMac(
@@ -49,6 +50,7 @@ final class InstallationStateTests: XCTestCase {
         XCTAssertTrue(marker.hasPrefix("__swift_sim_keychain__:"))
     }
 
+    @MainActor
     func testEncodingAReplacementDoesNotOverwriteThePreviousPairingCredential() throws {
         let firstToken = "first-secret-\(UUID().uuidString)"
         let secondToken = "second-secret-\(UUID().uuidString)"
