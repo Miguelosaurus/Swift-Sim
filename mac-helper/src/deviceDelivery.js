@@ -34,8 +34,9 @@ export class DeviceDeliveryAdapter {
     const current = this.status();
     if (deliveryIsReusable(current, ttlMinutes)) return current;
     if (processIsAlive(current.managerPid)) {
-      this.stop();
-      await waitForProcessExit(current.managerPid, 5_000);
+      await terminateDeliveryProcessGroup(current);
+    } else {
+      cleanupRecordedChildren(current);
     }
 
     const generation = randomUUID();
@@ -60,9 +61,7 @@ export class DeviceDeliveryAdapter {
       await sleep(250);
       const state = this.status();
       if (state.generation !== generation) continue;
-      if (state.status === "ready" && state.publicBaseUrl) {
-        return state;
-      }
+      if (state.status === "ready" && state.publicBaseUrl) return state;
       if (state.status === "failed") {
         throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${this.logPath}`);
       }
@@ -85,18 +84,15 @@ export class DeviceDeliveryAdapter {
 
   stop() {
     const state = this.status();
-    let stopped = false;
-    if (processIsAlive(state.managerPid)) {
-      process.kill(state.managerPid, "SIGTERM");
-      stopped = true;
-    }
-    mkdirSync(dirname(this.statePath), { recursive: true });
+    const stopped = processIsAlive(state.managerPid) || processIsAlive(state.gatewayPid) || processIsAlive(state.tunnelPid);
+    void terminateDeliveryProcessGroup(state);
+    mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
     writeFileSync(this.statePath, JSON.stringify({
       ...state,
       status: "stopped",
       publicBaseUrl: "",
       stoppedAt: new Date().toISOString(),
-    }, null, 2));
+    }, null, 2), { mode: 0o600 });
     return stopped;
   }
 }
@@ -104,12 +100,12 @@ export class DeviceDeliveryAdapter {
 export function deviceDeliveryRequestAllowed(method, pathname) {
   const verb = String(method || "").toUpperCase();
   if (verb === "POST") {
-    return /^\/api\/device-builds\/[^/]+\/(install-request|verify)$/.test(pathname);
+    return /^\/api\/device-builds\/[^/]+\/install-request$/.test(pathname);
   }
   if (verb !== "GET") return false;
   if (pathname === "/health") return true;
   if (/^\/d\/[^/]+$/.test(pathname)) return true;
-  return /^\/api\/device-builds\/[^/]+(?:\/logs|\/links|\/artifact\/(?:ipa|manifest))?$/.test(pathname);
+  return /^\/api\/device-builds\/[^/]+(?:\/links|\/artifact\/(?:ipa|manifest))?$/.test(pathname);
 }
 
 export function parseQuickTunnelUrl(output) {
@@ -123,6 +119,26 @@ function deliveryIsReusable(state, ttlMinutes) {
   const requiredLifetime = normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60_000 - 30_000;
   if (Date.parse(state.expiresAt || "") <= Date.now() + requiredLifetime) return false;
   return true;
+}
+
+async function terminateDeliveryProcessGroup(state) {
+  const managerPid = Number(state.managerPid);
+  if (Number.isInteger(managerPid) && managerPid > 0 && processIsAlive(managerPid)) {
+    try { process.kill(-managerPid, "SIGTERM"); } catch { try { process.kill(managerPid, "SIGTERM"); } catch {} }
+    await waitForProcessExit(managerPid, 5_000);
+    if (processIsAlive(managerPid)) {
+      try { process.kill(-managerPid, "SIGKILL"); } catch { try { process.kill(managerPid, "SIGKILL"); } catch {} }
+      await waitForProcessExit(managerPid, 2_000);
+    }
+  }
+  cleanupRecordedChildren(state);
+}
+
+function cleanupRecordedChildren(state) {
+  for (const pid of [state.gatewayPid, state.tunnelPid]) {
+    if (!processIsAlive(pid)) continue;
+    try { process.kill(Number(pid), "SIGTERM"); } catch {}
+  }
 }
 
 function processIsAlive(pid) {
@@ -141,9 +157,7 @@ function sleep(milliseconds) {
 
 async function waitForProcessExit(pid, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  while (processIsAlive(pid) && Date.now() < deadline) {
-    await sleep(100);
-  }
+  while (processIsAlive(pid) && Date.now() < deadline) await sleep(100);
 }
 
 async function availableLoopbackPort() {
