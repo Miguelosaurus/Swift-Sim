@@ -1,12 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 const LOCK_WAIT_MS = 5_000;
-const STALE_LOCK_MS = 30_000;
 
 export class DeviceBuildStore {
   constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
@@ -185,19 +184,22 @@ export class DeviceBuildStore {
   }
 
   deleteApp(id, { deleteArtifacts = true } = {}) {
-    return this.withTransaction((state) => {
+    const result = this.withTransaction((state) => {
       const app = listAppsFromState(state, true).find((candidate) => candidate.id === id);
-      if (!app) return false;
+      if (!app) return { deleted: false, artifactRoots: [] };
+      const artifactRoots = [];
       for (const build of app.builds) {
-        if (deleteArtifacts && build.artifacts?.root) {
-          rmSync(build.artifacts.root, { recursive: true, force: true });
-        }
+        if (deleteArtifacts && build.artifacts?.root) artifactRoots.push(build.artifacts.root);
         state.builds.delete(build.id);
         state.deletedBuildIDs.add(build.id);
       }
       state.apps.delete(id);
-      return true;
+      return { deleted: true, artifactRoots };
     });
+    for (const root of result.artifactRoots) {
+      rmSync(root, { recursive: true, force: true });
+    }
+    return result.deleted;
   }
 
   load() {
@@ -218,18 +220,23 @@ export class DeviceBuildStore {
 
   withLock(operation) {
     const deadline = Date.now() + LOCK_WAIT_MS;
+    const ownerPath = join(this.lockPath, "owner.json");
+    const owner = { pid: process.pid, nonce: randomUUID(), createdAt: new Date().toISOString() };
     while (true) {
       try {
         mkdirSync(this.lockPath, { mode: 0o700 });
+        writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600 });
         break;
       } catch (error) {
         if (error?.code !== "EEXIST") throw error;
+        let existingOwner;
         try {
-          if (Date.now() - statSync(this.lockPath).mtimeMs > STALE_LOCK_MS) {
-            rmSync(this.lockPath, { recursive: true, force: true });
-            continue;
-          }
+          existingOwner = JSON.parse(readFileSync(ownerPath, "utf8"));
         } catch {}
+        if (existingOwner && !processIsAlive(existingOwner.pid)) {
+          rmSync(this.lockPath, { recursive: true, force: true });
+          continue;
+        }
         if (Date.now() >= deadline) throw new Error("Timed out waiting for the Swift Sim build-state lock.");
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
       }
@@ -237,7 +244,12 @@ export class DeviceBuildStore {
     try {
       return operation();
     } finally {
-      rmSync(this.lockPath, { recursive: true, force: true });
+      try {
+        const currentOwner = JSON.parse(readFileSync(ownerPath, "utf8"));
+        if (currentOwner.pid === owner.pid && currentOwner.nonce === owner.nonce) {
+          rmSync(this.lockPath, { recursive: true, force: true });
+        }
+      } catch {}
     }
   }
 
@@ -368,4 +380,15 @@ function mergeLogs(first = [], second = []) {
     overlap -= 1;
   }
   return [...prefix, ...suffix.slice(overlap)].slice(-MAX_DEVICE_BUILD_LOG_LINES);
+}
+
+function processIsAlive(pid) {
+  const numericPid = Number(pid);
+  if (!Number.isInteger(numericPid) || numericPid <= 0) return false;
+  try {
+    process.kill(numericPid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
