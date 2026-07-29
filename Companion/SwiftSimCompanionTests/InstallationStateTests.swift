@@ -78,6 +78,7 @@ final class InstallationStateTests: XCTestCase {
         try storeTestToken("pending-secret", account: pendingAccount)
         defaults.set(committedAccount, forKey: "pairedMacCredentialAccount")
         defaults.set(pendingAccount, forKey: "pairedMacPendingCredentialAccount")
+        defaults.set("pending-pairing-id", forKey: "pairedMacPendingPairingID")
         defaults.set(Data("{malformed".utf8), forKey: "pairedMac")
         defer {
             deleteTestToken(account: committedAccount)
@@ -85,6 +86,7 @@ final class InstallationStateTests: XCTestCase {
             defaults.removeObject(forKey: "pairedMac")
             defaults.removeObject(forKey: "pairedMacCredentialAccount")
             defaults.removeObject(forKey: "pairedMacPendingCredentialAccount")
+            defaults.removeObject(forKey: "pairedMacPendingPairingID")
         }
 
         _ = SwiftSimCompanionApp()
@@ -92,6 +94,7 @@ final class InstallationStateTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: "pairedMac"))
         XCTAssertNil(defaults.string(forKey: "pairedMacCredentialAccount"))
         XCTAssertNil(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertNil(defaults.string(forKey: "pairedMacPendingPairingID"))
         XCTAssertEqual(testTokenStatus(account: committedAccount), errSecItemNotFound)
         XCTAssertEqual(testTokenStatus(account: pendingAccount), errSecItemNotFound)
     }
