@@ -33,6 +33,20 @@ try:
 '''
     if old not in source:
         raise SystemExit("Missing clearPreviousPendingTransaction block")
-    app.write_text(source.replace(old, new, 1))
+    source = source.replace(old, new, 1)
+    early_cleanup = '''        if let previousPending, previousPending != stagedAccount {
+            deleteToken(account: previousPending)
+        }
+        clearPreviousPendingTransaction()
+        return true
+'''
+    retained = '''        // Keep the prior staged transaction reachable until this new pairing
+        // is either committed or cancelled. Reconciliation deletes it only
+        // after the new metadata becomes authoritative.
+        return true
+'''
+    if early_cleanup not in source:
+        raise SystemExit("Missing early previous-pairing cleanup block")
+    app.write_text(source.replace(early_cleanup, retained, 1))
 finally:
     patched.unlink(missing_ok=True)
