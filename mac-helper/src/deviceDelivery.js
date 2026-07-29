@@ -52,8 +52,8 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       const generation = randomUUID();
       const generationStatePath = deliveryGenerationStatePath(this.statePath, generation);
       const generationLogPath = deliveryGenerationLogPath(this.logPath, generation);
-      const hasActiveGeneration = records.some(({ state }) => deliveryProcessesAreOwned(state));
-      const gatewayPort = this.gatewayPort && !hasActiveGeneration
+      const hasLiveGeneration = records.some(({ state }) => recordedDeliveryProcessesAlive(state));
+      const gatewayPort = this.gatewayPort && !hasLiveGeneration
         ? this.gatewayPort
         : await availableLoopbackPort();
       const child = spawn(process.execPath, [
@@ -85,7 +85,10 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       }
 
       const timedOut = readStateFile(generationStatePath);
-      if (timedOut?.generation === generation) terminateOwnedDelivery(timedOut);
+      if (timedOut?.generation === generation) {
+        const outcome = terminateOwnedDelivery(timedOut);
+        persistShutdownOutcome(generationStatePath, timedOut, outcome);
+      }
       throw new DeviceDeliveryError(`Temporary delivery tunnel did not become ready. Log: ${generationLogPath}`);
     } finally {
       release();
@@ -98,7 +101,7 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
 
   status() {
     const states = this.statuses();
-    const active = states.filter((state) => deliveryProcessesAreOwned(state));
+    const active = states.filter((state) => recordedDeliveryProcessesAlive(state));
     const selected = active
       .filter((state) => state.status === "ready")
       .sort(newestFirst)[0]
@@ -118,20 +121,47 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
   stop() {
     const release = acquireLifecycleLockSync(this.lifecycleLockPath);
     try {
-      let stopped = false;
-      for (const { path, state } of deliveryStateRecords(this.statePath)) {
-        stopped = terminateOwnedDelivery(state) || stopped;
-        if (path !== this.statePath) rmSync(path, { force: true });
+      const records = deliveryStateRecords(this.statePath);
+      let signalled = false;
+      const survivors = [];
+      for (const { path, state } of records) {
+        const outcome = terminateOwnedDelivery(state);
+        signalled = outcome.signalled || signalled;
+        if (outcome.allExited) {
+          removeGenerationFiles({
+            statePath: this.statePath,
+            logPath: this.logPath,
+            recordPath: path,
+            state,
+          });
+        } else {
+          survivors.push(state.generation || path);
+          persistShutdownOutcome(path, state, outcome);
+        }
       }
-      writeStateFile(this.statePath, {
-        generation: randomUUID(),
-        status: "stopped",
-        provider: "cloudflare-quick-tunnel",
-        publicBaseUrl: "",
-        activeGenerations: 0,
-        stoppedAt: new Date().toISOString(),
-      });
-      return stopped;
+
+      if (survivors.length === 0) {
+        writeStateFile(this.statePath, {
+          generation: randomUUID(),
+          status: "stopped",
+          provider: "cloudflare-quick-tunnel",
+          publicBaseUrl: "",
+          activeGenerations: 0,
+          stoppedAt: new Date().toISOString(),
+        });
+      } else if (!records.some(({ path }) => path === this.statePath)) {
+        writeStateFile(this.statePath, {
+          generation: randomUUID(),
+          status: "failed-shutdown",
+          provider: "cloudflare-quick-tunnel",
+          publicBaseUrl: "",
+          activeGenerations: survivors.length,
+          survivingGenerations: survivors,
+          error: "One or more delivery processes are still alive or could not be safely verified.",
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return signalled && survivors.length === 0;
     } finally {
       release();
     }
@@ -142,11 +172,18 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
     for (const { path, state } of deliveryStateRecords(this.statePath)) {
       const expired = Number.isFinite(Date.parse(state.expiresAt || ""))
         && Date.parse(state.expiresAt) <= now;
-      const terminal = ["expired", "failed", "stopped"].includes(state.status);
+      const terminal = ["expired", "failed", "stopped", "failed-shutdown"].includes(state.status);
       if (!expired && !terminal) continue;
-      terminateOwnedDelivery(state);
-      if (path !== this.statePath && !deliveryProcessesAreOwned(state)) {
-        rmSync(path, { force: true });
+      const outcome = terminateOwnedDelivery(state);
+      if (outcome.allExited) {
+        removeGenerationFiles({
+          statePath: this.statePath,
+          logPath: this.logPath,
+          recordPath: path,
+          state,
+        });
+      } else {
+        persistShutdownOutcome(path, state, outcome);
       }
     }
   }
@@ -156,7 +193,7 @@ export function deliveryGenerationStatePath(statePath, generation) {
   return `${statePath}${GENERATION_PREFIX}${generation}.json`;
 }
 
-function deliveryGenerationLogPath(logPath, generation) {
+export function deliveryGenerationLogPath(logPath, generation) {
   return `${logPath}${GENERATION_PREFIX}${generation}.log`;
 }
 
@@ -205,9 +242,23 @@ function deliveryProcessesAreOwned(state) {
     && processIdentityMatches(state.tunnelIdentity);
 }
 
+function recordedDeliveryProcessesAlive(state) {
+  return deliveryIdentities(state).some((identity) => processIsAlive(identity.pid));
+}
+
+function recordedDeliveryProcessesExited(state) {
+  return deliveryIdentities(state).every((identity) => !processIsAlive(identity.pid));
+}
+
+function deliveryIdentities(state) {
+  return [state.managerIdentity, state.gatewayIdentity, state.tunnelIdentity].filter(Boolean);
+}
+
 function terminateOwnedDelivery(state) {
-  const identities = [state.managerIdentity, state.gatewayIdentity, state.tunnelIdentity].filter(Boolean);
-  if (identities.length === 0) return false;
+  const identities = deliveryIdentities(state);
+  if (identities.length === 0) {
+    return { signalled: false, allExited: true, survivors: [] };
+  }
   let signalled = false;
 
   if (processIdentityMatches(state.managerIdentity)) {
@@ -235,7 +286,37 @@ function terminateOwnedDelivery(state) {
     try { process.kill(Number(state.managerIdentity.pid), "SIGKILL"); } catch {}
     waitForIdentityExit(state.managerIdentity, 2_000);
   }
-  return signalled;
+
+  const survivors = identities
+    .filter((identity) => processIsAlive(identity.pid))
+    .map((identity) => ({
+      pid: Number(identity.pid),
+      ownershipVerified: processIdentityMatches(identity),
+    }));
+  return {
+    signalled,
+    allExited: recordedDeliveryProcessesExited(state),
+    survivors,
+  };
+}
+
+function persistShutdownOutcome(path, state, outcome) {
+  if (outcome.allExited) return;
+  writeStateFile(path, {
+    ...state,
+    status: "failed-shutdown",
+    publicBaseUrl: "",
+    error: "Delivery shutdown could not confirm that every recorded process exited.",
+    survivingProcesses: outcome.survivors,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function removeGenerationFiles({ statePath, logPath, recordPath, state }) {
+  if (recordPath !== statePath) rmSync(recordPath, { force: true });
+  if (state.generation) {
+    rmSync(deliveryGenerationLogPath(logPath, state.generation), { force: true });
+  }
 }
 
 function processIdentityMatches(identity) {
