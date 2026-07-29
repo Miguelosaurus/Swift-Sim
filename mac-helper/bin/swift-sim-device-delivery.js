@@ -28,7 +28,9 @@ const createdAt = new Date().toISOString();
 const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
 let gateway;
 let tunnel;
+let tunnelSpec;
 let finished = false;
+let expiryTimer;
 
 mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
 mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
@@ -48,8 +50,8 @@ try {
   pipeLogs(gateway, "gateway");
   await waitForHealth(localBaseUrl, 10_000);
 
-  const command = tunnelCommand(localBaseUrl);
-  tunnel = spawn(command.executable, command.args, { stdio: ["pipe", "pipe", "pipe"] });
+  tunnelSpec = tunnelCommand(localBaseUrl);
+  tunnel = spawn(tunnelSpec.executable, tunnelSpec.args, { stdio: ["pipe", "pipe", "pipe"] });
   let combinedOutput = "";
   let publicBaseUrl = "";
   let connected = false;
@@ -69,33 +71,39 @@ try {
   tunnel.stdin.write("y\n");
 
   tunnel.on("exit", (code, signal) => {
-    if (!finished) fail(`Tunnel exited before expiry (${signal || code || "unknown"}).`);
+    if (!finished) void fail(`Tunnel exited before expiry (${signal || code || "unknown"}).`);
   });
   gateway.on("exit", (code, signal) => {
-    if (!finished) fail(`Device delivery gateway exited (${signal || code || "unknown"}).`);
+    if (!finished) void fail(`Device delivery gateway exited (${signal || code || "unknown"}).`);
   });
 
-  const timeout = setTimeout(() => shutdown("expired"), ttlMinutes * 60 * 1000);
-  process.on("SIGTERM", () => { clearTimeout(timeout); shutdown("stopped"); });
-  process.on("SIGINT", () => { clearTimeout(timeout); shutdown("stopped"); });
+  expiryTimer = setTimeout(() => { void shutdown("expired"); }, ttlMinutes * 60 * 1000);
+  process.on("SIGTERM", () => { void shutdown("stopped"); });
+  process.on("SIGINT", () => { void shutdown("stopped"); });
 } catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
+  await fail(error instanceof Error ? error.message : String(error));
 }
 
 function tunnelCommand(url) {
   const explicit = process.env.SWIFT_SIM_QUICK_TUNNEL_COMMAND?.trim();
   if (explicit) {
-    return { executable: "/bin/sh", args: ["-lc", `${explicit} ${shellQuote(url)}`] };
+    return {
+      executable: "/bin/sh",
+      args: ["-lc", `${explicit} ${shellQuote(url)}`],
+      identityFragments: [explicit, url],
+    };
   }
   if (spawnSync("cloudflared", ["--version"], { stdio: "ignore" }).status === 0) {
     return {
       executable: "cloudflared",
       args: ["tunnel", "--url", url, "--no-autoupdate", "--loglevel", "info"],
+      identityFragments: ["cloudflared", "tunnel", "--url", url],
     };
   }
   return {
     executable: "npx",
     args: ["--yes", "wrangler@4", "tunnel", "quick-start", url],
+    identityFragments: ["wrangler@4", "quick-start", url],
   };
 }
 
@@ -111,31 +119,67 @@ async function waitForHealth(baseUrl, timeoutMs) {
       const response = await fetch(`${baseUrl}/health`, { cache: "no-store" });
       if (response.ok) return;
     } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await sleep(200);
   }
   throw new Error("Device delivery gateway did not become healthy.");
 }
 
-function shutdown(status) {
+async function shutdown(status, error = "") {
   if (finished) return;
   finished = true;
-  try { tunnel?.kill("SIGTERM"); } catch {}
-  try { gateway?.kill("SIGTERM"); } catch {}
-  writeState({ status, provider: "cloudflare-quick-tunnel", publicBaseUrl: "" });
-  setTimeout(() => process.exit(0), 200);
+  if (expiryTimer) clearTimeout(expiryTimer);
+  await Promise.all([
+    terminateChild(tunnel, 5_000),
+    terminateChild(gateway, 5_000),
+  ]);
+  writeState({
+    status,
+    provider: "cloudflare-quick-tunnel",
+    publicBaseUrl: "",
+    ...(error ? { error } : {}),
+  });
+  process.exitCode = status === "failed" ? 1 : 0;
 }
 
-function fail(message) {
+async function fail(message) {
   if (finished) return;
-  finished = true;
   appendLog(`[manager] ${message}\n`);
-  try { tunnel?.kill("SIGTERM"); } catch {}
-  try { gateway?.kill("SIGTERM"); } catch {}
-  writeState({ status: "failed", provider: "cloudflare-quick-tunnel", publicBaseUrl: "", error: message });
-  setTimeout(() => process.exit(1), 100);
+  await shutdown("failed", message);
+}
+
+async function terminateChild(child, timeoutMs) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  try { child.kill("SIGTERM"); } catch {}
+  if (await waitForChildExit(child, timeoutMs)) return;
+  try { child.kill("SIGKILL"); } catch {}
+  await waitForChildExit(child, 2_000);
+}
+
+function waitForChildExit(child, timeoutMs) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (exited) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once("exit", onExit);
+  });
 }
 
 function writeState(extra) {
+  const managerIdentity = processIdentity(process.pid, [process.argv[1], "--generation", generation]);
+  const gatewayIdentity = gateway?.pid
+    ? processIdentity(gateway.pid, [helperPath, "serve", "--device-builds-only"])
+    : null;
+  const tunnelIdentity = tunnel?.pid && tunnelSpec
+    ? processIdentity(tunnel.pid, tunnelSpec.identityFragments)
+    : null;
   const state = {
     generation,
     createdAt,
@@ -143,12 +187,25 @@ function writeState(extra) {
     managerPid: process.pid,
     gatewayPid: gateway?.pid || null,
     tunnelPid: tunnel?.pid || null,
+    managerIdentity,
+    gatewayIdentity,
+    tunnelIdentity,
     localBaseUrl,
     ...extra,
   };
   const temporaryPath = `${statePath}.${process.pid}.tmp`;
   writeFileSync(temporaryPath, JSON.stringify(state, null, 2), { mode: 0o600 });
   renameSync(temporaryPath, statePath);
+}
+
+function processIdentity(pid, commandFragments) {
+  const startedAt = processStartedAt(pid);
+  return startedAt ? { pid, startedAt, commandFragments } : null;
+}
+
+function processStartedAt(pid) {
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+  return result.status === 0 ? String(result.stdout || "").trim() : "";
 }
 
 function appendLog(value) {
@@ -162,4 +219,8 @@ function required(value, label) {
 
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
