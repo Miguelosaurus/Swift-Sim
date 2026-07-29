@@ -107,7 +107,7 @@ final class InstallationStateTests: XCTestCase {
         ]
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: nil)
         }
     }
 
