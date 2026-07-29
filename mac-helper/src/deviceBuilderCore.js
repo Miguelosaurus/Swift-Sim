@@ -22,7 +22,14 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     const now = Date.now();
     if (now - lastLogSaveAt >= 1_000) {
       lastLogSaveAt = now;
-      saveBuild();
+      try {
+        saveBuild();
+      } catch (error) {
+        // Deletion writes the cancellation marker before removing state. Do not
+        // let a progress-log callback crash the helper while runBuffered is
+        // already terminating the owned process group.
+        if (error?.code !== "SWIFT_SIM_BUILD_CANCELLED") throw error;
+      }
     }
   };
 
@@ -59,6 +66,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       configuration: build.configuration,
       allowProvisioningUpdates: build.allowProvisioningUpdates,
       buildSettingArgs,
+      build,
     });
     build.app.bundleIdentifier = settings.PRODUCT_BUNDLE_IDENTIFIER || "";
     build.app.version = settings.MARKETING_VERSION || "";
@@ -325,7 +333,7 @@ function resolveTarget(build) {
   throw new DeviceBuildError("Missing project or workspace path.");
 }
 
-async function readBuildSettings({ target, scheme, configuration, allowProvisioningUpdates, buildSettingArgs }) {
+async function readBuildSettings({ target, scheme, configuration, allowProvisioningUpdates, buildSettingArgs, build }) {
   const result = await runBuffered("xcodebuild", [
     ...targetArgs(target),
     "-scheme", required(scheme, "scheme"),
@@ -334,7 +342,8 @@ async function readBuildSettings({ target, scheme, configuration, allowProvision
     "-destination", "generic/platform=iOS",
     ...(allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
     "-showBuildSettings",
-  ]);
+  ], { cancelPath: build?.control?.cancelPath || "" });
+  if (result.cancellationError) throw result.cancellationError;
   if (result.code !== 0) {
     throw new DeviceBuildError(result.error || result.stderr || result.stdout || "Unable to read Xcode build settings.");
   }
