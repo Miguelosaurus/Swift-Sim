@@ -30,8 +30,8 @@ let gateway;
 let tunnel;
 let finished = false;
 
-mkdirSync(dirname(statePath), { recursive: true });
-mkdirSync(dirname(logPath), { recursive: true });
+mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
 writeState({ status: "starting", provider: "cloudflare-quick-tunnel", publicBaseUrl: "" });
 
 try {
@@ -41,7 +41,10 @@ try {
     "--host", "127.0.0.1",
     "--port", String(gatewayPort),
     "--device-builds-only",
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  ], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, SWIFT_SIM_PUBLIC_GATEWAY: "1" },
+  });
   pipeLogs(gateway, "gateway");
   await waitForHealth(localBaseUrl, 10_000);
 
@@ -144,12 +147,12 @@ function writeState(extra) {
     ...extra,
   };
   const temporaryPath = `${statePath}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, JSON.stringify(state, null, 2));
+  writeFileSync(temporaryPath, JSON.stringify(state, null, 2), { mode: 0o600 });
   renameSync(temporaryPath, statePath);
 }
 
 function appendLog(value) {
-  appendFileSync(logPath, value);
+  appendFileSync(logPath, value, { mode: 0o600 });
 }
 
 function required(value, label) {
