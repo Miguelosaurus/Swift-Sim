@@ -1,38 +1,54 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
+const DEFAULT_VALIDATION_TIMEOUT_SECONDS = 15 * 60;
+const MAX_VALIDATION_TIMEOUT_SECONDS = 60 * 60;
 
-export function readBuildValidationPreferences() {
+export function readBuildValidationPreferences({ path = preferencesPath } = {}) {
+  let parsed;
   try {
-    const parsed = JSON.parse(readFileSync(preferencesPath, "utf8"));
-    return {
-      ...parsed,
-      buildValidationMode: parsed.buildValidationMode === "always" ? "always" : "explicit",
-      buildValidationCommand: typeof parsed.buildValidationCommand === "string"
-        ? parsed.buildValidationCommand.trim()
-        : "",
-      buildValidationWorkingDirectory: typeof parsed.buildValidationWorkingDirectory === "string"
-        ? parsed.buildValidationWorkingDirectory.trim()
-        : "",
-    };
-  } catch {
-    return {
-      buildValidationMode: "explicit",
-      buildValidationCommand: "",
-      buildValidationWorkingDirectory: "",
-    };
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return defaultPreferences();
+    }
+    throw validationError(
+      `Unable to read Swift Sim validation preferences at ${path}: ${error instanceof Error ? error.message : String(error)}. Run swift-sim setup again.`
+    );
   }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw validationError(`Swift Sim validation preferences at ${path} are malformed. Run swift-sim setup again.`);
+  }
+  if (parsed.buildValidationMode !== undefined
+      && parsed.buildValidationMode !== "always"
+      && parsed.buildValidationMode !== "explicit") {
+    throw validationError(`Swift Sim validation preferences at ${path} contain an invalid validation mode. Run swift-sim setup again.`);
+  }
+
+  return {
+    ...parsed,
+    buildValidationMode: parsed.buildValidationMode === "always" ? "always" : "explicit",
+    buildValidationCommand: typeof parsed.buildValidationCommand === "string"
+      ? parsed.buildValidationCommand.trim()
+      : "",
+    buildValidationWorkingDirectory: typeof parsed.buildValidationWorkingDirectory === "string"
+      ? parsed.buildValidationWorkingDirectory.trim()
+      : "",
+    buildValidationTimeoutSeconds: normalizeValidationTimeoutSeconds(parsed.buildValidationTimeoutSeconds),
+  };
 }
 
-export function runRequiredBuildValidation({
+export async function runRequiredBuildValidation({
   args,
   project = "",
   workspace = "",
   cwd = process.cwd(),
   preferences,
+  timeoutMs,
 } = {}) {
   const resolvedPreferences = preferences || readBuildValidationPreferences();
   if (resolvedPreferences.buildValidationMode !== "always") return;
@@ -47,19 +63,15 @@ export function runRequiredBuildValidation({
     cwd,
     configuredDirectory: resolvedPreferences.buildValidationWorkingDirectory,
   });
+  const effectiveTimeoutMs = timeoutMs ?? normalizeValidationTimeoutSeconds(
+    resolvedPreferences.buildValidationTimeoutSeconds
+  ) * 1_000;
+
   console.log(`Running required project validation in ${projectDirectory}: ${command}`);
-  const result = spawnSync(command, {
+  await runValidationCommand(command, {
     cwd: projectDirectory,
-    env: process.env,
-    shell: true,
-    stdio: "inherit",
+    timeoutMs: effectiveTimeoutMs,
   });
-  if (result.error) {
-    throw validationError(`Unable to run required validation: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    throw validationError(`Required validation failed with exit code ${result.status ?? "unknown"}; device build cancelled.`, result.status || 1);
-  }
 }
 
 export function resolveValidationWorkingDirectory({ args = [], cwd = process.cwd(), configuredDirectory = "" }) {
@@ -94,6 +106,84 @@ export function resolveValidationWorkingDirectory({ args = [], cwd = process.cwd
     );
   }
   return configured;
+}
+
+function runValidationCommand(command, { cwd, timeoutMs }) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn("/bin/sh", ["-lc", command], {
+      cwd,
+      env: process.env,
+      detached: true,
+      stdio: "inherit",
+    });
+    let settled = false;
+    let timedOut = false;
+    let forceTimer;
+    let finalTimer;
+
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutTimer);
+      clearTimeout(forceTimer);
+      clearTimeout(finalTimer);
+      if (error) reject(error);
+      else resolvePromise();
+    };
+
+    const signalGroup = (signal) => {
+      try { process.kill(-child.pid, signal); } catch {
+        try { child.kill(signal); } catch {}
+      }
+    };
+
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      signalGroup("SIGTERM");
+      forceTimer = setTimeout(() => signalGroup("SIGKILL"), 2_000);
+      forceTimer.unref?.();
+      finalTimer = setTimeout(() => finish(validationError(
+        `Required validation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds; device build cancelled.`
+      )), 4_000);
+      finalTimer.unref?.();
+    }, timeoutMs);
+    timeoutTimer.unref?.();
+
+    child.once("error", (error) => {
+      finish(validationError(`Unable to run required validation: ${error.message}`));
+    });
+    child.once("exit", (code, signal) => {
+      if (timedOut) {
+        finish(validationError(
+          `Required validation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds; device build cancelled.`
+        ));
+        return;
+      }
+      if (code === 0) {
+        finish();
+        return;
+      }
+      finish(validationError(
+        `Required validation failed with ${signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`}; device build cancelled.`,
+        code || 1
+      ));
+    });
+  });
+}
+
+function defaultPreferences() {
+  return {
+    buildValidationMode: "explicit",
+    buildValidationCommand: "",
+    buildValidationWorkingDirectory: "",
+    buildValidationTimeoutSeconds: DEFAULT_VALIDATION_TIMEOUT_SECONDS,
+  };
+}
+
+function normalizeValidationTimeoutSeconds(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_VALIDATION_TIMEOUT_SECONDS;
+  return Math.max(1, Math.min(MAX_VALIDATION_TIMEOUT_SECONDS, Math.floor(parsed)));
 }
 
 function buildTargetArgs({ project, workspace }) {
