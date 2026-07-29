@@ -70,3 +70,5 @@ jobs:
           git add -A
           git commit -m "Harden renewal and lifecycle races"
           git push origin HEAD:agent/open-source-launch-hardening-round-1
+
+# Trigger after workflow registration.
