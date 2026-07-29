@@ -1,25 +1,32 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import {
+  readBuildValidationPreferences,
+  runRequiredBuildValidation,
+} from "../src/buildValidation.js";
 
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
 const args = process.argv.slice(2);
 const command = args[0] || "help";
 
 if (command === "ci-policy") {
-  const preferences = readPreferences();
+  const preferences = readBuildValidationPreferences();
   const payload = {
     mode: preferences.buildValidationMode,
     runBeforeEveryBuild: preferences.buildValidationMode === "always",
     command: preferences.buildValidationCommand || "",
+    workingDirectory: preferences.buildValidationWorkingDirectory || "",
   };
   if (args.includes("--json")) console.log(JSON.stringify(payload, null, 2));
   else if (payload.runBeforeEveryBuild) {
     console.log(`Run before every device build: ${payload.command}`);
+    console.log(payload.workingDirectory
+      ? `Validation working directory: ${payload.workingDirectory}`
+      : "Validation working directory: inferred from --project or --workspace");
   } else {
     console.log("Run project checks only when the user explicitly requests them.");
   }
@@ -30,14 +37,18 @@ if (command === "setup" && !args.includes("--json") && input.isTTY && output.isT
   await configureBuildValidation();
 }
 
-if (command === "build-device" && readPreferences().buildValidationMode === "always") {
-  runConfiguredValidation(readPreferences());
+try {
+  if (command === "build-device") {
+    runRequiredBuildValidation({ args: args.slice(1) });
+  }
+  await import("./swift-sim.js");
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = Number(error?.exitCode) || 1;
 }
 
-await import("./swift-sim.js");
-
 async function configureBuildValidation() {
-  const current = readPreferences();
+  const current = readBuildValidationPreferences();
   const rl = createInterface({ input, output });
   try {
     const answer = (await rl.question(
@@ -49,8 +60,14 @@ async function configureBuildValidation() {
         `Validation command [${current.buildValidationCommand || "npm run check"}]: `
       )).trim();
       current.buildValidationCommand = configured || current.buildValidationCommand || "npm run check";
+      const workingDirectory = (await rl.question(
+        "Validation working directory [infer from project/workspace]: "
+      )).trim();
+      if (workingDirectory) current.buildValidationWorkingDirectory = workingDirectory;
+      else delete current.buildValidationWorkingDirectory;
     } else {
       delete current.buildValidationCommand;
+      delete current.buildValidationWorkingDirectory;
     }
     writePreferences(current);
     console.log(current.buildValidationMode === "always"
@@ -58,44 +75,6 @@ async function configureBuildValidation() {
       : "Swift Sim will run project checks only when you explicitly ask.");
   } finally {
     rl.close();
-  }
-}
-
-function runConfiguredValidation(preferences) {
-  const validationCommand = String(preferences.buildValidationCommand || "").trim();
-  if (!validationCommand) {
-    console.error("Swift Sim is configured for mandatory validation, but no validation command is set. Run swift-sim setup again.");
-    process.exit(78);
-  }
-  console.log(`Running required project validation: ${validationCommand}`);
-  const result = spawnSync(validationCommand, {
-    cwd: process.cwd(),
-    env: process.env,
-    shell: true,
-    stdio: "inherit",
-  });
-  if (result.error) {
-    console.error(`Unable to run required validation: ${result.error.message}`);
-    process.exit(78);
-  }
-  if (result.status !== 0) {
-    console.error(`Required validation failed with exit code ${result.status ?? "unknown"}; device build cancelled.`);
-    process.exit(result.status || 1);
-  }
-}
-
-function readPreferences() {
-  try {
-    const parsed = JSON.parse(readFileSync(preferencesPath, "utf8"));
-    return {
-      ...parsed,
-      buildValidationMode: parsed.buildValidationMode === "always" ? "always" : "explicit",
-      buildValidationCommand: typeof parsed.buildValidationCommand === "string"
-        ? parsed.buildValidationCommand.trim()
-        : "",
-    };
-  } catch {
-    return { buildValidationMode: "explicit", buildValidationCommand: "" };
   }
 }
 
