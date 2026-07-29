@@ -87,7 +87,8 @@ jobs:
           git reset HEAD^
       - run: npm ci
       - run: npm run check
-      - run: ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
+      - run: |
+          ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
       - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh
       - name: Run signed iOS tests
         timeout-minutes: 12
@@ -126,3 +127,4 @@ jobs:
           git add -A
           git commit -m "Harden renewal and lifecycle races"
           git push origin HEAD:agent/open-source-launch-hardening-round-1
+          git push origin --delete agent/review-round-4-diagnostic || true
