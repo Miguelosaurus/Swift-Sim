@@ -39,6 +39,9 @@ const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
 let gateway;
 let tunnel;
 let tunnelSpec;
+const managerIdentity = processIdentity(process.pid, [process.argv[1], "--generation", generation]);
+let gatewayIdentity = null;
+let tunnelIdentity = null;
 let finished = false;
 let expiryTimer;
 
@@ -54,14 +57,20 @@ try {
     "--port", String(gatewayPort),
     "--device-builds-only",
   ], {
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, SWIFT_SIM_PUBLIC_GATEWAY: "1" },
   });
+  gatewayIdentity = processIdentity(gateway.pid, [helperPath, "serve", "--device-builds-only"]);
   pipeLogs(gateway, "gateway");
   await waitForHealth(localBaseUrl, 10_000);
 
   tunnelSpec = tunnelCommand(localBaseUrl);
-  tunnel = spawn(tunnelSpec.executable, tunnelSpec.args, { stdio: ["pipe", "pipe", "pipe"] });
+  tunnel = spawn(tunnelSpec.executable, tunnelSpec.args, {
+    detached: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  tunnelIdentity = processIdentity(tunnel.pid, tunnelSpec.identityFragments);
   let combinedOutput = "";
   let publicBaseUrl = "";
   let connected = false;
@@ -138,17 +147,18 @@ async function shutdown(status, error = "") {
   if (finished) return;
   finished = true;
   if (expiryTimer) clearTimeout(expiryTimer);
-  await Promise.all([
-    terminateChild(tunnel, 5_000),
-    terminateChild(gateway, 5_000),
+  const exits = await Promise.all([
+    terminateChildProcessGroup(tunnel, 5_000),
+    terminateChildProcessGroup(gateway, 5_000),
   ]);
+  const allExited = exits.every(Boolean);
   writeState({
-    status,
+    status: allExited ? status : "failed-shutdown",
     provider: "cloudflare-quick-tunnel",
     publicBaseUrl: "",
-    ...(error ? { error } : {}),
+    ...(!allExited ? { error: error || "Delivery shutdown could not confirm that every child process exited." } : error ? { error } : {}),
   });
-  process.exitCode = status === "failed" ? 1 : 0;
+  process.exitCode = status === "failed" || !allExited ? 1 : 0;
 }
 
 async function fail(message) {
@@ -157,39 +167,39 @@ async function fail(message) {
   await shutdown("failed", message);
 }
 
-async function terminateChild(child, timeoutMs) {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
-  try { child.kill("SIGTERM"); } catch {}
-  if (await waitForChildExit(child, timeoutMs)) return;
-  try { child.kill("SIGKILL"); } catch {}
-  await waitForChildExit(child, 2_000);
+async function terminateChildProcessGroup(child, timeoutMs) {
+  if (!child?.pid) return true;
+  signalProcessGroup(child.pid, "SIGTERM");
+  if (await waitForProcessGroupExit(child.pid, timeoutMs)) return true;
+  signalProcessGroup(child.pid, "SIGKILL");
+  return waitForProcessGroupExit(child.pid, 2_000);
 }
 
-function waitForChildExit(child, timeoutMs) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (exited) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.off("exit", onExit);
-      resolve(exited);
-    };
-    const onExit = () => finish(true);
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    child.once("exit", onExit);
-  });
+function signalProcessGroup(pid, signal) {
+  try { process.kill(-Number(pid), signal); } catch {
+    try { process.kill(Number(pid), signal); } catch {}
+  }
+}
+
+async function waitForProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (processGroupIsAlive(pid) && Date.now() < deadline) {
+    await sleep(100);
+  }
+  return !processGroupIsAlive(pid);
+}
+
+function processGroupIsAlive(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
+  try {
+    process.kill(-Number(pid), 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function writeState(extra) {
-  const managerIdentity = processIdentity(process.pid, [process.argv[1], "--generation", generation]);
-  const gatewayIdentity = gateway?.pid
-    ? processIdentity(gateway.pid, [helperPath, "serve", "--device-builds-only"])
-    : null;
-  const tunnelIdentity = tunnel?.pid && tunnelSpec
-    ? processIdentity(tunnel.pid, tunnelSpec.identityFragments)
-    : null;
   const state = {
     generation,
     createdAt,
@@ -217,6 +227,7 @@ function requiredProcessStartedAt(pid) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const startedAt = processStartedAt(pid);
     if (startedAt) return startedAt;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
   throw new Error(`Unable to establish process identity for pid ${pid}.`);
 }

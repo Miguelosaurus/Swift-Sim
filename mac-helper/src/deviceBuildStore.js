@@ -13,6 +13,7 @@ export { MAX_DEVICE_BUILD_LOG_LINES, deviceAppIdentity };
 
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
+const LEGACY_LOCK_MAX_AGE_MS = 30_000;
 const RENEWAL_LEASE_MS = 2 * 60 * 1000;
 const CLEANUP_RETRY_INTERVAL_MS = 30_000;
 const ACTIVE_BUILD_CLEANUP_DELAY_MS = 70 * 60 * 1000;
@@ -24,6 +25,7 @@ const ACTIVE_BUILD_STATES = new Set([
   "archiving",
   "building",
   "exporting",
+  "delivering",
   "failed",
 ]);
 
@@ -69,7 +71,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
         if (sameLease && renewalCandidateIsReady(incoming, pending.target)) {
           incoming.token = pending.token;
           incoming.tokenExpiredAt = "";
-          incoming.expiresAt = pending.target.expiresAt;
+          incoming.installTTLMinutes = pending.target.ttlMinutes;
           incoming.remoteBaseUrl = incoming.remoteBaseUrl || pending.target.remoteBaseUrl;
           delete incoming.pendingRenewal;
         } else {
@@ -121,9 +123,9 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       if (!build) return null;
 
       if (!build.pendingRenewal) {
-        const expiresAt = new Date(
-          Date.now() + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000
-        ).toISOString();
+        const requestedTTLMinutes = normalizeDeviceBuildTTLMinutes(
+          ttlMinutes ?? build.installTTLMinutes
+        );
         const custom = build.delivery?.mode === "custom";
         build.pendingRenewal = {
           id: randomUUID(),
@@ -134,21 +136,12 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
             expiresAt: build.expiresAt,
             remoteBaseUrl: build.remoteBaseUrl,
             delivery: structuredClone(build.delivery || null),
+            installTTLMinutes: build.installTTLMinutes,
           },
           target: {
-            expiresAt,
+            ttlMinutes: requestedTTLMinutes,
             remoteBaseUrl: custom ? build.remoteBaseUrl : "",
-            delivery: custom
-              ? {
-                  mode: "custom",
-                  provider: "user-configured",
-                  expiresAt,
-                }
-              : {
-                  mode: "quick-tunnel",
-                  provider: "cloudflare-quick-tunnel",
-                  expiresAt: "",
-                },
+            deliveryMode: custom ? "custom" : "quick-tunnel",
           },
         };
         touchBuild(build);
@@ -310,23 +303,34 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
 
 function renewalCandidate(build, pending) {
   const candidate = structuredClone(build);
-  candidate.expiresAt = pending.target.expiresAt;
+  candidate.installTTLMinutes = pending.target.ttlMinutes;
+  candidate.expiresAt = "";
   candidate.remoteBaseUrl = pending.target.remoteBaseUrl;
-  candidate.delivery = structuredClone(pending.target.delivery);
+  candidate.delivery = {
+    mode: pending.target.deliveryMode,
+    provider: pending.target.deliveryMode === "custom"
+      ? "user-configured"
+      : "cloudflare-quick-tunnel",
+    expiresAt: "",
+  };
   candidate.pendingRenewal = structuredClone(pending);
   return candidate;
 }
 
 function renewalCandidateIsReady(build, target) {
-  if (build.expiresAt !== target.expiresAt) return false;
-  if (build.delivery?.mode === "custom") {
-    return build.remoteBaseUrl === target.remoteBaseUrl
-      && build.delivery?.expiresAt === target.expiresAt;
+  const capabilityExpiry = Date.parse(build.expiresAt || "");
+  if (!Number.isFinite(capabilityExpiry) || capabilityExpiry <= Date.now()) return false;
+  if (normalizeDeviceBuildTTLMinutes(build.installTTLMinutes) !== target.ttlMinutes) return false;
+  if (target.deliveryMode === "custom") {
+    return build.delivery?.mode === "custom"
+      && build.remoteBaseUrl === target.remoteBaseUrl
+      && build.delivery?.expiresAt === build.expiresAt;
   }
+  const deliveryExpiry = Date.parse(build.delivery?.expiresAt || "");
   return build.delivery?.mode === "quick-tunnel"
     && Boolean(build.remoteBaseUrl)
-    && Boolean(build.delivery?.expiresAt)
-    && Date.parse(build.delivery.expiresAt) >= Date.parse(target.expiresAt) - 30_000;
+    && Number.isFinite(deliveryExpiry)
+    && deliveryExpiry >= capabilityExpiry;
 }
 
 function preserveSecurityFields(target, source) {
@@ -335,6 +339,7 @@ function preserveSecurityFields(target, source) {
   target.expiresAt = source.expiresAt;
   target.remoteBaseUrl = source.remoteBaseUrl;
   target.delivery = structuredClone(source.delivery || null);
+  target.installTTLMinutes = source.installTTLMinutes;
 }
 
 function recoverStaleRenewals(builds) {
@@ -438,7 +443,10 @@ function touchBuild(build) {
 
 function lockOwnerIsAlive(owner) {
   if (!processIsAlive(owner?.pid)) return false;
-  if (!owner?.startedAt) return true;
+  if (!owner?.startedAt) {
+    const createdAt = Date.parse(owner?.createdAt || "");
+    return Number.isFinite(createdAt) && Date.now() - createdAt < LEGACY_LOCK_MAX_AGE_MS;
+  }
   return processStartedAt(owner.pid) === owner.startedAt;
 }
 

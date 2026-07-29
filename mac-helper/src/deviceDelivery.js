@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -27,6 +28,7 @@ export {
 
 const LIFECYCLE_LOCK_WAIT_MS = 60_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
+const LEGACY_LOCK_MAX_AGE_MS = 2 * 60_000;
 const GENERATION_PREFIX = ".generation-";
 
 export class DeviceDeliveryError extends DeviceDeliveryErrorCore {}
@@ -37,17 +39,19 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
     this.lifecycleLockPath = `${this.statePath}.lifecycle.lock`;
   }
 
-  async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES } = {}) {
+  async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES, cancelPath = "" } = {}) {
     ttlMinutes = normalizeDeviceBuildTTLMinutes(ttlMinutes);
+    throwIfDeliveryCancelled(cancelPath);
     const release = await acquireLifecycleLock(this.lifecycleLockPath);
     try {
+      throwIfDeliveryCancelled(cancelPath);
       this.reapExpiredGenerations();
       const records = deliveryStateRecords(this.statePath);
       const reusable = records
         .map((record) => record.state)
         .filter((state) => deliveryIsReusable(state, ttlMinutes))
         .sort((a, b) => Date.parse(a.expiresAt || "") - Date.parse(b.expiresAt || ""))[0];
-      if (reusable) return reusable;
+      if (reusable) return { ...reusable, reused: true };
 
       const generation = randomUUID();
       const generationStatePath = deliveryGenerationStatePath(this.statePath, generation);
@@ -75,9 +79,32 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       while (Date.now() < deadline) {
         await sleep(250);
         const state = readStateFile(generationStatePath);
+        if (cancelPath && existsSync(cancelPath)) {
+          if (state?.generation === generation) {
+            const outcome = terminateOwnedDelivery(state);
+            if (outcome.allExited) {
+              removeGenerationFiles({
+                statePath: this.statePath,
+                logPath: this.logPath,
+                recordPath: generationStatePath,
+                state,
+              });
+            } else {
+              persistShutdownOutcome(generationStatePath, state, outcome);
+            }
+          } else {
+            signalProcessGroup(child.pid, "SIGTERM");
+            waitForProcessGroupExit(child.pid, 2_000);
+            if (processGroupIsAlive(child.pid)) {
+              signalProcessGroup(child.pid, "SIGKILL");
+              waitForProcessGroupExit(child.pid, 2_000);
+            }
+          }
+          throw deliveryCancelledError();
+        }
         if (!state || state.generation !== generation) continue;
         if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) {
-          return state;
+          return { ...state, reused: false };
         }
         if (state.status === "failed") {
           throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${generationLogPath}`);
@@ -97,6 +124,29 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
 
   statuses() {
     return deliveryStateRecords(this.statePath).map(({ state }) => state);
+  }
+
+  stopGeneration(generation) {
+    const release = acquireLifecycleLockSync(this.lifecycleLockPath);
+    try {
+      const record = deliveryStateRecords(this.statePath)
+        .find(({ state }) => state.generation === generation);
+      if (!record) return true;
+      const outcome = terminateOwnedDelivery(record.state);
+      if (outcome.allExited) {
+        removeGenerationFiles({
+          statePath: this.statePath,
+          logPath: this.logPath,
+          recordPath: record.path,
+          state: record.state,
+        });
+      } else {
+        persistShutdownOutcome(record.path, record.state, outcome);
+      }
+      return outcome.allExited;
+    } finally {
+      release();
+    }
   }
 
   status() {
@@ -197,6 +247,18 @@ export function deliveryGenerationLogPath(logPath, generation) {
   return `${logPath}${GENERATION_PREFIX}${generation}.log`;
 }
 
+export function buildCapabilityExpiresAt({
+  ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES,
+  deliveryExpiresAt = "",
+  now = Date.now(),
+} = {}) {
+  const requestedExpiry = now + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60_000;
+  const deliveryExpiry = Date.parse(deliveryExpiresAt || "");
+  return new Date(Number.isFinite(deliveryExpiry)
+    ? Math.min(requestedExpiry, deliveryExpiry)
+    : requestedExpiry).toISOString();
+}
+
 function deliveryStateRecords(statePath) {
   const records = [];
   const legacy = readStateFile(statePath);
@@ -243,13 +305,20 @@ function deliveryProcessesAreOwned(state) {
 }
 
 function recordedDeliveryProcessesAlive(state) {
-  return deliveryIdentities(state).some((identity) => processIsAlive(identity.pid))
+  return deliveryIdentities(state).some(recordedIdentityIsAlive)
     || legacyDeliveryPIDs(state).some(processIsAlive);
 }
 
 function recordedDeliveryProcessesExited(state) {
-  return deliveryIdentities(state).every((identity) => !processIsAlive(identity.pid))
+  return deliveryIdentities(state).every((identity) => !recordedIdentityIsAlive(identity))
     && legacyDeliveryPIDs(state).every((pid) => !processIsAlive(pid));
+}
+
+function recordedIdentityIsAlive(identity) {
+  if (!identity) return false;
+  return processIdentityMatches(identity)
+    ? processGroupIsAlive(identity.pid)
+    : processIsAlive(identity.pid);
 }
 
 function deliveryIdentities(state) {
@@ -283,13 +352,13 @@ function terminateOwnedDelivery(state) {
   for (const identity of [state.gatewayIdentity, state.tunnelIdentity]) {
     if (!processIdentityMatches(identity)) continue;
     signalled = true;
-    try { process.kill(Number(identity.pid), "SIGTERM"); } catch {}
+    signalProcessGroup(identity.pid, "SIGTERM");
   }
   for (const identity of [state.gatewayIdentity, state.tunnelIdentity]) {
-    waitForIdentityExit(identity, 2_000);
-    if (!processIdentityMatches(identity)) continue;
-    try { process.kill(Number(identity.pid), "SIGKILL"); } catch {}
-    waitForIdentityExit(identity, 1_000);
+    waitForProcessGroupExit(identity?.pid, 2_000);
+    if (!processGroupIsAlive(identity?.pid)) continue;
+    signalProcessGroup(identity.pid, "SIGKILL");
+    waitForProcessGroupExit(identity.pid, 1_000);
   }
 
   if (processIdentityMatches(state.managerIdentity)) {
@@ -299,10 +368,11 @@ function terminateOwnedDelivery(state) {
 
   const survivors = [
     ...identities
-      .filter((identity) => processIsAlive(identity.pid))
+      .filter(recordedIdentityIsAlive)
       .map((identity) => ({
         pid: Number(identity.pid),
         ownershipVerified: processIdentityMatches(identity),
+        processGroupAlive: processGroupIsAlive(identity.pid),
       })),
     ...legacyDeliveryPIDs(state)
       .filter(processIsAlive)
@@ -380,6 +450,41 @@ function waitForIdentityExit(identity, timeoutMs) {
   }
 }
 
+function signalProcessGroup(pid, signal) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return;
+  try { process.kill(-Number(pid), signal); } catch {
+    try { process.kill(Number(pid), signal); } catch {}
+  }
+}
+
+function waitForProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (processGroupIsAlive(pid) && Date.now() < deadline) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+}
+
+function processGroupIsAlive(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
+  try {
+    process.kill(-Number(pid), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function throwIfDeliveryCancelled(cancelPath) {
+  if (!cancelPath || !existsSync(cancelPath)) return;
+  throw deliveryCancelledError();
+}
+
+function deliveryCancelledError() {
+  const error = new DeviceDeliveryError("Device build was cancelled while delivery was starting.");
+  error.code = "SWIFT_SIM_BUILD_CANCELLED";
+  return error;
+}
+
 async function acquireLifecycleLock(lockPath) {
   const deadline = Date.now() + LIFECYCLE_LOCK_WAIT_MS;
   while (true) {
@@ -438,7 +543,10 @@ function tryAcquireLifecycleLock(lockPath) {
 
 function lockOwnerIsAlive(owner) {
   if (!processIsAlive(owner?.pid)) return false;
-  if (!owner?.startedAt) return true;
+  if (!owner?.startedAt) {
+    const createdAt = Date.parse(owner?.createdAt || "");
+    return Number.isFinite(createdAt) && Date.now() - createdAt < LEGACY_LOCK_MAX_AGE_MS;
+  }
   return processStartedAt(owner.pid) === owner.startedAt;
 }
 

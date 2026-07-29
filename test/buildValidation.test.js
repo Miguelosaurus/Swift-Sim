@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -104,4 +105,30 @@ test("required validation has a hard timeout", () => withProjects(async ({ proje
     }),
     /timed out/
   );
+}));
+
+test("cancelling validation kills a TERM-ignoring descendant before rejecting", () => withProjects(async ({ root, projectA }) => {
+  const cancelPath = join(root, "cancelled");
+  const pidPath = join(root, "descendant.pid");
+  const descendant = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)")}`;
+  const command = `trap 'exit 0' TERM; ${descendant} & echo $! > ${JSON.stringify(pidPath)}; wait`;
+  const validation = runRequiredBuildValidation({
+    project: projectA,
+    cancelPath,
+    preferences: {
+      buildValidationMode: "always",
+      buildValidationCommand: command,
+      buildValidationWorkingDirectory: "",
+      buildValidationTimeoutSeconds: 10,
+    },
+  });
+  const deadline = Date.now() + 3_000;
+  while (!existsSync(pidPath) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const pid = Number(readFileSync(pidPath, "utf8").trim());
+  writeFileSync(cancelPath, "cancelled");
+  await assert.rejects(validation, (error) => error?.code === "SWIFT_SIM_BUILD_CANCELLED");
+  const status = spawnSync("/bin/ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
+  assert.equal(status.status === 0 && !String(status.stdout || "").trim().startsWith("Z"), false);
 }));

@@ -28,6 +28,8 @@ final class SessionStore: ObservableObject {
     private let pairedMacKey = "pairedMac"
     private var keyboardTail: Task<Void, Never>?
     private var installRequestSnapshot: (build: ManagedBuild, status: DeviceBuildStatus?)?
+    private var pairingRevision: UInt64 = 0
+    private var managedAppsRevision: UInt64 = 0
 
     init() {
         loadRecentSessions()
@@ -45,6 +47,7 @@ final class SessionStore: ObservableObject {
                 pairedMac = previousPairing
                 return false
             }
+            pairingRevision &+= 1
             helperStatus = .checking
             Task { await refreshHelperStatus() }
             return true
@@ -459,22 +462,46 @@ final class SessionStore: ObservableObject {
             helperStatus = .notPaired
             return
         }
+        let revision = pairingRevision
 
         helperStatus = .checking
         do {
             let (data, response) = try await URLSession.shared.data(from: mac.statusURL)
+            guard Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: mac,
+                currentRevision: pairingRevision,
+                expectedRevision: revision
+            ) else { return }
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                 helperStatus = .offline
                 return
             }
             let decoded = try JSONDecoder().decode(PairingStatus.self, from: data)
             pairedMac = mac.updated(name: decoded.macName)
-            savePairedMac()
+            _ = savePairedMac()
             helperStatus = .online
-            await syncManagedAppsFromMac()
+            await syncManagedAppsFromMac(expectedMac: mac, pairingRevision: revision)
         } catch {
+            guard Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: mac,
+                currentRevision: pairingRevision,
+                expectedRevision: revision
+            ) else { return }
             helperStatus = .offline
         }
+    }
+
+    static func pairingResponseIsCurrent(
+        current: PairedMac?,
+        expected: PairedMac,
+        currentRevision: UInt64,
+        expectedRevision: UInt64
+    ) -> Bool {
+        currentRevision == expectedRevision
+            && current?.id == expected.id
+            && current?.token == expected.token
     }
 
     func refreshConnectionChecks() async {
@@ -541,6 +568,7 @@ final class SessionStore: ObservableObject {
     }
 
     func forgetPairedMac() {
+        pairingRevision &+= 1
         pairedMac = nil
         helperStatus = .notPaired
         UserDefaults.standard.removeObject(forKey: pairedMacKey)
@@ -553,12 +581,15 @@ final class SessionStore: ObservableObject {
 
     func archiveManagedApp(_ app: ManagedApp, archived: Bool) {
         guard let index = managedApps.firstIndex(where: { $0.id == app.id }) else { return }
+        managedAppsRevision &+= 1
+        let operationRevision = managedAppsRevision
         managedApps[index] = managedApps[index].settingArchived(archived)
         selectedManagedAppID = nil
         sortAndSaveManagedApps()
         libraryActionMessage = nil
         Task {
             guard await syncArchiveToMac(appID: app.id, archived: archived) == false else { return }
+            guard managedAppsRevision == operationRevision else { return }
             if let index = managedApps.firstIndex(where: { $0.id == app.id }) {
                 managedApps[index] = app
             } else {
@@ -570,6 +601,8 @@ final class SessionStore: ObservableObject {
     }
 
     func deleteManagedApp(_ app: ManagedApp) {
+        managedAppsRevision &+= 1
+        let operationRevision = managedAppsRevision
         managedApps.removeAll { $0.id == app.id }
         if selectedManagedAppID == app.id {
             selectedManagedAppID = nil
@@ -578,6 +611,7 @@ final class SessionStore: ObservableObject {
         libraryActionMessage = nil
         Task {
             guard await syncDeleteToMac(appID: app.id) == false else { return }
+            guard managedAppsRevision == operationRevision else { return }
             if !managedApps.contains(where: { $0.id == app.id }) {
                 managedApps.append(app)
                 sortAndSaveManagedApps()
@@ -689,12 +723,26 @@ final class SessionStore: ObservableObject {
         UserDefaults.standard.set(data, forKey: managedAppsKey)
     }
 
-    private func syncManagedAppsFromMac() async {
-        guard let mac = pairedMac else { return }
+    private func syncManagedAppsFromMac(expectedMac: PairedMac? = nil, pairingRevision expectedPairingRevision: UInt64? = nil) async {
+        guard let mac = expectedMac ?? pairedMac else { return }
+        let syncRevision = managedAppsRevision
+        let pairingSnapshot = expectedPairingRevision ?? pairingRevision
         do {
             let (data, response) = try await URLSession.shared.data(from: mac.appsURL)
+            guard Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: mac,
+                currentRevision: pairingRevision,
+                expectedRevision: pairingSnapshot
+            ), managedAppsRevision == syncRevision else { return }
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             let remote = try JSONDecoder().decode(RemoteAppList.self, from: data)
+            let remoteIDs = Set(remote.apps.map(\.id))
+            managedApps.removeAll { app in
+                !app.id.hasPrefix("local:")
+                    && !app.id.hasPrefix("pending:")
+                    && !remoteIDs.contains(app.id)
+            }
             for app in remote.apps {
                 let builds = app.builds.compactMap { status -> ManagedBuild? in
                     guard let link = status.links?.customScheme,
@@ -742,7 +790,8 @@ final class SessionStore: ObservableObject {
         request.httpMethod = "DELETE"
         request.timeoutInterval = 10
         guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
-        return (response as? HTTPURLResponse)?.statusCode == 200
+        let status = (response as? HTTPURLResponse)?.statusCode
+        return status == 200 || status == 404
     }
 
     private static func parseDate(_ value: String) -> Date? {

@@ -218,3 +218,51 @@ final class InstallationStateTests: XCTestCase {
     }
     """#
 }
+
+extension InstallationStateTests {
+    @MainActor
+    func testStalePairingResponseCannotReplaceCurrentMac() {
+        let oldMac = PairedMac(
+            token: "old-token",
+            baseURL: URL(string: "https://old.example")!
+        )
+        let replacement = PairedMac(
+            token: "replacement-token",
+            baseURL: URL(string: "https://replacement.example")!
+        )
+        XCTAssertFalse(SessionStore.pairingResponseIsCurrent(
+            current: replacement,
+            expected: oldMac,
+            currentRevision: 2,
+            expectedRevision: 1
+        ))
+        XCTAssertTrue(SessionStore.pairingResponseIsCurrent(
+            current: oldMac,
+            expected: oldMac,
+            currentRevision: 1,
+            expectedRevision: 1
+        ))
+    }
+
+    @MainActor
+    func testStagedPairingUsesRecoverableTransactionPointer() throws {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "pairedMac")
+        defaults.removeObject(forKey: "pairedMacCredentialAccount")
+        defaults.removeObject(forKey: "pairedMacPendingCredentialAccount")
+        defaults.removeObject(forKey: "pairedMacPendingPairingID")
+        let pairingID = "https://transaction-\(UUID().uuidString).example"
+        XCTAssertTrue(PairingCredentialVault.stagePairing(
+            token: "transaction-secret-\(UUID().uuidString)",
+            pairingID: pairingID
+        ))
+        let account = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        defer {
+            PairingCredentialVault.cancelStagedPairing(pairingID: pairingID)
+            deleteTestToken(account: account)
+        }
+        XCTAssertTrue(account.hasPrefix("paired-mac-token.pending."))
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), pairingID)
+        XCTAssertEqual(testTokenStatus(account: account), errSecSuccess)
+    }
+}

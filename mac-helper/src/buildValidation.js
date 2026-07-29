@@ -119,73 +119,52 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
       stdio: "inherit",
     });
     let settled = false;
-    let timedOut = false;
-    let forceTimer;
-    let finalTimer;
+    let terminating = false;
     let cancellationTimer;
 
     const finish = (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutTimer);
-      clearTimeout(forceTimer);
-      clearTimeout(finalTimer);
       clearInterval(cancellationTimer);
       if (error) reject(error);
       else resolvePromise();
     };
 
-    const signalGroup = (signal) => {
-      try { process.kill(-child.pid, signal); } catch {
-        try { child.kill(signal); } catch {}
-      }
+    const terminate = (error) => {
+      if (settled || terminating) return;
+      terminating = true;
+      void terminateProcessGroup(child.pid, 2_000).then((terminated) => {
+        if (!terminated) {
+          error.message += " Its process group could not be confirmed stopped.";
+        }
+        finish(error);
+      });
     };
 
     const timeoutTimer = setTimeout(() => {
-      timedOut = true;
-      signalGroup("SIGTERM");
-      forceTimer = setTimeout(() => signalGroup("SIGKILL"), 2_000);
-      forceTimer.unref?.();
-      finalTimer = setTimeout(() => finish(validationError(
+      terminate(validationError(
         `Required validation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds; device build cancelled.`
-      )), 4_000);
-      finalTimer.unref?.();
+      ));
     }, timeoutMs);
     timeoutTimer.unref?.();
 
     if (cancelPath) {
       cancellationTimer = setInterval(() => {
         if (!existsSync(cancelPath) || settled) return;
-        timedOut = true;
-        signalGroup("SIGTERM");
-        forceTimer = setTimeout(() => signalGroup("SIGKILL"), 2_000);
-        forceTimer.unref?.();
-        finalTimer = setTimeout(() => {
-          const error = validationError("Device build was cancelled while validation was running.");
-          error.code = "SWIFT_SIM_BUILD_CANCELLED";
-          finish(error);
-        }, 4_000);
-        finalTimer.unref?.();
+        const error = validationError("Device build was cancelled while validation was running.");
+        error.code = "SWIFT_SIM_BUILD_CANCELLED";
+        terminate(error);
       }, 100);
       cancellationTimer.unref?.();
     }
 
     child.once("error", (error) => {
+      if (terminating) return;
       finish(validationError(`Unable to run required validation: ${error.message}`));
     });
     child.once("exit", (code, signal) => {
-      if (timedOut) {
-        if (cancelPath && existsSync(cancelPath)) {
-          const error = validationError("Device build was cancelled while validation was running.");
-          error.code = "SWIFT_SIM_BUILD_CANCELLED";
-          finish(error);
-        } else {
-          finish(validationError(
-            `Required validation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds; device build cancelled.`
-          ));
-        }
-        return;
-      }
+      if (terminating) return;
       if (code === 0) {
         finish();
         return;
@@ -196,6 +175,38 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
       ));
     });
   });
+}
+
+async function terminateProcessGroup(pid, graceMs) {
+  signalProcessGroup(pid, "SIGTERM");
+  if (await waitForProcessGroupExit(pid, graceMs)) return true;
+  signalProcessGroup(pid, "SIGKILL");
+  return waitForProcessGroupExit(pid, 2_000);
+}
+
+function signalProcessGroup(pid, signal) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return;
+  try { process.kill(-Number(pid), signal); } catch {
+    try { process.kill(Number(pid), signal); } catch {}
+  }
+}
+
+async function waitForProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (processGroupIsAlive(pid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return !processGroupIsAlive(pid);
+}
+
+function processGroupIsAlive(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
+  try {
+    process.kill(-Number(pid), 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function defaultPreferences() {

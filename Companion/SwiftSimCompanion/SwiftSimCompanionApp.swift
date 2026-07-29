@@ -186,14 +186,35 @@ enum PairingCredentialVault {
     }
 
     static func stagePairing(token: String, pairingID: String) -> Bool {
+        guard !token.isEmpty else { return false }
         let stagedAccount = stagingAccount(for: pairingID)
-        guard !token.isEmpty, storeToken(token, account: stagedAccount) else { return false }
         let defaults = UserDefaults.standard
-        if let previousPending = defaults.string(forKey: pendingAccountKey), previousPending != stagedAccount {
-            deleteToken(account: previousPending)
-        }
+        let previousPending = defaults.string(forKey: pendingAccountKey)
+        let previousPairingID = defaults.string(forKey: pendingPairingIDKey)
+
+        // Persist the recoverable account pointer before writing the random
+        // Keychain account. A crash can now leave an empty pointed-to account,
+        // which startup cleanup can remove, rather than an unreachable secret.
         defaults.set(stagedAccount, forKey: pendingAccountKey)
         defaults.set(pairingID, forKey: pendingPairingIDKey)
+        defaults.synchronize()
+        guard storeToken(token, account: stagedAccount) else {
+            deleteToken(account: stagedAccount)
+            if let previousPending {
+                defaults.set(previousPending, forKey: pendingAccountKey)
+            } else {
+                defaults.removeObject(forKey: pendingAccountKey)
+            }
+            if let previousPairingID {
+                defaults.set(previousPairingID, forKey: pendingPairingIDKey)
+            } else {
+                defaults.removeObject(forKey: pendingPairingIDKey)
+            }
+            return false
+        }
+        if let previousPending, previousPending != stagedAccount {
+            deleteToken(account: previousPending)
+        }
         return true
     }
 

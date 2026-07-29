@@ -17,6 +17,7 @@ import { SessionStore } from "../src/sessionStore.js";
 import { DeviceBuildStore } from "../src/deviceBuildStore.js";
 import {
   DeviceDeliveryAdapter,
+  buildCapabilityExpiresAt,
   deviceDeliveryRequestAllowed,
 } from "../src/deviceDelivery.js";
 import { PairingStore } from "../src/pairingStore.js";
@@ -148,6 +149,8 @@ async function main() {
     });
     const build = await createDeviceBuild(values);
     await runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) });
+    build.state = "delivering";
+    deviceBuildStore.save(build);
     await prepareDeviceDelivery(build);
     console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
     return;
@@ -400,7 +403,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           "replace-app-data": Boolean(body.replaceAppData),
         });
         runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) })
-          .then(() => prepareDeviceDelivery(build))
+          .then(() => {
+            build.state = "delivering";
+            deviceBuildStore.save(build);
+            return prepareDeviceDelivery(build);
+          })
           .catch(() => {});
         return json(res, 202, publicDeviceBuild(build));
       }
@@ -420,7 +427,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           remoteBaseUrl: build.remoteBaseUrl,
           delivery: build.delivery ? { ...build.delivery } : null,
         };
-        const renewedBuild = deviceBuildStore.renewInstallLink(build.id);
+        const renewedBuild = deviceBuildStore.renewInstallLink(build.id, { ttlMinutes: build.installTTLMinutes });
         try {
           await prepareDeviceDelivery(renewedBuild, { markBuildFailed: false });
         } catch (error) {
@@ -1506,36 +1513,64 @@ async function createDeviceBuild(values) {
 }
 
 async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
+  let startedGeneration = "";
+  let reusedGeneration = true;
   try {
+    ensureBuildNotCancelled(build);
     const ttlMinutes = normalizeDeviceBuildTTLMinutes(build.installTTLMinutes);
     if (build.remoteBaseUrl || build.delivery?.mode === "custom") {
-      build.expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+      build.expiresAt = buildCapabilityExpiresAt({ ttlMinutes });
       build.delivery = {
         mode: "custom",
         provider: "user-configured",
         expiresAt: build.expiresAt,
       };
+      build.state = "ready";
+      ensureBuildNotCancelled(build);
       deviceBuildStore.save(build);
       return build;
     }
 
-    const delivery = await deviceDelivery.ensure({ ttlMinutes });
-    build.expiresAt = delivery.expiresAt;
+    const delivery = await deviceDelivery.ensure({
+      ttlMinutes,
+      cancelPath: build.control?.cancelPath || "",
+    });
+    startedGeneration = delivery.generation || "";
+    reusedGeneration = delivery.reused === true;
+    ensureBuildNotCancelled(build);
+    build.expiresAt = buildCapabilityExpiresAt({
+      ttlMinutes,
+      deliveryExpiresAt: delivery.expiresAt,
+    });
     build.remoteBaseUrl = delivery.publicBaseUrl;
     build.delivery = {
       mode: "quick-tunnel",
       provider: delivery.provider,
       expiresAt: delivery.expiresAt,
     };
+    build.state = "ready";
     build.logs.push("Temporary HTTPS install link is ready. Tailscale is not required.");
     deviceBuildStore.save(build);
     return build;
   } catch (error) {
+    if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") {
+      if (startedGeneration && !reusedGeneration) {
+        try { deviceDelivery.stopGeneration(startedGeneration); } catch {}
+      }
+      throw error;
+    }
     if (markBuildFailed) build.state = "failed";
     build.logs.push(error instanceof Error ? error.message : String(error));
     deviceBuildStore.save(build);
     throw error;
   }
+}
+
+function ensureBuildNotCancelled(build) {
+  if (!build.control?.cancelPath || !existsSync(build.control.cancelPath)) return;
+  const error = new Error("Device build was cancelled while delivery was starting.");
+  error.code = "SWIFT_SIM_BUILD_CANCELLED";
+  throw error;
 }
 
  function required(value, name) {

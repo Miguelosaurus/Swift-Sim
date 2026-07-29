@@ -164,7 +164,8 @@ test("staging renewal does not mutate the active link", () => withStore((store) 
   assert.equal(active.expiresAt, oldExpiry);
   assert.equal(active.remoteBaseUrl, "https://old-link.example.com");
   assert.ok(active.pendingRenewal?.id);
-  assert.notEqual(candidate.expiresAt, oldExpiry);
+  assert.equal(candidate.expiresAt, "");
+  assert.equal(candidate.installTTLMinutes, 60);
 }));
 
 test("concurrent renewals join the same lease", () => withStore((store) => {
@@ -183,7 +184,8 @@ test("a renewed token is committed only after delivery becomes ready", () => wit
   assert.equal(renewed.token, oldToken);
   assert.ok(renewed.pendingRenewal?.token);
   renewed.remoteBaseUrl = "https://new-link.example.com";
-  renewed.delivery.expiresAt = renewed.expiresAt;
+  renewed.expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+  renewed.delivery.expiresAt = new Date(Date.now() + 70 * 60_000).toISOString();
   store.save(renewed);
   const committed = store.get(build.id);
   assert.notEqual(committed.token, oldToken);
@@ -224,7 +226,8 @@ test("one failed renewal waiter cannot cancel another successful waiter", () => 
   failed.delivery = structuredClone(failed.pendingRenewal.previous.delivery);
   store.save(failed);
   successful.remoteBaseUrl = "https://new-link.example.com";
-  successful.delivery.expiresAt = successful.expiresAt;
+  successful.expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+  successful.delivery.expiresAt = new Date(Date.now() + 70 * 60_000).toISOString();
   store.save(successful);
   const committed = store.get(build.id);
   assert.notEqual(committed.token, oldToken);
@@ -363,4 +366,52 @@ test("deleting a validating build persists cancellation and delayed cleanup", ()
   const jobs = Object.values(persisted.artifactCleanupJobs);
   assert.equal(jobs.length, 1);
   assert.ok(Date.parse(jobs[0].nextAttemptAt) > Date.now() + 60 * 60 * 1000);
+}));
+
+test("a renewal commits when delivery timestamps are generated after the lease", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  build.installTTLMinutes = 5;
+  build.remoteBaseUrl = "https://old-link.example.com";
+  build.expiresAt = new Date(Date.now() + 30_000).toISOString();
+  build.delivery = { mode: "quick-tunnel", provider: "cloudflare-quick-tunnel", expiresAt: build.expiresAt };
+  store.save(build);
+  const oldToken = build.token;
+  const renewed = store.renewInstallLink(build.id);
+  renewed.expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+  renewed.remoteBaseUrl = "https://new-link.example.com";
+  renewed.delivery = {
+    mode: "quick-tunnel",
+    provider: "cloudflare-quick-tunnel",
+    expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+  };
+  store.save(renewed);
+  const committed = store.get(build.id);
+  assert.notEqual(committed.token, oldToken);
+  assert.equal(committed.remoteBaseUrl, "https://new-link.example.com");
+  assert.equal(committed.installTTLMinutes, 5);
+  assert.equal(committed.pendingRenewal, undefined);
+}));
+
+test("a failed renewal waiter cannot change the configured link TTL", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  build.installTTLMinutes = 5;
+  store.save(build);
+  const failed = store.renewInstallLink(build.id, { ttlMinutes: 120 });
+  failed.remoteBaseUrl = "";
+  failed.expiresAt = "";
+  store.save(failed);
+  assert.equal(store.get(build.id).installTTLMinutes, 5);
+}));
+
+test("an old PID-only build lock is reclaimed after its migration grace", () => withStore((store, directory) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  const lockPath = join(directory, "builds.json.lock");
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(join(lockPath, "owner.json"), JSON.stringify({
+    pid: process.pid,
+    nonce: "legacy",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }));
+  assert.equal(store.get(build.id).id, build.id);
+  assert.equal(existsSync(lockPath), false);
 }));

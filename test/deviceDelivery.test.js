@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -155,6 +156,65 @@ test("legacy delivery pids remain recorded instead of being treated as exited", 
     assert.equal(preserved.status, "failed-shutdown");
     assert.equal(preserved.survivingProcesses[0].pid, process.pid);
     assert.equal(preserved.survivingProcesses[0].legacy, true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("build capability expiry never inherits the full reusable tunnel lifetime", async () => {
+  const { buildCapabilityExpiresAt } = await import("../mac-helper/src/deviceDelivery.js");
+  const now = Date.parse("2026-07-29T20:00:00.000Z");
+  assert.equal(
+    buildCapabilityExpiresAt({
+      ttlMinutes: 5,
+      deliveryExpiresAt: "2026-07-29T22:00:00.000Z",
+      now,
+    }),
+    "2026-07-29T20:05:00.000Z"
+  );
+  assert.equal(
+    buildCapabilityExpiresAt({
+      ttlMinutes: 120,
+      deliveryExpiresAt: "2026-07-29T20:20:00.000Z",
+      now,
+    }),
+    "2026-07-29T20:20:00.000Z"
+  );
+});
+
+test("delivery cancellation is honored before a generation is launched", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-delivery-cancel-test-"));
+  try {
+    const cancelPath = join(directory, "cancelled");
+    writeFileSync(cancelPath, "cancelled");
+    const adapter = new DeviceDeliveryAdapter({
+      statePath: join(directory, "delivery.json"),
+      logPath: join(directory, "delivery.log"),
+      managerPath: join(directory, "missing-manager.js"),
+    });
+    await assert.rejects(
+      adapter.ensure({ ttlMinutes: 5, cancelPath }),
+      (error) => error?.code === "SWIFT_SIM_BUILD_CANCELLED"
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an old PID-only delivery lock is reclaimed after its migration grace", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-delivery-lock-test-"));
+  try {
+    const statePath = join(directory, "delivery.json");
+    const lockPath = `${statePath}.lifecycle.lock`;
+    mkdirSync(lockPath, { recursive: true });
+    writeFileSync(join(lockPath, "owner.json"), JSON.stringify({
+      pid: process.pid,
+      nonce: "legacy",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }));
+    const adapter = new DeviceDeliveryAdapter({ statePath, logPath: join(directory, "delivery.log") });
+    assert.equal(adapter.stop(), false);
+    assert.equal(existsSync(lockPath), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
