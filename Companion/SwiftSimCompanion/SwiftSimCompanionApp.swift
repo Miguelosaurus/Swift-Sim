@@ -67,8 +67,10 @@ private enum PairingAlert: Identifiable {
 
     var id: String {
         switch self {
-        case .confirmation(let pairing): "confirmation:\(pairing.id.uuidString)"
-        case .failure(let message): "failure:\(message)"
+        case .confirmation(let pairing):
+            return "confirmation:\(pairing.id.uuidString)"
+        case .failure(let message):
+            return "failure:\(message)"
         }
     }
 }
@@ -225,11 +227,14 @@ private enum PairingCredentialVault {
 
     static func markerForEncoding(token: String, pairingID: String) throws -> String {
         let tokenAccount = account(for: pairingID)
-        let alreadyStaged = readToken(account: tokenAccount) == token
-        guard !token.isEmpty, alreadyStaged || storeToken(token, account: tokenAccount) else {
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: pendingAccountKey) == tokenAccount {
+            return marker(for: tokenAccount)
+        }
+        guard !token.isEmpty, storeToken(token, account: tokenAccount) else {
             throw credentialError("The pairing credential could not be protected in Keychain.")
         }
-        UserDefaults.standard.set(tokenAccount, forKey: pendingAccountKey)
+        defaults.set(tokenAccount, forKey: pendingAccountKey)
         return marker(for: tokenAccount)
     }
 
