@@ -39,7 +39,10 @@ export function text(res, status, body, contentType = "text/plain; charset=utf-8
 }
 
 export function badRequest(res, status, message) {
-  return json(res, status, { error: message });
+  const publicMessage = process.env.SWIFT_SIM_PUBLIC_GATEWAY === "1"
+    ? publicErrorMessage(status)
+    : message;
+  return json(res, status, { error: publicMessage });
 }
 
 export function unauthorized(res) {
@@ -48,4 +51,10 @@ export function unauthorized(res) {
 
 export function notFound(res, message) {
   return json(res, 404, { error: message });
+}
+
+function publicErrorMessage(status) {
+  if (status === 410) return "This install link has expired.";
+  if (status === 409) return "This build is not ready or is no longer available.";
+  return "The request could not be completed.";
 }
