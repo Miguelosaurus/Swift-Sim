@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
@@ -71,7 +71,7 @@ export function resolveValidationWorkingDirectory({ args = [], cwd = process.cwd
   const absoluteTarget = canonicalExistingPath(isAbsolute(target) ? target : resolve(cwd, target), "Build target");
   const targetDirectory = targetValidationDirectory(absoluteTarget);
 
-  if (!configuredDirectory) return targetDirectory;
+  if (!configuredDirectory) return findRepositoryRoot(targetDirectory) || targetDirectory;
 
   const configured = canonicalExistingPath(
     isAbsolute(configuredDirectory) ? configuredDirectory : resolve(cwd, configuredDirectory),
@@ -83,6 +83,14 @@ export function resolveValidationWorkingDirectory({ args = [], cwd = process.cwd
   if (!pathContains(configured, absoluteTarget)) {
     throw validationError(
       `Configured validation working directory ${configured} does not contain the requested build target ${absoluteTarget}. Re-run swift-sim setup from this project's repository root.`
+    );
+  }
+
+  const targetRepository = findRepositoryRoot(targetDirectory);
+  const configuredRepository = findRepositoryRoot(configured);
+  if (targetRepository && configuredRepository !== targetRepository) {
+    throw validationError(
+      `Configured validation working directory ${configured} is not part of the build target's repository ${targetRepository}. Re-run swift-sim setup inside that repository.`
     );
   }
   return configured;
@@ -107,6 +115,18 @@ function targetValidationDirectory(target) {
   const extension = extname(target);
   if (extension === ".xcodeproj" || extension === ".xcworkspace") return dirname(target);
   return statSync(target).isDirectory() ? target : dirname(target);
+}
+
+function findRepositoryRoot(start) {
+  let current = start;
+  const filesystemRoot = parse(current).root;
+  while (true) {
+    if (existsSync(join(current, ".git"))) return current;
+    if (current === filesystemRoot) return "";
+    const parent = dirname(current);
+    if (parent === current) return "";
+    current = parent;
+  }
 }
 
 function pathContains(parent, child) {
