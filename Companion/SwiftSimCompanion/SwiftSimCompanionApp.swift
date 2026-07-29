@@ -54,40 +54,59 @@ private struct PendingPairing: Identifiable {
     }
 }
 
-/// PairedMac remains Codable for SessionStore, but its custom conformance below
-/// writes only a sealed marker to UserDefaults. The actual token never leaves
-/// Keychain after migration or pairing.
 private enum PairingCredentialVault {
-    static let sealedMarker = "__swift_sim_keychain__"
+    private static let markerPrefix = "__swift_sim_keychain__:"
+    private static let legacyMarker = "__swift_sim_keychain__"
     private static let defaultsKey = "pairedMac"
     private static let service = "dev.local.SwiftSimCompanion.pairing"
-    private static let account = "paired-mac-token"
+    private static let legacyAccount = "paired-mac-token"
     private static var defaultsObserver: NSObjectProtocol?
 
     static func prepareForSessionStore() {
         guard var object = pairedMacObject(),
+              let id = object["id"] as? String,
+              !id.isEmpty,
               let stored = object["token"] as? String,
               !stored.isEmpty else {
-            if UserDefaults.standard.data(forKey: defaultsKey) == nil { deleteToken() }
-            return
-        }
-
-        if stored == sealedMarker {
-            guard readToken()?.isEmpty == false else {
-                UserDefaults.standard.removeObject(forKey: defaultsKey)
-                deleteToken()
-                return
+            if UserDefaults.standard.data(forKey: defaultsKey) == nil {
+                deleteAllTokens()
             }
             return
         }
 
-        guard storeToken(stored) else {
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
-            deleteToken()
+        let expectedAccount = account(for: id)
+        if let storedAccount = account(fromMarker: stored) {
+            guard storedAccount == expectedAccount,
+                  readToken(account: storedAccount)?.isEmpty == false else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                deleteAllTokens()
+                return
+            }
+            deleteAllTokens(except: storedAccount)
             return
         }
-        object["token"] = sealedMarker
+
+        if stored == legacyMarker {
+            guard let token = readToken(account: legacyAccount), !token.isEmpty,
+                  storeToken(token, account: expectedAccount) else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                deleteAllTokens()
+                return
+            }
+            object["token"] = marker(for: expectedAccount)
+            writePairedMacObject(object)
+            deleteAllTokens(except: expectedAccount)
+            return
+        }
+
+        guard storeToken(stored, account: expectedAccount) else {
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            deleteAllTokens()
+            return
+        }
+        object["token"] = marker(for: expectedAccount)
         writePairedMacObject(object)
+        deleteAllTokens(except: expectedAccount)
     }
 
     static func startMonitoring() {
@@ -97,30 +116,61 @@ private enum PairingCredentialVault {
             object: UserDefaults.standard,
             queue: .main
         ) { _ in
-            if UserDefaults.standard.data(forKey: defaultsKey) == nil {
-                deleteToken()
+            guard let object = pairedMacObject(),
+                  let stored = object["token"] as? String,
+                  let account = account(fromMarker: stored) else {
+                if UserDefaults.standard.data(forKey: defaultsKey) == nil {
+                    deleteAllTokens()
+                }
+                return
             }
+            deleteAllTokens(except: account)
         }
     }
 
-    static func tokenForDecoding(_ storedValue: String) throws -> String {
-        if storedValue == sealedMarker {
-            guard let token = readToken(), !token.isEmpty else {
+    static func tokenForDecoding(_ storedValue: String, pairingID: String) throws -> String {
+        let expectedAccount = account(for: pairingID)
+        if let storedAccount = account(fromMarker: storedValue) {
+            guard storedAccount == expectedAccount,
+                  let token = readToken(account: storedAccount), !token.isEmpty else {
                 throw credentialError("The saved pairing credential is unavailable. Pair this Mac again.")
             }
             return token
         }
-        guard !storedValue.isEmpty, storeToken(storedValue) else {
+        if storedValue == legacyMarker {
+            guard let token = readToken(account: legacyAccount), !token.isEmpty,
+                  storeToken(token, account: expectedAccount) else {
+                throw credentialError("The saved pairing credential is unavailable. Pair this Mac again.")
+            }
+            return token
+        }
+        guard !storedValue.isEmpty, storeToken(storedValue, account: expectedAccount) else {
             throw credentialError("The pairing credential could not be protected in Keychain.")
         }
         return storedValue
     }
 
-    static func markerForEncoding(token: String) throws -> String {
-        guard !token.isEmpty, storeToken(token) else {
+    static func markerForEncoding(token: String, pairingID: String) throws -> String {
+        let account = account(for: pairingID)
+        guard !token.isEmpty, storeToken(token, account: account) else {
             throw credentialError("The pairing credential could not be protected in Keychain.")
         }
-        return sealedMarker
+        return marker(for: account)
+    }
+
+    private static func marker(for account: String) -> String {
+        markerPrefix + account
+    }
+
+    private static func account(fromMarker value: String) -> String? {
+        guard value.hasPrefix(markerPrefix) else { return nil }
+        let account = String(value.dropFirst(markerPrefix.count))
+        return account.isEmpty ? nil : account
+    }
+
+    private static func account(for pairingID: String) -> String {
+        let encoded = Data(pairingID.utf8).base64EncodedString()
+        return "paired-mac-token.\(encoded)"
     }
 
     private static func pairedMacObject() -> [String: Any]? {
@@ -136,7 +186,7 @@ private enum PairingCredentialVault {
         UserDefaults.standard.set(data, forKey: defaultsKey)
     }
 
-    private static func storeToken(_ token: String) -> Bool {
+    private static func storeToken(_ token: String, account: String) -> Bool {
         guard let data = token.data(using: .utf8) else { return false }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -153,7 +203,7 @@ private enum PairingCredentialVault {
         return SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil) == errSecSuccess
     }
 
-    private static func readToken() -> String? {
+    private static func readToken(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -167,13 +217,33 @@ private enum PairingCredentialVault {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func deleteToken() {
+    private static func deleteAllTokens(except retainedAccount: String? = nil) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
         ]
-        SecItemDelete(query as CFDictionary)
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return }
+        let records: [[String: Any]]
+        if let values = item as? [[String: Any]] {
+            records = values
+        } else if let value = item as? [String: Any] {
+            records = [value]
+        } else {
+            return
+        }
+        for record in records {
+            guard let account = record[kSecAttrAccount as String] as? String,
+                  account != retainedAccount else { continue }
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+            ]
+            SecItemDelete(deleteQuery as CFDictionary)
+        }
     }
 
     private static func credentialError(_ message: String) -> NSError {
@@ -195,7 +265,7 @@ extension PairedMac {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         let storedToken = try container.decode(String.self, forKey: .token)
-        token = try PairingCredentialVault.tokenForDecoding(storedToken)
+        token = try PairingCredentialVault.tokenForDecoding(storedToken, pairingID: id)
         baseURLString = try container.decode(String.self, forKey: .baseURLString)
         displayName = try container.decode(String.self, forKey: .displayName)
         pairedAt = try container.decode(Date.self, forKey: .pairedAt)
@@ -205,7 +275,10 @@ extension PairedMac {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
-        try container.encode(PairingCredentialVault.markerForEncoding(token: token), forKey: .token)
+        try container.encode(
+            PairingCredentialVault.markerForEncoding(token: token, pairingID: id),
+            forKey: .token
+        )
         try container.encode(baseURLString, forKey: .baseURLString)
         try container.encode(displayName, forKey: .displayName)
         try container.encode(pairedAt, forKey: .pairedAt)
