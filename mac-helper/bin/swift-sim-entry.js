@@ -2,7 +2,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { readBuildValidationPreferences } from "../src/buildValidation.js";
 
@@ -52,7 +52,7 @@ async function configureBuildValidation() {
       const workingDirectory = (await rl.question(
         "Validation repository root [infer from project/workspace]: "
       )).trim();
-      if (workingDirectory) current.buildValidationWorkingDirectory = workingDirectory;
+      if (workingDirectory) current.buildValidationWorkingDirectory = resolve(process.cwd(), workingDirectory);
       else delete current.buildValidationWorkingDirectory;
     } else {
       delete current.buildValidationCommand;
