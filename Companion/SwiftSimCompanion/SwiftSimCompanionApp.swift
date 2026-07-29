@@ -219,7 +219,7 @@ enum PairingCredentialVault {
         }
         if storedValue == legacyMarker {
             guard let token = readToken(account: legacyAccount), !token.isEmpty,
-                  storeToken(token, account: expectedLegacyAccount) else {
+                  storeToken(token, account: expectedAccount) else {
                 throw credentialError("The saved pairing credential is unavailable. Pair this Mac again.")
             }
             return token
