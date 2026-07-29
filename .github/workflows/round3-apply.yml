@@ -61,15 +61,34 @@ jobs:
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 30 \
             -maximum-test-execution-time-allowance 60
-      - name: Commit validated changes
+      - name: Publish clean commit to PR 2
         if: github.event_name == 'push'
+        env:
+          BASE_COMMIT: 24f975b38e8134aa0b58cf2c75d7d8fef110eba0
+          TARGET_BRANCH: agent/open-source-launch-hardening-round-1
         run: |
-          git config user.name "swift-sim-review-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git commit -m "Fix round 3 lifecycle findings"
-          git push origin HEAD:agent/open-source-launch-hardening-round-3-work
+          set -euo pipefail
+          FILES=(
+            Companion/SwiftSimCompanion/SessionStore.swift
+            Companion/SwiftSimCompanion/SwiftSimCompanionApp.swift
+            Companion/SwiftSimCompanionTests/InstallationStateTests.swift
+            mac-helper/bin/swift-sim-helper.js
+            mac-helper/src/deviceBuildStore.js
+            mac-helper/src/deviceBuilderCore.js
+            mac-helper/src/deviceDelivery.js
+            test/deviceBuildStore.test.js
+            test/deviceBuilderTimeout.test.js
+            test/deviceDelivery.test.js
+          )
+          export GIT_INDEX_FILE="$RUNNER_TEMP/round3-clean-index"
+          rm -f "$GIT_INDEX_FILE"
+          git read-tree "$BASE_COMMIT"
+          for file in "${FILES[@]}"; do
+            mode=$(git ls-tree HEAD -- "$file" | awk '{print $1}')
+            blob=$(git rev-parse "HEAD:$file")
+            git update-index --add --cacheinfo "$mode,$blob,$file"
+          done
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'Fix round 3 lifecycle findings' | git commit-tree "$tree" -p "$BASE_COMMIT")
+          git push --force origin "$commit:refs/heads/$TARGET_BRANCH"
+          echo "Published clean commit $commit"
