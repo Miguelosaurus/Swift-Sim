@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
@@ -39,6 +39,8 @@ import {
   unauthorized,
 } from "../src/http.js";
 import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../src/links.js";
+import { serveFile } from "../src/fileServer.js";
+import { normalizeDeviceBuildTTLMinutes } from "../src/deviceBuildDefaults.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -443,6 +445,9 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         if (!buildTokenMatches && !pairedMacTokenMatches) {
           return unauthorized(res);
         }
+        if (buildTokenMatches && !pairedMacTokenMatches && deviceBuildExpired(build)) {
+          return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
+        }
         if (req.method === "GET" && !action) {
           return json(res, 200, publicDeviceBuild(build));
         }
@@ -486,6 +491,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         return serveFile(res, build.artifacts.ipaPath, {
           contentType: "application/octet-stream",
           filename: `${build.app.name || build.scheme || "App"}.ipa`,
+          notFound,
         });
       }
 
@@ -1501,7 +1507,9 @@ async function createDeviceBuild(values) {
 
 async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
   try {
+    const ttlMinutes = normalizeDeviceBuildTTLMinutes(build.installTTLMinutes);
     if (build.remoteBaseUrl || build.delivery?.mode === "custom") {
+      build.expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
       build.delivery = {
         mode: "custom",
         provider: "user-configured",
@@ -1511,8 +1519,8 @@ async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
       return build;
     }
 
-    const remainingMinutes = Math.max(5, Math.ceil((Date.parse(build.expiresAt) - Date.now()) / 60_000));
-    const delivery = await deviceDelivery.ensure({ ttlMinutes: remainingMinutes });
+    const delivery = await deviceDelivery.ensure({ ttlMinutes });
+    build.expiresAt = delivery.expiresAt;
     build.remoteBaseUrl = delivery.publicBaseUrl;
     build.delivery = {
       mode: "quick-tunnel",
@@ -1530,23 +1538,7 @@ async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
   }
 }
 
-function serveFile(res, path, { contentType, filename }) {
-  if (!path || !existsSync(path)) {
-    return notFound(res, "Artifact is unavailable.");
-  }
-  const stat = statSync(path);
-  res.writeHead(200, {
-    "content-type": contentType,
-    "content-length": stat.size,
-    "content-disposition": `attachment; filename="${String(filename || "download").replaceAll("\"", "")}"`,
-    "cache-control": "private, no-store",
-    "referrer-policy": "no-referrer",
-    "x-content-type-options": "nosniff",
-  });
-  createReadStream(path).pipe(res);
-}
-
-function required(value, name) {
+ function required(value, name) {
   if (!value || typeof value !== "string") {
     throw new Error(`Missing required ${name}.`);
   }

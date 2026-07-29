@@ -37,7 +37,8 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     const buildSettingArgs = liveEligible
       ? [...requestedBuildSettingArgs, ...managedLiveBuildSettings()]
       : requestedBuildSettingArgs;
-    const root = join(homedir(), ".swift-sim", "device-builds", build.id);
+    throwIfBuildCancelled(build);
+    const root = build.artifacts?.root || join(homedir(), ".swift-sim", "device-builds", build.id);
     const archivePath = join(root, `${safeName(build.scheme || "App")}.xcarchive`);
     const exportPath = join(root, "export");
     const manifestPath = join(root, "manifest.plist");
@@ -127,6 +128,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
           ...process.env,
           INJECTION_HOST: liveSession.host,
         },
+        build,
       });
 
       const appPath = findBuiltApp(join(derivedDataPath, "Build", "Products"), build.scheme);
@@ -176,7 +178,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       "-archivePath", archivePath,
       ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
       "archive",
-    ], log);
+    ], log, { build });
 
     build.state = "exporting";
     saveBuild();
@@ -189,7 +191,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       "-exportPath", exportPath,
       "-exportOptionsPlist", exportOptionsPath,
       ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
-    ], log);
+    ], log, { build });
 
     const ipaPath = findIpa(exportPath);
     if (!ipaPath) throw new DeviceBuildError("Xcode export finished, but no IPA was produced.");
@@ -201,6 +203,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     log("Build is ready to install.");
     return build;
   } catch (error) {
+    if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
     build.state = "failed";
     build.logs.push(error instanceof Error ? error.message : String(error));
     saveBuild();
@@ -364,19 +367,21 @@ function targetArgs(target) {
     : ["-project", target.path];
 }
 
-async function runLogged(command, args, log, { env = process.env } = {}) {
+async function runLogged(command, args, log, { env = process.env, build } = {}) {
   const result = await runBuffered(command, args, {
     onLine: log,
     timeoutMs: 30 * 60 * 1000,
     env,
+    cancelPath: build?.control?.cancelPath || "",
   });
+  if (result.cancellationError) throw result.cancellationError;
   if (result.code !== 0) {
     throw new DeviceBuildError(result.error || result.stderr || result.stdout || `${command} failed with exit code ${result.code}`);
   }
   return result;
 }
 
-export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process.env } = {}) {
+export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process.env, cancelPath = "" } = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -389,6 +394,7 @@ export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = 
     let stderrPending = "";
     let settled = false;
     let timedOut = false;
+    let cancellationTimer;
 
     const flushLines = (chunk, isError) => {
       const value = chunk.toString("utf8");
@@ -406,10 +412,24 @@ export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = 
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(cancellationTimer);
       if (stdoutPending.trim()) onLine?.(stdoutPending);
       if (stderrPending.trim()) onLine?.(stderrPending);
       resolve(result);
     };
+
+    if (cancelPath) {
+      cancellationTimer = setInterval(() => {
+        if (!existsSync(cancelPath) || settled) return;
+        timedOut = true;
+        void terminateProcessGroup(child.pid, 2_000).then(() => {
+          const error = new DeviceBuildError("Device build was cancelled.");
+          error.code = "SWIFT_SIM_BUILD_CANCELLED";
+          finish({ code: null, stdout, stderr, error: error.message, cancellationError: error });
+        });
+      }, 100);
+      cancellationTimer.unref?.();
+    }
 
     const timer = setTimeout(() => {
       if (settled) return;
@@ -427,11 +447,11 @@ export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = 
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
-      stdout += chunk;
+      stdout = appendBoundedOutput(stdout, chunk.toString("utf8"));
       flushLines(chunk, false);
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk;
+      stderr = appendBoundedOutput(stderr, chunk.toString("utf8"));
       flushLines(chunk, true);
     });
     child.on("error", (error) => {
@@ -474,6 +494,18 @@ function processGroupIsAlive(pid) {
   } catch {
     return false;
   }
+}
+
+function throwIfBuildCancelled(build) {
+  if (!build.control?.cancelPath || !existsSync(build.control.cancelPath)) return;
+  const error = new DeviceBuildError("Device build was cancelled.");
+  error.code = "SWIFT_SIM_BUILD_CANCELLED";
+  throw error;
+}
+
+function appendBoundedOutput(current, addition, maxCharacters = 1_000_000) {
+  const combined = current + addition;
+  return combined.length <= maxCharacters ? combined : combined.slice(-maxCharacters);
 }
 
 function exportOptionsPlist(build) {

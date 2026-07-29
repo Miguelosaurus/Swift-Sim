@@ -135,3 +135,27 @@ test("reaping a confirmed-dead generation removes its state and log", () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test("legacy delivery pids remain recorded instead of being treated as exited", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-delivery-legacy-test-"));
+  try {
+    const statePath = join(directory, "device-delivery.json");
+    writeFileSync(statePath, JSON.stringify({
+      generation: "legacy-generation",
+      status: "ready",
+      publicBaseUrl: "https://legacy.trycloudflare.com",
+      managerPid: process.pid,
+      gatewayPid: 0,
+      tunnelPid: 0,
+    }));
+    const adapter = new DeviceDeliveryAdapter({ statePath, logPath: join(directory, "delivery.log") });
+    assert.equal(adapter.stop(), false);
+    const preserved = JSON.parse(readFileSync(statePath, "utf8"));
+    assert.equal(preserved.status, "failed-shutdown");
+    assert.equal(preserved.survivingProcesses[0].pid, process.pid);
+    assert.equal(preserved.survivingProcesses[0].legacy, true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -272,7 +272,7 @@ test("a stale writer cannot resurrect a deleted build", () => withStore((store) 
   const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
   const stale = structuredClone(build);
   assert.equal(store.deleteApp(build.app.identity, { deleteArtifacts: false }), true);
-  store.save(stale);
+  assert.throws(() => store.save(stale), /cancelled or deleted/);
   assert.equal(store.get(build.id), undefined);
 }));
 
@@ -337,3 +337,30 @@ test("a lock owned by a reused pid is reclaimed using process start time", () =>
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test("queued builds do not spend install-link TTL before delivery", () => withStore((store) => {
+  const build = store.create({ scheme: "Example", ttlMinutes: 5 });
+  assert.equal(build.expiresAt, "");
+  assert.equal(build.installTTLMinutes, 5);
+}));
+
+test("deleting a validating build persists cancellation and delayed cleanup", () => withStore((store, directory) => {
+  const build = store.create({ scheme: "Example" });
+  build.app = {
+    identity: deviceAppIdentity({ bundleIdentifier: "com.example.cancel", teamID: "TEAM123" }),
+    name: "Example",
+    bundleIdentifier: "com.example.cancel",
+    teamID: "TEAM123",
+    version: "1",
+    build: "1",
+  };
+  build.state = "validating";
+  store.save(build);
+  assert.equal(store.deleteApp(build.app.identity), true);
+  assert.equal(existsSync(build.control.cancelPath), true);
+  const persisted = JSON.parse(readFileSync(join(directory, "builds.json"), "utf8"));
+  const jobs = Object.values(persisted.artifactCleanupJobs);
+  assert.equal(jobs.length, 1);
+  assert.ok(Date.parse(jobs[0].nextAttemptAt) > Date.now() + 60 * 60 * 1000);
+}));

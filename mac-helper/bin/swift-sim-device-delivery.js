@@ -209,11 +209,16 @@ function writeState(extra) {
 }
 
 function processIdentity(pid, commandFragments) {
-  return {
-    pid,
-    startedAt: processStartedAt(pid),
-    commandFragments,
-  };
+  const startedAt = requiredProcessStartedAt(pid);
+  return { pid, startedAt, commandFragments };
+}
+
+function requiredProcessStartedAt(pid) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const startedAt = processStartedAt(pid);
+    if (startedAt) return startedAt;
+  }
+  throw new Error(`Unable to establish process identity for pid ${pid}.`);
 }
 
 function processStartedAt(pid) {

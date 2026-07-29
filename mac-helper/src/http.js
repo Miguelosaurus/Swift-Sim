@@ -6,16 +6,18 @@ export async function readJson(req, { maxBytes = DEFAULT_MAX_JSON_BYTES } = {}) 
     throw new Error("Request body is too large.");
   }
 
-  let body = "";
+  const chunks = [];
   let received = 0;
   for await (const chunk of req) {
-    received += chunk.length;
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    received += buffer.length;
     if (received > maxBytes) {
       req.destroy();
       throw new Error("Request body is too large.");
     }
-    body += chunk;
+    chunks.push(buffer);
   }
+  const body = Buffer.concat(chunks, received).toString("utf8");
   if (!body.trim()) return {};
   return JSON.parse(body);
 }

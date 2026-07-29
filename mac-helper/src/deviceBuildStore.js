@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import {
   DeviceBuildStore as DeviceBuildStoreCore,
@@ -44,13 +44,20 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     const build = super.create({ ...input, project: "", workspace: "" });
     build.project = project;
     build.workspace = workspace;
+    const artifactRoot = join(dirname(this.path), "device-builds", build.id);
+    build.artifacts = { ...(build.artifacts || {}), root: artifactRoot };
+    build.control = { ...(build.control || {}), cancelPath: join(artifactRoot, ".cancelled") };
     return this.save(build);
   }
 
   save(build) {
     return this.withTransaction((state) => {
       const existing = state.builds.get(build.id);
-      if (!existing) return build;
+      if (!existing) {
+        const error = new Error("Device build was cancelled or deleted.");
+        error.code = "SWIFT_SIM_BUILD_CANCELLED";
+        throw error;
+      }
 
       const incoming = normalizeIncomingBuild(structuredClone(build));
       incoming.installation = newerInstallation(existing.installation, incoming.installation);
@@ -157,8 +164,16 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       if (!app) return { deleted: false };
       const now = Date.now();
       for (const build of app.builds) {
+        const active = ACTIVE_BUILD_STATES.has(build.state);
+        if (active && build.control?.cancelPath) {
+          mkdirSync(dirname(build.control.cancelPath), { recursive: true, mode: 0o700 });
+          writeFileSync(build.control.cancelPath, JSON.stringify({
+            buildId: build.id,
+            cancelledAt: new Date(now).toISOString(),
+          }), { mode: 0o600 });
+        }
         if (deleteArtifacts && build.artifacts?.root) {
-          const delay = ACTIVE_BUILD_STATES.has(build.state) ? ACTIVE_BUILD_CLEANUP_DELAY_MS : 0;
+          const delay = active ? ACTIVE_BUILD_CLEANUP_DELAY_MS : 0;
           const job = {
             id: randomUUID(),
             root: build.artifacts.root,
@@ -247,7 +262,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     const ownerPath = join(this.lockPath, "owner.json");
     const owner = {
       pid: process.pid,
-      startedAt: processStartedAt(process.pid),
+      startedAt: requiredProcessStartedAt(process.pid),
       nonce: randomUUID(),
       createdAt: new Date().toISOString(),
     };
@@ -425,6 +440,15 @@ function lockOwnerIsAlive(owner) {
   if (!processIsAlive(owner?.pid)) return false;
   if (!owner?.startedAt) return true;
   return processStartedAt(owner.pid) === owner.startedAt;
+}
+
+function requiredProcessStartedAt(pid) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const startedAt = processStartedAt(pid);
+    if (startedAt) return startedAt;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+  throw new Error("Unable to establish a process start identity for the Swift Sim build-state lock.");
 }
 
 function processStartedAt(pid) {

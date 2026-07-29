@@ -44,7 +44,8 @@ export class DeviceBuildStore {
       preserveData: input.preserveData !== false,
       createdAt: now,
       updatedAt: now,
-      expiresAt: new Date(Date.now() + normalizeDeviceBuildTTLMinutes(input.ttlMinutes) * 60 * 1000).toISOString(),
+      installTTLMinutes: normalizeDeviceBuildTTLMinutes(input.ttlMinutes),
+      expiresAt: "",
       state: "queued",
       app: {
         identity: "",

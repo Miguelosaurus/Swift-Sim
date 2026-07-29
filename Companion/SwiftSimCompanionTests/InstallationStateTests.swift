@@ -131,6 +131,57 @@ final class InstallationStateTests: XCTestCase {
         SecItemDelete(query as CFDictionary)
     }
 
+    @MainActor
+    func testPendingPairingSurvivesDefaultsMonitoringUntilCancelled() throws {
+        let defaults = UserDefaults.standard
+        let pairingID = "https://pending-\(UUID().uuidString).example"
+        let token = "pending-secret-\(UUID().uuidString)"
+        defaults.removeObject(forKey: "pairedMac")
+        defaults.removeObject(forKey: "pairedMacCredentialAccount")
+        defaults.removeObject(forKey: "pairedMacPendingCredentialAccount")
+        defaults.removeObject(forKey: "pairedMacPendingPairingID")
+        PairingCredentialVault.startMonitoring()
+        XCTAssertTrue(PairingCredentialVault.stagePairing(token: token, pairingID: pairingID))
+        let account = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        defer {
+            PairingCredentialVault.cancelStagedPairing(pairingID: pairingID)
+            deleteTestToken(account: account)
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(testTokenStatus(account: account), errSecSuccess)
+    }
+
+    @MainActor
+    func testCancellingSameMacReplacementPreservesCommittedToken() throws {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "pairedMac")
+        defaults.removeObject(forKey: "pairedMacCredentialAccount")
+        defaults.removeObject(forKey: "pairedMacPendingCredentialAccount")
+        defaults.removeObject(forKey: "pairedMacPendingPairingID")
+        let baseURL = URL(string: "https://same-mac-\(UUID().uuidString).example")!
+        let oldToken = "old-secret-\(UUID().uuidString)"
+        let newToken = "new-secret-\(UUID().uuidString)"
+        let original = PairedMac(token: oldToken, baseURL: baseURL)
+        let metadata = try JSONEncoder().encode(original)
+        defaults.set(metadata, forKey: "pairedMac")
+        PairingCredentialVault.prepareForSessionStore()
+        let committed = try XCTUnwrap(defaults.string(forKey: "pairedMacCredentialAccount"))
+        defer {
+            deleteTestToken(account: committed)
+            if let pending = defaults.string(forKey: "pairedMacPendingCredentialAccount") {
+                deleteTestToken(account: pending)
+            }
+            defaults.removeObject(forKey: "pairedMac")
+            defaults.removeObject(forKey: "pairedMacCredentialAccount")
+            defaults.removeObject(forKey: "pairedMacPendingCredentialAccount")
+            defaults.removeObject(forKey: "pairedMacPendingPairingID")
+        }
+        XCTAssertTrue(PairingCredentialVault.stagePairing(token: newToken, pairingID: original.id))
+        PairingCredentialVault.cancelStagedPairing(pairingID: original.id)
+        let restored = try JSONDecoder().decode(PairedMac.self, from: metadata)
+        XCTAssertEqual(restored.token, oldToken)
+    }
+
     private let statusJSON = #"""
     {
       "id":"build-1",

@@ -39,8 +39,12 @@ final class SessionStore: ObservableObject {
     @discardableResult
     func open(_ url: URL) -> Bool {
         if let pairing = PairedMac(url: url) {
+            let previousPairing = pairedMac
             pairedMac = pairing
-            savePairedMac()
+            guard savePairedMac() else {
+                pairedMac = previousPairing
+                return false
+            }
             helperStatus = .checking
             Task { await refreshHelperStatus() }
             return true
@@ -756,10 +760,12 @@ final class SessionStore: ObservableObject {
         helperStatus = .checking
     }
 
-    private func savePairedMac() {
+    @discardableResult
+    private func savePairedMac() -> Bool {
         guard let pairedMac,
-              let data = try? JSONEncoder().encode(pairedMac) else { return }
+              let data = try? JSONEncoder().encode(pairedMac) else { return false }
         UserDefaults.standard.set(data, forKey: pairedMacKey)
+        return UserDefaults.standard.data(forKey: pairedMacKey) == data
     }
 }
 

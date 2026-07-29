@@ -243,20 +243,30 @@ function deliveryProcessesAreOwned(state) {
 }
 
 function recordedDeliveryProcessesAlive(state) {
-  return deliveryIdentities(state).some((identity) => processIsAlive(identity.pid));
+  return deliveryIdentities(state).some((identity) => processIsAlive(identity.pid))
+    || legacyDeliveryPIDs(state).some(processIsAlive);
 }
 
 function recordedDeliveryProcessesExited(state) {
-  return deliveryIdentities(state).every((identity) => !processIsAlive(identity.pid));
+  return deliveryIdentities(state).every((identity) => !processIsAlive(identity.pid))
+    && legacyDeliveryPIDs(state).every((pid) => !processIsAlive(pid));
 }
 
 function deliveryIdentities(state) {
   return [state.managerIdentity, state.gatewayIdentity, state.tunnelIdentity].filter(Boolean);
 }
 
+function legacyDeliveryPIDs(state) {
+  if (deliveryIdentities(state).length > 0) return [];
+  return [state.managerPid, state.gatewayPid, state.tunnelPid]
+    .map(Number)
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
 function terminateOwnedDelivery(state) {
   const identities = deliveryIdentities(state);
-  if (identities.length === 0) {
+  const legacyPIDs = legacyDeliveryPIDs(state);
+  if (identities.length === 0 && legacyPIDs.length === 0) {
     return { signalled: false, allExited: true, survivors: [] };
   }
   let signalled = false;
@@ -287,12 +297,17 @@ function terminateOwnedDelivery(state) {
     waitForIdentityExit(state.managerIdentity, 2_000);
   }
 
-  const survivors = identities
-    .filter((identity) => processIsAlive(identity.pid))
-    .map((identity) => ({
-      pid: Number(identity.pid),
-      ownershipVerified: processIdentityMatches(identity),
-    }));
+  const survivors = [
+    ...identities
+      .filter((identity) => processIsAlive(identity.pid))
+      .map((identity) => ({
+        pid: Number(identity.pid),
+        ownershipVerified: processIdentityMatches(identity),
+      })),
+    ...legacyDeliveryPIDs(state)
+      .filter(processIsAlive)
+      .map((pid) => ({ pid, ownershipVerified: false, legacy: true })),
+  ];
   return {
     signalled,
     allExited: recordedDeliveryProcessesExited(state),
@@ -320,17 +335,26 @@ function removeGenerationFiles({ statePath, logPath, recordPath, state }) {
 }
 
 function processIdentityMatches(identity) {
-  if (!identity || !processIsAlive(identity.pid)) return false;
+  if (!identity || !identity.startedAt || !processIsAlive(identity.pid)) return false;
   const command = processCommand(identity.pid);
   if (!command) return false;
   const fragments = Array.isArray(identity.commandFragments) ? identity.commandFragments : [];
   if (!fragments.every((fragment) => command.includes(String(fragment)))) return false;
-  return !identity.startedAt || processStartedAt(identity.pid) === identity.startedAt;
+  return processStartedAt(identity.pid) === identity.startedAt;
 }
 
 function processCommand(pid) {
   const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
   return result.status === 0 ? String(result.stdout || "").trim() : "";
+}
+
+function requiredProcessStartedAt(pid) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const startedAt = processStartedAt(pid);
+    if (startedAt) return startedAt;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+  throw new DeviceDeliveryError("Unable to establish a process start identity for the delivery lifecycle lock.");
 }
 
 function processStartedAt(pid) {
@@ -380,7 +404,7 @@ function tryAcquireLifecycleLock(lockPath) {
   const ownerPath = join(lockPath, "owner.json");
   const owner = {
     pid: process.pid,
-    startedAt: processStartedAt(process.pid),
+    startedAt: requiredProcessStartedAt(process.pid),
     nonce: randomUUID(),
     createdAt: new Date().toISOString(),
   };

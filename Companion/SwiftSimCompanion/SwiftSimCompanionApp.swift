@@ -94,12 +94,13 @@ private struct PendingPairing: Identifiable {
     }
 }
 
-private enum PairingCredentialVault {
+enum PairingCredentialVault {
     private static let markerPrefix = "__swift_sim_keychain__:"
     private static let legacyMarker = "__swift_sim_keychain__"
     private static let defaultsKey = "pairedMac"
     private static let committedAccountKey = "pairedMacCredentialAccount"
     private static let pendingAccountKey = "pairedMacPendingCredentialAccount"
+    private static let pendingPairingIDKey = "pairedMacPendingPairingID"
     private static let service = "dev.local.SwiftSimCompanion.pairing"
     private static let legacyAccount = "paired-mac-token"
     private static var defaultsObserver: NSObjectProtocol?
@@ -120,40 +121,40 @@ private enum PairingCredentialVault {
             return
         }
 
-        let expectedAccount = account(for: id)
+        let expectedLegacyAccount = account(for: id)
         if let storedAccount = account(fromMarker: stored) {
             discardAbandonedPendingAccount(except: storedAccount)
-            guard storedAccount == expectedAccount,
+            guard accountIsAllowed(storedAccount, pairingID: id, legacyExpected: expectedLegacyAccount),
                   readToken(account: storedAccount)?.isEmpty == false else {
                 defaults.removeObject(forKey: defaultsKey)
                 cleanupWithoutMetadata()
                 return
             }
-            reconcileCommittedAccount(expectedAccount)
+            reconcileCommittedAccount(storedAccount)
             return
         }
 
         if stored == legacyMarker {
             guard let token = readToken(account: legacyAccount), !token.isEmpty,
-                  storeToken(token, account: expectedAccount) else {
+                  storeToken(token, account: expectedLegacyAccount) else {
                 defaults.removeObject(forKey: defaultsKey)
                 cleanupWithoutMetadata()
                 return
             }
-            object["token"] = marker(for: expectedAccount)
+            object["token"] = marker(for: expectedLegacyAccount)
             writePairedMacObject(object)
-            reconcileCommittedAccount(expectedAccount)
+            reconcileCommittedAccount(expectedLegacyAccount)
             return
         }
 
-        guard storeToken(stored, account: expectedAccount) else {
+        guard storeToken(stored, account: expectedLegacyAccount) else {
             defaults.removeObject(forKey: defaultsKey)
             cleanupWithoutMetadata()
             return
         }
-        object["token"] = marker(for: expectedAccount)
+        object["token"] = marker(for: expectedLegacyAccount)
         writePairedMacObject(object)
-        reconcileCommittedAccount(expectedAccount)
+        reconcileCommittedAccount(expectedLegacyAccount)
     }
 
     static func startMonitoring() {
@@ -164,8 +165,10 @@ private enum PairingCredentialVault {
             queue: .main
         ) { _ in
             guard UserDefaults.standard.data(forKey: defaultsKey) != nil else {
+                if UserDefaults.standard.string(forKey: pendingAccountKey) != nil { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if UserDefaults.standard.data(forKey: defaultsKey) == nil {
+                    if UserDefaults.standard.data(forKey: defaultsKey) == nil,
+                       UserDefaults.standard.string(forKey: pendingAccountKey) == nil {
                         cleanupWithoutMetadata()
                     }
                 }
@@ -183,30 +186,32 @@ private enum PairingCredentialVault {
     }
 
     static func stagePairing(token: String, pairingID: String) -> Bool {
-        let stagedAccount = account(for: pairingID)
+        let stagedAccount = stagingAccount(for: pairingID)
         guard !token.isEmpty, storeToken(token, account: stagedAccount) else { return false }
         let defaults = UserDefaults.standard
         if let previousPending = defaults.string(forKey: pendingAccountKey), previousPending != stagedAccount {
             deleteToken(account: previousPending)
         }
         defaults.set(stagedAccount, forKey: pendingAccountKey)
+        defaults.set(pairingID, forKey: pendingPairingIDKey)
         return true
     }
 
     static func cancelStagedPairing(pairingID: String) {
-        let stagedAccount = account(for: pairingID)
         let defaults = UserDefaults.standard
-        guard defaults.string(forKey: pendingAccountKey) == stagedAccount else { return }
+        guard defaults.string(forKey: pendingPairingIDKey) == pairingID,
+              let stagedAccount = defaults.string(forKey: pendingAccountKey) else { return }
         if defaults.string(forKey: committedAccountKey) != stagedAccount {
             deleteToken(account: stagedAccount)
         }
         defaults.removeObject(forKey: pendingAccountKey)
+        defaults.removeObject(forKey: pendingPairingIDKey)
     }
 
     static func tokenForDecoding(_ storedValue: String, pairingID: String) throws -> String {
         let expectedAccount = account(for: pairingID)
         if let storedAccount = account(fromMarker: storedValue) {
-            guard storedAccount == expectedAccount,
+            guard accountIsAllowed(storedAccount, pairingID: pairingID, legacyExpected: expectedAccount),
                   let token = readToken(account: storedAccount), !token.isEmpty else {
                 throw credentialError("The saved pairing credential is unavailable. Pair this Mac again.")
             }
@@ -214,7 +219,7 @@ private enum PairingCredentialVault {
         }
         if storedValue == legacyMarker {
             guard let token = readToken(account: legacyAccount), !token.isEmpty,
-                  storeToken(token, account: expectedAccount) else {
+                  storeToken(token, account: expectedLegacyAccount) else {
                 throw credentialError("The saved pairing credential is unavailable. Pair this Mac again.")
             }
             return token
@@ -226,15 +231,18 @@ private enum PairingCredentialVault {
     }
 
     static func markerForEncoding(token: String, pairingID: String) throws -> String {
-        let tokenAccount = account(for: pairingID)
         let defaults = UserDefaults.standard
-        if defaults.string(forKey: pendingAccountKey) == tokenAccount {
-            return marker(for: tokenAccount)
+        if defaults.string(forKey: pendingPairingIDKey) == pairingID,
+           let pendingAccount = defaults.string(forKey: pendingAccountKey),
+           readToken(account: pendingAccount) == token {
+            return marker(for: pendingAccount)
         }
+        let tokenAccount = account(for: pairingID)
         guard !token.isEmpty, storeToken(token, account: tokenAccount) else {
             throw credentialError("The pairing credential could not be protected in Keychain.")
         }
         defaults.set(tokenAccount, forKey: pendingAccountKey)
+        defaults.set(pairingID, forKey: pendingPairingIDKey)
         return marker(for: tokenAccount)
     }
 
@@ -259,6 +267,7 @@ private enum PairingCredentialVault {
         }
         if pendingAccount != nil {
             defaults.removeObject(forKey: pendingAccountKey)
+            defaults.removeObject(forKey: pendingPairingIDKey)
         }
     }
 
@@ -268,6 +277,7 @@ private enum PairingCredentialVault {
               pendingAccount != currentAccount else { return }
         deleteToken(account: pendingAccount)
         defaults.removeObject(forKey: pendingAccountKey)
+        defaults.removeObject(forKey: pendingPairingIDKey)
     }
 
     private static func cleanupWithoutMetadata() {
@@ -285,6 +295,9 @@ private enum PairingCredentialVault {
         if defaults.object(forKey: pendingAccountKey) != nil {
             defaults.removeObject(forKey: pendingAccountKey)
         }
+        if defaults.object(forKey: pendingPairingIDKey) != nil {
+            defaults.removeObject(forKey: pendingPairingIDKey)
+        }
     }
 
     private static func marker(for account: String) -> String {
@@ -300,6 +313,18 @@ private enum PairingCredentialVault {
     private static func account(for pairingID: String) -> String {
         let encoded = Data(pairingID.utf8).base64EncodedString()
         return "paired-mac-token.\(encoded)"
+    }
+
+    private static func stagingAccount(for pairingID: String) -> String {
+        "paired-mac-token.pending.\(Data(pairingID.utf8).base64EncodedString()).\(UUID().uuidString)"
+    }
+
+    private static func accountIsAllowed(_ candidate: String, pairingID: String, legacyExpected: String) -> Bool {
+        let defaults = UserDefaults.standard
+        if candidate == defaults.string(forKey: committedAccountKey) { return true }
+        if candidate == defaults.string(forKey: pendingAccountKey),
+           pairingID == defaults.string(forKey: pendingPairingIDKey) { return true }
+        return candidate == legacyExpected
     }
 
     private static func pairedMacObject() -> [String: Any]? {

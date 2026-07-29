@@ -49,6 +49,7 @@ export async function runRequiredBuildValidation({
   cwd = process.cwd(),
   preferences,
   timeoutMs,
+  cancelPath = "",
 } = {}) {
   const resolvedPreferences = preferences || readBuildValidationPreferences();
   if (resolvedPreferences.buildValidationMode !== "always") return;
@@ -71,6 +72,7 @@ export async function runRequiredBuildValidation({
   await runValidationCommand(command, {
     cwd: projectDirectory,
     timeoutMs: effectiveTimeoutMs,
+    cancelPath,
   });
 }
 
@@ -108,7 +110,7 @@ export function resolveValidationWorkingDirectory({ args = [], cwd = process.cwd
   return configured;
 }
 
-function runValidationCommand(command, { cwd, timeoutMs }) {
+function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn("/bin/sh", ["-lc", command], {
       cwd,
@@ -120,6 +122,7 @@ function runValidationCommand(command, { cwd, timeoutMs }) {
     let timedOut = false;
     let forceTimer;
     let finalTimer;
+    let cancellationTimer;
 
     const finish = (error) => {
       if (settled) return;
@@ -127,6 +130,7 @@ function runValidationCommand(command, { cwd, timeoutMs }) {
       clearTimeout(timeoutTimer);
       clearTimeout(forceTimer);
       clearTimeout(finalTimer);
+      clearInterval(cancellationTimer);
       if (error) reject(error);
       else resolvePromise();
     };
@@ -149,14 +153,37 @@ function runValidationCommand(command, { cwd, timeoutMs }) {
     }, timeoutMs);
     timeoutTimer.unref?.();
 
+    if (cancelPath) {
+      cancellationTimer = setInterval(() => {
+        if (!existsSync(cancelPath) || settled) return;
+        timedOut = true;
+        signalGroup("SIGTERM");
+        forceTimer = setTimeout(() => signalGroup("SIGKILL"), 2_000);
+        forceTimer.unref?.();
+        finalTimer = setTimeout(() => {
+          const error = validationError("Device build was cancelled while validation was running.");
+          error.code = "SWIFT_SIM_BUILD_CANCELLED";
+          finish(error);
+        }, 4_000);
+        finalTimer.unref?.();
+      }, 100);
+      cancellationTimer.unref?.();
+    }
+
     child.once("error", (error) => {
       finish(validationError(`Unable to run required validation: ${error.message}`));
     });
     child.once("exit", (code, signal) => {
       if (timedOut) {
-        finish(validationError(
-          `Required validation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds; device build cancelled.`
-        ));
+        if (cancelPath && existsSync(cancelPath)) {
+          const error = validationError("Device build was cancelled while validation was running.");
+          error.code = "SWIFT_SIM_BUILD_CANCELLED";
+          finish(error);
+        } else {
+          finish(validationError(
+            `Required validation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds; device build cancelled.`
+          ));
+        }
         return;
       }
       if (code === 0) {
