@@ -4,10 +4,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import {
-  readBuildValidationPreferences,
-  runRequiredBuildValidation,
-} from "../src/buildValidation.js";
+import { readBuildValidationPreferences } from "../src/buildValidation.js";
 
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
 const args = process.argv.slice(2);
@@ -37,15 +34,7 @@ if (command === "setup" && !args.includes("--json") && input.isTTY && output.isT
   await configureBuildValidation();
 }
 
-try {
-  if (command === "build-device") {
-    runRequiredBuildValidation({ args: args.slice(1) });
-  }
-  await import("./swift-sim.js");
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = Number(error?.exitCode) || 1;
-}
+await import("./swift-sim.js");
 
 async function configureBuildValidation() {
   const current = readBuildValidationPreferences();
@@ -61,7 +50,7 @@ async function configureBuildValidation() {
       )).trim();
       current.buildValidationCommand = configured || current.buildValidationCommand || "npm run check";
       const workingDirectory = (await rl.question(
-        "Validation working directory [infer from project/workspace]: "
+        "Validation repository root [infer from project/workspace]: "
       )).trim();
       if (workingDirectory) current.buildValidationWorkingDirectory = workingDirectory;
       else delete current.buildValidationWorkingDirectory;
