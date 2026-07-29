@@ -32,6 +32,7 @@ jobs:
           ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
       - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh
       - name: Run iOS app tests
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           DESTINATION=$(python3 - <<'PY'
@@ -53,4 +54,8 @@ jobs:
             -scheme SwiftSimCompanion \
             -destination "$DESTINATION" \
             -configuration Debug \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 30 \
+            -maximum-test-execution-time-allowance 60 \
             CODE_SIGNING_ALLOWED=NO
