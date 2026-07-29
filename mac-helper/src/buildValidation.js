@@ -1,8 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, extname, isAbsolute, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { join } from "node:path";
 
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
 
@@ -28,7 +27,13 @@ export function readBuildValidationPreferences() {
   }
 }
 
-export function runRequiredBuildValidation({ args = process.argv.slice(2), cwd = process.cwd(), preferences } = {}) {
+export function runRequiredBuildValidation({
+  args,
+  project = "",
+  workspace = "",
+  cwd = process.cwd(),
+  preferences,
+} = {}) {
   const resolvedPreferences = preferences || readBuildValidationPreferences();
   if (resolvedPreferences.buildValidationMode !== "always") return;
 
@@ -38,7 +43,7 @@ export function runRequiredBuildValidation({ args = process.argv.slice(2), cwd =
   }
 
   const projectDirectory = resolveValidationWorkingDirectory({
-    args,
+    args: args ?? buildTargetArgs({ project, workspace }),
     cwd,
     configuredDirectory: resolvedPreferences.buildValidationWorkingDirectory,
   });
@@ -57,28 +62,56 @@ export function runRequiredBuildValidation({ args = process.argv.slice(2), cwd =
   }
 }
 
-export function resolveValidationWorkingDirectory({ args, cwd, configuredDirectory = "" }) {
-  if (configuredDirectory) {
-    const configured = isAbsolute(configuredDirectory)
-      ? configuredDirectory
-      : resolve(cwd, configuredDirectory);
-    if (!existsSync(configured)) {
-      throw validationError(`Configured validation working directory does not exist: ${configured}`);
-    }
-    return configured;
-  }
-
+export function resolveValidationWorkingDirectory({ args = [], cwd = process.cwd(), configuredDirectory = "" }) {
   const target = optionValue(args, "--workspace") || optionValue(args, "--project");
   if (!target) {
-    throw validationError("Mandatory validation requires --project, --workspace, or a configured validation working directory.");
+    throw validationError("Mandatory validation requires --project or --workspace.");
   }
-  const absoluteTarget = isAbsolute(target) ? target : resolve(cwd, target);
-  if (!existsSync(absoluteTarget)) {
-    throw validationError(`Build target does not exist: ${absoluteTarget}`);
+
+  const absoluteTarget = canonicalExistingPath(isAbsolute(target) ? target : resolve(cwd, target), "Build target");
+  const targetDirectory = targetValidationDirectory(absoluteTarget);
+
+  if (!configuredDirectory) return targetDirectory;
+
+  const configured = canonicalExistingPath(
+    isAbsolute(configuredDirectory) ? configuredDirectory : resolve(cwd, configuredDirectory),
+    "Configured validation working directory"
+  );
+  if (!statSync(configured).isDirectory()) {
+    throw validationError(`Configured validation working directory is not a directory: ${configured}`);
   }
-  const extension = extname(absoluteTarget);
-  if (extension === ".xcodeproj" || extension === ".xcworkspace") return dirname(absoluteTarget);
-  return absoluteTarget;
+  if (!pathContains(configured, absoluteTarget)) {
+    throw validationError(
+      `Configured validation working directory ${configured} does not contain the requested build target ${absoluteTarget}. Re-run swift-sim setup from this project's repository root.`
+    );
+  }
+  return configured;
+}
+
+function buildTargetArgs({ project, workspace }) {
+  if (workspace) return ["--workspace", workspace];
+  if (project) return ["--project", project];
+  return [];
+}
+
+function canonicalExistingPath(path, label) {
+  if (!existsSync(path)) throw validationError(`${label} does not exist: ${path}`);
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function targetValidationDirectory(target) {
+  const extension = extname(target);
+  if (extension === ".xcodeproj" || extension === ".xcworkspace") return dirname(target);
+  return statSync(target).isDirectory() ? target : dirname(target);
+}
+
+function pathContains(parent, child) {
+  const path = relative(parent, child);
+  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
 }
 
 function optionValue(args, option) {
