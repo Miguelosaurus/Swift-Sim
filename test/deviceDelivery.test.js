@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  DeviceDeliveryAdapter,
+  deliveryGenerationStatePath,
   deviceDeliveryRequestAllowed,
   parseQuickTunnelUrl,
 } from "../mac-helper/src/deviceDelivery.js";
@@ -30,4 +35,39 @@ test("public delivery gateway exposes only token-scoped install routes", () => {
   assert.equal(deviceDeliveryRequestAllowed("GET", "/api/device-builds"), false);
   assert.equal(deviceDeliveryRequestAllowed("POST", "/api/device-builds/build-123"), false);
   assert.equal(deviceDeliveryRequestAllowed("DELETE", "/api/apps/app-123"), false);
+});
+
+test("delivery generations keep independent state files", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-delivery-test-"));
+  try {
+    const statePath = join(directory, "device-delivery.json");
+    const firstPath = deliveryGenerationStatePath(statePath, "generation-one");
+    const secondPath = deliveryGenerationStatePath(statePath, "generation-two");
+    assert.notEqual(firstPath, secondPath);
+
+    writeFileSync(firstPath, JSON.stringify({
+      generation: "generation-one",
+      status: "ready",
+      publicBaseUrl: "https://first.trycloudflare.com",
+      createdAt: "2026-07-29T10:00:00.000Z",
+      expiresAt: "2026-07-29T12:00:00.000Z",
+    }));
+    writeFileSync(secondPath, JSON.stringify({
+      generation: "generation-two",
+      status: "ready",
+      publicBaseUrl: "https://second.trycloudflare.com",
+      createdAt: "2026-07-29T10:05:00.000Z",
+      expiresAt: "2026-07-29T12:05:00.000Z",
+    }));
+
+    const adapter = new DeviceDeliveryAdapter({
+      statePath,
+      logPath: join(directory, "device-delivery.log"),
+    });
+    assert.equal(adapter.statuses().length, 2);
+    assert.equal(adapter.status().generation, "generation-two");
+    assert.equal(adapter.status().activeGenerations, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
