@@ -68,8 +68,12 @@ private enum PairingCredentialVault {
 
     static func prepareForSessionStore() {
         guard var object = pairedMacObject(),
-              (object["token"] as? String) == sealedMarker,
-              let token = readToken() else { return }
+              (object["token"] as? String) == sealedMarker else { return }
+        guard let token = readToken(), !token.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            deleteToken()
+            return
+        }
         object["token"] = token
         writePairedMacObject(object)
     }
@@ -126,5 +130,14 @@ private enum PairingCredentialVault {
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
               let data = item as? Data else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    private static func deleteToken() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 }
