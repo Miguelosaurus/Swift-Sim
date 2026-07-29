@@ -13,5 +13,26 @@ patched = Path("scripts/.apply-round3-runtime.py")
 patched.write_text(text)
 try:
     runpy.run_path(str(patched), run_name="__main__")
+    app = Path("Companion/SwiftSimCompanion/SwiftSimCompanionApp.swift")
+    source = app.read_text()
+    old = '''    private static func clearPreviousPendingTransaction() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: previousPendingAccountKey)
+        defaults.removeObject(forKey: previousPendingPairingIDKey)
+    }
+'''
+    new = '''    private static func clearPreviousPendingTransaction() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: previousPendingAccountKey) != nil {
+            defaults.removeObject(forKey: previousPendingAccountKey)
+        }
+        if defaults.object(forKey: previousPendingPairingIDKey) != nil {
+            defaults.removeObject(forKey: previousPendingPairingIDKey)
+        }
+    }
+'''
+    if old not in source:
+        raise SystemExit("Missing clearPreviousPendingTransaction block")
+    app.write_text(source.replace(old, new, 1))
 finally:
     patched.unlink(missing_ok=True)
