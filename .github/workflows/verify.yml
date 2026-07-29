@@ -74,6 +74,15 @@ jobs:
           cache: npm
       - name: Apply reviewed fixes
         run: python3 scripts/apply-review-round-4.py
+      - name: Publish isolated diagnostic snapshot
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Diagnostic review-round snapshot"
+          git push --force origin HEAD:agent/review-round-4-diagnostic
+          git reset HEAD^
       - run: npm ci
       - run: npm run check
       - run: ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
