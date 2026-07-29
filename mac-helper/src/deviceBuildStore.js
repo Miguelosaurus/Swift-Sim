@@ -1,16 +1,20 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
+const LOCK_WAIT_MS = 5_000;
+const STALE_LOCK_MS = 30_000;
 
 export class DeviceBuildStore {
   constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
     this.path = path;
+    this.lockPath = `${path}.lock`;
     this.builds = new Map();
     this.apps = new Map();
+    this.deletedBuildIDs = new Set();
     this.load();
   }
 
@@ -19,6 +23,8 @@ export class DeviceBuildStore {
     const build = {
       id: randomUUID(),
       token: input.token || randomBytes(24).toString("base64url"),
+      tokenExpiredAt: "",
+      revision: 0,
       remoteBaseUrl: input.remoteBaseUrl || "",
       delivery: {
         mode: input.delivery || (input.remoteBaseUrl ? "custom" : "quick-tunnel"),
@@ -50,12 +56,7 @@ export class DeviceBuildStore {
         updateSafe: "unknown",
         warnings: [],
       },
-      installation: {
-        state: "unknown",
-        requestedAt: "",
-        verifiedAt: "",
-        devices: [],
-      },
+      installation: normalizeInstallation(),
       artifacts: {
         root: "",
         archivePath: "",
@@ -65,153 +66,209 @@ export class DeviceBuildStore {
       },
       logs: [],
     };
-    this.save(build);
-    return build;
+    return this.save(build);
   }
 
   save(build) {
-    normalizeBuild(build);
-    build.updatedAt = new Date().toISOString();
-    this.builds.set(build.id, build);
-    this.flush();
-    return build;
+    return this.withTransaction((state) => {
+      if (state.deletedBuildIDs.has(build.id)) return build;
+      const existing = state.builds.get(build.id);
+      const incoming = normalizeBuild(structuredClone(build));
+      if (existing) {
+        incoming.installation = newerInstallation(existing.installation, incoming.installation);
+        incoming.logs = mergeLogs(existing.logs, incoming.logs);
+        incoming.tokenExpiredAt = incoming.tokenExpiredAt || existing.tokenExpiredAt || "";
+      }
+      incoming.revision = Math.max(Number(existing?.revision || 0), Number(incoming.revision || 0)) + 1;
+      incoming.updatedAt = new Date().toISOString();
+      state.builds.set(incoming.id, incoming);
+      Object.assign(build, structuredClone(incoming));
+      return build;
+    });
   }
 
   get(id) {
-    this.load();
-    return this.builds.get(id);
+    return this.withTransaction((state) => state.builds.get(id));
   }
 
   markInstallRequested(id) {
-    const build = this.get(id);
-    if (!build) return null;
-    build.installation = normalizeInstallation(build.installation);
-    build.installation.state = build.installation.state === "verified" ? "verified" : "requested";
-    build.installation.requestedAt = new Date().toISOString();
-    return this.save(build);
+    return this.withTransaction((state) => {
+      const build = state.builds.get(id);
+      if (!build) return null;
+      build.installation = normalizeInstallation(build.installation);
+      build.installation.state = build.installation.state === "verified" ? "verified" : "requested";
+      build.installation.requestedAt = new Date().toISOString();
+      build.installation.updatedAt = new Date().toISOString();
+      touchBuild(build);
+      return build;
+    });
   }
 
   renewInstallLink(id, { ttlMinutes } = {}) {
-    const build = this.get(id);
-    if (!build) return null;
-    build.expiresAt = new Date(
-      Date.now() + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000
-    ).toISOString();
-    if (build.delivery?.mode !== "custom") {
-      build.remoteBaseUrl = "";
-      build.delivery = {
-        mode: "quick-tunnel",
-        provider: "cloudflare-quick-tunnel",
-        expiresAt: "",
-      };
-    } else {
-      build.delivery.expiresAt = build.expiresAt;
-    }
-    return this.save(build);
+    return this.withTransaction((state) => {
+      const build = state.builds.get(id);
+      if (!build) return null;
+      build.token = randomBytes(24).toString("base64url");
+      build.tokenExpiredAt = "";
+      build.expiresAt = new Date(
+        Date.now() + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000
+      ).toISOString();
+      if (build.delivery?.mode !== "custom") {
+        build.remoteBaseUrl = "";
+        build.delivery = {
+          mode: "quick-tunnel",
+          provider: "cloudflare-quick-tunnel",
+          expiresAt: "",
+        };
+      } else {
+        build.delivery.expiresAt = build.expiresAt;
+      }
+      touchBuild(build);
+      return build;
+    });
   }
 
   saveVerification(id, verification) {
-    const build = this.get(id);
-    if (!build) return null;
-    const previous = normalizeInstallation(build.installation);
-    const reportedState = verification.state || "unknown";
-    const nextState = reportedState === "unknown" && previous.state === "requested"
-      ? "requested"
-      : reportedState;
-    build.installation = {
-      ...previous,
-      state: nextState,
-      verifiedAt: reportedState === "verified"
-        ? verification.verifiedAt || new Date().toISOString()
-        : previous.verifiedAt,
-      devices: Array.isArray(verification.devices) ? verification.devices : [],
-    };
-    return this.save(build);
+    return this.withTransaction((state) => {
+      const build = state.builds.get(id);
+      if (!build) return null;
+      const previous = normalizeInstallation(build.installation);
+      const reportedState = verification.state || "unknown";
+      const nextState = reportedState === "unknown" && previous.state === "requested"
+        ? "requested"
+        : reportedState;
+      build.installation = {
+        ...previous,
+        state: nextState,
+        verifiedAt: reportedState === "verified"
+          ? verification.verifiedAt || new Date().toISOString()
+          : previous.verifiedAt,
+        updatedAt: new Date().toISOString(),
+        devices: Array.isArray(verification.devices) ? verification.devices : [],
+      };
+      touchBuild(build);
+      return build;
+    });
   }
 
   list() {
-    this.load();
-    return [...this.builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return this.withTransaction((state) => sortedBuilds(state.builds));
   }
 
   listApps({ includeArchived = false } = {}) {
-    this.load();
-    const grouped = new Map();
-    for (const build of this.list()) {
-      const identity = build.app?.identity || deviceAppIdentity(build.app) || `build-${build.id}`;
-      if (!grouped.has(identity)) {
-        const saved = this.apps.get(identity) || {};
-        grouped.set(identity, {
-          id: identity,
-          name: build.app?.name || build.scheme || "iOS App",
-          bundleIdentifier: build.app?.bundleIdentifier || "",
-          teamID: build.app?.teamID || "",
-          archivedAt: saved.archivedAt || "",
-          builds: [],
-        });
-      }
-      grouped.get(identity).builds.push(build);
-    }
-    return [...grouped.values()]
-      .filter((app) => includeArchived || !app.archivedAt)
-      .sort((a, b) => String(b.builds[0]?.createdAt || "").localeCompare(String(a.builds[0]?.createdAt || "")));
+    return this.withTransaction((state) => listAppsFromState(state, includeArchived));
   }
 
   getApp(id) {
-    return this.listApps({ includeArchived: true }).find((app) => app.id === id) || null;
+    return this.withTransaction((state) => listAppsFromState(state, true).find((app) => app.id === id) || null);
   }
 
   setAppArchived(id, archived) {
-    const app = this.getApp(id);
-    if (!app) return null;
-    const current = this.apps.get(id) || {};
-    this.apps.set(id, {
-      ...current,
-      archivedAt: archived ? new Date().toISOString() : "",
+    return this.withTransaction((state) => {
+      const app = listAppsFromState(state, true).find((candidate) => candidate.id === id);
+      if (!app) return null;
+      const current = state.apps.get(id) || {};
+      state.apps.set(id, {
+        ...current,
+        archivedAt: archived ? new Date().toISOString() : "",
+      });
+      return listAppsFromState(state, true).find((candidate) => candidate.id === id) || null;
     });
-    this.flush();
-    return this.getApp(id);
   }
 
   deleteApp(id, { deleteArtifacts = true } = {}) {
-    const app = this.getApp(id);
-    if (!app) return false;
-    for (const build of app.builds) {
-      if (deleteArtifacts && build.artifacts?.root) {
-        rmSync(build.artifacts.root, { recursive: true, force: true });
+    return this.withTransaction((state) => {
+      const app = listAppsFromState(state, true).find((candidate) => candidate.id === id);
+      if (!app) return false;
+      for (const build of app.builds) {
+        if (deleteArtifacts && build.artifacts?.root) {
+          rmSync(build.artifacts.root, { recursive: true, force: true });
+        }
+        state.builds.delete(build.id);
+        state.deletedBuildIDs.add(build.id);
       }
-      this.builds.delete(build.id);
-    }
-    this.apps.delete(id);
-    this.flush();
-    return true;
+      state.apps.delete(id);
+      return true;
+    });
   }
 
   load() {
+    const state = this.withLock(() => this.readState());
+    this.applyState(state);
+  }
+
+  withTransaction(operation) {
+    return this.withLock(() => {
+      const state = this.readState();
+      const changedByExpiry = expireBuildTokens(state.builds);
+      const result = operation(state);
+      this.writeState(state);
+      this.applyState(state);
+      if (changedByExpiry) this.applyState(state);
+      return structuredClone(result);
+    });
+  }
+
+  withLock(operation) {
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    while (true) {
+      try {
+        mkdirSync(this.lockPath, { mode: 0o700 });
+        break;
+      } catch (error) {
+        if (error?.code !== "EEXIST") throw error;
+        try {
+          if (Date.now() - statSync(this.lockPath).mtimeMs > STALE_LOCK_MS) {
+            rmSync(this.lockPath, { recursive: true, force: true });
+            continue;
+          }
+        } catch {}
+        if (Date.now() >= deadline) throw new Error("Timed out waiting for the Swift Sim build-state lock.");
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+      }
+    }
     try {
-      const raw = readFileSync(this.path, "utf8");
-      const parsed = JSON.parse(raw);
-      this.builds = new Map((parsed.builds || []).map((build) => {
-        const normalized = normalizeBuild(build);
-        return [normalized.id, normalized];
-      }));
-      this.apps = new Map(Object.entries(parsed.apps || {}));
-    } catch {
-      this.builds = new Map();
-      this.apps = new Map();
+      return operation();
+    } finally {
+      rmSync(this.lockPath, { recursive: true, force: true });
     }
   }
 
-  flush() {
-    mkdirSync(dirname(this.path), { recursive: true });
-    writeFileSync(
-      this.path,
-      JSON.stringify({
-        version: 2,
-        apps: Object.fromEntries(this.apps),
-        builds: [...this.builds.values()],
-      }, null, 2)
-    );
+  readState() {
+    try {
+      const parsed = JSON.parse(readFileSync(this.path, "utf8"));
+      return {
+        builds: new Map((parsed.builds || []).map((build) => {
+          const normalized = normalizeBuild(build);
+          return [normalized.id, normalized];
+        })),
+        apps: new Map(Object.entries(parsed.apps || {})),
+        deletedBuildIDs: new Set(parsed.deletedBuildIDs || []),
+      };
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        return { builds: new Map(), apps: new Map(), deletedBuildIDs: new Set() };
+      }
+      throw new Error(`Unable to read Swift Sim build state: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  writeState(state) {
+    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
+    const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
+    writeFileSync(temporaryPath, JSON.stringify({
+      version: 3,
+      apps: Object.fromEntries(state.apps),
+      deletedBuildIDs: [...state.deletedBuildIDs],
+      builds: [...state.builds.values()],
+    }, null, 2), { mode: 0o600 });
+    renameSync(temporaryPath, this.path);
+  }
+
+  applyState(state) {
+    this.builds = new Map(state.builds);
+    this.apps = new Map(state.apps);
+    this.deletedBuildIDs = new Set(state.deletedBuildIDs);
   }
 }
 
@@ -225,13 +282,58 @@ export function deviceAppIdentity(app = {}) {
     .slice(0, 24);
 }
 
+function expireBuildTokens(builds) {
+  let changed = false;
+  const now = Date.now();
+  for (const build of builds.values()) {
+    const expiresAt = Date.parse(build.expiresAt || "");
+    if (!Number.isFinite(expiresAt) || expiresAt >= now || build.tokenExpiredAt) continue;
+    build.token = randomBytes(24).toString("base64url");
+    build.tokenExpiredAt = new Date().toISOString();
+    touchBuild(build);
+    changed = true;
+  }
+  return changed;
+}
+
+function sortedBuilds(builds) {
+  return [...builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function listAppsFromState(state, includeArchived) {
+  const grouped = new Map();
+  for (const build of sortedBuilds(state.builds)) {
+    const identity = build.app?.identity || deviceAppIdentity(build.app) || `build-${build.id}`;
+    if (!grouped.has(identity)) {
+      const saved = state.apps.get(identity) || {};
+      grouped.set(identity, {
+        id: identity,
+        name: build.app?.name || build.scheme || "iOS App",
+        bundleIdentifier: build.app?.bundleIdentifier || "",
+        teamID: build.app?.teamID || "",
+        archivedAt: saved.archivedAt || "",
+        builds: [],
+      });
+    }
+    grouped.get(identity).builds.push(build);
+  }
+  return [...grouped.values()]
+    .filter((app) => includeArchived || !app.archivedAt)
+    .sort((a, b) => String(b.builds[0]?.createdAt || "").localeCompare(String(a.builds[0]?.createdAt || "")));
+}
+
+function touchBuild(build) {
+  build.revision = Number(build.revision || 0) + 1;
+  build.updatedAt = new Date().toISOString();
+}
+
 function normalizeBuild(build) {
   build.app = build.app || {};
   build.app.identity = build.app.identity || deviceAppIdentity(build.app);
   build.installation = normalizeInstallation(build.installation);
-  build.logs = Array.isArray(build.logs)
-    ? build.logs.slice(-MAX_DEVICE_BUILD_LOG_LINES)
-    : [];
+  build.logs = Array.isArray(build.logs) ? build.logs.slice(-MAX_DEVICE_BUILD_LOG_LINES) : [];
+  build.revision = Number(build.revision || 0);
+  build.tokenExpiredAt = build.tokenExpiredAt || "";
   return build;
 }
 
@@ -240,6 +342,26 @@ function normalizeInstallation(installation = {}) {
     state: installation.state || "unknown",
     requestedAt: installation.requestedAt || "",
     verifiedAt: installation.verifiedAt || "",
+    updatedAt: installation.updatedAt || installation.verifiedAt || installation.requestedAt || "",
     devices: Array.isArray(installation.devices) ? installation.devices : [],
   };
+}
+
+function newerInstallation(first = {}, second = {}) {
+  const a = normalizeInstallation(first);
+  const b = normalizeInstallation(second);
+  return Date.parse(a.updatedAt || "") > Date.parse(b.updatedAt || "") ? a : b;
+}
+
+function mergeLogs(first = [], second = []) {
+  const prefix = Array.isArray(first) ? first : [];
+  const suffix = Array.isArray(second) ? second : [];
+  let overlap = Math.min(prefix.length, suffix.length);
+  while (overlap > 0) {
+    const left = prefix.slice(prefix.length - overlap);
+    const right = suffix.slice(0, overlap);
+    if (left.every((line, index) => line === right[index])) break;
+    overlap -= 1;
+  }
+  return [...prefix, ...suffix.slice(overlap)].slice(-MAX_DEVICE_BUILD_LOG_LINES);
 }
