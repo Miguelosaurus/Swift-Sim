@@ -26,6 +26,19 @@ if (command === "setup" && !args.includes("--json") && input.isTTY && output.isT
   await configureBuildValidation();
 }
 
+if (command === "build-device") {
+  const proofIndex = process.argv.indexOf("--ci-complete");
+  const hasProof = proofIndex !== -1;
+  if (hasProof) process.argv.splice(proofIndex, 1);
+  if (readPreferences().buildValidationMode === "always" && !hasProof) {
+    console.error(
+      "Swift Sim is configured to run project CI/checks before every build link. " +
+      "Run the repository's appropriate checks, then retry this exact command with --ci-complete."
+    );
+    process.exit(78);
+  }
+}
+
 await import("./swift-sim.js");
 
 async function configureBuildValidation() {
