@@ -1,4 +1,5 @@
 import XCTest
+import Security
 @testable import SwiftSimCompanion
 
 final class InstallationStateTests: XCTestCase {
@@ -66,6 +67,68 @@ final class InstallationStateTests: XCTestCase {
         _ = try JSONEncoder().encode(second)
         let restoredFirst = try JSONDecoder().decode(PairedMac.self, from: firstMetadata)
         XCTAssertEqual(restoredFirst.token, firstToken)
+    }
+
+    @MainActor
+    func testMalformedPairingMetadataClearsCommittedAndPendingCredentials() throws {
+        let defaults = UserDefaults.standard
+        let committedAccount = "test-committed-\(UUID().uuidString)"
+        let pendingAccount = "test-pending-\(UUID().uuidString)"
+        try storeTestToken("committed-secret", account: committedAccount)
+        try storeTestToken("pending-secret", account: pendingAccount)
+        defaults.set(committedAccount, forKey: "pairedMacCredentialAccount")
+        defaults.set(pendingAccount, forKey: "pairedMacPendingCredentialAccount")
+        defaults.set(Data("{malformed".utf8), forKey: "pairedMac")
+        defer {
+            deleteTestToken(account: committedAccount)
+            deleteTestToken(account: pendingAccount)
+            defaults.removeObject(forKey: "pairedMac")
+            defaults.removeObject(forKey: "pairedMacCredentialAccount")
+            defaults.removeObject(forKey: "pairedMacPendingCredentialAccount")
+        }
+
+        _ = SwiftSimCompanionApp()
+
+        XCTAssertNil(defaults.data(forKey: "pairedMac"))
+        XCTAssertNil(defaults.string(forKey: "pairedMacCredentialAccount"))
+        XCTAssertNil(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertEqual(testTokenStatus(account: committedAccount), errSecItemNotFound)
+        XCTAssertEqual(testTokenStatus(account: pendingAccount), errSecItemNotFound)
+    }
+
+    private func storeTestToken(_ token: String, account: String) throws {
+        deleteTestToken(account: account)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.local.SwiftSimCompanion.pairing",
+            kSecAttrAccount as String: account,
+            kSecValueData as String: Data(token.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let status = SecItemAdd(query as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+    }
+
+    private func testTokenStatus(account: String) -> OSStatus {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.local.SwiftSimCompanion.pairing",
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil)
+    }
+
+    private func deleteTestToken(account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.local.SwiftSimCompanion.pairing",
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 
     private let statusJSON = #"""
