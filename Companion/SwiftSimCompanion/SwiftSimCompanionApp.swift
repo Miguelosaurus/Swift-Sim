@@ -9,8 +9,8 @@ struct SwiftSimCompanionApp: App {
 
     init() {
         PairingCredentialVault.prepareForSessionStore()
+        PairingCredentialVault.startMonitoring()
         _sessionStore = StateObject(wrappedValue: SessionStore())
-        PairingCredentialVault.sealUserDefaults()
     }
 
     var body: some Scene {
@@ -31,14 +31,10 @@ struct SwiftSimCompanionApp: App {
                         primaryButton: .cancel(),
                         secondaryButton: .default(Text("Connect")) {
                             _ = sessionStore.open(pairing.url)
-                            PairingCredentialVault.sealUserDefaults()
                         }
                     )
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .background || phase == .inactive {
-                        PairingCredentialVault.sealUserDefaults()
-                    }
                     guard phase == .active else { return }
                     Task { await sessionStore.refreshAppState() }
                 }
@@ -58,34 +54,73 @@ private struct PendingPairing: Identifiable {
     }
 }
 
-/// Keeps the long-lived Mac pairing token out of UserDefaults while preserving
-/// the existing Codable shape used by SessionStore.
+/// PairedMac remains Codable for SessionStore, but its custom conformance below
+/// writes only a sealed marker to UserDefaults. The actual token never leaves
+/// Keychain after migration or pairing.
 private enum PairingCredentialVault {
+    static let sealedMarker = "__swift_sim_keychain__"
     private static let defaultsKey = "pairedMac"
     private static let service = "dev.local.SwiftSimCompanion.pairing"
     private static let account = "paired-mac-token"
-    private static let sealedMarker = "__swift_sim_keychain__"
+    private static var defaultsObserver: NSObjectProtocol?
 
     static func prepareForSessionStore() {
         guard var object = pairedMacObject(),
-              (object["token"] as? String) == sealedMarker else { return }
-        guard let token = readToken(), !token.isEmpty else {
+              let stored = object["token"] as? String,
+              !stored.isEmpty else {
+            if UserDefaults.standard.data(forKey: defaultsKey) == nil { deleteToken() }
+            return
+        }
+
+        if stored == sealedMarker {
+            guard readToken()?.isEmpty == false else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+                deleteToken()
+                return
+            }
+            return
+        }
+
+        guard storeToken(stored) else {
             UserDefaults.standard.removeObject(forKey: defaultsKey)
             deleteToken()
             return
         }
-        object["token"] = token
+        object["token"] = sealedMarker
         writePairedMacObject(object)
     }
 
-    static func sealUserDefaults() {
-        guard var object = pairedMacObject(),
-              let token = object["token"] as? String,
-              !token.isEmpty,
-              token != sealedMarker else { return }
-        guard storeToken(token) else { return }
-        object["token"] = sealedMarker
-        writePairedMacObject(object)
+    static func startMonitoring() {
+        guard defaultsObserver == nil else { return }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { _ in
+            if UserDefaults.standard.data(forKey: defaultsKey) == nil {
+                deleteToken()
+            }
+        }
+    }
+
+    static func tokenForDecoding(_ storedValue: String) throws -> String {
+        if storedValue == sealedMarker {
+            guard let token = readToken(), !token.isEmpty else {
+                throw credentialError("The saved pairing credential is unavailable. Pair this Mac again.")
+            }
+            return token
+        }
+        guard !storedValue.isEmpty, storeToken(storedValue) else {
+            throw credentialError("The pairing credential could not be protected in Keychain.")
+        }
+        return storedValue
+    }
+
+    static func markerForEncoding(token: String) throws -> String {
+        guard !token.isEmpty, storeToken(token) else {
+            throw credentialError("The pairing credential could not be protected in Keychain.")
+        }
+        return sealedMarker
     }
 
     private static func pairedMacObject() -> [String: Any]? {
@@ -139,5 +174,41 @@ private enum PairingCredentialVault {
             kSecAttrAccount as String: account,
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    private static func credentialError(_ message: String) -> NSError {
+        NSError(domain: "SwiftSimPairingCredential", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+extension PairedMac {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case token
+        case baseURLString
+        case displayName
+        case pairedAt
+        case lastSeenAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        let storedToken = try container.decode(String.self, forKey: .token)
+        token = try PairingCredentialVault.tokenForDecoding(storedToken)
+        baseURLString = try container.decode(String.self, forKey: .baseURLString)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        pairedAt = try container.decode(Date.self, forKey: .pairedAt)
+        lastSeenAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(PairingCredentialVault.markerForEncoding(token: token), forKey: .token)
+        try container.encode(baseURLString, forKey: .baseURLString)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(pairedAt, forKey: .pairedAt)
+        try container.encodeIfPresent(lastSeenAt, forKey: .lastSeenAt)
     }
 }
