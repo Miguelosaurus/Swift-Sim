@@ -4,9 +4,7 @@ import XCTest
 final class InstallationStateTests: XCTestCase {
     func testStartingInstallPreservesBuildDetailsAndMarksRequest() throws {
         let status = try JSONDecoder().decode(DeviceBuildStatus.self, from: Data(statusJSON.utf8))
-
         let requested = status.markingInstallRequested()
-
         XCTAssertEqual(requested.id, status.id)
         XCTAssertEqual(requested.app, status.app)
         XCTAssertEqual(requested.state, "ready")
@@ -20,7 +18,6 @@ final class InstallationStateTests: XCTestCase {
             with: #""state":"verified""#
         )
         let status = try JSONDecoder().decode(DeviceBuildStatus.self, from: Data(verifiedJSON.utf8))
-
         XCTAssertEqual(status.markingInstallRequested().installation?.state, "verified")
     }
 
@@ -28,7 +25,6 @@ final class InstallationStateTests: XCTestCase {
     func testBuildStatusSourcesFallBackBetweenLinkAndPairedMac() {
         let direct = URL(string: "https://temporary.example/api/device-builds/1")!
         let paired = URL(string: "https://mac.example/api/device-builds/1")!
-
         XCTAssertEqual(
             SessionStore.preferredDeviceBuildURLs(direct: direct, paired: paired, helperIsOnline: true),
             [paired, direct]
@@ -37,6 +33,37 @@ final class InstallationStateTests: XCTestCase {
             SessionStore.preferredDeviceBuildURLs(direct: direct, paired: paired, helperIsOnline: false),
             [direct, paired]
         )
+    }
+
+    func testPairingEncodingNeverSerializesThePlaintextToken() throws {
+        let token = "pairing-secret-\(UUID().uuidString)"
+        let mac = PairedMac(
+            token: token,
+            baseURL: URL(string: "https://first-\(UUID().uuidString).example")!
+        )
+        let data = try JSONEncoder().encode(mac)
+        let encoded = String(decoding: data, as: UTF8.self)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let marker = try XCTUnwrap(object["token"] as? String)
+        XCTAssertFalse(encoded.contains(token))
+        XCTAssertTrue(marker.hasPrefix("__swift_sim_keychain__:"))
+    }
+
+    func testEncodingAReplacementDoesNotOverwriteThePreviousPairingCredential() throws {
+        let firstToken = "first-secret-\(UUID().uuidString)"
+        let secondToken = "second-secret-\(UUID().uuidString)"
+        let first = PairedMac(
+            token: firstToken,
+            baseURL: URL(string: "https://first-\(UUID().uuidString).example")!
+        )
+        let second = PairedMac(
+            token: secondToken,
+            baseURL: URL(string: "https://second-\(UUID().uuidString).example")!
+        )
+        let firstMetadata = try JSONEncoder().encode(first)
+        _ = try JSONEncoder().encode(second)
+        let restoredFirst = try JSONDecoder().decode(PairedMac.self, from: firstMetadata)
+        XCTAssertEqual(restoredFirst.token, firstToken)
     }
 
     private let statusJSON = #"""
