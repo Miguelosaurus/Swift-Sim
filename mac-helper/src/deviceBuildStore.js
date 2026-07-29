@@ -29,10 +29,11 @@ const ACTIVE_BUILD_STATES = new Set([
 export class DeviceBuildStore extends DeviceBuildStoreCore {
   constructor(options = {}) {
     super(options);
-    this.cleanupTimer = setInterval(() => {
+    this.maintenanceTimer = setInterval(() => {
+      try { this.runMaintenance(); } catch {}
       try { this.drainArtifactCleanupJobs(); } catch {}
     }, CLEANUP_RETRY_INTERVAL_MS);
-    this.cleanupTimer.unref?.();
+    this.maintenanceTimer.unref?.();
   }
 
   create(input) {
@@ -56,20 +57,23 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       const pending = existing.pendingRenewal;
       if (pending) {
         const sameLease = incoming.pendingRenewal?.id === pending.id;
-        if (sameLease && matchesRenewalFields(incoming, pending.previous)) {
-          preserveSecurityFields(incoming, existing);
-          delete incoming.pendingRenewal;
-        } else if (sameLease && renewalCandidateIsReady(incoming, pending.target)) {
+        if (sameLease && renewalCandidateIsReady(incoming, pending.target)) {
           incoming.token = pending.token;
           incoming.tokenExpiredAt = "";
           incoming.expiresAt = pending.target.expiresAt;
           incoming.remoteBaseUrl = incoming.remoteBaseUrl || pending.target.remoteBaseUrl;
           delete incoming.pendingRenewal;
         } else {
+          // A failed waiter must not cancel a lease that another concurrent
+          // waiter may still complete. Preserve the live link and shared lease;
+          // the lease is cleared only by a successful commit or its deadline.
           preserveSecurityFields(incoming, existing);
           incoming.pendingRenewal = structuredClone(pending);
         }
       } else if (incoming.pendingRenewal) {
+        // This candidate completed after another waiter already committed or
+        // the lease expired. It may not overwrite the current live security
+        // fields or revive the old lease.
         preserveSecurityFields(incoming, existing);
         delete incoming.pendingRenewal;
       } else if (Number(existing.revision || 0) > Number(incoming.revision || 0)) {
@@ -84,6 +88,22 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       Object.assign(build, structuredClone(incoming));
       return build;
     });
+  }
+
+  get(id) {
+    return this.readOnly((state) => state.builds.get(id));
+  }
+
+  list() {
+    return this.readOnly((state) => sortedBuilds(state.builds));
+  }
+
+  listApps({ includeArchived = false } = {}) {
+    return this.readOnly((state) => listAppsFromState(state, includeArchived));
+  }
+
+  getApp(id) {
+    return this.readOnly((state) => listAppsFromState(state, true).find((app) => app.id === id) || null);
   }
 
   renewInstallLink(id, { ttlMinutes } = {}) {
@@ -188,11 +208,24 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     }
   }
 
+  runMaintenance() {
+    return this.withLock(() => {
+      const state = this.readState();
+      if (!recoverStaleRenewals(state.builds)) return false;
+      this.writeState(state);
+      this.applyState(state);
+      return true;
+    });
+  }
+
+  readOnly(operation) {
+    return this.withLock(() => structuredClone(operation(this.readState())));
+  }
+
   withTransaction(operation) {
     return this.withLock(() => {
       const state = this.readState();
       recoverStaleRenewals(state.builds);
-      expireBuildTokens(state.builds);
       const result = operation(state);
       this.writeState(state);
       this.applyState(state);
@@ -260,12 +293,6 @@ function renewalCandidate(build, pending) {
   return candidate;
 }
 
-function matchesRenewalFields(build, expected) {
-  return build.expiresAt === expected.expiresAt
-    && build.remoteBaseUrl === expected.remoteBaseUrl
-    && JSON.stringify(build.delivery || null) === JSON.stringify(expected.delivery || null);
-}
-
 function renewalCandidateIsReady(build, target) {
   if (build.expiresAt !== target.expiresAt) return false;
   if (build.delivery?.mode === "custom") {
@@ -288,23 +315,15 @@ function preserveSecurityFields(target, source) {
 
 function recoverStaleRenewals(builds) {
   const now = Date.now();
+  let changed = false;
   for (const build of builds.values()) {
     const deadline = Date.parse(build.pendingRenewal?.deadlineAt || "");
     if (!build.pendingRenewal || (Number.isFinite(deadline) && deadline > now)) continue;
     delete build.pendingRenewal;
     touchBuild(build);
+    changed = true;
   }
-}
-
-function expireBuildTokens(builds) {
-  const now = Date.now();
-  for (const build of builds.values()) {
-    const expiresAt = Date.parse(build.expiresAt || "");
-    if (!Number.isFinite(expiresAt) || expiresAt >= now || build.tokenExpiredAt) continue;
-    build.token = randomBytes(24).toString("base64url");
-    build.tokenExpiredAt = new Date().toISOString();
-    touchBuild(build);
-  }
+  return changed;
 }
 
 function normalizeIncomingBuild(build) {
@@ -330,13 +349,17 @@ function normalizeInstallation(installation = {}) {
 function newerInstallation(first = {}, second = {}) {
   const a = normalizeInstallation(first);
   const b = normalizeInstallation(second);
+  const aTime = finiteDate(a.updatedAt);
+  const bTime = finiteDate(b.updatedAt);
+  if (aTime !== bTime) return aTime > bTime ? a : b;
+
+  // Equal or missing observation times use state rank only as a deterministic
+  // tie-breaker. A newer different-version observation therefore supersedes an
+  // older verified observation instead of being treated as inferior forever.
   const rank = { unknown: 0, requested: 1, "different-version": 2, verified: 3 };
   const aRank = rank[a.state] ?? 1;
   const bRank = rank[b.state] ?? 1;
-  if (aRank !== bRank) return aRank > bRank ? a : b;
-  const aTime = finiteDate(a.updatedAt);
-  const bTime = finiteDate(b.updatedAt);
-  return aTime > bTime ? a : b;
+  return aRank > bRank ? a : b;
 }
 
 function finiteDate(value) {
@@ -357,9 +380,13 @@ function mergeLogs(first = [], second = []) {
   return [...prefix, ...suffix.slice(overlap)].slice(-MAX_DEVICE_BUILD_LOG_LINES);
 }
 
+function sortedBuilds(builds) {
+  return [...builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
 function listAppsFromState(state, includeArchived) {
   const grouped = new Map();
-  const builds = [...state.builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const builds = sortedBuilds(state.builds);
   for (const build of builds) {
     const identity = build.app?.identity || deviceAppIdentity(build.app) || `build-${build.id}`;
     if (!grouped.has(identity)) {
