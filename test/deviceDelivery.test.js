@@ -1,10 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DeviceDeliveryAdapter,
+  deliveryGenerationLogPath,
   deliveryGenerationStatePath,
   deviceDeliveryRequestAllowed,
   parseQuickTunnelUrl,
@@ -67,6 +74,63 @@ test("delivery generations keep independent state files", () => {
     assert.equal(adapter.statuses().length, 2);
     assert.equal(adapter.status().generation, "generation-two");
     assert.equal(adapter.status().activeGenerations, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("stop preserves an ownership record for an alive unverified process", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-delivery-stop-test-"));
+  try {
+    const statePath = join(directory, "device-delivery.json");
+    const generationPath = deliveryGenerationStatePath(statePath, "generation-live");
+    writeFileSync(generationPath, JSON.stringify({
+      generation: "generation-live",
+      status: "ready",
+      publicBaseUrl: "https://live.trycloudflare.com",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      managerIdentity: {
+        pid: process.pid,
+        startedAt: "Mon Jan  1 00:00:00 1990",
+        commandFragments: ["definitely-not-this-process"],
+      },
+    }));
+    const adapter = new DeviceDeliveryAdapter({
+      statePath,
+      logPath: join(directory, "device-delivery.log"),
+    });
+    assert.equal(adapter.stop(), false);
+    assert.equal(existsSync(generationPath), true);
+    const preserved = JSON.parse(readFileSync(generationPath, "utf8"));
+    assert.equal(preserved.status, "failed-shutdown");
+    assert.equal(preserved.survivingProcesses[0].pid, process.pid);
+    assert.equal(preserved.survivingProcesses[0].ownershipVerified, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("reaping a confirmed-dead generation removes its state and log", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-delivery-reap-test-"));
+  try {
+    const statePath = join(directory, "device-delivery.json");
+    const logPath = join(directory, "device-delivery.log");
+    const generation = "generation-expired";
+    const generationPath = deliveryGenerationStatePath(statePath, generation);
+    const generationLog = deliveryGenerationLogPath(logPath, generation);
+    writeFileSync(generationPath, JSON.stringify({
+      generation,
+      status: "expired",
+      publicBaseUrl: "",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      expiresAt: "2026-01-01T01:00:00.000Z",
+    }));
+    writeFileSync(generationLog, "old tunnel output");
+    const adapter = new DeviceDeliveryAdapter({ statePath, logPath });
+    adapter.reapExpiredGenerations();
+    assert.equal(existsSync(generationPath), false);
+    assert.equal(existsSync(generationLog), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
