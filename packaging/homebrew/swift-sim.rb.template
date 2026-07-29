@@ -17,11 +17,11 @@ class SwiftSim < Formula
     end
 
     write_launcher "swift-sim", "mac-helper/bin/swift-sim-entry.js"
-    write_launcher "swift-sim-helper", "mac-helper/bin/swift-sim-helper.js"
+    write_launcher "swift-sim-helper", "mac-helper/bin/swift-sim-helper-entry.js"
   end
 
   service do
-    run [Formula["node@22"].opt_bin/"node", opt_libexec/"mac-helper/bin/swift-sim-helper.js", "serve"]
+    run [Formula["node@22"].opt_bin/"node", opt_libexec/"mac-helper/bin/swift-sim-helper-entry.js", "serve"]
     keep_alive true
     log_path var/"log/swift-sim.log"
     error_log_path var/"log/swift-sim.log"
