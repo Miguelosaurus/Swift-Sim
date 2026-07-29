@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -14,11 +15,14 @@ if (command === "ci-policy") {
   const payload = {
     mode: preferences.buildValidationMode,
     runBeforeEveryBuild: preferences.buildValidationMode === "always",
+    command: preferences.buildValidationCommand || "",
   };
   if (args.includes("--json")) console.log(JSON.stringify(payload, null, 2));
-  else console.log(payload.runBeforeEveryBuild
-    ? "Run project checks before every device build."
-    : "Run project checks only when the user explicitly requests them.");
+  else if (payload.runBeforeEveryBuild) {
+    console.log(`Run before every device build: ${payload.command}`);
+  } else {
+    console.log("Run project checks only when the user explicitly requests them.");
+  }
   process.exit(0);
 }
 
@@ -26,17 +30,8 @@ if (command === "setup" && !args.includes("--json") && input.isTTY && output.isT
   await configureBuildValidation();
 }
 
-if (command === "build-device") {
-  const proofIndex = process.argv.indexOf("--ci-complete");
-  const hasProof = proofIndex !== -1;
-  if (hasProof) process.argv.splice(proofIndex, 1);
-  if (readPreferences().buildValidationMode === "always" && !hasProof) {
-    console.error(
-      "Swift Sim is configured to run project CI/checks before every build link. " +
-      "Run the repository's appropriate checks, then retry this exact command with --ci-complete."
-    );
-    process.exit(78);
-  }
+if (command === "build-device" && readPreferences().buildValidationMode === "always") {
+  runConfiguredValidation(readPreferences());
 }
 
 await import("./swift-sim.js");
@@ -49,12 +44,43 @@ async function configureBuildValidation() {
       "Run project CI/checks before every Swift Sim build link? [y/N] "
     )).trim().toLowerCase();
     current.buildValidationMode = ["y", "yes"].includes(answer) ? "always" : "explicit";
+    if (current.buildValidationMode === "always") {
+      const configured = (await rl.question(
+        `Validation command [${current.buildValidationCommand || "npm run check"}]: `
+      )).trim();
+      current.buildValidationCommand = configured || current.buildValidationCommand || "npm run check";
+    } else {
+      delete current.buildValidationCommand;
+    }
     writePreferences(current);
     console.log(current.buildValidationMode === "always"
-      ? "Swift Sim agents will run project checks before every device build."
-      : "Swift Sim agents will run project checks only when you explicitly ask.");
+      ? `Swift Sim will run '${current.buildValidationCommand}' before every device build.`
+      : "Swift Sim will run project checks only when you explicitly ask.");
   } finally {
     rl.close();
+  }
+}
+
+function runConfiguredValidation(preferences) {
+  const validationCommand = String(preferences.buildValidationCommand || "").trim();
+  if (!validationCommand) {
+    console.error("Swift Sim is configured for mandatory validation, but no validation command is set. Run swift-sim setup again.");
+    process.exit(78);
+  }
+  console.log(`Running required project validation: ${validationCommand}`);
+  const result = spawnSync(validationCommand, {
+    cwd: process.cwd(),
+    env: process.env,
+    shell: true,
+    stdio: "inherit",
+  });
+  if (result.error) {
+    console.error(`Unable to run required validation: ${result.error.message}`);
+    process.exit(78);
+  }
+  if (result.status !== 0) {
+    console.error(`Required validation failed with exit code ${result.status ?? "unknown"}; device build cancelled.`);
+    process.exit(result.status || 1);
   }
 }
 
@@ -64,9 +90,12 @@ function readPreferences() {
     return {
       ...parsed,
       buildValidationMode: parsed.buildValidationMode === "always" ? "always" : "explicit",
+      buildValidationCommand: typeof parsed.buildValidationCommand === "string"
+        ? parsed.buildValidationCommand.trim()
+        : "",
     };
   } catch {
-    return { buildValidationMode: "explicit" };
+    return { buildValidationMode: "explicit", buildValidationCommand: "" };
   }
 }
 
