@@ -59,9 +59,9 @@ private enum PairingCredentialVault {
     private static let legacyMarker = "__swift_sim_keychain__"
     private static let defaultsKey = "pairedMac"
     private static let committedAccountKey = "pairedMacCredentialAccount"
+    private static let pendingAccountKey = "pairedMacPendingCredentialAccount"
     private static let service = "dev.local.SwiftSimCompanion.pairing"
     private static let legacyAccount = "paired-mac-token"
-    private static let pendingPointerAccount = "paired-mac-token.pending"
     private static var defaultsObserver: NSObjectProtocol?
 
     static func prepareForSessionStore() {
@@ -78,6 +78,7 @@ private enum PairingCredentialVault {
 
         let expectedAccount = account(for: id)
         if let storedAccount = account(fromMarker: stored) {
+            discardAbandonedPendingAccount(except: storedAccount)
             guard storedAccount == expectedAccount,
                   readToken(account: storedAccount)?.isEmpty == false else {
                 UserDefaults.standard.removeObject(forKey: defaultsKey)
@@ -119,7 +120,11 @@ private enum PairingCredentialVault {
             queue: .main
         ) { _ in
             guard UserDefaults.standard.data(forKey: defaultsKey) != nil else {
-                cleanupWithoutMetadata()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if UserDefaults.standard.data(forKey: defaultsKey) == nil {
+                        cleanupWithoutMetadata()
+                    }
+                }
                 return
             }
             guard let object = pairedMacObject(),
@@ -158,22 +163,19 @@ private enum PairingCredentialVault {
         guard !token.isEmpty, storeToken(token, account: account) else {
             throw credentialError("The pairing credential could not be protected in Keychain.")
         }
-        guard storeToken(account, account: pendingPointerAccount) else {
-            if UserDefaults.standard.string(forKey: committedAccountKey) != account {
-                deleteToken(account: account)
-            }
-            throw credentialError("The pairing credential transition could not be recorded safely.")
-        }
+        UserDefaults.standard.set(account, forKey: pendingAccountKey)
         return marker(for: account)
     }
 
     private static func reconcileCommittedAccount(_ currentAccount: String) {
         let defaults = UserDefaults.standard
         let committedAccount = defaults.string(forKey: committedAccountKey)
-        let pendingAccount = readToken(account: pendingPointerAccount)
+        let pendingAccount = defaults.string(forKey: pendingAccountKey)
 
+        // A pending account that does not match the saved metadata means the
+        // encoder has not committed that metadata yet. Preserve both accounts.
         if let pendingAccount, pendingAccount != currentAccount {
-            deleteToken(account: pendingAccount)
+            return
         }
         if let committedAccount, committedAccount != currentAccount {
             deleteToken(account: committedAccount)
@@ -181,10 +183,20 @@ private enum PairingCredentialVault {
         if currentAccount != legacyAccount {
             deleteToken(account: legacyAccount)
         }
-        deleteToken(account: pendingPointerAccount)
         if committedAccount != currentAccount {
             defaults.set(currentAccount, forKey: committedAccountKey)
         }
+        if pendingAccount != nil {
+            defaults.removeObject(forKey: pendingAccountKey)
+        }
+    }
+
+    private static func discardAbandonedPendingAccount(except currentAccount: String) {
+        let defaults = UserDefaults.standard
+        guard let pendingAccount = defaults.string(forKey: pendingAccountKey),
+              pendingAccount != currentAccount else { return }
+        deleteToken(account: pendingAccount)
+        defaults.removeObject(forKey: pendingAccountKey)
     }
 
     private static func cleanupWithoutMetadata() {
@@ -192,13 +204,15 @@ private enum PairingCredentialVault {
         if let committedAccount = defaults.string(forKey: committedAccountKey) {
             deleteToken(account: committedAccount)
         }
-        if let pendingAccount = readToken(account: pendingPointerAccount) {
+        if let pendingAccount = defaults.string(forKey: pendingAccountKey) {
             deleteToken(account: pendingAccount)
         }
-        deleteToken(account: pendingPointerAccount)
         deleteToken(account: legacyAccount)
         if defaults.object(forKey: committedAccountKey) != nil {
             defaults.removeObject(forKey: committedAccountKey)
+        }
+        if defaults.object(forKey: pendingAccountKey) != nil {
+            defaults.removeObject(forKey: pendingAccountKey)
         }
     }
 
