@@ -1,10 +1,20 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { parseQuickTunnelUrl } from "../src/deviceDelivery.js";
 import { normalizeDeviceBuildTTLMinutes } from "../src/deviceBuildDefaults.js";
+
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
+const RETAIN_LOG_BYTES = 1024 * 1024;
 
 const { values } = parseArgs({
   options: {
@@ -199,8 +209,11 @@ function writeState(extra) {
 }
 
 function processIdentity(pid, commandFragments) {
-  const startedAt = processStartedAt(pid);
-  return startedAt ? { pid, startedAt, commandFragments } : null;
+  return {
+    pid,
+    startedAt: processStartedAt(pid),
+    commandFragments,
+  };
 }
 
 function processStartedAt(pid) {
@@ -210,6 +223,12 @@ function processStartedAt(pid) {
 
 function appendLog(value) {
   appendFileSync(logPath, value, { mode: 0o600 });
+  try {
+    if (statSync(logPath).size <= MAX_LOG_BYTES) return;
+    const content = readFileSync(logPath);
+    const tail = content.subarray(Math.max(0, content.length - RETAIN_LOG_BYTES));
+    writeFileSync(logPath, tail, { mode: 0o600 });
+  } catch {}
 }
 
 function required(value, label) {
