@@ -376,14 +376,19 @@ async function runLogged(command, args, log, { env = process.env } = {}) {
   return result;
 }
 
-function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process.env } = {}) {
+export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process.env } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env });
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+      detached: true,
+    });
     let stdout = "";
     let stderr = "";
     let stdoutPending = "";
     let stderrPending = "";
     let settled = false;
+    let timedOut = false;
 
     const flushLines = (chunk, isError) => {
       const value = chunk.toString("utf8");
@@ -397,11 +402,28 @@ function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process
       }
     };
 
-    const timer = setTimeout(() => {
+    const finish = (result) => {
       if (settled) return;
       settled = true;
-      child.kill("SIGTERM");
-      resolve({ code: null, stdout, stderr, error: `${command} timed out` });
+      clearTimeout(timer);
+      if (stdoutPending.trim()) onLine?.(stdoutPending);
+      if (stderrPending.trim()) onLine?.(stderrPending);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      void terminateProcessGroup(child.pid, 2_000).then((terminated) => {
+        finish({
+          code: null,
+          stdout,
+          stderr,
+          error: terminated
+            ? `${command} timed out`
+            : `${command} timed out and its process group could not be confirmed stopped`,
+        });
+      });
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
@@ -413,20 +435,45 @@ function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process
       flushLines(chunk, true);
     });
     child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code: null, stdout, stderr, error: error.message });
+      finish({ code: null, stdout, stderr, error: error.message });
     });
     child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (stdoutPending.trim()) onLine?.(stdoutPending);
-      if (stderrPending.trim()) onLine?.(stderrPending);
-      resolve({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
+      if (timedOut) return;
+      finish({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
     });
   });
+}
+
+async function terminateProcessGroup(pid, graceMs) {
+  signalProcessGroup(pid, "SIGTERM");
+  if (await waitForProcessGroupExit(pid, graceMs)) return true;
+  signalProcessGroup(pid, "SIGKILL");
+  return waitForProcessGroupExit(pid, 2_000);
+}
+
+function signalProcessGroup(pid, signal) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return;
+  try { process.kill(-Number(pid), signal); } catch {
+    try { process.kill(Number(pid), signal); } catch {}
+  }
+}
+
+async function waitForProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (processGroupIsAlive(pid) && Date.now() < deadline) {
+    await sleep(50);
+  }
+  return !processGroupIsAlive(pid);
+}
+
+function processGroupIsAlive(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
+  try {
+    process.kill(-Number(pid), 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function exportOptionsPlist(build) {
@@ -595,4 +642,8 @@ function escapeXml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&apos;");
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
