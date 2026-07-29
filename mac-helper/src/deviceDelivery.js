@@ -36,7 +36,7 @@ export class DeviceDeliveryAdapter {
     if (processIsAlive(current.managerPid)) {
       await terminateDeliveryProcessGroup(current);
     } else {
-      cleanupRecordedChildren(current);
+      await cleanupRecordedChildren(current);
     }
 
     const generation = randomUUID();
@@ -82,13 +82,25 @@ export class DeviceDeliveryAdapter {
     }
   }
 
-  stop() {
+  async stop() {
     const state = this.status();
     const stopped = processIsAlive(state.managerPid) || processIsAlive(state.gatewayPid) || processIsAlive(state.tunnelPid);
-    void terminateDeliveryProcessGroup(state);
+    const shutdownGeneration = randomUUID();
     mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
     writeFileSync(this.statePath, JSON.stringify({
       ...state,
+      generation: shutdownGeneration,
+      status: "stopping",
+      publicBaseUrl: "",
+      stoppedAt: "",
+    }, null, 2), { mode: 0o600 });
+    await terminateDeliveryProcessGroup(state);
+    writeFileSync(this.statePath, JSON.stringify({
+      ...state,
+      generation: shutdownGeneration,
+      managerPid: 0,
+      gatewayPid: 0,
+      tunnelPid: 0,
       status: "stopped",
       publicBaseUrl: "",
       stoppedAt: new Date().toISOString(),
@@ -131,13 +143,19 @@ async function terminateDeliveryProcessGroup(state) {
       await waitForProcessExit(managerPid, 2_000);
     }
   }
-  cleanupRecordedChildren(state);
+  await cleanupRecordedChildren(state);
 }
 
-function cleanupRecordedChildren(state) {
+async function cleanupRecordedChildren(state) {
   for (const pid of [state.gatewayPid, state.tunnelPid]) {
-    if (!processIsAlive(pid)) continue;
-    try { process.kill(Number(pid), "SIGTERM"); } catch {}
+    const numericPid = Number(pid);
+    if (!processIsAlive(numericPid)) continue;
+    try { process.kill(numericPid, "SIGTERM"); } catch {}
+    await waitForProcessExit(numericPid, 2_000);
+    if (processIsAlive(numericPid)) {
+      try { process.kill(numericPid, "SIGKILL"); } catch {}
+      await waitForProcessExit(numericPid, 1_000);
+    }
   }
 }
 
