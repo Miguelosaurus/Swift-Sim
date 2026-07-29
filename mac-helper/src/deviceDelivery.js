@@ -39,7 +39,7 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
     this.lifecycleLockPath = `${this.statePath}.lifecycle.lock`;
   }
 
-  async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES, cancelPath = "" } = {}) {
+  async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES, cancelPath = "", referenceID = "" } = {}) {
     ttlMinutes = normalizeDeviceBuildTTLMinutes(ttlMinutes);
     throwIfDeliveryCancelled(cancelPath);
     const release = await acquireLifecycleLock(this.lifecycleLockPath);
@@ -47,11 +47,13 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       throwIfDeliveryCancelled(cancelPath);
       this.reapExpiredGenerations();
       const records = deliveryStateRecords(this.statePath);
-      const reusable = records
-        .map((record) => record.state)
-        .filter((state) => deliveryIsReusable(state, ttlMinutes))
-        .sort((a, b) => Date.parse(a.expiresAt || "") - Date.parse(b.expiresAt || ""))[0];
-      if (reusable) return { ...reusable, reused: true };
+      const reusableRecord = records
+        .filter(({ state }) => deliveryIsReusable(state, ttlMinutes))
+        .sort((a, b) => Date.parse(a.state.expiresAt || "") - Date.parse(b.state.expiresAt || ""))[0];
+      if (reusableRecord) {
+        const referenced = addGenerationReference(reusableRecord.path, reusableRecord.state, referenceID);
+        return { ...referenced, reused: true };
+      }
 
       const generation = randomUUID();
       const generationStatePath = deliveryGenerationStatePath(this.statePath, generation);
@@ -104,7 +106,8 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
         }
         if (!state || state.generation !== generation) continue;
         if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) {
-          return { ...state, reused: false };
+          const referenced = addGenerationReference(generationStatePath, state, referenceID);
+          return { ...referenced, reused: false };
         }
         if (state.status === "failed") {
           throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${generationLogPath}`);
@@ -126,12 +129,22 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
     return deliveryStateRecords(this.statePath).map(({ state }) => state);
   }
 
-  stopGeneration(generation) {
+  stopGeneration(generation, { referenceID = "" } = {}) {
     const release = acquireLifecycleLockSync(this.lifecycleLockPath);
     try {
       const record = deliveryStateRecords(this.statePath)
         .find(({ state }) => state.generation === generation);
       if (!record) return true;
+      const references = generationReferences(record.state);
+      if (referenceID) {
+        const remaining = references.filter((value) => value !== referenceID);
+        const nextState = { ...record.state, references: remaining, updatedAt: new Date().toISOString() };
+        writeStateFile(record.path, nextState);
+        if (remaining.length > 0) return true;
+        record.state = nextState;
+      } else if (references.length > 0) {
+        return false;
+      }
       const outcome = terminateOwnedDelivery(record.state);
       if (outcome.allExited) {
         removeGenerationFiles({
@@ -285,6 +298,22 @@ function readStateFile(path) {
   } catch {
     return null;
   }
+}
+
+
+function generationReferences(state) {
+  return [...new Set((Array.isArray(state?.references) ? state.references : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))];
+}
+
+function addGenerationReference(path, state, referenceID) {
+  if (!referenceID) return state;
+  const references = generationReferences(state);
+  if (!references.includes(referenceID)) references.push(referenceID);
+  const next = { ...state, references, updatedAt: new Date().toISOString() };
+  writeStateFile(path, next);
+  return next;
 }
 
 function newestFirst(a, b) {

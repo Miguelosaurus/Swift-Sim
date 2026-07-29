@@ -30,6 +30,7 @@ final class SessionStore: ObservableObject {
     private var installRequestSnapshot: (build: ManagedBuild, status: DeviceBuildStatus?)?
     private var pairingRevision: UInt64 = 0
     private var managedAppsRevision: UInt64 = 0
+    private var managedAppOperationRevisions: [String: UInt64] = [:]
 
     init() {
         loadRecentSessions()
@@ -582,14 +583,24 @@ final class SessionStore: ObservableObject {
     func archiveManagedApp(_ app: ManagedApp, archived: Bool) {
         guard let index = managedApps.firstIndex(where: { $0.id == app.id }) else { return }
         managedAppsRevision &+= 1
-        let operationRevision = managedAppsRevision
+        let operationRevision = nextManagedAppOperationRevision(app.id)
+        let expectedMac = pairedMac
+        let expectedPairingRevision = pairingRevision
         managedApps[index] = managedApps[index].settingArchived(archived)
         selectedManagedAppID = nil
         sortAndSaveManagedApps()
         libraryActionMessage = nil
         Task {
-            guard await syncArchiveToMac(appID: app.id, archived: archived) == false else { return }
-            guard managedAppsRevision == operationRevision else { return }
+            guard await syncArchiveToMac(
+                appID: app.id,
+                archived: archived,
+                expectedMac: expectedMac,
+                expectedPairingRevision: expectedPairingRevision
+            ) == false else { return }
+            guard Self.appOperationIsCurrent(
+                currentRevision: managedAppOperationRevisions[app.id],
+                expectedRevision: operationRevision
+            ) else { return }
             if let index = managedApps.firstIndex(where: { $0.id == app.id }) {
                 managedApps[index] = app
             } else {
@@ -602,7 +613,9 @@ final class SessionStore: ObservableObject {
 
     func deleteManagedApp(_ app: ManagedApp) {
         managedAppsRevision &+= 1
-        let operationRevision = managedAppsRevision
+        let operationRevision = nextManagedAppOperationRevision(app.id)
+        let expectedMac = pairedMac
+        let expectedPairingRevision = pairingRevision
         managedApps.removeAll { $0.id == app.id }
         if selectedManagedAppID == app.id {
             selectedManagedAppID = nil
@@ -610,8 +623,15 @@ final class SessionStore: ObservableObject {
         saveManagedApps()
         libraryActionMessage = nil
         Task {
-            guard await syncDeleteToMac(appID: app.id) == false else { return }
-            guard managedAppsRevision == operationRevision else { return }
+            guard await syncDeleteToMac(
+                appID: app.id,
+                expectedMac: expectedMac,
+                expectedPairingRevision: expectedPairingRevision
+            ) == false else { return }
+            guard Self.appOperationIsCurrent(
+                currentRevision: managedAppOperationRevisions[app.id],
+                expectedRevision: operationRevision
+            ) else { return }
             if !managedApps.contains(where: { $0.id == app.id }) {
                 managedApps.append(app)
                 sortAndSaveManagedApps()
@@ -771,27 +791,71 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    private func syncArchiveToMac(appID: String, archived: Bool) async -> Bool {
+    private func syncArchiveToMac(
+        appID: String,
+        archived: Bool,
+        expectedMac: PairedMac?,
+        expectedPairingRevision: UInt64
+    ) async -> Bool {
         guard !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return true }
-        guard let mac = pairedMac else { return true }
-        var request = URLRequest(url: mac.appArchiveURL(appID))
+        guard let expectedMac,
+              Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: expectedMac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+              ) else { return false }
+        var request = URLRequest(url: expectedMac.appArchiveURL(appID))
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try? JSONEncoder().encode(["archived": archived])
-        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: expectedMac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+              ) else { return false }
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
-    private func syncDeleteToMac(appID: String) async -> Bool {
+    private func syncDeleteToMac(
+        appID: String,
+        expectedMac: PairedMac?,
+        expectedPairingRevision: UInt64
+    ) async -> Bool {
         guard !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return true }
-        guard let mac = pairedMac else { return true }
-        var request = URLRequest(url: mac.appURL(appID))
+        guard let expectedMac,
+              Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: expectedMac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+              ) else { return false }
+        var request = URLRequest(url: expectedMac.appURL(appID))
         request.httpMethod = "DELETE"
         request.timeoutInterval = 10
-        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: expectedMac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+              ) else { return false }
         let status = (response as? HTTPURLResponse)?.statusCode
         return status == 200 || status == 404
+    }
+
+
+    private func nextManagedAppOperationRevision(_ appID: String) -> UInt64 {
+        let next = (managedAppOperationRevisions[appID] ?? 0) &+ 1
+        managedAppOperationRevisions[appID] = next
+        return next
+    }
+
+    static func appOperationIsCurrent(currentRevision: UInt64?, expectedRevision: UInt64) -> Bool {
+        currentRevision == expectedRevision
     }
 
     private static func parseDate(_ value: String) -> Date? {

@@ -415,3 +415,35 @@ test("an old PID-only build lock is reclaimed after its migration grace", () => 
   assert.equal(store.get(build.id).id, build.id);
   assert.equal(existsSync(lockPath), false);
 }));
+
+test("renewal retains the previous bearer capability until its own expiry", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  build.remoteBaseUrl = "https://old-link.example.com";
+  build.expiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+  build.delivery = {
+    mode: "quick-tunnel",
+    provider: "cloudflare-quick-tunnel",
+    expiresAt: new Date(Date.now() + 40 * 60_000).toISOString(),
+    generation: "old-generation",
+    referenceID: `build:${build.id}`,
+  };
+  store.save(build);
+  const oldToken = build.token;
+  const renewed = store.renewInstallLink(build.id, { ttlMinutes: 60 });
+  renewed.remoteBaseUrl = "https://new-link.example.com";
+  renewed.expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+  renewed.delivery = {
+    mode: "quick-tunnel",
+    provider: "cloudflare-quick-tunnel",
+    expiresAt: new Date(Date.now() + 70 * 60_000).toISOString(),
+    generation: "new-generation",
+    referenceID: `renewal:${renewed.pendingRenewal.id}`,
+  };
+  store.save(renewed);
+  const committed = store.get(build.id);
+  const oldCapability = committed.capabilities.find((capability) => capability.token === oldToken);
+  assert.ok(oldCapability);
+  assert.equal(oldCapability.remoteBaseUrl, "https://old-link.example.com");
+  assert.equal(oldCapability.delivery.generation, "old-generation");
+  assert.notEqual(committed.token, oldToken);
+}));

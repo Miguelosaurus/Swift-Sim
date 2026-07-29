@@ -219,3 +219,27 @@ test("an old PID-only delivery lock is reclaimed after its migration grace", () 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("releasing one reference cannot stop a generation still used by another capability", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-delivery-reference-test-"));
+  try {
+    const statePath = join(directory, "device-delivery.json");
+    const generation = "shared-generation";
+    const generationPath = deliveryGenerationStatePath(statePath, generation);
+    writeFileSync(generationPath, JSON.stringify({
+      generation,
+      status: "ready",
+      publicBaseUrl: "https://shared.trycloudflare.com",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      references: ["build:first", "build:second"],
+    }));
+    const adapter = new DeviceDeliveryAdapter({ statePath, logPath: join(directory, "delivery.log") });
+    assert.equal(adapter.stopGeneration(generation, { referenceID: "build:first" }), true);
+    const preserved = JSON.parse(readFileSync(generationPath, "utf8"));
+    assert.deepEqual(preserved.references, ["build:second"]);
+    assert.equal(existsSync(generationPath), true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

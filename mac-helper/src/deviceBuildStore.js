@@ -18,6 +18,8 @@ const RENEWAL_LEASE_MS = 2 * 60 * 1000;
 const CLEANUP_RETRY_INTERVAL_MS = 30_000;
 const ACTIVE_BUILD_CLEANUP_DELAY_MS = 70 * 60 * 1000;
 const MAX_CLEANUP_BACKOFF_MS = 60 * 60 * 1000;
+// round3-capability-generations
+const MAX_RETAINED_CAPABILITIES = 16;
 const ACTIVE_BUILD_STATES = new Set([
   "queued",
   "validating",
@@ -64,11 +66,16 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       const incoming = normalizeIncomingBuild(structuredClone(build));
       incoming.installation = newerInstallation(existing.installation, incoming.installation);
       incoming.logs = mergeLogs(existing.logs, incoming.logs);
+      incoming.capabilities = mergeCapabilities(existing.capabilities, incoming.capabilities);
 
       const pending = existing.pendingRenewal;
       if (pending) {
         const sameLease = incoming.pendingRenewal?.id === pending.id;
         if (sameLease && renewalCandidateIsReady(incoming, pending.target)) {
+          const previousCapability = currentCapability(existing);
+          if (capabilityIsLive(previousCapability)) {
+            incoming.capabilities = mergeCapabilities(incoming.capabilities, [previousCapability]);
+          }
           incoming.token = pending.token;
           incoming.tokenExpiredAt = "";
           incoming.installTTLMinutes = pending.target.ttlMinutes;
@@ -340,12 +347,18 @@ function preserveSecurityFields(target, source) {
   target.remoteBaseUrl = source.remoteBaseUrl;
   target.delivery = structuredClone(source.delivery || null);
   target.installTTLMinutes = source.installTTLMinutes;
+  target.capabilities = normalizeCapabilities(source.capabilities);
 }
 
 function recoverStaleRenewals(builds) {
   const now = Date.now();
   let changed = false;
   for (const build of builds.values()) {
+    const normalizedCapabilities = normalizeCapabilities(build.capabilities, now);
+    if (JSON.stringify(normalizedCapabilities) !== JSON.stringify(build.capabilities || [])) {
+      build.capabilities = normalizedCapabilities;
+      changed = true;
+    }
     const deadline = Date.parse(build.pendingRenewal?.deadlineAt || "");
     if (!build.pendingRenewal || (Number.isFinite(deadline) && deadline > now)) continue;
     delete build.pendingRenewal;
@@ -362,7 +375,48 @@ function normalizeIncomingBuild(build) {
   build.logs = Array.isArray(build.logs) ? build.logs.slice(-MAX_DEVICE_BUILD_LOG_LINES) : [];
   build.revision = Number(build.revision || 0);
   build.tokenExpiredAt = build.tokenExpiredAt || "";
+  build.capabilities = normalizeCapabilities(build.capabilities);
   return build;
+}
+
+
+function currentCapability(build) {
+  return {
+    token: build.token || "",
+    expiresAt: build.expiresAt || "",
+    remoteBaseUrl: build.remoteBaseUrl || "",
+    delivery: structuredClone(build.delivery || null),
+    installTTLMinutes: build.installTTLMinutes,
+    createdAt: build.updatedAt || build.createdAt || new Date().toISOString(),
+  };
+}
+
+function capabilityIsLive(capability, now = Date.now()) {
+  const expiresAt = Date.parse(capability?.expiresAt || "");
+  return Boolean(capability?.token) && Number.isFinite(expiresAt) && expiresAt > now;
+}
+
+function normalizeCapabilities(capabilities, now = Date.now()) {
+  const byToken = new Map();
+  for (const capability of Array.isArray(capabilities) ? capabilities : []) {
+    const normalized = {
+      token: String(capability?.token || ""),
+      expiresAt: String(capability?.expiresAt || ""),
+      remoteBaseUrl: String(capability?.remoteBaseUrl || ""),
+      delivery: capability?.delivery ? structuredClone(capability.delivery) : null,
+      installTTLMinutes: normalizeDeviceBuildTTLMinutes(capability?.installTTLMinutes),
+      createdAt: String(capability?.createdAt || ""),
+    };
+    if (!capabilityIsLive(normalized, now)) continue;
+    byToken.set(normalized.token, normalized);
+  }
+  return [...byToken.values()]
+    .sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt))
+    .slice(-MAX_RETAINED_CAPABILITIES);
+}
+
+function mergeCapabilities(first, second) {
+  return normalizeCapabilities([...(first || []), ...(second || [])]);
 }
 
 function normalizeInstallation(installation = {}) {

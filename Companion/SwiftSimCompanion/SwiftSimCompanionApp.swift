@@ -101,6 +101,8 @@ enum PairingCredentialVault {
     private static let committedAccountKey = "pairedMacCredentialAccount"
     private static let pendingAccountKey = "pairedMacPendingCredentialAccount"
     private static let pendingPairingIDKey = "pairedMacPendingPairingID"
+    private static let previousPendingAccountKey = "pairedMacPreviousPendingCredentialAccount"
+    private static let previousPendingPairingIDKey = "pairedMacPreviousPendingPairingID"
     private static let service = "dev.local.SwiftSimCompanion.pairing"
     private static let legacyAccount = "paired-mac-token"
     private static var defaultsObserver: NSObjectProtocol?
@@ -192,29 +194,27 @@ enum PairingCredentialVault {
         let previousPending = defaults.string(forKey: pendingAccountKey)
         let previousPairingID = defaults.string(forKey: pendingPairingIDKey)
 
-        // Persist the recoverable account pointer before writing the random
-        // Keychain account. A crash can now leave an empty pointed-to account,
-        // which startup cleanup can remove, rather than an unreachable secret.
+        if let previousPending {
+            defaults.set(previousPending, forKey: previousPendingAccountKey)
+        } else {
+            defaults.removeObject(forKey: previousPendingAccountKey)
+        }
+        if let previousPairingID {
+            defaults.set(previousPairingID, forKey: previousPendingPairingIDKey)
+        } else {
+            defaults.removeObject(forKey: previousPendingPairingIDKey)
+        }
         defaults.set(stagedAccount, forKey: pendingAccountKey)
         defaults.set(pairingID, forKey: pendingPairingIDKey)
         defaults.synchronize()
         guard storeToken(token, account: stagedAccount) else {
             deleteToken(account: stagedAccount)
-            if let previousPending {
-                defaults.set(previousPending, forKey: pendingAccountKey)
-            } else {
-                defaults.removeObject(forKey: pendingAccountKey)
-            }
-            if let previousPairingID {
-                defaults.set(previousPairingID, forKey: pendingPairingIDKey)
-            } else {
-                defaults.removeObject(forKey: pendingPairingIDKey)
-            }
+            restorePreviousPendingTransaction()
             return false
         }
-        if let previousPending, previousPending != stagedAccount {
-            deleteToken(account: previousPending)
-        }
+        // Keep the prior staged transaction reachable until this new pairing
+        // is either committed or cancelled. Reconciliation deletes it only
+        // after the new metadata becomes authoritative.
         return true
     }
 
@@ -225,8 +225,7 @@ enum PairingCredentialVault {
         if defaults.string(forKey: committedAccountKey) != stagedAccount {
             deleteToken(account: stagedAccount)
         }
-        defaults.removeObject(forKey: pendingAccountKey)
-        defaults.removeObject(forKey: pendingPairingIDKey)
+        restorePreviousPendingTransaction()
     }
 
     static func tokenForDecoding(_ storedValue: String, pairingID: String) throws -> String {
@@ -290,6 +289,10 @@ enum PairingCredentialVault {
             defaults.removeObject(forKey: pendingAccountKey)
             defaults.removeObject(forKey: pendingPairingIDKey)
         }
+        if let previous = defaults.string(forKey: previousPendingAccountKey), previous != currentAccount {
+            deleteToken(account: previous)
+        }
+        clearPreviousPendingTransaction()
     }
 
     private static func discardAbandonedPendingAccount(except currentAccount: String) {
@@ -297,8 +300,12 @@ enum PairingCredentialVault {
         guard let pendingAccount = defaults.string(forKey: pendingAccountKey),
               pendingAccount != currentAccount else { return }
         deleteToken(account: pendingAccount)
+        if let previous = defaults.string(forKey: previousPendingAccountKey) {
+            deleteToken(account: previous)
+        }
         defaults.removeObject(forKey: pendingAccountKey)
         defaults.removeObject(forKey: pendingPairingIDKey)
+        clearPreviousPendingTransaction()
     }
 
     private static func cleanupWithoutMetadata() {
@@ -309,6 +316,9 @@ enum PairingCredentialVault {
         if let pendingAccount = defaults.string(forKey: pendingAccountKey) {
             deleteToken(account: pendingAccount)
         }
+        if let previousPendingAccount = defaults.string(forKey: previousPendingAccountKey) {
+            deleteToken(account: previousPendingAccount)
+        }
         deleteToken(account: legacyAccount)
         if defaults.object(forKey: committedAccountKey) != nil {
             defaults.removeObject(forKey: committedAccountKey)
@@ -318,6 +328,33 @@ enum PairingCredentialVault {
         }
         if defaults.object(forKey: pendingPairingIDKey) != nil {
             defaults.removeObject(forKey: pendingPairingIDKey)
+        }
+        clearPreviousPendingTransaction()
+    }
+
+
+    private static func restorePreviousPendingTransaction() {
+        let defaults = UserDefaults.standard
+        if let previousAccount = defaults.string(forKey: previousPendingAccountKey) {
+            defaults.set(previousAccount, forKey: pendingAccountKey)
+        } else {
+            defaults.removeObject(forKey: pendingAccountKey)
+        }
+        if let previousPairingID = defaults.string(forKey: previousPendingPairingIDKey) {
+            defaults.set(previousPairingID, forKey: pendingPairingIDKey)
+        } else {
+            defaults.removeObject(forKey: pendingPairingIDKey)
+        }
+        clearPreviousPendingTransaction()
+    }
+
+    private static func clearPreviousPendingTransaction() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: previousPendingAccountKey) != nil {
+            defaults.removeObject(forKey: previousPendingAccountKey)
+        }
+        if defaults.object(forKey: previousPendingPairingIDKey) != nil {
+            defaults.removeObject(forKey: previousPendingPairingIDKey)
         }
     }
 
