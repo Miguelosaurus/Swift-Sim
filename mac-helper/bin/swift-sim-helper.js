@@ -271,6 +271,7 @@ function commonDeviceBuildOptions() {
 }
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
+  const activeSockets = new Set();
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
@@ -377,9 +378,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           return app ? json(res, 200, publicDeviceApp(app)) : notFound(res, "Unknown app.");
         }
         if (req.method === "DELETE" && !action) {
+          const appBeforeDeletion = deviceBuildStore.getApp(appID);
           const deleted = deviceBuildStore.deleteApp(appID, {
             deleteArtifacts: url.searchParams.get("keepArtifacts") !== "true",
           });
+          if (deleted && appBeforeDeletion) releaseAppDeliveryReferences(appBeforeDeletion);
           return deleted ? json(res, 200, { deleted: true, appId: appID }) : notFound(res, "Unknown app.");
         }
       }
@@ -447,33 +450,39 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         const [, buildId, action] = deviceBuildMatch;
         const build = deviceBuildStore.get(buildId);
         if (!build) return notFound(res, "Unknown device build.");
-        const buildTokenMatches = tokenMatches(build, url.searchParams.get("token"));
+        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
         const pairedMacTokenMatches = !deviceBuildsOnly && pairingTokenMatches(req, url);
-        if (!buildTokenMatches && !pairedMacTokenMatches) {
-          return unauthorized(res);
-        }
-        if (buildTokenMatches && !pairedMacTokenMatches && deviceBuildExpired(build)) {
+        if (!capabilityBuild && !pairedMacTokenMatches) return unauthorized(res);
+        const responseBuild = pairedMacTokenMatches ? build : capabilityBuild;
+        if (!pairedMacTokenMatches && deviceBuildExpired(responseBuild)) {
           return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
         }
         if (req.method === "GET" && !action) {
-          return json(res, 200, publicDeviceBuild(build));
+          return json(res, 200, publicDeviceBuild(responseBuild));
         }
         if (req.method === "GET" && action === "logs") {
           return json(res, 200, { buildId, logs: build.logs.slice(-300) });
         }
         if (req.method === "GET" && action === "links") {
-          build.remoteBaseUrl = build.remoteBaseUrl || `${url.protocol}//${url.host}`;
-          deviceBuildStore.save(build);
-          return json(res, 200, deviceBuildLinks(build, build.remoteBaseUrl));
+          const remoteBaseUrl = responseBuild.remoteBaseUrl || `${url.protocol}//${url.host}`;
+          if (pairedMacTokenMatches && !build.remoteBaseUrl) {
+            build.remoteBaseUrl = remoteBaseUrl;
+            deviceBuildStore.save(build);
+          }
+          return json(res, 200, deviceBuildLinks(responseBuild, remoteBaseUrl));
         }
         if (req.method === "POST" && action === "install-request") {
           const requestedBuild = deviceBuildStore.markInstallRequested(buildId);
-          return json(res, 200, publicDeviceBuild(requestedBuild));
+          return json(res, 200, publicDeviceBuild(
+            pairedMacTokenMatches ? requestedBuild : projectCapability(requestedBuild, responseBuild)
+          ));
         }
         if (req.method === "POST" && action === "verify") {
           const verification = await verifyDeviceBuild(build);
           const verifiedBuild = deviceBuildStore.saveVerification(buildId, verification);
-          return json(res, 200, publicDeviceBuild(verifiedBuild));
+          return json(res, 200, publicDeviceBuild(
+            pairedMacTokenMatches ? verifiedBuild : projectCapability(verifiedBuild, responseBuild)
+          ));
         }
       }
 
@@ -482,18 +491,17 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         const [, buildId, artifact] = deviceArtifactMatch;
         const build = deviceBuildStore.get(buildId);
         if (!build) return notFound(res, "Unknown device build.");
-        if (!tokenMatches(build, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        if (deviceBuildExpired(build)) {
+        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
+        if (!capabilityBuild) return unauthorized(res);
+        if (deviceBuildExpired(capabilityBuild)) {
           return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
         }
         if (build.state !== "ready") {
           return badRequest(res, 409, "Device build is not ready yet.");
         }
-        const remoteBaseUrl = build.remoteBaseUrl || `${url.protocol}//${url.host}`;
+        const remoteBaseUrl = capabilityBuild.remoteBaseUrl || `${url.protocol}//${url.host}`;
         if (artifact === "manifest") {
-          return text(res, 200, buildManifest(build, remoteBaseUrl), "text/xml; charset=utf-8");
+          return text(res, 200, buildManifest(capabilityBuild, remoteBaseUrl), "text/xml; charset=utf-8");
         }
         return serveFile(res, build.artifacts.ipaPath, {
           contentType: "application/octet-stream",
@@ -644,20 +652,18 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       }
 
       const deviceWebMatch = url.pathname.match(/^\/d\/([^/]+)$/);
-      if (deviceWebMatch) {
+      if (deviceWebMatch && req.method === "GET") {
         const build = deviceBuildStore.get(deviceWebMatch[1]);
         if (!build) return notFound(res, "Unknown device build.");
-        if (!tokenMatches(build, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        if (deviceBuildExpired(build)) {
+        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
+        if (!capabilityBuild) return unauthorized(res);
+        if (deviceBuildExpired(capabilityBuild)) {
           return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
         }
-        if (!build.remoteBaseUrl) {
-          build.remoteBaseUrl = `${url.protocol}//${url.host}`;
-          deviceBuildStore.save(build);
-        }
-        return text(res, 200, deviceBuildFallbackHtml(build), "text/html; charset=utf-8", {
+        const responseBuild = capabilityBuild.remoteBaseUrl
+          ? capabilityBuild
+          : { ...capabilityBuild, remoteBaseUrl: `${url.protocol}//${url.host}` };
+        return text(res, 200, deviceBuildFallbackHtml(responseBuild), "text/html; charset=utf-8", {
           "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
           "referrer-policy": "no-referrer",
           "x-content-type-options": "nosniff",
@@ -676,6 +682,10 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       return badRequest(res, status, error instanceof Error ? error.message : String(error));
     }
   });
+  server.on("connection", (socket) => {
+    activeSockets.add(socket);
+    socket.once("close", () => activeSockets.delete(socket));
+  });
 
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -691,25 +701,49 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     });
   });
 
+  const scheduleReconciliation = () => {
+    void reconcileRequestedDeviceBuilds().catch((error) => {
+      console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  };
   let reconciliationTimer;
   if (!deviceBuildsOnly) {
-    void reconcileRequestedDeviceBuilds();
-    reconciliationTimer = setInterval(() => {
-      void reconcileRequestedDeviceBuilds();
-    }, 15_000);
+    scheduleReconciliation();
+    reconciliationTimer = setInterval(scheduleReconciliation, 15_000);
   }
 
   const keepAlive = setInterval(() => {}, 60 * 60 * 1000);
-  process.once("SIGTERM", () => {
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     if (reconciliationTimer) clearInterval(reconciliationTimer);
     clearInterval(keepAlive);
-    server.close(() => process.exit(0));
-  });
-  process.once("SIGINT", () => {
-    if (reconciliationTimer) clearInterval(reconciliationTimer);
-    clearInterval(keepAlive);
-    server.close(() => process.exit(0));
-  });
+    server.closeIdleConnections?.();
+    let serverClosed = false;
+    let sessionsStopped = false;
+    const maybeExit = () => {
+      if (serverClosed && sessionsStopped) process.exit(0);
+    };
+    server.close(() => {
+      serverClosed = true;
+      maybeExit();
+    });
+    const sessions = typeof store.list === "function" ? store.list() : [];
+    void Promise.allSettled(sessions.map((session) => stopSession(session.id))).finally(() => {
+      sessionsStopped = true;
+      maybeExit();
+    });
+    const closeTimer = setTimeout(() => {
+      for (const socket of activeSockets) socket.destroy();
+      server.closeAllConnections?.();
+    }, 1_000);
+    closeTimer.unref?.();
+    const forceTimer = setTimeout(() => process.exit(0), 5_000);
+    forceTimer.unref?.();
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
   await new Promise(() => {});
 }
 
@@ -725,9 +759,16 @@ async function reconcileRequestedDeviceBuilds() {
       && build.app?.bundleIdentifier
     );
     for (const build of requested) {
-      const verification = await verifyDeviceBuild(build);
-      if (verification.state === "verified") {
+      try {
+        const verification = await verifyDeviceBuild(build);
         deviceBuildStore.saveVerification(build.id, verification);
+      } catch (error) {
+        deviceBuildStore.saveVerification(build.id, {
+          state: "unknown",
+          verifiedAt: new Date().toISOString(),
+          devices: [],
+          detail: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   } finally {
@@ -1514,7 +1555,7 @@ async function createDeviceBuild(values) {
 
 async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
   let startedGeneration = "";
-  let reusedGeneration = true;
+  let deliveryReferenceID = "";
   try {
     ensureBuildNotCancelled(build);
     const ttlMinutes = normalizeDeviceBuildTTLMinutes(build.installTTLMinutes);
@@ -1531,12 +1572,15 @@ async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
       return build;
     }
 
+    deliveryReferenceID = build.pendingRenewal?.id
+      ? `renewal:${build.pendingRenewal.id}`
+      : build.delivery?.referenceID || `build:${build.id}`;
     const delivery = await deviceDelivery.ensure({
       ttlMinutes,
       cancelPath: build.control?.cancelPath || "",
+      referenceID: deliveryReferenceID,
     });
     startedGeneration = delivery.generation || "";
-    reusedGeneration = delivery.reused === true;
     ensureBuildNotCancelled(build);
     build.expiresAt = buildCapabilityExpiresAt({
       ttlMinutes,
@@ -1547,21 +1591,21 @@ async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
       mode: "quick-tunnel",
       provider: delivery.provider,
       expiresAt: delivery.expiresAt,
+      generation: delivery.generation || "",
+      referenceID: deliveryReferenceID,
     };
     build.state = "ready";
     build.logs.push("Temporary HTTPS install link is ready. Tailscale is not required.");
     deviceBuildStore.save(build);
     return build;
   } catch (error) {
-    if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") {
-      if (startedGeneration && !reusedGeneration) {
-        try { deviceDelivery.stopGeneration(startedGeneration); } catch {}
-      }
-      throw error;
+    if (startedGeneration && deliveryReferenceID) {
+      try { deviceDelivery.stopGeneration(startedGeneration, { referenceID: deliveryReferenceID }); } catch {}
     }
+    if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
     if (markBuildFailed) build.state = "failed";
     build.logs.push(error instanceof Error ? error.message : String(error));
-    deviceBuildStore.save(build);
+    try { deviceBuildStore.save(build); } catch {}
     throw error;
   }
 }
@@ -1580,6 +1624,45 @@ function ensureBuildNotCancelled(build) {
   return value;
 }
 
+
+function buildForCapabilityToken(build, token) {
+  if (!token) return null;
+  if (secretsMatch(build.token, token)) return build;
+  const capability = (Array.isArray(build.capabilities) ? build.capabilities : [])
+    .find((candidate) => secretsMatch(candidate?.token, token));
+  return capability ? projectCapability(build, capability) : null;
+}
+
+function projectCapability(build, capability) {
+  return {
+    ...build,
+    token: capability.token,
+    expiresAt: capability.expiresAt,
+    remoteBaseUrl: capability.remoteBaseUrl || "",
+    delivery: capability.delivery ? structuredClone(capability.delivery) : null,
+    installTTLMinutes: capability.installTTLMinutes || build.installTTLMinutes,
+  };
+}
+
+function secretsMatch(expectedValue, actualValue) {
+  if (!expectedValue || !actualValue) return false;
+  const expected = Buffer.from(String(expectedValue));
+  const actual = Buffer.from(String(actualValue));
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function releaseAppDeliveryReferences(app) {
+  for (const build of app.builds || []) {
+    const deliveries = [build.delivery, ...(build.capabilities || []).map((capability) => capability.delivery)];
+    for (const delivery of deliveries) {
+      if (!delivery?.generation || !delivery?.referenceID) continue;
+      try {
+        deviceDelivery.stopGeneration(delivery.generation, { referenceID: delivery.referenceID });
+      } catch {}
+    }
+  }
+}
+
 function ensureToken(session, token) {
   if (!tokenMatches(session, token)) throw new Error("Invalid session token.");
 }
@@ -1591,10 +1674,7 @@ function pairingTokenMatches(req, url) {
 }
 
 function tokenMatches(session, token) {
-  if (!token || !session.token) return false;
-  const expected = Buffer.from(String(session.token));
-  const actual = Buffer.from(String(token));
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  return secretsMatch(session?.token, token);
 }
 
 function deviceBuildExpired(build) {

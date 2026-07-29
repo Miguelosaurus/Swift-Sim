@@ -79,3 +79,30 @@ test("a cancellation marker terminates the complete process group", {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("an output callback failure terminates the detached process group", {
+  skip: process.platform === "win32",
+  timeout: 10_000,
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-callback-failure-test-"));
+  const pidPath = join(directory, "callback-descendant.pid");
+  try {
+    const fixture = `
+      const { spawn } = require("node:child_process");
+      const { writeFileSync } = require("node:fs");
+      const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+      writeFileSync(${JSON.stringify(pidPath)}, String(descendant.pid));
+      console.log("trigger");
+      setInterval(() => {}, 1000);
+    `;
+    const result = await runBuffered(process.execPath, ["-e", fixture], {
+      timeoutMs: 8_000,
+      onLine: () => { throw new Error("state write failed"); },
+    });
+    assert.match(result.error, /Output handler failed: state write failed/);
+    const descendantPID = Number(readFileSync(pidPath, "utf8"));
+    assert.equal(processIsAlive(descendantPID), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

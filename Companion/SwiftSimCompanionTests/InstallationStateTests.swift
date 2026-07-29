@@ -266,3 +266,35 @@ extension InstallationStateTests {
         XCTAssertEqual(testTokenStatus(account: account), errSecSuccess)
     }
 }
+
+extension InstallationStateTests {
+    @MainActor
+    func testManagedAppOperationRevisionIsScopedPerApp() {
+        XCTAssertTrue(SessionStore.appOperationIsCurrent(currentRevision: 2, expectedRevision: 2))
+        XCTAssertFalse(SessionStore.appOperationIsCurrent(currentRevision: 1, expectedRevision: 2))
+        XCTAssertFalse(SessionStore.appOperationIsCurrent(currentRevision: nil, expectedRevision: 1))
+    }
+
+    @MainActor
+    func testCancellingSecondStagedPairingRestoresFirstTransaction() throws {
+        let defaults = UserDefaults.standard
+        let firstID = "https://first-pending-\(UUID().uuidString).example"
+        let secondID = "https://second-pending-\(UUID().uuidString).example"
+        XCTAssertTrue(PairingCredentialVault.stagePairing(token: "first-\(UUID().uuidString)", pairingID: firstID))
+        let firstAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertTrue(PairingCredentialVault.stagePairing(token: "second-\(UUID().uuidString)", pairingID: secondID))
+        let secondAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        PairingCredentialVault.cancelStagedPairing(pairingID: secondID)
+        defer {
+            PairingCredentialVault.cancelStagedPairing(pairingID: firstID)
+            deleteTestToken(account: firstAccount)
+            deleteTestToken(account: secondAccount)
+            defaults.removeObject(forKey: "pairedMacPreviousPendingCredentialAccount")
+            defaults.removeObject(forKey: "pairedMacPreviousPendingPairingID")
+        }
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingCredentialAccount"), firstAccount)
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), firstID)
+        XCTAssertEqual(testTokenStatus(account: firstAccount), errSecSuccess)
+        XCTAssertEqual(testTokenStatus(account: secondAccount), errSecItemNotFound)
+    }
+}

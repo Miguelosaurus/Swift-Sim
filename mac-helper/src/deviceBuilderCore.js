@@ -334,6 +334,7 @@ function resolveTarget(build) {
 }
 
 async function readBuildSettings({ target, scheme, configuration, allowProvisioningUpdates, buildSettingArgs, build }) {
+  const settings = {};
   const result = await runBuffered("xcodebuild", [
     ...targetArgs(target),
     "-scheme", required(scheme, "scheme"),
@@ -342,12 +343,15 @@ async function readBuildSettings({ target, scheme, configuration, allowProvision
     "-destination", "generic/platform=iOS",
     ...(allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
     "-showBuildSettings",
-  ], { cancelPath: build?.control?.cancelPath || "" });
+  ], {
+    cancelPath: build?.control?.cancelPath || "",
+    onLine: (line) => parseBuildSettingLine(settings, line),
+  });
   if (result.cancellationError) throw result.cancellationError;
   if (result.code !== 0) {
     throw new DeviceBuildError(result.error || result.stderr || result.stdout || "Unable to read Xcode build settings.");
   }
-  return parseBuildSettings(result.stdout);
+  return settings;
 }
 
 function xcodeBuildSettingArgs(buildSettings) {
@@ -363,11 +367,13 @@ function xcodeBuildSettingArgs(buildSettings) {
 
 function parseBuildSettings(output) {
   const settings = {};
-  for (const line of output.split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
-    if (match) settings[match[1]] = match[2].trim();
-  }
+  for (const line of output.split(/\r?\n/)) parseBuildSettingLine(settings, line);
   return settings;
+}
+
+function parseBuildSettingLine(settings, line) {
+  const match = String(line || "").match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+  if (match) settings[match[1]] = match[2].trim();
 }
 
 function targetArgs(target) {
@@ -390,7 +396,12 @@ async function runLogged(command, args, log, { env = process.env, build } = {}) 
   return result;
 }
 
-export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = process.env, cancelPath = "" } = {}) {
+export function runBuffered(command, args, {
+  onLine,
+  timeoutMs = 120_000,
+  env = process.env,
+  cancelPath = "",
+} = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -402,8 +413,44 @@ export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = 
     let stdoutPending = "";
     let stderrPending = "";
     let settled = false;
-    let timedOut = false;
+    let terminating = false;
     let cancellationTimer;
+
+    const invokeLine = (line) => {
+      if (!line.trim() || !onLine) return null;
+      try {
+        onLine(line);
+        return null;
+      } catch (error) {
+        return error;
+      }
+    };
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearInterval(cancellationTimer);
+      resolve(result);
+    };
+
+    const terminateOnce = (resultFactory) => {
+      if (settled || terminating) return;
+      terminating = true;
+      clearInterval(cancellationTimer);
+      void terminateProcessGroup(child.pid, 2_000).then((terminated) => {
+        finish(resultFactory(terminated));
+      });
+    };
+
+    const outputCallbackFailed = (error) => {
+      terminateOnce((terminated) => ({
+        code: null,
+        stdout,
+        stderr,
+        error: `Output handler failed: ${error instanceof Error ? error.message : String(error)}${terminated ? "" : "; process group could not be confirmed stopped"}`,
+      }));
+    };
 
     const flushLines = (chunk, isError) => {
       const value = chunk.toString("utf8");
@@ -413,61 +460,59 @@ export function runBuffered(command, args, { onLine, timeoutMs = 120_000, env = 
       if (isError) stderrPending = pending;
       else stdoutPending = pending;
       for (const line of lines) {
-        if (line.trim()) onLine?.(line);
+        const error = invokeLine(line);
+        if (error) {
+          outputCallbackFailed(error);
+          return;
+        }
       }
-    };
-
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      clearInterval(cancellationTimer);
-      if (stdoutPending.trim()) onLine?.(stdoutPending);
-      if (stderrPending.trim()) onLine?.(stderrPending);
-      resolve(result);
     };
 
     if (cancelPath) {
       cancellationTimer = setInterval(() => {
-        if (!existsSync(cancelPath) || settled) return;
-        timedOut = true;
-        void terminateProcessGroup(child.pid, 2_000).then(() => {
+        if (!existsSync(cancelPath) || settled || terminating) return;
+        terminateOnce(() => {
           const error = new DeviceBuildError("Device build was cancelled.");
           error.code = "SWIFT_SIM_BUILD_CANCELLED";
-          finish({ code: null, stdout, stderr, error: error.message, cancellationError: error });
+          return { code: null, stdout, stderr, error: error.message, cancellationError: error };
         });
       }, 100);
       cancellationTimer.unref?.();
     }
 
     const timer = setTimeout(() => {
-      if (settled) return;
-      timedOut = true;
-      void terminateProcessGroup(child.pid, 2_000).then((terminated) => {
-        finish({
-          code: null,
-          stdout,
-          stderr,
-          error: terminated
-            ? `${command} timed out`
-            : `${command} timed out and its process group could not be confirmed stopped`,
-        });
-      });
+      if (settled || terminating) return;
+      terminateOnce((terminated) => ({
+        code: null,
+        stdout,
+        stderr,
+        error: terminated
+          ? `${command} timed out`
+          : `${command} timed out and its process group could not be confirmed stopped`,
+      }));
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
+      if (settled || terminating) return;
       stdout = appendBoundedOutput(stdout, chunk.toString("utf8"));
       flushLines(chunk, false);
     });
     child.stderr.on("data", (chunk) => {
+      if (settled || terminating) return;
       stderr = appendBoundedOutput(stderr, chunk.toString("utf8"));
       flushLines(chunk, true);
     });
     child.on("error", (error) => {
+      if (terminating) return;
       finish({ code: null, stdout, stderr, error: error.message });
     });
     child.on("close", (code) => {
-      if (timedOut) return;
+      if (terminating || settled) return;
+      const pendingError = invokeLine(stdoutPending) || invokeLine(stderrPending);
+      if (pendingError) {
+        outputCallbackFailed(pendingError);
+        return;
+      }
       finish({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
     });
   });
