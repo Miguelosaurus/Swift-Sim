@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveValidationWorkingDirectory } from "../mac-helper/src/buildValidation.js";
+import {
+  readBuildValidationPreferences,
+  resolveValidationWorkingDirectory,
+  runRequiredBuildValidation,
+} from "../mac-helper/src/buildValidation.js";
 
-function withProjects(run) {
+async function withProjects(run) {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-validation-test-"));
   const appA = join(root, "AppA");
   const appB = join(root, "AppB");
@@ -16,7 +20,7 @@ function withProjects(run) {
   mkdirSync(projectA, { recursive: true });
   mkdirSync(projectB, { recursive: true });
   try {
-    return run({ root, appA, appB, projectA, projectB });
+    return await run({ root, appA, appB, projectA, projectB });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -57,5 +61,47 @@ test("a broad parent containing multiple repositories cannot be a validation roo
       configuredDirectory: root,
     }),
     /is not part of the build target's repository/
+  );
+}));
+
+test("missing preferences default to explicit validation", () => withProjects(({ root }) => {
+  const preferences = readBuildValidationPreferences({ path: join(root, "missing.json") });
+  assert.equal(preferences.buildValidationMode, "explicit");
+}));
+
+test("an existing malformed preferences file fails closed", () => withProjects(({ root }) => {
+  const path = join(root, "preferences.json");
+  writeFileSync(path, "{broken-json", "utf8");
+  assert.throws(
+    () => readBuildValidationPreferences({ path }),
+    /Unable to read Swift Sim validation preferences/
+  );
+}));
+
+test("required validation runs asynchronously and succeeds", () => withProjects(async ({ projectA }) => {
+  await runRequiredBuildValidation({
+    project: projectA,
+    preferences: {
+      buildValidationMode: "always",
+      buildValidationCommand: `${JSON.stringify(process.execPath)} -e "process.exit(0)"`,
+      buildValidationWorkingDirectory: "",
+      buildValidationTimeoutSeconds: 10,
+    },
+  });
+}));
+
+test("required validation has a hard timeout", () => withProjects(async ({ projectA }) => {
+  await assert.rejects(
+    runRequiredBuildValidation({
+      project: projectA,
+      timeoutMs: 75,
+      preferences: {
+        buildValidationMode: "always",
+        buildValidationCommand: `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 5000)"`,
+        buildValidationWorkingDirectory: "",
+        buildValidationTimeoutSeconds: 10,
+      },
+    }),
+    /timed out/
   );
 }));
