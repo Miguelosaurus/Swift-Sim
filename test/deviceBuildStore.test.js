@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -112,20 +112,60 @@ test("a different installed version remains actionable", () => withStore((store)
   assert.equal(store.get(build.id).installation.state, "different-version");
 }));
 
-test("an expired build can generate a new install link from its saved app", () => withStore((store) => {
+test("a renewed token is committed only after delivery becomes ready", () => withStore((store) => {
   const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
-  build.expiresAt = "2026-01-01T00:00:00.000Z";
+  const oldToken = build.token;
+  const renewed = store.renewInstallLink(build.id, { ttlMinutes: 60 });
+
+  assert.equal(renewed.token, oldToken);
+  assert.ok(renewed.pendingRenewal?.token);
+  renewed.remoteBaseUrl = "https://new-link.example.com";
+  renewed.delivery.expiresAt = renewed.expiresAt;
+  store.save(renewed);
+
+  const committed = store.get(build.id);
+  assert.notEqual(committed.token, oldToken);
+  assert.equal(committed.pendingRenewal, undefined);
+}));
+
+test("a failed renewal rollback preserves the previous working token", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
   build.remoteBaseUrl = "https://old-link.example.com";
-  build.delivery = {
-    mode: "quick-tunnel",
-    provider: "cloudflare-quick-tunnel",
-    expiresAt: "2026-01-01T00:00:00.000Z",
-  };
+  build.delivery = { mode: "quick-tunnel", provider: "cloudflare-quick-tunnel", expiresAt: build.expiresAt };
   store.save(build);
+  const oldToken = build.token;
+  const oldExpiry = build.expiresAt;
+  const oldDelivery = structuredClone(build.delivery);
 
   const renewed = store.renewInstallLink(build.id, { ttlMinutes: 60 });
-  assert.ok(Date.parse(renewed.expiresAt) > Date.now() + 59 * 60 * 1000);
-  assert.equal(renewed.remoteBaseUrl, "");
-  assert.equal(renewed.delivery.mode, "quick-tunnel");
-  assert.equal(renewed.state, "ready");
+  renewed.expiresAt = oldExpiry;
+  renewed.remoteBaseUrl = "https://old-link.example.com";
+  renewed.delivery = oldDelivery;
+  store.save(renewed);
+
+  const rolledBack = store.get(build.id);
+  assert.equal(rolledBack.token, oldToken);
+  assert.equal(rolledBack.pendingRenewal, undefined);
+}));
+
+test("a stale writer cannot resurrect a deleted build", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  const stale = structuredClone(build);
+  assert.equal(store.deleteApp(build.app.identity, { deleteArtifacts: false }), true);
+  store.save(stale);
+  assert.equal(store.get(build.id), undefined);
+}));
+
+test("artifact cleanup is durable and removed after successful deletion", () => withStore((store, directory) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  const artifactRoot = join(directory, "artifact-root");
+  mkdirSync(artifactRoot, { recursive: true });
+  build.artifacts.root = artifactRoot;
+  store.save(build);
+
+  assert.equal(store.deleteApp(build.app.identity), true);
+  assert.equal(existsSync(artifactRoot), false);
+  const persisted = JSON.parse(readFileSync(join(directory, "builds.json"), "utf8"));
+  assert.deepEqual(persisted.artifactCleanupJobs, {});
+  assert.equal("deletedBuildIDs" in persisted, false);
 }));
