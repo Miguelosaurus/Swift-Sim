@@ -1,0 +1,36 @@
+name: Apply review round 4
+
+on:
+  pull_request:
+    paths:
+      - scripts/apply-review-round-4.py
+      - .github/workflows/apply-review-round-4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/open-source-launch-hardening-round-1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Apply targeted fixes
+        run: python3 scripts/apply-review-round-4.py
+      - name: Validate Node and documentation suite
+        run: |
+          npm ci
+          npm run check
+      - name: Commit applied fixes
+        run: |
+          rm scripts/apply-review-round-4.py .github/workflows/apply-review-round-4.yml
+          git add -A
+          git config user.name "swift-sim-review-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "fix lifecycle hardening review findings"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
