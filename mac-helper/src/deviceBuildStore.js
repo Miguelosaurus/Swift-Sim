@@ -24,11 +24,13 @@ const ACTIVE_BUILD_STATES = new Set([
   "archiving",
   "building",
   "exporting",
+  "failed",
 ]);
 
 export class DeviceBuildStore extends DeviceBuildStoreCore {
   constructor(options = {}) {
     super(options);
+    this.runMaintenance();
     this.maintenanceTimer = setInterval(() => {
       try { this.runMaintenance(); } catch {}
       try { this.drainArtifactCleanupJobs(); } catch {}
@@ -219,7 +221,14 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
   }
 
   readOnly(operation) {
-    return this.withLock(() => structuredClone(operation(this.readState())));
+    return this.withLock(() => {
+      const state = this.readState();
+      if (recoverStaleRenewals(state.builds)) {
+        this.writeState(state);
+        this.applyState(state);
+      }
+      return structuredClone(operation(state));
+    });
   }
 
   withTransaction(operation) {
