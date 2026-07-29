@@ -33,6 +33,13 @@ jobs:
           path.write_text(text.replace(old, new, 1))
           PY
           python3 scripts/apply-review-round-4.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('test/ioHardening.test.js')
+          text = path.read_text()
+          text = text.replace('  req.destroy = () => {};\n', '')
+          path.write_text(text)
+          PY
       - name: Validate Node and documentation suite
         run: |
           npm ci
