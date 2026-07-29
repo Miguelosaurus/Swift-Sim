@@ -1,52 +1,66 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { createServer } from "node:net";
 import {
   DEFAULT_DEVICE_BUILD_TTL_MINUTES,
   normalizeDeviceBuildTTLMinutes,
 } from "./deviceBuildDefaults.js";
+import {
+  DeviceDeliveryAdapter as DeviceDeliveryAdapterCore,
+  DeviceDeliveryError as DeviceDeliveryErrorCore,
+} from "./deviceDeliveryCore.js";
 
-const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+export {
+  deviceDeliveryRequestAllowed,
+  parseQuickTunnelUrl,
+} from "./deviceDeliveryCore.js";
+
 const LIFECYCLE_LOCK_WAIT_MS = 60_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
+const GENERATION_PREFIX = ".generation-";
 
-export class DeviceDeliveryError extends Error {}
+export class DeviceDeliveryError extends DeviceDeliveryErrorCore {}
 
-export class DeviceDeliveryAdapter {
-  constructor({
-    statePath = join(homedir(), ".swift-sim", "device-delivery.json"),
-    logPath = join(homedir(), ".swift-sim", "device-delivery.log"),
-    managerPath = join(moduleDirectory, "..", "bin", "swift-sim-device-delivery.js"),
-    helperPath = join(moduleDirectory, "..", "bin", "swift-sim-helper-entry.js"),
-    gatewayPort = Number(process.env.SWIFT_SIM_DEVICE_GATEWAY_PORT || 0),
-  } = {}) {
-    this.statePath = statePath;
-    this.logPath = logPath;
-    this.managerPath = managerPath;
-    this.helperPath = helperPath;
-    this.gatewayPort = gatewayPort;
-    this.lifecycleLockPath = `${statePath}.lifecycle.lock`;
+export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
+  constructor(options = {}) {
+    super(options);
+    this.lifecycleLockPath = `${this.statePath}.lifecycle.lock`;
   }
 
   async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES } = {}) {
     ttlMinutes = normalizeDeviceBuildTTLMinutes(ttlMinutes);
     const release = await acquireLifecycleLock(this.lifecycleLockPath);
     try {
-      const current = this.status();
-      if (deliveryIsReusable(current, ttlMinutes)) return current;
-      terminateOwnedDelivery(current);
+      this.reapExpiredGenerations();
+      const records = deliveryStateRecords(this.statePath);
+      const reusable = records
+        .map((record) => record.state)
+        .filter((state) => deliveryIsReusable(state, ttlMinutes))
+        .sort((a, b) => Date.parse(a.expiresAt || "") - Date.parse(b.expiresAt || ""))[0];
+      if (reusable) return reusable;
 
       const generation = randomUUID();
-      const gatewayPort = this.gatewayPort || await availableLoopbackPort();
+      const generationStatePath = deliveryGenerationStatePath(this.statePath, generation);
+      const generationLogPath = deliveryGenerationLogPath(this.logPath, generation);
+      const hasActiveGeneration = records.some(({ state }) => deliveryProcessesAreOwned(state));
+      const gatewayPort = this.gatewayPort && !hasActiveGeneration
+        ? this.gatewayPort
+        : await availableLoopbackPort();
       const child = spawn(process.execPath, [
         this.managerPath,
         "--generation", generation,
-        "--state-path", this.statePath,
-        "--log-path", this.logPath,
+        "--state-path", generationStatePath,
+        "--log-path", generationLogPath,
         "--helper-path", this.helperPath,
         "--gateway-port", String(gatewayPort),
         "--ttl-minutes", String(ttlMinutes),
@@ -60,51 +74,61 @@ export class DeviceDeliveryAdapter {
       const deadline = Date.now() + 45_000;
       while (Date.now() < deadline) {
         await sleep(250);
-        const state = this.status();
-        if (state.generation !== generation) continue;
-        if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) return state;
+        const state = readStateFile(generationStatePath);
+        if (!state || state.generation !== generation) continue;
+        if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) {
+          return state;
+        }
         if (state.status === "failed") {
-          throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${this.logPath}`);
+          throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${generationLogPath}`);
         }
       }
 
-      const timedOutState = this.status();
-      if (timedOutState.generation === generation) terminateOwnedDelivery(timedOutState);
-      throw new DeviceDeliveryError(`Temporary delivery tunnel did not become ready. Log: ${this.logPath}`);
+      const timedOut = readStateFile(generationStatePath);
+      if (timedOut?.generation === generation) terminateOwnedDelivery(timedOut);
+      throw new DeviceDeliveryError(`Temporary delivery tunnel did not become ready. Log: ${generationLogPath}`);
     } finally {
       release();
     }
   }
 
+  statuses() {
+    return deliveryStateRecords(this.statePath).map(({ state }) => state);
+  }
+
   status() {
-    try {
-      return JSON.parse(readFileSync(this.statePath, "utf8"));
-    } catch {
-      return {
+    const states = this.statuses();
+    const active = states.filter((state) => deliveryProcessesAreOwned(state));
+    const selected = active
+      .filter((state) => state.status === "ready")
+      .sort(newestFirst)[0]
+      || active.sort(newestFirst)[0]
+      || states.sort(newestFirst)[0]
+      || {
         status: "stopped",
         provider: "cloudflare-quick-tunnel",
         publicBaseUrl: "",
       };
-    }
+    return {
+      ...selected,
+      activeGenerations: active.length,
+    };
   }
 
   stop() {
     const release = acquireLifecycleLockSync(this.lifecycleLockPath);
     try {
-      const state = this.status();
-      const stopped = terminateOwnedDelivery(state);
-      const shutdownGeneration = randomUUID();
+      let stopped = false;
+      for (const { path, state } of deliveryStateRecords(this.statePath)) {
+        stopped = terminateOwnedDelivery(state) || stopped;
+        if (path !== this.statePath) rmSync(path, { force: true });
+      }
       writeStateFile(this.statePath, {
-        ...state,
-        generation: shutdownGeneration,
-        managerPid: 0,
-        gatewayPid: 0,
-        tunnelPid: 0,
-        managerIdentity: null,
-        gatewayIdentity: null,
-        tunnelIdentity: null,
+        generation: randomUUID(),
         status: "stopped",
+        provider: "cloudflare-quick-tunnel",
         publicBaseUrl: "",
+        activeGenerations: 0,
         stoppedAt: new Date().toISOString(),
       });
       return stopped;
@@ -112,30 +136,67 @@ export class DeviceDeliveryAdapter {
       release();
     }
   }
-}
 
-export function deviceDeliveryRequestAllowed(method, pathname) {
-  const verb = String(method || "").toUpperCase();
-  if (verb === "POST") {
-    return /^\/api\/device-builds\/[^/]+\/install-request$/.test(pathname);
+  reapExpiredGenerations() {
+    const now = Date.now();
+    for (const { path, state } of deliveryStateRecords(this.statePath)) {
+      const expired = Number.isFinite(Date.parse(state.expiresAt || ""))
+        && Date.parse(state.expiresAt) <= now;
+      const terminal = ["expired", "failed", "stopped"].includes(state.status);
+      if (!expired && !terminal) continue;
+      terminateOwnedDelivery(state);
+      if (path !== this.statePath && !deliveryProcessesAreOwned(state)) {
+        rmSync(path, { force: true });
+      }
+    }
   }
-  if (verb !== "GET") return false;
-  if (pathname === "/health") return true;
-  if (/^\/d\/[^/]+$/.test(pathname)) return true;
-  return /^\/api\/device-builds\/[^/]+(?:\/links|\/artifact\/(?:ipa|manifest))?$/.test(pathname);
 }
 
-export function parseQuickTunnelUrl(output) {
-  const normalized = String(output || "").replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
-  return normalized.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i)?.[0] || "";
+export function deliveryGenerationStatePath(statePath, generation) {
+  return `${statePath}${GENERATION_PREFIX}${generation}.json`;
+}
+
+function deliveryGenerationLogPath(logPath, generation) {
+  return `${logPath}${GENERATION_PREFIX}${generation}.log`;
+}
+
+function deliveryStateRecords(statePath) {
+  const records = [];
+  const legacy = readStateFile(statePath);
+  if (legacy) records.push({ path: statePath, state: legacy });
+
+  const directory = dirname(statePath);
+  const prefix = `${basename(statePath)}${GENERATION_PREFIX}`;
+  try {
+    for (const name of readdirSync(directory)) {
+      if (!name.startsWith(prefix) || !name.endsWith(".json")) continue;
+      const path = join(directory, name);
+      const state = readStateFile(path);
+      if (state) records.push({ path, state });
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return records;
+}
+
+function readStateFile(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function newestFirst(a, b) {
+  return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
 }
 
 function deliveryIsReusable(state, ttlMinutes) {
   if (state.status !== "ready" || !state.publicBaseUrl) return false;
   if (!deliveryProcessesAreOwned(state)) return false;
   const requiredLifetime = normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60_000 - 30_000;
-  if (Date.parse(state.expiresAt || "") <= Date.now() + requiredLifetime) return false;
-  return true;
+  return Date.parse(state.expiresAt || "") > Date.now() + requiredLifetime;
 }
 
 function deliveryProcessesAreOwned(state) {
@@ -152,7 +213,9 @@ function terminateOwnedDelivery(state) {
   if (processIdentityMatches(state.managerIdentity)) {
     signalled = true;
     const managerPid = Number(state.managerIdentity.pid);
-    try { process.kill(-managerPid, "SIGTERM"); } catch { try { process.kill(managerPid, "SIGTERM"); } catch {} }
+    try { process.kill(-managerPid, "SIGTERM"); } catch {
+      try { process.kill(managerPid, "SIGTERM"); } catch {}
+    }
     waitForIdentityExit(state.managerIdentity, 5_000);
   }
 
@@ -234,9 +297,16 @@ function acquireLifecycleLockSync(lockPath) {
 
 function tryAcquireLifecycleLock(lockPath) {
   const ownerPath = join(lockPath, "owner.json");
-  const owner = { pid: process.pid, nonce: randomUUID(), createdAt: new Date().toISOString() };
+  const owner = {
+    pid: process.pid,
+    startedAt: processStartedAt(process.pid),
+    nonce: randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  let created = false;
   try {
     mkdirSync(lockPath, { mode: 0o700 });
+    created = true;
     writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
     return () => {
       try {
@@ -247,17 +317,24 @@ function tryAcquireLifecycleLock(lockPath) {
       } catch {}
     };
   } catch (error) {
-    if (error?.code !== "EEXIST") {
-      try { rmSync(lockPath, { recursive: true, force: true }); } catch {}
+    if (created) {
+      rmSync(lockPath, { recursive: true, force: true });
       throw error;
     }
+    if (error?.code !== "EEXIST") throw error;
     let current;
     try { current = JSON.parse(readFileSync(ownerPath, "utf8")); } catch {}
-    if ((current && !processIsAlive(current.pid)) || (!current && ownerlessLockIsStale(lockPath))) {
+    if ((current && !lockOwnerIsAlive(current)) || (!current && ownerlessLockIsStale(lockPath))) {
       rmSync(lockPath, { recursive: true, force: true });
     }
     return null;
   }
+}
+
+function lockOwnerIsAlive(owner) {
+  if (!processIsAlive(owner?.pid)) return false;
+  if (!owner?.startedAt) return true;
+  return processStartedAt(owner.pid) === owner.startedAt;
 }
 
 function ownerlessLockIsStale(lockPath) {
