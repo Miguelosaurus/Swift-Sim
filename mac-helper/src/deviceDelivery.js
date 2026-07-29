@@ -33,11 +33,7 @@ export class DeviceDeliveryAdapter {
     ttlMinutes = normalizeDeviceBuildTTLMinutes(ttlMinutes);
     const current = this.status();
     if (deliveryIsReusable(current, ttlMinutes)) return current;
-    if (processIsAlive(current.managerPid)) {
-      await terminateDeliveryProcessGroup(current);
-    } else {
-      await cleanupRecordedChildren(current);
-    }
+    terminateDeliveryProcessGroup(current);
 
     const generation = randomUUID();
     const gatewayPort = this.gatewayPort || await availableLoopbackPort();
@@ -82,7 +78,7 @@ export class DeviceDeliveryAdapter {
     }
   }
 
-  async stop() {
+  stop() {
     const state = this.status();
     const stopped = processIsAlive(state.managerPid) || processIsAlive(state.gatewayPid) || processIsAlive(state.tunnelPid);
     const shutdownGeneration = randomUUID();
@@ -94,7 +90,7 @@ export class DeviceDeliveryAdapter {
       publicBaseUrl: "",
       stoppedAt: "",
     }, null, 2), { mode: 0o600 });
-    await terminateDeliveryProcessGroup(state);
+    terminateDeliveryProcessGroup(state);
     writeFileSync(this.statePath, JSON.stringify({
       ...state,
       generation: shutdownGeneration,
@@ -133,28 +129,28 @@ function deliveryIsReusable(state, ttlMinutes) {
   return true;
 }
 
-async function terminateDeliveryProcessGroup(state) {
+function terminateDeliveryProcessGroup(state) {
   const managerPid = Number(state.managerPid);
   if (Number.isInteger(managerPid) && managerPid > 0 && processIsAlive(managerPid)) {
     try { process.kill(-managerPid, "SIGTERM"); } catch { try { process.kill(managerPid, "SIGTERM"); } catch {} }
-    await waitForProcessExit(managerPid, 5_000);
+    waitForProcessExit(managerPid, 5_000);
     if (processIsAlive(managerPid)) {
       try { process.kill(-managerPid, "SIGKILL"); } catch { try { process.kill(managerPid, "SIGKILL"); } catch {} }
-      await waitForProcessExit(managerPid, 2_000);
+      waitForProcessExit(managerPid, 2_000);
     }
   }
-  await cleanupRecordedChildren(state);
+  cleanupRecordedChildren(state);
 }
 
-async function cleanupRecordedChildren(state) {
+function cleanupRecordedChildren(state) {
   for (const pid of [state.gatewayPid, state.tunnelPid]) {
     const numericPid = Number(pid);
     if (!processIsAlive(numericPid)) continue;
     try { process.kill(numericPid, "SIGTERM"); } catch {}
-    await waitForProcessExit(numericPid, 2_000);
+    waitForProcessExit(numericPid, 2_000);
     if (processIsAlive(numericPid)) {
       try { process.kill(numericPid, "SIGKILL"); } catch {}
-      await waitForProcessExit(numericPid, 1_000);
+      waitForProcessExit(numericPid, 1_000);
     }
   }
 }
@@ -173,9 +169,11 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function waitForProcessExit(pid, timeoutMs) {
+function waitForProcessExit(pid, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  while (processIsAlive(pid) && Date.now() < deadline) await sleep(100);
+  while (processIsAlive(pid) && Date.now() < deadline) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
 }
 
 async function availableLoopbackPort() {
