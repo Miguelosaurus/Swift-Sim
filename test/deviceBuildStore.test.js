@@ -124,6 +124,23 @@ test("a stale builder save cannot erase verified installation state", () => with
   assert.equal(store.get(build.id).installation.state, "verified");
 }));
 
+test("a newer different-version observation supersedes stale verified state", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  store.saveVerification(build.id, {
+    state: "verified",
+    verifiedAt: "2026-07-03T00:00:00.000Z",
+    devices: [{ name: "Test iPhone", state: "installed", version: "1.0", build: "1" }],
+  });
+  const staleVerified = store.get(build.id);
+  staleVerified.installation.updatedAt = "2026-01-01T00:00:00.000Z";
+  store.saveVerification(build.id, {
+    state: "different-version",
+    devices: [{ name: "Test iPhone", state: "different-version", version: "2.0", build: "9" }],
+  });
+  store.save(staleVerified);
+  assert.equal(store.get(build.id).installation.state, "different-version");
+}));
+
 test("a different installed version remains actionable", () => withStore((store) => {
   const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
   store.markInstallRequested(build.id);
@@ -174,7 +191,7 @@ test("a renewed token is committed only after delivery becomes ready", () => wit
   assert.equal(committed.remoteBaseUrl, "https://new-link.example.com");
 }));
 
-test("a failed renewal rollback preserves the previous working token", () => withStore((store) => {
+test("a failed renewal waiter preserves the previous link and shared lease", () => withStore((store) => {
   const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
   build.remoteBaseUrl = "https://old-link.example.com";
   build.delivery = { mode: "quick-tunnel", provider: "cloudflare-quick-tunnel", expiresAt: build.expiresAt };
@@ -183,13 +200,36 @@ test("a failed renewal rollback preserves the previous working token", () => wit
   const oldExpiry = build.expiresAt;
   const oldDelivery = structuredClone(build.delivery);
   const renewed = store.renewInstallLink(build.id, { ttlMinutes: 60 });
+  const leaseID = renewed.pendingRenewal.id;
   renewed.expiresAt = oldExpiry;
   renewed.remoteBaseUrl = "https://old-link.example.com";
   renewed.delivery = oldDelivery;
   store.save(renewed);
   const rolledBack = store.get(build.id);
   assert.equal(rolledBack.token, oldToken);
-  assert.equal(rolledBack.pendingRenewal, undefined);
+  assert.equal(rolledBack.expiresAt, oldExpiry);
+  assert.equal(rolledBack.pendingRenewal.id, leaseID);
+}));
+
+test("one failed renewal waiter cannot cancel another successful waiter", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  build.remoteBaseUrl = "https://old-link.example.com";
+  build.delivery = { mode: "quick-tunnel", provider: "cloudflare-quick-tunnel", expiresAt: build.expiresAt };
+  store.save(build);
+  const oldToken = build.token;
+  const failed = store.renewInstallLink(build.id, { ttlMinutes: 60 });
+  const successful = store.renewInstallLink(build.id, { ttlMinutes: 60 });
+  failed.expiresAt = failed.pendingRenewal.previous.expiresAt;
+  failed.remoteBaseUrl = failed.pendingRenewal.previous.remoteBaseUrl;
+  failed.delivery = structuredClone(failed.pendingRenewal.previous.delivery);
+  store.save(failed);
+  successful.remoteBaseUrl = "https://new-link.example.com";
+  successful.delivery.expiresAt = successful.expiresAt;
+  store.save(successful);
+  const committed = store.get(build.id);
+  assert.notEqual(committed.token, oldToken);
+  assert.equal(committed.remoteBaseUrl, "https://new-link.example.com");
+  assert.equal(committed.pendingRenewal, undefined);
 }));
 
 test("an abandoned renewal lease rolls back on restart", () => withStore((store, directory) => {
@@ -206,6 +246,26 @@ test("an abandoned renewal lease rolls back on restart", () => withStore((store,
   assert.equal(recovered.pendingRenewal, undefined);
   assert.equal(recovered.token, oldToken);
   assert.equal(recovered.expiresAt, oldExpiry);
+}));
+
+test("clean read operations do not rewrite persistent build state", () => withStore((store, directory) => {
+  const path = join(directory, "builds.json");
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  const before = readFileSync(path, "utf8");
+  store.get(build.id);
+  store.list();
+  store.listApps();
+  store.getApp(build.app.identity);
+  assert.equal(readFileSync(path, "utf8"), before);
+}));
+
+test("reading an expired build retains its token for a truthful expired response", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  build.expiresAt = "2026-01-01T00:00:00.000Z";
+  store.save(build);
+  const token = build.token;
+  assert.equal(store.get(build.id).token, token);
+  assert.equal(store.get(build.id).tokenExpiredAt, "");
 }));
 
 test("a stale writer cannot resurrect a deleted build", () => withStore((store) => {
@@ -234,6 +294,21 @@ test("active build artifacts are not removed until the worker deadline has passe
   const artifactRoot = join(directory, "active-artifact-root");
   mkdirSync(artifactRoot, { recursive: true });
   build.state = "building";
+  build.artifacts.root = artifactRoot;
+  store.save(build);
+  assert.equal(store.deleteApp(build.app.identity), true);
+  assert.equal(existsSync(artifactRoot), true);
+  const persisted = JSON.parse(readFileSync(join(directory, "builds.json"), "utf8"));
+  const jobs = Object.values(persisted.artifactCleanupJobs);
+  assert.equal(jobs.length, 1);
+  assert.ok(Date.parse(jobs[0].nextAttemptAt) > Date.now() + 60 * 60 * 1000);
+}));
+
+test("failed build artifacts retain the worker cleanup fence", () => withStore((store, directory) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  const artifactRoot = join(directory, "failed-artifact-root");
+  mkdirSync(artifactRoot, { recursive: true });
+  build.state = "failed";
   build.artifacts.root = artifactRoot;
   store.save(build);
   assert.equal(store.deleteApp(build.app.identity), true);
