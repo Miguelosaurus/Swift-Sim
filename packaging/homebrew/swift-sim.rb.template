@@ -16,7 +16,7 @@ class SwiftSim < Formula
       system Formula["node@22"].opt_bin/"npm", "install", "--omit=dev", "--ignore-scripts"
     end
 
-    write_launcher "swift-sim", "mac-helper/bin/swift-sim.js"
+    write_launcher "swift-sim", "mac-helper/bin/swift-sim-entry.js"
     write_launcher "swift-sim-helper", "mac-helper/bin/swift-sim-helper.js"
   end
 
