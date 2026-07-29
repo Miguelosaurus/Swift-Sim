@@ -29,6 +29,9 @@ replace_once(test_path,
 '''import assert from "node:assert/strict";\nimport {''',
 '''import assert from "node:assert/strict";\nimport { spawnSync } from "node:child_process";\nimport {''')
 replace_once(test_path,
+'''import { mkdtempSync, readFileSync, rmSync } from "node:fs";''',
+'''import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";''')
+replace_once(test_path,
 '''function processIsAlive(pid) {\n  try {\n    process.kill(pid, 0);\n    return true;\n  } catch {\n    return false;\n  }\n}''',
 '''function processIsAlive(pid) {\n  try {\n    process.kill(pid, 0);\n  } catch {\n    return false;\n  }\n  const status = spawnSync("/bin/ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });\n  if (status.status !== 0) return false;\n  return !String(status.stdout || "").trim().startsWith("Z");\n}''')
 Path(test_path).write_text(Path(test_path).read_text() + r'''
