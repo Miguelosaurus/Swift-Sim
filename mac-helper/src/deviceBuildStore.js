@@ -77,7 +77,15 @@ export class DeviceBuildStore {
       if (existing) {
         incoming.installation = newerInstallation(existing.installation, incoming.installation);
         incoming.logs = mergeLogs(existing.logs, incoming.logs);
-        incoming.tokenExpiredAt = incoming.tokenExpiredAt || existing.tokenExpiredAt || "";
+        if (Number(existing.revision || 0) > Number(incoming.revision || 0)) {
+          incoming.token = existing.token;
+          incoming.tokenExpiredAt = existing.tokenExpiredAt || "";
+          incoming.expiresAt = existing.expiresAt;
+          incoming.remoteBaseUrl = existing.remoteBaseUrl;
+          incoming.delivery = structuredClone(existing.delivery);
+        } else {
+          incoming.tokenExpiredAt = incoming.tokenExpiredAt || existing.tokenExpiredAt || "";
+        }
       }
       incoming.revision = Math.max(Number(existing?.revision || 0), Number(incoming.revision || 0)) + 1;
       incoming.updatedAt = new Date().toISOString();
@@ -200,11 +208,10 @@ export class DeviceBuildStore {
   withTransaction(operation) {
     return this.withLock(() => {
       const state = this.readState();
-      const changedByExpiry = expireBuildTokens(state.builds);
+      expireBuildTokens(state.builds);
       const result = operation(state);
       this.writeState(state);
       this.applyState(state);
-      if (changedByExpiry) this.applyState(state);
       return structuredClone(result);
     });
   }
@@ -283,7 +290,6 @@ export function deviceAppIdentity(app = {}) {
 }
 
 function expireBuildTokens(builds) {
-  let changed = false;
   const now = Date.now();
   for (const build of builds.values()) {
     const expiresAt = Date.parse(build.expiresAt || "");
@@ -291,9 +297,7 @@ function expireBuildTokens(builds) {
     build.token = randomBytes(24).toString("base64url");
     build.tokenExpiredAt = new Date().toISOString();
     touchBuild(build);
-    changed = true;
   }
-  return changed;
 }
 
 function sortedBuilds(builds) {
