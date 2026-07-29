@@ -1,11 +1,12 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 const LOCK_WAIT_MS = 5_000;
+const OWNERLESS_LOCK_GRACE_MS = 250;
 
 export class DeviceBuildStore {
   constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
@@ -225,15 +226,22 @@ export class DeviceBuildStore {
     while (true) {
       try {
         mkdirSync(this.lockPath, { mode: 0o700 });
-        writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600 });
+        writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
         break;
       } catch (error) {
-        if (error?.code !== "EEXIST") throw error;
+        if (error?.code !== "EEXIST") {
+          rmSync(this.lockPath, { recursive: true, force: true });
+          throw error;
+        }
         let existingOwner;
         try {
           existingOwner = JSON.parse(readFileSync(ownerPath, "utf8"));
         } catch {}
         if (existingOwner && !processIsAlive(existingOwner.pid)) {
+          rmSync(this.lockPath, { recursive: true, force: true });
+          continue;
+        }
+        if (!existingOwner && ownerlessLockIsStale(this.lockPath)) {
           rmSync(this.lockPath, { recursive: true, force: true });
           continue;
         }
@@ -380,6 +388,14 @@ function mergeLogs(first = [], second = []) {
     overlap -= 1;
   }
   return [...prefix, ...suffix.slice(overlap)].slice(-MAX_DEVICE_BUILD_LOG_LINES);
+}
+
+function ownerlessLockIsStale(lockPath) {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs >= OWNERLESS_LOCK_GRACE_MS;
+  } catch {
+    return false;
+  }
 }
 
 function processIsAlive(pid) {
