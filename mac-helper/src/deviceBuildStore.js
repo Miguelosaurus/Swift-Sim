@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
+import { runRequiredBuildValidation } from "./buildValidation.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 const LOCK_WAIT_MS = 5_000;
@@ -14,11 +15,15 @@ export class DeviceBuildStore {
     this.lockPath = `${path}.lock`;
     this.builds = new Map();
     this.apps = new Map();
-    this.deletedBuildIDs = new Set();
+    this.artifactCleanupJobs = new Map();
     this.load();
+    this.drainArtifactCleanupJobs();
   }
 
   create(input) {
+    if (input.project || input.workspace) {
+      runRequiredBuildValidation({ project: input.project, workspace: input.workspace });
+    }
     const now = new Date().toISOString();
     const build = {
       id: randomUUID(),
@@ -66,28 +71,38 @@ export class DeviceBuildStore {
       },
       logs: [],
     };
-    return this.save(build);
+    return this.withTransaction((state) => {
+      const incoming = normalizeBuild(structuredClone(build));
+      incoming.revision = 1;
+      state.builds.set(incoming.id, incoming);
+      Object.assign(build, structuredClone(incoming));
+      return build;
+    });
   }
 
   save(build) {
     return this.withTransaction((state) => {
-      if (state.deletedBuildIDs.has(build.id)) return build;
       const existing = state.builds.get(build.id);
+      // Only create() may introduce an id. This permanently prevents a stale
+      // writer from resurrecting a build after its app has been deleted.
+      if (!existing) return build;
+
       const incoming = normalizeBuild(structuredClone(build));
-      if (existing) {
-        incoming.installation = newerInstallation(existing.installation, incoming.installation);
-        incoming.logs = mergeLogs(existing.logs, incoming.logs);
-        if (Number(existing.revision || 0) > Number(incoming.revision || 0)) {
-          incoming.token = existing.token;
-          incoming.tokenExpiredAt = existing.tokenExpiredAt || "";
-          incoming.expiresAt = existing.expiresAt;
-          incoming.remoteBaseUrl = existing.remoteBaseUrl;
-          incoming.delivery = structuredClone(existing.delivery);
-        } else {
-          incoming.tokenExpiredAt = incoming.tokenExpiredAt || existing.tokenExpiredAt || "";
-        }
+      incoming.installation = newerInstallation(existing.installation, incoming.installation);
+      incoming.logs = mergeLogs(existing.logs, incoming.logs);
+      if (Number(existing.revision || 0) > Number(incoming.revision || 0)) {
+        incoming.token = existing.token;
+        incoming.tokenExpiredAt = existing.tokenExpiredAt || "";
+        incoming.expiresAt = existing.expiresAt;
+        incoming.remoteBaseUrl = existing.remoteBaseUrl;
+        incoming.delivery = structuredClone(existing.delivery);
+        incoming.pendingRenewal = structuredClone(existing.pendingRenewal || null);
+      } else {
+        incoming.tokenExpiredAt = incoming.tokenExpiredAt || existing.tokenExpiredAt || "";
+        incoming.pendingRenewal = incoming.pendingRenewal || structuredClone(existing.pendingRenewal || null);
       }
-      incoming.revision = Math.max(Number(existing?.revision || 0), Number(incoming.revision || 0)) + 1;
+      finalizePendingRenewal(incoming);
+      incoming.revision = Math.max(Number(existing.revision || 0), Number(incoming.revision || 0)) + 1;
       incoming.updatedAt = new Date().toISOString();
       state.builds.set(incoming.id, incoming);
       Object.assign(build, structuredClone(incoming));
@@ -116,11 +131,19 @@ export class DeviceBuildStore {
     return this.withTransaction((state) => {
       const build = state.builds.get(id);
       if (!build) return null;
-      build.token = randomBytes(24).toString("base64url");
-      build.tokenExpiredAt = "";
-      build.expiresAt = new Date(
+      const nextExpiresAt = new Date(
         Date.now() + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000
       ).toISOString();
+      build.pendingRenewal = {
+        token: randomBytes(24).toString("base64url"),
+        createdAt: new Date().toISOString(),
+        previous: {
+          expiresAt: build.expiresAt,
+          remoteBaseUrl: build.remoteBaseUrl,
+          delivery: structuredClone(build.delivery || null),
+        },
+      };
+      build.expiresAt = nextExpiresAt;
       if (build.delivery?.mode !== "custom") {
         build.remoteBaseUrl = "";
         build.delivery = {
@@ -129,7 +152,7 @@ export class DeviceBuildStore {
           expiresAt: "",
         };
       } else {
-        build.delivery.expiresAt = build.expiresAt;
+        build.delivery.expiresAt = nextExpiresAt;
       }
       touchBuild(build);
       return build;
@@ -187,20 +210,47 @@ export class DeviceBuildStore {
   deleteApp(id, { deleteArtifacts = true } = {}) {
     const result = this.withTransaction((state) => {
       const app = listAppsFromState(state, true).find((candidate) => candidate.id === id);
-      if (!app) return { deleted: false, artifactRoots: [] };
-      const artifactRoots = [];
+      if (!app) return { deleted: false };
       for (const build of app.builds) {
-        if (deleteArtifacts && build.artifacts?.root) artifactRoots.push(build.artifacts.root);
+        if (deleteArtifacts && build.artifacts?.root) {
+          const job = {
+            id: randomUUID(),
+            root: build.artifacts.root,
+            createdAt: new Date().toISOString(),
+            attempts: 0,
+            lastError: "",
+          };
+          state.artifactCleanupJobs.set(job.id, job);
+        }
         state.builds.delete(build.id);
-        state.deletedBuildIDs.add(build.id);
       }
       state.apps.delete(id);
-      return { deleted: true, artifactRoots };
+      return { deleted: true };
     });
-    for (const root of result.artifactRoots) {
-      rmSync(root, { recursive: true, force: true });
-    }
+    if (result.deleted) this.drainArtifactCleanupJobs();
     return result.deleted;
+  }
+
+  drainArtifactCleanupJobs() {
+    const jobs = this.withLock(() => [...this.readState().artifactCleanupJobs.values()]);
+    for (const job of jobs) {
+      try {
+        rmSync(job.root, { recursive: true, force: true });
+        this.withTransaction((state) => {
+          state.artifactCleanupJobs.delete(job.id);
+          return true;
+        });
+      } catch (error) {
+        this.withTransaction((state) => {
+          const current = state.artifactCleanupJobs.get(job.id);
+          if (!current) return false;
+          current.attempts = Number(current.attempts || 0) + 1;
+          current.lastError = error instanceof Error ? error.message : String(error);
+          current.updatedAt = new Date().toISOString();
+          return false;
+        });
+      }
+    }
   }
 
   load() {
@@ -224,15 +274,18 @@ export class DeviceBuildStore {
     const ownerPath = join(this.lockPath, "owner.json");
     const owner = { pid: process.pid, nonce: randomUUID(), createdAt: new Date().toISOString() };
     while (true) {
+      let created = false;
       try {
         mkdirSync(this.lockPath, { mode: 0o700 });
+        created = true;
         writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
         break;
       } catch (error) {
-        if (error?.code !== "EEXIST") {
+        if (created) {
           rmSync(this.lockPath, { recursive: true, force: true });
           throw error;
         }
+        if (error?.code !== "EEXIST") throw error;
         let existingOwner;
         try {
           existingOwner = JSON.parse(readFileSync(ownerPath, "utf8"));
@@ -270,11 +323,11 @@ export class DeviceBuildStore {
           return [normalized.id, normalized];
         })),
         apps: new Map(Object.entries(parsed.apps || {})),
-        deletedBuildIDs: new Set(parsed.deletedBuildIDs || []),
+        artifactCleanupJobs: new Map(Object.entries(parsed.artifactCleanupJobs || {})),
       };
     } catch (error) {
       if (error?.code === "ENOENT") {
-        return { builds: new Map(), apps: new Map(), deletedBuildIDs: new Set() };
+        return { builds: new Map(), apps: new Map(), artifactCleanupJobs: new Map() };
       }
       throw new Error(`Unable to read Swift Sim build state: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -284,9 +337,9 @@ export class DeviceBuildStore {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
     writeFileSync(temporaryPath, JSON.stringify({
-      version: 3,
+      version: 4,
       apps: Object.fromEntries(state.apps),
-      deletedBuildIDs: [...state.deletedBuildIDs],
+      artifactCleanupJobs: Object.fromEntries(state.artifactCleanupJobs),
       builds: [...state.builds.values()],
     }, null, 2), { mode: 0o600 });
     renameSync(temporaryPath, this.path);
@@ -295,7 +348,7 @@ export class DeviceBuildStore {
   applyState(state) {
     this.builds = new Map(state.builds);
     this.apps = new Map(state.apps);
-    this.deletedBuildIDs = new Set(state.deletedBuildIDs);
+    this.artifactCleanupJobs = new Map(state.artifactCleanupJobs);
   }
 }
 
@@ -309,9 +362,31 @@ export function deviceAppIdentity(app = {}) {
     .slice(0, 24);
 }
 
+function finalizePendingRenewal(build) {
+  const pending = build.pendingRenewal;
+  if (!pending) return;
+  const previous = pending.previous || {};
+  if (build.expiresAt === previous.expiresAt
+      && build.remoteBaseUrl === previous.remoteBaseUrl
+      && JSON.stringify(build.delivery || null) === JSON.stringify(previous.delivery || null)) {
+    delete build.pendingRenewal;
+    return;
+  }
+  const customReady = build.delivery?.mode === "custom"
+    && build.delivery?.expiresAt === build.expiresAt;
+  const quickTunnelReady = build.delivery?.mode === "quick-tunnel"
+    && Boolean(build.remoteBaseUrl)
+    && Boolean(build.delivery?.expiresAt);
+  if (!customReady && !quickTunnelReady) return;
+  build.token = pending.token;
+  build.tokenExpiredAt = "";
+  delete build.pendingRenewal;
+}
+
 function expireBuildTokens(builds) {
   const now = Date.now();
   for (const build of builds.values()) {
+    if (build.pendingRenewal) continue;
     const expiresAt = Date.parse(build.expiresAt || "");
     if (!Number.isFinite(expiresAt) || expiresAt >= now || build.tokenExpiredAt) continue;
     build.token = randomBytes(24).toString("base64url");
@@ -358,6 +433,7 @@ function normalizeBuild(build) {
   build.logs = Array.isArray(build.logs) ? build.logs.slice(-MAX_DEVICE_BUILD_LOG_LINES) : [];
   build.revision = Number(build.revision || 0);
   build.tokenExpiredAt = build.tokenExpiredAt || "";
+  if (!build.pendingRenewal) delete build.pendingRenewal;
   return build;
 }
 
