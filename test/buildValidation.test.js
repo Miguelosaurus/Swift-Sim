@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveValidationWorkingDirectory } from "../mac-helper/src/buildValidation.js";
@@ -23,7 +23,7 @@ function withProjects(run) {
 test("validation defaults to the requested Xcode target directory", () => withProjects(({ root, appA }) => {
   assert.equal(
     resolveValidationWorkingDirectory({ args: ["--project", "AppA/AppA.xcodeproj"], cwd: root }),
-    appA
+    realpathSync(appA)
   );
 }));
 
@@ -33,7 +33,7 @@ test("a configured repository root must contain the requested build target", () 
       args: ["--project", projectA],
       configuredDirectory: appA,
     }),
-    appA
+    realpathSync(appA)
   );
 }));
 
