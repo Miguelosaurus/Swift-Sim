@@ -1,4 +1,4 @@
-name: Round 3 Apply
+name: Round 3 Tree Record
 
 on:
   push:
@@ -11,61 +11,16 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: round3-apply-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  apply-and-verify:
-    runs-on: macos-26
-    timeout-minutes: 45
+  record:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
-        with:
-          node-version: 22
-          cache: npm
-      - name: Apply round 3 fixes
-        run: python3 scripts/run-round3.py
-      - run: npm ci
-      - run: npm run check
-      - run: |
-          ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
-      - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh
-      - name: Run iOS app tests
-        timeout-minutes: 12
-        run: |
-          set -euo pipefail
-          DESTINATION=$(python3 - <<'PY'
-          import json, subprocess
-          payload = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
-          for runtime, devices in payload.get("devices", {}).items():
-              if "iOS" not in runtime:
-                  continue
-              for device in devices:
-                  udid = device.get("udid")
-                  if udid:
-                      print(f"platform=iOS Simulator,id={udid}")
-                      raise SystemExit
-          raise SystemExit("No available iOS Simulator found")
-          PY
-          )
-          xcodebuild test \
-            -project Companion/SwiftSimCompanion.xcodeproj \
-            -scheme SwiftSimCompanion \
-            -destination "$DESTINATION" \
-            -configuration Debug \
-            -parallel-testing-enabled NO \
-            -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 30 \
-            -maximum-test-execution-time-allowance 60
-      - name: Publish clean commit to PR 2
-        if: github.event_name == 'push'
+      - name: Compute clean tree
         env:
           BASE_COMMIT: 24f975b38e8134aa0b58cf2c75d7d8fef110eba0
-          TARGET_BRANCH: agent/open-source-launch-hardening-round-1
         run: |
           set -euo pipefail
           FILES=(
@@ -89,6 +44,14 @@ jobs:
             git update-index --add --cacheinfo "$mode,$blob,$file"
           done
           tree=$(git write-tree)
-          commit=$(printf '%s\n' 'Fix round 3 lifecycle findings' | git commit-tree "$tree" -p "$BASE_COMMIT")
-          git push --force origin "$commit:refs/heads/$TARGET_BRANCH"
-          echo "Published clean commit $commit"
+          printf '%s\n' "$tree" > docs/ROUND3_CLEAN_TREE.txt
+          echo "Clean tree: $tree"
+      - name: Publish tree record
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "swift-sim-review-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/ROUND3_CLEAN_TREE.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Record clean round 3 tree"
+          git push origin HEAD:agent/open-source-launch-hardening-round-3-work
