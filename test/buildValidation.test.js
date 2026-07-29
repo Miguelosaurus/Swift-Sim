@@ -9,8 +9,10 @@ function withProjects(run) {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-validation-test-"));
   const appA = join(root, "AppA");
   const appB = join(root, "AppB");
-  const projectA = join(appA, "AppA.xcodeproj");
-  const projectB = join(appB, "AppB.xcodeproj");
+  const projectA = join(appA, "ios", "AppA.xcodeproj");
+  const projectB = join(appB, "ios", "AppB.xcodeproj");
+  mkdirSync(join(appA, ".git"), { recursive: true });
+  mkdirSync(join(appB, ".git"), { recursive: true });
   mkdirSync(projectA, { recursive: true });
   mkdirSync(projectB, { recursive: true });
   try {
@@ -20,20 +22,21 @@ function withProjects(run) {
   }
 }
 
-test("validation defaults to the requested Xcode target directory", () => withProjects(({ root, appA }) => {
+test("validation defaults to the requested target repository", () => withProjects(({ root, appA }) => {
   assert.equal(
-    resolveValidationWorkingDirectory({ args: ["--project", "AppA/AppA.xcodeproj"], cwd: root }),
+    resolveValidationWorkingDirectory({ args: ["--project", "AppA/ios/AppA.xcodeproj"], cwd: root }),
     realpathSync(appA)
   );
 }));
 
-test("a configured repository root must contain the requested build target", () => withProjects(({ appA, projectA }) => {
+test("a configured directory inside the target repository may contain the Xcode target", () => withProjects(({ appA, projectA }) => {
+  const iosDirectory = join(appA, "ios");
   assert.equal(
     resolveValidationWorkingDirectory({
       args: ["--project", projectA],
-      configuredDirectory: appA,
+      configuredDirectory: iosDirectory,
     }),
-    realpathSync(appA)
+    realpathSync(iosDirectory)
   );
 }));
 
@@ -44,5 +47,15 @@ test("validation for one project cannot authorize a different project", () => wi
       configuredDirectory: appA,
     }),
     /does not contain the requested build target/
+  );
+}));
+
+test("a broad parent containing multiple repositories cannot be a validation root", () => withProjects(({ root, projectA }) => {
+  assert.throws(
+    () => resolveValidationWorkingDirectory({
+      args: ["--project", projectA],
+      configuredDirectory: root,
+    }),
+    /is not part of the build target's repository/
   );
 }));
