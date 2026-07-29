@@ -73,7 +73,9 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply reviewed fixes
-        run: python3 scripts/apply-review-round-4.py
+        run: |
+          python3 scripts/apply-review-round-4.py
+          python3 scripts/fix-review-round-4-followup.py
       - name: Publish isolated diagnostic snapshot
         run: |
           set -euo pipefail
@@ -120,7 +122,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout dc31e1530682c8d68d5f190143ad02af10a71d4a -- .github/workflows/verify.yml
-          git rm scripts/apply-review-round-4.py .github/workflows/apply-review-round-4.yml
+          git rm scripts/apply-review-round-4.py scripts/fix-review-round-4-followup.py .github/workflows/apply-review-round-4.yml
           git add -A
           git commit -m "Harden renewal and lifecycle races"
           git push origin HEAD:agent/open-source-launch-hardening-round-1
