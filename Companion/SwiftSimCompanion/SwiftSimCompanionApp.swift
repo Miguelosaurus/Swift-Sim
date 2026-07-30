@@ -1,5 +1,6 @@
 import SwiftUI
 import Security
+import Foundation
 
 @main
 struct SwiftSimCompanionApp: App {
@@ -8,6 +9,7 @@ struct SwiftSimCompanionApp: App {
     @State private var pairingAlert: PairingAlert?
 
     init() {
+        URLProtocol.registerClass(SwiftSimRequestFenceProtocol.self)
         PairingCredentialVault.prepareForSessionStore()
         PairingCredentialVault.startMonitoring()
         _sessionStore = StateObject(wrappedValue: SessionStore())
@@ -58,6 +60,132 @@ struct SwiftSimCompanionApp: App {
                     Task { await sessionStore.refreshAppState() }
                 }
         }
+    }
+}
+
+private final class SwiftSimRequestFenceProtocol: URLProtocol, @unchecked Sendable {
+    private struct LaneState {
+        var running: SwiftSimRequestFenceProtocol?
+        var pending: SwiftSimRequestFenceProtocol?
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var lanes: [String: LaneState] = [:]
+
+    private var task: URLSessionDataTask?
+    private var session: URLSession?
+    private var completed = false
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        guard request.value(forHTTPHeaderField: "X-Swift-Sim-Fenced") == nil,
+              let path = request.url?.path else { return false }
+        return path == "/api/pairing/status" || isSessionStatePath(path)
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let lane = Self.lane(for: request) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+
+        var shouldStart = false
+        var runningToCancel: SwiftSimRequestFenceProtocol?
+        var pendingToSupersede: SwiftSimRequestFenceProtocol?
+        Self.lock.lock()
+        var state = Self.lanes[lane] ?? LaneState()
+        if state.running == nil {
+            state.running = self
+            shouldStart = true
+        } else {
+            pendingToSupersede = state.pending
+            state.pending = self
+            runningToCancel = state.running
+        }
+        Self.lanes[lane] = state
+        Self.lock.unlock()
+
+        pendingToSupersede?.failBeforeStart()
+        runningToCancel?.task?.cancel()
+        if shouldStart { beginNetworkRequest() }
+    }
+
+    override func stopLoading() {
+        task?.cancel()
+    }
+
+    private func beginNetworkRequest() {
+        var forwarded = request
+        forwarded.setValue("1", forHTTPHeaderField: "X-Swift-Sim-Fenced")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = []
+        let session = URLSession(configuration: configuration)
+        self.session = session
+        task = session.dataTask(with: forwarded) { [weak self] data, response, error in
+            guard let self else { return }
+            if let error {
+                self.client?.urlProtocol(self, didFailWithError: error)
+            } else if let response {
+                self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                if let data, !data.isEmpty {
+                    self.client?.urlProtocol(self, didLoad: data)
+                }
+                self.client?.urlProtocolDidFinishLoading(self)
+            } else {
+                self.client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            }
+            self.finishLane()
+        }
+        task?.resume()
+    }
+
+    private func failBeforeStart() {
+        guard !completed else { return }
+        completed = true
+        client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+    }
+
+    private func finishLane() {
+        guard !completed, let lane = Self.lane(for: request) else { return }
+        completed = true
+        session?.finishTasksAndInvalidate()
+        var next: SwiftSimRequestFenceProtocol?
+        Self.lock.lock()
+        var state = Self.lanes[lane] ?? LaneState()
+        if state.running === self {
+            next = state.pending
+            state.running = next
+            state.pending = nil
+            if state.running == nil {
+                Self.lanes.removeValue(forKey: lane)
+            } else {
+                Self.lanes[lane] = state
+            }
+        }
+        Self.lock.unlock()
+        next?.beginNetworkRequest()
+    }
+
+    private static func lane(for request: URLRequest) -> String? {
+        guard let path = request.url?.path else { return nil }
+        if path == "/api/pairing/status" { return "helper-status" }
+        let parts = path.split(separator: "/")
+        if parts.count == 4, parts[0] == "api", parts[1] == "sessions", parts[3] == "logs" {
+            return "simulator-logs"
+        }
+        if parts.count == 3, parts[0] == "api", parts[1] == "sessions" {
+            return "simulator-status"
+        }
+        return nil
+    }
+
+    private static func isSessionStatePath(_ path: String) -> Bool {
+        let parts = path.split(separator: "/")
+        return (parts.count == 3 && parts[0] == "api" && parts[1] == "sessions")
+            || (parts.count == 4 && parts[0] == "api" && parts[1] == "sessions" && parts[3] == "logs")
     }
 }
 
