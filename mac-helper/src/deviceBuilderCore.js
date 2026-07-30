@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { homedir } from "node:os";
@@ -390,25 +391,50 @@ function collectBuildSettingLine(collector, line) {
 }
 
 function selectApplicationBuildSettings(collector, scheme = "") {
-  const applicationSections = collector.sections.filter(({ settings }) =>
-    settings.WRAPPER_EXTENSION === "app"
-    && !String(settings.PRODUCT_TYPE || "").includes("app-extension")
-  );
   const normalizedScheme = String(scheme || "").trim();
-  const exact = applicationSections.find(({ target, settings }) =>
-    target === normalizedScheme
-    || settings.TARGET_NAME === normalizedScheme
-    || settings.PRODUCT_NAME === normalizedScheme
-  );
-  const selected = exact || (applicationSections.length === 1 ? applicationSections[0] : null);
-  if (selected) return selected.settings;
-  if (applicationSections.length > 1) {
-    throw new DeviceBuildError(`Xcode reported multiple application targets for scheme ${normalizedScheme || "(unknown)"}.`);
+  const candidates = collector.sections.filter(({ settings }) => {
+    const productType = String(settings.PRODUCT_TYPE || "");
+    return settings.WRAPPER_EXTENSION === "app"
+      && !productType.includes("app-extension")
+      && !productType.includes("unit-test")
+      && !productType.includes("ui-testing");
+  });
+  const scored = candidates
+    .map((section) => ({ section, score: applicationSectionScore(section, normalizedScheme) }))
+    .sort((a, b) => b.score - a.score || a.section.target.localeCompare(b.section.target));
+
+  if (scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)) {
+    return scored[0].section.settings;
   }
-  if (Object.keys(collector.loose).length > 0 && collector.loose.WRAPPER_EXTENSION === "app") {
+  if (scored.length > 1) {
+    const hostApps = scored.filter(({ section }) =>
+      section.settings.PRODUCT_TYPE === "com.apple.product-type.application"
+    );
+    if (hostApps.length === 1) return hostApps[0].section.settings;
+    const names = scored.map(({ section }) => section.target).join(", ");
+    throw new DeviceBuildError(
+      `Xcode reported multiple equally likely application targets for scheme ${normalizedScheme || "(unknown)"}: ${names}.`
+    );
+  }
+  if (Object.keys(collector.loose).length > 0
+      && collector.loose.WRAPPER_EXTENSION === "app"
+      && !String(collector.loose.PRODUCT_TYPE || "").includes("app-extension")) {
     return collector.loose;
   }
   throw new DeviceBuildError(`Xcode did not report an application target for scheme ${normalizedScheme || "(unknown)"}.`);
+}
+
+function applicationSectionScore({ target, settings }, scheme) {
+  const productType = String(settings.PRODUCT_TYPE || "");
+  let score = 0;
+  if (target === scheme || settings.TARGET_NAME === scheme || settings.PRODUCT_NAME === scheme) score += 100;
+  if (productType === "com.apple.product-type.application") score += 80;
+  if (settings.SKIP_INSTALL !== "YES") score += 20;
+  if (/iphoneos|iphonesimulator/.test(String(settings.SUPPORTED_PLATFORMS || ""))) score += 10;
+  if (productType.includes("on-demand-install-capable")) score -= 80;
+  if (productType.includes("watchapp")) score -= 80;
+  if (productType.includes("messages")) score -= 60;
+  return score;
 }
 
 function targetArgs(target) {
@@ -447,6 +473,8 @@ export function runBuffered(command, args, {
     let stderr = "";
     let stdoutPending = "";
     let stderrPending = "";
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
     let settled = false;
     let terminating = false;
     let cancellationTimer;
@@ -514,8 +542,7 @@ export function runBuffered(command, args, {
       }));
     };
 
-    const flushLines = (chunk, isError) => {
-      const value = chunk.toString("utf8");
+    const flushLines = (value, isError) => {
       const combined = (isError ? stderrPending : stdoutPending) + value;
       const lines = combined.split(/\r?\n/);
       const pending = lines.pop() || "";
@@ -523,11 +550,9 @@ export function runBuffered(command, args, {
       else stdoutPending = pending;
       for (const line of lines) {
         const error = invokeLine(line);
-        if (error) {
-          outputCallbackFailed(error);
-          return;
-        }
+        if (error) return error;
       }
+      return null;
     };
 
     if (cancelPath) {
@@ -556,13 +581,17 @@ export function runBuffered(command, args, {
 
     child.stdout.on("data", (chunk) => {
       if (settled || terminating) return;
-      stdout = appendBoundedOutput(stdout, chunk.toString("utf8"));
-      flushLines(chunk, false);
+      const value = stdoutDecoder.write(chunk);
+      stdout = appendBoundedOutput(stdout, value);
+      const error = flushLines(value, false);
+      if (error) outputCallbackFailed(error);
     });
     child.stderr.on("data", (chunk) => {
       if (settled || terminating) return;
-      stderr = appendBoundedOutput(stderr, chunk.toString("utf8"));
-      flushLines(chunk, true);
+      const value = stderrDecoder.write(chunk);
+      stderr = appendBoundedOutput(stderr, value);
+      const error = flushLines(value, true);
+      if (error) outputCallbackFailed(error);
     });
     child.on("error", (error) => {
       if (terminating) return;
@@ -570,7 +599,14 @@ export function runBuffered(command, args, {
     });
     child.on("close", (code) => {
       if (terminating || settled) return;
-      const pendingError = invokeLine(stdoutPending) || invokeLine(stderrPending);
+      const stdoutTail = stdoutDecoder.end();
+      const stderrTail = stderrDecoder.end();
+      stdout = appendBoundedOutput(stdout, stdoutTail);
+      stderr = appendBoundedOutput(stderr, stderrTail);
+      const pendingError = flushLines(stdoutTail, false)
+        || flushLines(stderrTail, true)
+        || invokeLine(stdoutPending)
+        || invokeLine(stderrPending);
       if (pendingError) {
         outputCallbackFailed(pendingError);
         return;
