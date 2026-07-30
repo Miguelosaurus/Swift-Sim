@@ -25,8 +25,15 @@ export function installHelperHttpBoundary() {
     }
     const guardedListener = typeof resolvedListener === "function"
       ? (req, res) => {
-          if (handlePairingFallback(req, res)) return;
-          if (handlePublicBuildLogs(req, res)) return;
+          try {
+            if (handlePairingFallback(req, res)) return;
+            if (handlePublicBuildLogs(req, res)) return;
+          } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            if (!res.headersSent) writeJson(res, 503, { error: "Swift Sim is temporarily unavailable." });
+            else res.destroy(error instanceof Error ? error : undefined);
+            return;
+          }
           return resolvedListener(req, res);
         }
       : resolvedListener;
