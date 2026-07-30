@@ -19,7 +19,7 @@
   },
   "scripts": {
     "start": "node mac-helper/bin/swift-sim-entry.js serve",
-    "check": "node --check mac-helper/bin/swift-sim-entry.js && node --check mac-helper/bin/swift-sim-helper-entry.js && node --check mac-helper/src/buildValidation.js && node --check mac-helper/bin/swift-sim.js && node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && node --check mac-helper/src/deviceBuilder.js && node --check mac-helper/src/deviceBuilderCore.js && node --check mac-helper/src/deviceBuildStore.js && node --check mac-helper/src/deviceBuildStoreCore.js && node --check mac-helper/src/deviceDelivery.js && node --check mac-helper/src/deviceDeliveryCore.js && node --check mac-helper/src/fileServer.js && npm run check:docs && npm test",
+    "check": "node --check mac-helper/bin/swift-sim-entry.js && node --check mac-helper/bin/swift-sim-helper-entry.js && node --check mac-helper/src/buildValidation.js && node --check mac-helper/bin/swift-sim.js && node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && node --check mac-helper/bin/swift-sim-device-gateway.js && node --check mac-helper/src/deviceBuilder.js && node --check mac-helper/src/deviceBuilderCore.js && node --check mac-helper/src/deviceBuildStore.js && node --check mac-helper/src/deviceBuildStoreCore.js && node --check mac-helper/src/deviceDelivery.js && node --check mac-helper/src/deviceDeliveryCore.js && node --check mac-helper/src/fileServer.js && npm run check:docs && npm test",
     "check:docs": "node scripts/verify-docs.js",
     "test": "node --test test/*.test.js benchmarks/test/*.test.js",
     "test:benchmarks": "node --test benchmarks/test/*.test.js",
