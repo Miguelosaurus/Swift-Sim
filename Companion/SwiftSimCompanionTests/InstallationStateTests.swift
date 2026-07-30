@@ -364,3 +364,18 @@ extension InstallationStateTests {
         XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), firstID)
     }
 }
+
+
+extension InstallationStateTests {
+    @MainActor
+    func testDeviceBuildResponseIdentityIncludesCapabilityToken() {
+        let old = DeviceBuildSession(id: "same", token: "old-token", baseURL: URL(string: "https://example.com")!)
+        let renewed = DeviceBuildSession(id: "same", token: "new-token", baseURL: URL(string: "https://example.com")!)
+        XCTAssertFalse(SessionStore.deviceBuildResponseIsCurrent(
+            current: renewed,
+            expected: old,
+            currentRevision: 4,
+            expectedRevision: 4
+        ))
+    }
+}

@@ -121,15 +121,21 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
     let settled = false;
     let terminating = false;
     let cancellationTimer;
+    let timeoutTimer;
+    let validationWorkerRecordError = null;
     const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
     if (workerPath) {
-      mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
-      writeFileSync(workerPath, JSON.stringify({
-        pid: child.pid,
-        startedAt: requiredProcessStartedAt(child.pid),
-        command: "required-validation",
-        createdAt: new Date().toISOString(),
-      }), { mode: 0o600 });
+      try {
+        mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
+        writeFileSync(workerPath, JSON.stringify({
+          pid: child.pid,
+          startedAt: requiredProcessStartedAt(child.pid),
+          command: "required-validation",
+          createdAt: new Date().toISOString(),
+        }), { mode: 0o600 });
+      } catch (error) {
+        validationWorkerRecordError = error;
+      }
     }
 
     const finish = (error, preserveWorkerRecord = false) => {
@@ -153,7 +159,14 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
       });
     };
 
-    const timeoutTimer = setTimeout(() => {
+    if (validationWorkerRecordError) {
+      terminate(validationError(
+        `Unable to persist the active validation worker identity: ${validationWorkerRecordError instanceof Error ? validationWorkerRecordError.message : String(validationWorkerRecordError)}`
+      ));
+      return;
+    }
+
+    timeoutTimer = setTimeout(() => {
       terminate(validationError(
         `Required validation timed out after ${Math.ceil(timeoutMs / 1_000)} seconds; device build cancelled.`
       ));
@@ -211,7 +224,7 @@ function requiredProcessStartedAt(pid) {
     const startedAt = result.status === 0 ? String(result.stdout || "").trim() : "";
     if (startedAt) return startedAt;
   }
-  return "";
+  throw new Error("Unable to establish the active validation worker process identity.");
 }
 
 function signalProcessGroup(pid, signal) {

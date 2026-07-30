@@ -8,6 +8,7 @@ import { runRequiredBuildValidation } from "./buildValidation.js";
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
+const ACTIVE_INSTALL_OBSERVATION_STATES = new Set(["requested", "not-installed", "different-version"]);
 
 export class DeviceBuildStore {
   constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
@@ -168,8 +169,9 @@ export class DeviceBuildStore {
       if (!build) return null;
       const previous = normalizeInstallation(build.installation);
       const reportedState = verification.state || "unknown";
-      const nextState = reportedState === "unknown" && previous.state === "requested"
-        ? "requested"
+      const nextState = reportedState === "unknown"
+        && ACTIVE_INSTALL_OBSERVATION_STATES.has(previous.state)
+        ? previous.state
         : reportedState;
       build.installation = {
         ...previous,

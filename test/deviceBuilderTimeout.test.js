@@ -166,3 +166,30 @@ test("a persisted interrupted worker identity can be terminated after restart", 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test("a successful buffered command rejects surviving descendants", {
+  skip: process.platform === "win32",
+  timeout: 15_000,
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-success-descendant-"));
+  const pidPath = join(directory, "descendant.pid");
+  try {
+    const fixture = `
+      const { spawn } = require("node:child_process");
+      const { writeFileSync } = require("node:fs");
+      const descendant = spawn(process.execPath, ["-e", "process.on('SIGHUP', () => {}); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+        stdio: "ignore",
+      });
+      writeFileSync(${JSON.stringify(pidPath)}, String(descendant.pid));
+      descendant.unref();
+      process.exit(0);
+    `;
+    const result = await runBuffered(process.execPath, ["-e", fixture], { timeoutMs: 8_000 });
+    assert.match(result.error, /descendant processes were still running/);
+    const descendantPID = Number(readFileSync(pidPath, "utf8"));
+    assert.equal(processIsAlive(descendantPID), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

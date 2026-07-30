@@ -523,3 +523,18 @@ test("an early not-installed observation retains the install verification deadli
   assert.equal(saved.installation.state, "not-installed");
   assert.ok(Date.parse(saved.installation.verificationDeadlineAt) > Date.now());
 }));
+
+
+test("transient unknown observation preserves a negative active install state", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.install.retry", "TEAM123", "1.0", "1");
+  store.markInstallRequested(build.id);
+  store.saveVerification(build.id, {
+    state: "not-installed",
+    devices: [{ name: "Phone", state: "not-installed", version: "", build: "" }],
+  });
+  store.saveVerification(build.id, {
+    state: "unknown",
+    devices: [{ name: "Phone", state: "unreachable", version: "", build: "" }],
+  });
+  assert.equal(store.get(build.id).installation.state, "not-installed");
+}));

@@ -450,15 +450,21 @@ export function runBuffered(command, args, {
     let settled = false;
     let terminating = false;
     let cancellationTimer;
+    let timer;
+    let workerRecordError = null;
     const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
     if (workerPath) {
-      mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
-      writeFileSync(workerPath, JSON.stringify({
-        pid: child.pid,
-        startedAt: requiredProcessStartedAt(child.pid),
-        command,
-        createdAt: new Date().toISOString(),
-      }), { mode: 0o600 });
+      try {
+        mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
+        writeFileSync(workerPath, JSON.stringify({
+          pid: child.pid,
+          startedAt: requiredProcessStartedAt(child.pid),
+          command,
+          createdAt: new Date().toISOString(),
+        }), { mode: 0o600 });
+      } catch (error) {
+        workerRecordError = error;
+      }
     }
 
     const invokeLine = (line) => {
@@ -488,6 +494,16 @@ export function runBuffered(command, args, {
         finish({ ...resultFactory(terminated), preserveWorkerRecord: !terminated });
       });
     };
+
+    if (workerRecordError) {
+      terminateOnce((terminated) => ({
+        code: null,
+        stdout,
+        stderr,
+        error: `Unable to persist the active build worker identity: ${workerRecordError instanceof Error ? workerRecordError.message : String(workerRecordError)}${terminated ? "" : "; process group could not be confirmed stopped"}`,
+      }));
+      return;
+    }
 
     const outputCallbackFailed = (error) => {
       terminateOnce((terminated) => ({
@@ -526,7 +542,7 @@ export function runBuffered(command, args, {
       cancellationTimer.unref?.();
     }
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       if (settled || terminating) return;
       terminateOnce((terminated) => ({
         code: null,
@@ -559,7 +575,31 @@ export function runBuffered(command, args, {
         outputCallbackFailed(pendingError);
         return;
       }
-      finish({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
+      terminating = true;
+      void (async () => {
+        const exited = await waitForProcessGroupExit(child.pid, 500);
+        const terminated = exited || await terminateProcessGroup(child.pid, 2_000);
+        if (!terminated) {
+          finish({
+            code: null,
+            stdout,
+            stderr,
+            error: `${command} exited, but its process group could not be confirmed stopped`,
+            preserveWorkerRecord: true,
+          });
+          return;
+        }
+        if (code === 0 && !exited) {
+          finish({
+            code: null,
+            stdout,
+            stderr,
+            error: `${command} exited successfully while descendant processes were still running`,
+          });
+          return;
+        }
+        finish({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
+      })();
     });
   });
 }
@@ -604,7 +644,7 @@ function requiredProcessStartedAt(pid) {
     const startedAt = processStartedAt(pid);
     if (startedAt) return startedAt;
   }
-  return "";
+  throw new Error("Unable to establish the active build worker process identity.");
 }
 
 function processStartedAt(pid) {

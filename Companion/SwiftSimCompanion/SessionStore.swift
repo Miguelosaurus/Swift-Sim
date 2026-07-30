@@ -73,8 +73,11 @@ final class SessionStore: ObservableObject {
         }
 
         guard let session = SimulatorSession(url: url) else { return false }
+        deviceBuildViewRevision &+= 1
         currentSession = session
         currentDeviceBuild = nil
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
         activeTransport = nil
         simulatorCheck = .checking("Checking this Simulator preview")
         upsertRecentSession(RecentSession(session: session, displayName: nil))
@@ -83,7 +86,11 @@ final class SessionStore: ObservableObject {
     }
 
     func reopen(_ recent: RecentSession) {
+        deviceBuildViewRevision &+= 1
         currentSession = recent.session
+        currentDeviceBuild = nil
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
         activeTransport = nil
         simulatorCheck = .checking("Checking (recent.displayName)")
         upsertRecentSession(recent.touch())
@@ -103,9 +110,12 @@ final class SessionStore: ObservableObject {
     }
 
     func openManagedApp(_ app: ManagedApp) {
+        deviceBuildViewRevision &+= 1
         selectedManagedAppID = app.id
         currentSession = nil
         currentDeviceBuild = nil
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
         touchManagedApp(app.id)
     }
 
@@ -194,13 +204,8 @@ final class SessionStore: ObservableObject {
                 currentRevision: deviceBuildViewRevision,
                 expectedRevision: viewRevision
             ), pairingRevision == pairingSnapshot else { return }
-            guard Self.deviceBuildResponseIsCurrent(
-                current: currentDeviceBuild,
-                expected: build,
-                currentRevision: deviceBuildViewRevision,
-                expectedRevision: viewRevision
-            ), pairingRevision == pairingSnapshot else { return }
             let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
+            if resolvedSession != build { deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
             let managedBuild = ManagedBuild(session: resolvedSession, status: decoded)
@@ -287,13 +292,27 @@ final class SessionStore: ObservableObject {
 
     func syncCurrentBuildInstallRequested() async {
         guard let build = currentDeviceBuild else { return }
+        let viewRevision = deviceBuildViewRevision
         var request = URLRequest(url: build.installRequestURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 8
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
-              let decoded = try? JSONDecoder().decode(DeviceBuildStatus.self, from: data) else {
-            deviceBuildActionMessage = "Install opened. Status will update when your Mac reconnects."
+              let decoded = try? JSONDecoder().decode(DeviceBuildStatus.self, from: data),
+              Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+              ) else {
+            if Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) {
+                deviceBuildActionMessage = "Install opened. Status will update when your Mac reconnects."
+            }
             return
         }
         deviceBuildStatus = decoded
@@ -307,6 +326,7 @@ final class SessionStore: ObservableObject {
             await refreshDeviceBuild()
         }
 
+        guard currentDeviceBuild?.id == build.id else { return nil }
         guard let status = deviceBuildStatus, status.isReady else {
             deviceBuildActionMessage = "This app is still being prepared. Try again in a moment."
             return nil
@@ -337,7 +357,14 @@ final class SessionStore: ObservableObject {
                 method: "POST",
                 timeout: 25
             )
+            guard Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ), pairingRevision == pairingSnapshot else { return }
             let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
+            if resolvedSession != build { deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
             upsertManagedBuild(ManagedBuild(session: resolvedSession, status: decoded))
@@ -796,7 +823,14 @@ final class SessionStore: ObservableObject {
             app.id.hasPrefix("pending:") && app.builds.contains(where: { $0.id == build.id })
         }
         if let index = managedApps.firstIndex(where: { $0.id == build.appID }) {
-            managedApps[index] = managedApps[index].upserting(build)
+            let alreadyOwnedBuild = managedApps[index].builds.contains { $0.id == build.id }
+            var updated = managedApps[index].upserting(build)
+            if managedApps[index].ownerPairingID != nil && !alreadyOwnedBuild {
+                // A link from an unknown Mac must not inherit authority to mutate
+                // a same-identity app on the currently paired Mac.
+                updated.ownerPairingID = nil
+            }
+            managedApps[index] = updated
         } else {
             managedApps.append(ManagedApp(build: build))
         }
@@ -997,7 +1031,8 @@ final class SessionStore: ObservableObject {
         currentRevision: UInt64,
         expectedRevision: UInt64
     ) -> Bool {
-        currentRevision == expectedRevision && current?.id == expected.id
+        // round4-final-fencing
+        currentRevision == expectedRevision && current == expected
     }
 
     static func installationVerificationIsActive(_ state: String?) -> Bool {

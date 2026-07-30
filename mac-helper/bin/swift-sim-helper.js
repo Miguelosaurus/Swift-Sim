@@ -153,10 +153,7 @@ async function main() {
       options: commonDeviceBuildOptions(),
     });
     const build = await createDeviceBuild(values);
-    await runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) });
-    build.state = "delivering";
-    deviceBuildStore.save(build);
-    await prepareDeviceDelivery(build);
+    await runCLIDeviceBuild(build);
     console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
     return;
   }
@@ -432,17 +429,20 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           delivery: build.delivery ? { ...build.delivery } : null,
         };
         const renewedBuild = deviceBuildStore.renewInstallLink(build.id, { ttlMinutes: build.installTTLMinutes });
-        try {
-          await prepareDeviceDelivery(renewedBuild, { markBuildFailed: false });
-        } catch (error) {
-          renewedBuild.expiresAt = previousDelivery.expiresAt;
-          renewedBuild.remoteBaseUrl = previousDelivery.remoteBaseUrl;
-          renewedBuild.delivery = previousDelivery.delivery;
+        const renewalKey = `renewal:${build.id}:${renewedBuild.pendingRenewal?.id || "unknown"}`;
+        await trackDeviceBuildTask(renewalKey, renewedBuild, (async () => {
+          try {
+            await prepareDeviceDelivery(renewedBuild, { markBuildFailed: false });
+          } catch (error) {
+            renewedBuild.expiresAt = previousDelivery.expiresAt;
+            renewedBuild.remoteBaseUrl = previousDelivery.remoteBaseUrl;
+            renewedBuild.delivery = previousDelivery.delivery;
+            deviceBuildStore.save(renewedBuild);
+            throw error;
+          }
+          renewedBuild.logs.push("A new install link was generated from the saved app.");
           deviceBuildStore.save(renewedBuild);
-          throw error;
-        }
-        renewedBuild.logs.push("A new install link was generated from the saved app.");
-        deviceBuildStore.save(renewedBuild);
+        })());
         return json(res, 200, publicDeviceBuild(renewedBuild));
       }
 
@@ -794,7 +794,9 @@ function installationVerificationIsActive(installation = {}) {
   const state = installation.state || "unknown";
   if (!["requested", "not-installed", "different-version"].includes(state)) return false;
   const deadline = Date.parse(installation.verificationDeadlineAt || "");
-  return Number.isFinite(deadline) && deadline > Date.now();
+  if (Number.isFinite(deadline)) return deadline > Date.now();
+  const requestedAt = Date.parse(installation.requestedAt || "");
+  return Number.isFinite(requestedAt) && requestedAt + 15 * 60 * 1000 > Date.now();
 }
 
 function verifyDeviceBuild(build) {
@@ -1692,8 +1694,31 @@ async function drainDeliveryReferenceCleanupJobs() {
   }
 }
 
+async function runCLIDeviceBuild(build) {
+  const interrupt = () => requestDeviceBuildCancellation(build, "Swift Sim device build was interrupted.");
+  process.once("SIGTERM", interrupt);
+  process.once("SIGINT", interrupt);
+  try {
+    await runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) });
+    build.state = "delivering";
+    deviceBuildStore.save(build);
+    await prepareDeviceDelivery(build);
+  } finally {
+    process.off("SIGTERM", interrupt);
+    process.off("SIGINT", interrupt);
+  }
+}
+
+function trackDeviceBuildTask(key, build, operation) {
+  const promise = Promise.resolve(operation).finally(() => {
+    activeDeviceBuildTasks.delete(key);
+  });
+  activeDeviceBuildTasks.set(key, { build, promise });
+  return promise;
+}
+
 function startManagedDeviceBuild(build) {
-  const promise = runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) })
+  const operation = runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) })
     .then(() => {
       build.state = "delivering";
       deviceBuildStore.save(build);
@@ -1706,12 +1731,8 @@ function startManagedDeviceBuild(build) {
         build.logs.push("Build was interrupted before completion.");
         try { deviceBuildStore.save(build); } catch {}
       }
-    })
-    .finally(() => {
-      activeDeviceBuildTasks.delete(build.id);
     });
-  activeDeviceBuildTasks.set(build.id, { build, promise });
-  return promise;
+  return trackDeviceBuildTask(`build:${build.id}`, build, operation);
 }
 
 async function recoverInterruptedDeviceBuilds() {
