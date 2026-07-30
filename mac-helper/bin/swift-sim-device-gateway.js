@@ -13,6 +13,7 @@ import {
 } from "../src/deviceBuilder.js";
 import { serveFile } from "../src/fileServer.js";
 import { badRequest, json, notFound, text, unauthorized } from "../src/http.js";
+import { sanitizePublicBuildLogs } from "../src/publicBuildLogs.js";
 
 const { values } = parseArgs({
   options: {
@@ -59,7 +60,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && action === "logs") {
         return json(res, 200, {
           buildId: buildID,
-          logs: sanitizePublicLogs(resolved.build).slice(-300),
+          logs: sanitizePublicBuildLogs(resolved.build),
         });
       }
       if (req.method === "GET" && action === "links") {
@@ -166,21 +167,6 @@ function secretsMatch(expectedValue, actualValue) {
 function deviceBuildExpired(build) {
   const expiresAt = Date.parse(build.expiresAt || "");
   return !Number.isFinite(expiresAt) || expiresAt <= Date.now();
-}
-
-function sanitizePublicLogs(build) {
-  const secrets = [
-    build.token,
-    ...(Array.isArray(build.capabilities) ? build.capabilities.map((item) => item?.token) : []),
-  ].filter(Boolean);
-  return (Array.isArray(build.logs) ? build.logs : []).map((line) => {
-    let sanitized = String(line || "");
-    for (const secret of secrets) sanitized = sanitized.replaceAll(String(secret), "<redacted>");
-    sanitized = sanitized
-      .replace(/(?:\/Users|\/home|\/private\/var\/folders|\/tmp)\/[^\s"']+/g, "<local-path>")
-      .replace(/[A-Za-z]:\\[^\s"']+/g, "<local-path>");
-    return sanitized;
-  });
 }
 
 function installPage(build) {
