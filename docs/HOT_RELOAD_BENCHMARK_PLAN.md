@@ -856,6 +856,35 @@ The benchmark implementation is complete when:
 - documentation clearly prevents a curated score from becoming a universal
   marketing claim.
 
+## Phase 1 Physical Smoke Evidence
+
+The final physical-device smoke gate on July 30, 2026 exercised the generated
+fixtures through the same private remote live-edit route used by Swift Sim:
+
+| Workload | Confirmed edits | Confirmed restores | Fallbacks | Timeouts | p50 | p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CatalogApp | 10/10 | 10/10 | 0 | 0 | 713 ms | 817 ms |
+| StateApp | 8/8 | 8/8 | 0 | 0 | 630 ms | 728 ms |
+| ArchitectureApp | 6/6 | 6/6 | 0 | 0 | 905 ms | 1,285 ms |
+| Total | 24/24 | 24/24 | 0 | 0 | — | — |
+
+The semantic oracle confirmed revision, refresh, case identity, and expected
+value markers; screenshots were not used as proof. The State workload includes
+closures, computed views, helper functions, and async tasks. Architecture
+includes nested/extension views, actor-isolated generic bodies, and a reachable
+multi-file implementation.
+
+Async implementation changes use the existing interposition lane because Swift
+does not emit a usable dynamic-replacement symbol for these functions in this
+toolchain. The runner also performs a no-build relaunch when an interposition
+edit drops the app socket, then verifies the restored baseline before
+continuing.
+
+This is curated fixture evidence for the supported edit lanes. It is not a
+claim that all Swift edits—or a fixed percentage of arbitrary real-app
+workflows—can hot reload. The broader workflow percentage remains gated on the
+chronological real-app dogfood protocol in Phase 6.
+
 ## Explicitly Deferred
 
 - Public hosted benchmark infrastructure

@@ -295,7 +295,7 @@ function errorCases() {
 function hotLineAfter({ category, beforeLine, number, slot, afterToken }) {
   if (category === "style-modifier") return beforeLine.replace(`style-${number}`, `style-edited-${number}`).replace(".blue", ".purple");
   if (category === "layout-modifier") return beforeLine.replace(`layout-${number}`, `layout-edited-${number}`).replace(".padding(8)", ".padding(24)");
-  if (category === "swiftui-composition") return beforeLine.replace(`composition-${number}`, `composition-edited-${number}`).replace("if true", "if false");
+  if (category === "swiftui-composition") return beforeLine.replace(`composition-${number}`, `composition-edited-${number}`);
   if (category === "animation-transition") return beforeLine.replace(`animation-${number}`, `animation-edited-${number}`).replace("0.2", "0.45");
   if (category === "copy-literal") return beforeLine.replace(`copy-${number}`, `copy-edited-${number}`);
   return beforeLine.replace(`${slot}-${number}`, `${afterToken}${number}`);
@@ -483,7 +483,7 @@ function stateSource() {
     for (let index = 1; index <= count; index += 1) {
       const number = String(index).padStart(2, "0");
       if (category === "action") lines.push(`    private func actionSlot${number}() -> String { \"action-${number}\" }`);
-      if (category === "computed") lines.push(`    private var computedSlot${number}: some View { Text(\"computed-${number}\") }`);
+      if (category === "computed") lines.push(`    private var computedSlot${number}: some View { BenchmarkMarkerView(value: \"computed-${number}\") }`);
       if (category === "helper") lines.push(`    private func helperSlot${number}() -> String { \"helper-${number}\" }`);
       if (category === "async") lines.push(`    private func asyncSlot${number}() async -> String { \"async-${number}\" }`);
       if (category === "signature") lines.push(`    private func signatureSlot${number}(_ value: Int) -> String { \"signature-${number}\" }`);
@@ -501,7 +501,7 @@ function architectureSource() {
   const lines = [
     "import SwiftUI",
     "struct ArchitectureScreen: View {",
-    `    var body: some View { VStack { ${nestedMarkers}; ${genericMarkers} } }`,
+    `    var body: some View { VStack { NestedCard(); ${nestedMarkers}; ${genericMarkers} } }`,
     "    private struct NestedCard: View {",
     "        var body: some View { BenchmarkMarkerView(value: \"nested-01\") }",
     "    }",

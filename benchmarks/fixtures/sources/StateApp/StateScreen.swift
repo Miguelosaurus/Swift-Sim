@@ -17,21 +17,21 @@ struct StateScreen: View {
     private func actionSlot13() -> String { "action-13" }
     private func actionSlot14() -> String { "action-14" }
     private func actionSlot15() -> String { "action-15" }
-    private var computedSlot01: some View { Text("computed-01") }
-    private var computedSlot02: some View { Text("computed-02") }
-    private var computedSlot03: some View { Text("computed-03") }
-    private var computedSlot04: some View { Text("computed-04") }
-    private var computedSlot05: some View { Text("computed-05") }
-    private var computedSlot06: some View { Text("computed-06") }
-    private var computedSlot07: some View { Text("computed-07") }
-    private var computedSlot08: some View { Text("computed-08") }
-    private var computedSlot09: some View { Text("computed-09") }
-    private var computedSlot10: some View { Text("computed-10") }
-    private var computedSlot11: some View { Text("computed-11") }
-    private var computedSlot12: some View { Text("computed-12") }
-    private var computedSlot13: some View { Text("computed-13") }
-    private var computedSlot14: some View { Text("computed-14") }
-    private var computedSlot15: some View { Text("computed-15") }
+    private var computedSlot01: some View { BenchmarkMarkerView(value: "computed-01") }
+    private var computedSlot02: some View { BenchmarkMarkerView(value: "computed-02") }
+    private var computedSlot03: some View { BenchmarkMarkerView(value: "computed-03") }
+    private var computedSlot04: some View { BenchmarkMarkerView(value: "computed-04") }
+    private var computedSlot05: some View { BenchmarkMarkerView(value: "computed-05") }
+    private var computedSlot06: some View { BenchmarkMarkerView(value: "computed-06") }
+    private var computedSlot07: some View { BenchmarkMarkerView(value: "computed-07") }
+    private var computedSlot08: some View { BenchmarkMarkerView(value: "computed-08") }
+    private var computedSlot09: some View { BenchmarkMarkerView(value: "computed-09") }
+    private var computedSlot10: some View { BenchmarkMarkerView(value: "computed-10") }
+    private var computedSlot11: some View { BenchmarkMarkerView(value: "computed-11") }
+    private var computedSlot12: some View { BenchmarkMarkerView(value: "computed-12") }
+    private var computedSlot13: some View { BenchmarkMarkerView(value: "computed-13") }
+    private var computedSlot14: some View { BenchmarkMarkerView(value: "computed-14") }
+    private var computedSlot15: some View { BenchmarkMarkerView(value: "computed-15") }
     private func helperSlot01() -> String { "helper-01" }
     private func helperSlot02() -> String { "helper-02" }
     private func helperSlot03() -> String { "helper-03" }

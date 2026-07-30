@@ -701,7 +701,7 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
     : classifyEditSet({ files });
   const classificationMs = Math.max(0, now() - startedAt);
   const inspect = runtime.inspect || ((options) => inspectLiveReload(options));
-  const inject = runtime.inject || ((sourcePath) => injectLiveSource(sourcePath, runtime));
+  const inject = runtime.inject || ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options }));
   const live = await inspect({ project, host });
 
   if (change.route === "no-change") {
@@ -716,9 +716,13 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
   if (change.hotReloadable && live.ready) {
     const patches = [];
     for (const file of change.changes.filter((item) => item.route === "hot-reload")) {
-      const patch = await inject(file.after);
+      const patch = await inject(file.after, {
+        beforePath: file.before,
+        forceInterposition: swiftAsyncImplementationChanged(file.before, file.after),
+      });
       patches.push(patch);
-      if (!patch.succeeded || hasZeroDynamicReplacements(patch) || hasUnacknowledgedRefresh(patch)) {
+      const missingDynamicReplacement = patch.mode !== "interposition" && hasZeroDynamicReplacements(patch);
+      if (!patch.succeeded || missingDynamicReplacement || hasUnacknowledgedRefresh(patch)) {
         return routeResult({
           action: "hot-reload-failed",
           change,
@@ -857,7 +861,9 @@ export async function injectLiveSource(sourcePath, runtime = {}) {
   let refreshAckMs = 0;
   try {
     const compileStartedAt = now();
-    const generated = compile(source);
+    const generated = runtime.forceInterposition
+      ? null
+      : compile(source, { beforePath: runtime.beforePath });
     compileMs = Math.max(0, now() - compileStartedAt);
     if (generated) {
       mode = "swift-dynamic-replacement";
@@ -929,7 +935,7 @@ export async function injectLiveSource(sourcePath, runtime = {}) {
   };
 }
 
-function compileDynamicReplacement(sourcePath) {
+function compileDynamicReplacement(sourcePath, { beforePath = "" } = {}) {
   const source = readFileSync(sourcePath, "utf8");
   const manifest = readJSONFile(LIVE_MANIFEST);
   const context = manifest?.compilations?.find((item) =>
@@ -938,6 +944,7 @@ function compileDynamicReplacement(sourcePath) {
   if (!context) return null;
   const replacement = generateDynamicReplacementSource({
     source,
+    beforeSource: beforePath && existsSync(beforePath) ? readFileSync(beforePath, "utf8") : "",
     sourcePath,
     moduleName: context.moduleName,
   });
@@ -968,6 +975,23 @@ function compileDynamicReplacement(sourcePath) {
   return { dylibPath, generatedPath };
 }
 
+function swiftUIBodyChanged(beforePath, afterPath) {
+  if (!beforePath || !afterPath || !existsSync(beforePath) || !existsSync(afterPath)) return false;
+  const before = swiftUIViewBodies(readFileSync(beforePath, "utf8"));
+  const after = swiftUIViewBodies(readFileSync(afterPath, "utf8"));
+  if (before.length !== after.length) return true;
+  return before.some((view, index) => view.qualifiedName !== after[index]?.qualifiedName || view.body !== after[index]?.body);
+}
+
+function swiftAsyncImplementationChanged(beforePath, afterPath) {
+  if (!beforePath || !afterPath || !existsSync(beforePath) || !existsSync(afterPath)) return false;
+  const before = new Map(swiftMemberImplementations(readFileSync(beforePath, "utf8"))
+    .filter((member) => member.effects?.includes("async"))
+    .map((member) => [member.key, member.body]));
+  return swiftMemberImplementations(readFileSync(afterPath, "utf8"))
+    .some((member) => member.effects?.includes("async") && before.get(member.key) !== member.body);
+}
+
 function cleanCompilerError(output) {
   const lines = String(output || "The SwiftUI replacement could not be compiled.")
     .split(/\r?\n/)
@@ -975,19 +999,121 @@ function cleanCompilerError(output) {
   return lines.slice(-20).join("\n").trim();
 }
 
-export function generateDynamicReplacementSource({ source, sourcePath, moduleName }) {
+export function generateDynamicReplacementSource({ source, beforeSource = "", sourcePath, moduleName }) {
   const views = swiftUIViewBodies(source);
-  if (views.length === 0) return "";
+  const beforeViews = beforeSource ? swiftUIViewBodies(beforeSource) : [];
+  const beforeViewBodies = new Map(beforeViews.map((view) => [view.qualifiedName, view.body]));
+  const members = swiftMemberImplementations(source);
+  const beforeMembers = new Map(swiftMemberImplementations(beforeSource).map((member) => [member.key, member]));
+  const changedMembers = beforeSource
+    ? members.filter((member) => beforeMembers.get(member.key)?.body !== member.body)
+    : [];
+  const changedAsyncMembers = changedMembers.filter((member) => member.effects?.includes("async"));
+  const supportedMembers = changedMembers.filter((member) => !member.effects?.includes("async"));
+  const changedViews = beforeSource
+    ? views
+      .map((view) => ({
+        ...view,
+        body: inlineAsyncReplacements(view.body, changedAsyncMembers),
+      }))
+      .filter((view) => beforeViewBodies.get(view.qualifiedName) !== view.body)
+    : views;
+  if (changedViews.length === 0 && supportedMembers.length === 0) return "";
   const imports = [...source.matchAll(/^\s*(?:@testable\s+)?import\s+([A-Za-z_][A-Za-z0-9_]*)[^\n]*$/gm)]
     .map((match) => match[0].trim())
     .filter((line) => !line.endsWith(` ${moduleName}`));
   const sourceFile = basename(sourcePath).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
-  const replacements = views.map((view, index) => `
+  const replacements = changedViews.map((view, index) => `
 extension ${view.qualifiedName} {
     @_dynamicReplacement(for: body)
     private var __swiftSim_body_${index + 1}: some View ${view.body}
 }`).join("\n");
-  return `@_private(sourceFile: "${sourceFile}") import ${moduleName}\n${imports.join("\n")}\n${replacements}\n`;
+  const memberReplacements = new Map();
+  for (const member of supportedMembers) {
+    const target = member.typeName ? `extension ${member.typeName} {` : "";
+    const replacement = member.kind === "function"
+      ? `    @_dynamicReplacement(for: ${member.name}())\n    private func __swiftSim_${member.name}()${member.effects ? ` ${member.effects}` : ""} -> ${member.returnType} ${member.body}`
+      : `    @_dynamicReplacement(for: ${member.name})\n    private var __swiftSim_${member.name}: ${member.returnType} ${member.body}`;
+    const existing = memberReplacements.get(target) || [];
+    existing.push(replacement);
+    memberReplacements.set(target, existing);
+  }
+  const memberSource = [...memberReplacements.entries()].map(([target, entries]) =>
+    `${target}\n${entries.join("\n")}\n}`
+  ).join("\n");
+  return `@_private(sourceFile: "${sourceFile}") import ${moduleName}\n${imports.join("\n")}\n${replacements}\n${memberSource}\n`;
+}
+
+function inlineAsyncReplacements(body, members) {
+  return members.reduce((current, member) => {
+    const expression = member.body.slice(1, -1).trim();
+    if (!expression || /[{};]/.test(expression)) return current;
+    return current.replace(new RegExp(`\\bawait\\s+${member.name}\\(\\)`, "g"), expression);
+  }, body);
+}
+
+function swiftMemberImplementations(source) {
+  if (!source) return [];
+  const masked = maskCommentsAndStrings(source);
+  const types = swiftTypeDeclarations(masked);
+  const output = [];
+  for (const type of types) {
+    const memberSource = masked.slice(type.open + 1, type.close);
+    const functionPattern = /\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*((?:(?:async|throws)\s+)*)->\s*([^{}\n]+?)\s*\{/g;
+    for (const match of memberSource.matchAll(functionPattern)) {
+      const declarationOffset = type.open + 1 + match.index;
+      if (braceDepth(masked, type.open + 1, declarationOffset) !== 0) continue;
+      const bodyOpen = declarationOffset + match[0].lastIndexOf("{");
+      const bodyClose = matchingBrace(masked, bodyOpen);
+      if (bodyClose < 0 || bodyClose > type.close) continue;
+      output.push({
+        key: `${type.qualifiedName}#function#${match[1]}`,
+        typeName: type.qualifiedName,
+        kind: "function",
+        name: match[1],
+        effects: match[2].trim(),
+        returnType: match[3].trim(),
+        body: source.slice(bodyOpen, bodyClose + 1),
+      });
+    }
+    const propertyPattern = /\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(some\s+(?:SwiftUI\.)?View)\s*\{/g;
+    for (const match of memberSource.matchAll(propertyPattern)) {
+      const declarationOffset = type.open + 1 + match.index;
+      if (match[1] === "body" || braceDepth(masked, type.open + 1, declarationOffset) !== 0) continue;
+      const bodyOpen = declarationOffset + match[0].lastIndexOf("{");
+      const bodyClose = matchingBrace(masked, bodyOpen);
+      if (bodyClose < 0 || bodyClose > type.close) continue;
+      output.push({
+        key: `${type.qualifiedName}#property#${match[1]}`,
+        typeName: type.qualifiedName,
+        kind: "property",
+        name: match[1],
+        returnType: match[2].trim(),
+        body: source.slice(bodyOpen, bodyClose + 1),
+      });
+    }
+  }
+  return output;
+}
+
+function swiftTypeDeclarations(masked) {
+  const declaration = /\b(?:struct|class|enum)\s+([A-Za-z_][A-Za-z0-9_]*)[^{}\n]*\{/g;
+  const candidates = [];
+  for (const match of masked.matchAll(declaration)) {
+    const open = match.index + match[0].lastIndexOf("{");
+    const close = matchingBrace(masked, open);
+    if (close >= 0) candidates.push({ name: match[1], open, close });
+  }
+  candidates.sort((left, right) => left.open - right.open);
+  for (const candidate of candidates) {
+    const parent = candidates
+      .filter((possible) => possible.open < candidate.open && possible.close > candidate.close)
+      .sort((left, right) => right.open - left.open)[0];
+    candidate.qualifiedName = parent
+      ? `${parent.qualifiedName || parent.name}.${candidate.name}`
+      : candidate.name;
+  }
+  return candidates;
 }
 
 function swiftUIViewBodies(source) {

@@ -77,3 +77,14 @@ test("the committed core corpus has the prescribed 240-case shape", () => {
   assert.equal(corpus.metadata.multiFileOperations, 25);
   assert.equal(corpus.metadata.smokeHotCases, 24);
 });
+
+test("smoke hot mutations do not hide explicit semantic markers", () => {
+  const corpusPath = new URL("../corpora/core/corpus.json", import.meta.url);
+  const corpusRoot = new URL("../corpora/core/", import.meta.url);
+  const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
+  for (const benchmarkCase of corpus.cases.filter((value) => value.smoke && value.expectedLane === "hot-reload")) {
+    const mutationURL = new URL(benchmarkCase.mutation, corpusRoot);
+    const mutation = readFileSync(mutationURL, "utf8");
+    assert.doesNotMatch(mutation, /^\+\s*if false \{.*BenchmarkMarkerView\(caseID:/m);
+  }
+});

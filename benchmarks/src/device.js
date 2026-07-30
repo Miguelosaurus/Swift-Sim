@@ -58,35 +58,22 @@ export async function runDeviceBenchmark({
     workspace = createDisposableDeviceWorkspace({ project, fixtureRoot, buildSettings });
     const runtimeProject = workspace.project;
     const runtimeFixtureRoot = workspace.fixtureRoot;
-    const build = await (adapters.build || defaultBuild)({ project: runtimeProject, scheme, device: deviceAddress, runId, buildSettings });
-    const bundleID = build.bundleID || build.bundleIdentifier;
-    if (!bundleID) throw new Error("Signed fixture build did not report a bundle identifier.");
-    await (adapters.install || defaultInstall)({ device: deviceAddress, appPath: build.appPath });
-    const liveStart = await (adapters.startLive || defaultStartLive)({ project: runtimeProject });
-    if (!liveStart?.started) {
-      throw Object.assign(
-        new Error(liveStart?.error || "The disposable fixture live engine did not start."),
-        { code: "LIVE_NOT_READY" },
-      );
-    }
-    session = await (adapters.launch || defaultLaunch)({ device: deviceAddress, bundleID });
-    const live = liveStart.ready
-      ? liveStart
-      : await (adapters.waitLive || defaultWaitLive)({ project: runtimeProject });
-    if (!live?.started || !live.ready) {
-      throw Object.assign(
-        new Error(live?.error || "The disposable fixture did not reach live-reload readiness."),
-        { code: "LIVE_NOT_READY" },
-      );
-    }
-    const oracle = new BenchmarkOracle();
-    await waitForMarker(session, oracle, { caseID: "baseline" });
+    let oracle;
+    ({ session, oracle } = await establishLiveDeviceSession({
+      project: runtimeProject,
+      scheme,
+      device: deviceAddress,
+      runId,
+      buildSettings,
+      adapters,
+    }));
     const attempts = [...previous];
     for (let iteration = 1; iteration <= Number(iterations); iteration += 1) {
       for (const benchmarkCase of seededOrder(selected, Number(seed) + iteration - 1)) {
         const attemptId = `${benchmarkCase.id}:device:${iteration}`;
         if (completed.has(attemptId)) continue;
         resetDisposableFixture({ baselineRoot: workspace.baselineRoot, fixtureRoot: runtimeFixtureRoot });
+        await ensureLiveSessionConnected({ project: runtimeProject, session, oracle, adapters });
         const caseResult = await runCase({
           benchmarkCase,
           attemptId,
@@ -107,6 +94,18 @@ export async function runDeviceBenchmark({
         if (attempt.dangerousFalseLive) {
           throw new Error(`Dangerous false-live result for ${benchmarkCase.id}; device run stopped.`);
         }
+        if (benchmarkCase.expectedLane === "hot-reload" && attempt.terminalState !== "semantically-observed") {
+          resetDisposableFixture({ baselineRoot: workspace.baselineRoot, fixtureRoot: runtimeFixtureRoot });
+          session?.close?.();
+          ({ session, oracle } = await establishLiveDeviceSession({
+            project: runtimeProject,
+            scheme,
+            device: deviceAddress,
+            runId,
+            buildSettings,
+            adapters,
+          }));
+        }
       }
     }
     const summary = generateSummary({
@@ -125,6 +124,66 @@ export async function runDeviceBenchmark({
     session?.close?.();
     workspace?.cleanup?.();
   }
+}
+
+async function establishLiveDeviceSession({ project, scheme, device, runId, buildSettings, adapters }) {
+  let session;
+  try {
+    const build = await (adapters.build || defaultBuild)({ project, scheme, device, runId, buildSettings });
+    const bundleID = build.bundleID || build.bundleIdentifier;
+    if (!bundleID) throw new Error("Signed fixture build did not report a bundle identifier.");
+    await (adapters.install || defaultInstall)({ device, appPath: build.appPath });
+    const liveStart = await (adapters.startLive || defaultStartLive)({ project });
+    if (!liveStart?.started) {
+      throw Object.assign(
+        new Error(liveStart?.error || "The disposable fixture live engine did not start."),
+        { code: "LIVE_NOT_READY" },
+      );
+    }
+    session = await (adapters.launch || defaultLaunch)({ device, bundleID });
+    session.bundleID = bundleID;
+    session.device = device;
+    const live = liveStart.ready
+      ? liveStart
+      : await (adapters.waitLive || defaultWaitLive)({ project });
+    if (!live?.started || !live.ready) {
+      throw Object.assign(
+        new Error(live?.error || "The disposable fixture did not reach live-reload readiness."),
+        { code: "LIVE_NOT_READY" },
+      );
+    }
+    const oracle = new BenchmarkOracle();
+    await waitForMarker(session, oracle, { caseID: "baseline" });
+    return { session, oracle };
+  } catch (error) {
+    session?.close?.();
+    throw error;
+  }
+}
+
+async function ensureLiveSessionConnected({ project, session, oracle, adapters, forceRestart = false }) {
+  if (!session?.bundleID || !session?.device) return;
+  // An injected benchmark harness owns its simulated lifecycle unless it also
+  // supplies a live-status adapter. The production path always performs the
+  // real engine/app-socket liveness check.
+  if (Object.keys(adapters).length && !adapters.inspectLive) return;
+  const live = await (adapters.inspectLive || inspectLiveReload)({ project });
+  let liveStart = live;
+  if (!live.ready || live.engine?.connected !== true) {
+    liveStart = await (adapters.startLive || defaultStartLive)({ project });
+    if (!liveStart?.started) return;
+  } else if (!forceRestart) {
+    return;
+  }
+  const replacement = await (adapters.launch || defaultLaunch)({
+    device: session.device,
+    bundleID: session.bundleID,
+  });
+  Object.assign(session, replacement, { bundleID: session.bundleID, device: session.device });
+  oracle.lastRevision = 0;
+  oracle.seenTargets.clear();
+  oracle.markers = [];
+  await waitForMarker(session, oracle, { caseID: "baseline" });
 }
 
 async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpusRoot, project, scheme, session, oracle, adapters, runId }) {
@@ -166,6 +225,8 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
       action: route.action,
       reasonCode: route.reasonCode,
       requestId: route.requestId || "",
+      ...(route.patch?.error ? { error: sanitizeError(new Error(route.patch.error)) } : {}),
+      ...(route.patch?.report ? { patchReport: sanitizeValue(route.patch.report) } : {}),
       timing: { ...(route.timing || {}), totalMs: elapsedMs(startedAt) },
       applied: route.action === "hot-reload",
     };
@@ -238,7 +299,27 @@ async function restoreCase({ materialized, fixtureRoot, project, scheme, session
     afterPath: join(fixtureRoot, change.path),
   }));
   const route = await (adapters.route || defaultRoute)({ project, scheme, changes, restore: true });
-  if (route.action !== "hot-reload") throw Object.assign(new Error("Baseline restore was routed to a build."), { code: "REFRESH_NOT_ACKNOWLEDGED" });
+  if (route.action !== "hot-reload") {
+    // Legacy source interposition can reset the engine-side connection after
+    // applying a patch. Re-launch the already-installed Debug app and observe
+    // a fresh baseline marker; this is still a no-build/no-install restore.
+    if (session?.bundleID && session?.device) {
+      const liveStart = await (adapters.startLive || defaultStartLive)({ project });
+      if (liveStart?.started) {
+        const replacement = await (adapters.launch || defaultLaunch)({
+          device: session.device,
+          bundleID: session.bundleID,
+        });
+        Object.assign(session, replacement, { bundleID: session.bundleID, device: session.device });
+        oracle.lastRevision = 0;
+        oracle.seenTargets.clear();
+        oracle.markers = [];
+        await waitForMarker(session, oracle, { caseID: "baseline" });
+        return;
+      }
+    }
+    throw Object.assign(new Error("Baseline restore was routed to a build."), { code: "REFRESH_NOT_ACKNOWLEDGED" });
+  }
   await waitForMarker(session, oracle, { caseID: "baseline" });
 }
 
@@ -326,7 +407,15 @@ export async function waitForMarker(session, oracle, expected, timeoutMs = 60_00
       timeoutMs: Math.max(1, deadline - Date.now()),
       predicate: (value) => String(value).includes(benchmarkMarkerPrefix),
     });
-    const marker = oracle.ingest(line);
+    let marker;
+    try {
+      marker = oracle.ingest(line);
+    } catch (error) {
+      // A prior SwiftUI task can finish again while the next patch is being
+      // applied. It is stale evidence for this case, not a failed reload.
+      if (error?.code === "ORACLE_DUPLICATE") continue;
+      throw error;
+    }
     if (marker && marker.case === expectedCase && (expected.value === undefined || marker.value === expected.value)) return marker;
   }
   throw Object.assign(new Error(`Timed out waiting for marker ${expectedCase}.`), { code: "PATCH_TIMEOUT" });
@@ -374,6 +463,8 @@ async function defaultBuild({ project, scheme, buildSettings = [] }) {
     "--scheme", scheme,
     "--configuration", "Debug",
     "--allow-provisioning-updates",
+    "--delivery", "custom",
+    "--remote-base-url", "http://127.0.0.1",
   ];
   for (const setting of buildSettings) args.push("--build-setting", setting);
   let stdout;

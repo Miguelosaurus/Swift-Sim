@@ -35,6 +35,28 @@ test("routes function implementation edits through hot reload", () => {
   assert.equal(classifySwiftSource(before, after).route, "hot-reload");
 });
 
+test("routes non-body implementation edits with a before-source compile context", async () => {
+  let options;
+  const result = await routeLiveEditSet({
+    files: [{
+      path: "Logic.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `func greeting() -> String { "Hi" }`,
+      afterSource: `func greeting() -> String { "Welcome" }`,
+    }],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      inject: async (_sourcePath, nextOptions) => {
+        options = nextOptions;
+        return { succeeded: true, durationMs: 1, report: { refresh_acknowledged: true } };
+      },
+    },
+  });
+  assert.equal(result.action, "hot-reload");
+  assert.equal(options.beforePath, "");
+});
+
 test("requires a rebuild when stored state changes", () => {
   const before = `struct Model { var count: Int = 0 }`;
   const after = `struct Model { var count: Int = 0; var name = "Swift Sim" }`;
@@ -168,6 +190,50 @@ test("generates qualified replacements for nested SwiftUI views", () => {
   assert.match(generated, /extension Screen \{/);
 });
 
+test("generates replacements for changed helper functions and computed views", () => {
+  const before = `
+    import SwiftUI
+    struct Screen: View {
+      var body: some View { computedSlot }
+      private var computedSlot: some View { Text("old") }
+      private func helper() -> String { "old" }
+    }
+  `;
+  const after = before
+    .replace('Text("old")', 'Text("new")')
+    .replace('-> String { "old" }', '-> String { "new" }');
+  const generated = generateDynamicReplacementSource({
+    source: after,
+    beforeSource: before,
+    sourcePath: "/tmp/Screen.swift",
+    moduleName: "ExampleApp",
+  });
+  assert.match(generated, /@_dynamicReplacement\(for: computedSlot\)/);
+  assert.match(generated, /private var __swiftSim_computedSlot: some View \{ Text\("new"\) \}/);
+  assert.match(generated, /@_dynamicReplacement\(for: helper\(\)\)/);
+  assert.match(generated, /private func __swiftSim_helper\(\) -> String \{ "new" \}/);
+});
+
+test("inlines a simple async edit into the SwiftUI body replacement", () => {
+  const before = `
+    import SwiftUI
+    struct Screen: View {
+      var body: some View { BenchmarkMarkerView(value: "baseline").task { let value = await helper(); BenchmarkMarker.emit(caseID: "baseline", value: value) } }
+      private func helper() async -> String { "old" }
+    }
+  `;
+  const after = before.replace('"old"', '"new"');
+  const generated = generateDynamicReplacementSource({
+    source: after,
+    beforeSource: before,
+    sourcePath: "/tmp/Screen.swift",
+    moduleName: "ExampleApp",
+  });
+  assert.match(generated, /@_dynamicReplacement\(for: body\)/);
+  assert.match(generated, /let value = "new"/);
+  assert.doesNotMatch(generated, /@_dynamicReplacement\(for: helper\(\)\)/);
+});
+
 test("canonical routing returns stable phase timings through injected engine seams", async () => {
   let clock = 0;
   const result = await routeLiveEditSet({
@@ -235,6 +301,28 @@ test("a successful engine response with zero dynamic replacements is not a live 
   });
   assert.equal(result.action, "hot-reload-failed");
   assert.equal(result.reasonCode, LIVE_REASON_CODES.PATCH_LOAD_FAILED);
+});
+
+test("interposition may report zero dynamic replacements", async () => {
+  const result = await routeLiveEditSet({
+    files: [{
+      path: "Logic.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `func greeting() -> String { "A" }`,
+      afterSource: `func greeting() -> String { "B" }`,
+    }],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      inject: async () => ({
+        succeeded: true,
+        mode: "interposition",
+        durationMs: 1,
+        report: { dynamic_replacements: 0, refresh_acknowledged: true },
+      }),
+    },
+  });
+  assert.equal(result.action, "hot-reload");
 });
 
 test("a patch without the root refresh acknowledgement fails closed", async () => {

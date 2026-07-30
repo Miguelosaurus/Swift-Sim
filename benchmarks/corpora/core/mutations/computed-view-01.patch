@@ -3,6 +3,6 @@ diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
 +++ b/StateApp/StateScreen.swift
 @@ -19,3 +19,3 @@
      private func actionSlot15() -> String { "action-15" }
--    private var computedSlot01: some View { Text("computed-01") }
-+    private var computedSlot01: some View { Text("computed-edited-01") }
-     private var computedSlot02: some View { Text("computed-02") }
+-    private var computedSlot01: some View { BenchmarkMarkerView(value: "computed-01") }
++    private var computedSlot01: some View { BenchmarkMarkerView(caseID: "computed-view-01", value: "computed-edited-01") }
+     private var computedSlot02: some View { BenchmarkMarkerView(value: "computed-02") }

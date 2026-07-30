@@ -2,7 +2,7 @@ diff --git a/StateApp/StateScreen.swift b/StateApp/StateScreen.swift
 --- a/StateApp/StateScreen.swift
 +++ b/StateApp/StateScreen.swift
 @@ -22,3 +22,3 @@
-     private var computedSlot03: some View { Text("computed-03") }
--    private var computedSlot04: some View { Text("computed-04") }
-+    private var computedSlot04: some View { Text("computed-edited-04") }
-     private var computedSlot05: some View { Text("computed-05") }
+     private var computedSlot03: some View { BenchmarkMarkerView(value: "computed-03") }
+-    private var computedSlot04: some View { BenchmarkMarkerView(value: "computed-04") }
++    private var computedSlot04: some View { BenchmarkMarkerView(caseID: "computed-view-04", value: "computed-edited-04") }
+     private var computedSlot05: some View { BenchmarkMarkerView(value: "computed-05") }

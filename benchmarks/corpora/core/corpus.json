@@ -830,7 +830,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-01.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-01",
@@ -847,7 +847,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-02.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-02",
@@ -864,7 +864,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-03.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-03",
@@ -880,7 +880,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-04.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-04",
@@ -896,7 +896,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-05.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-05",
@@ -912,7 +912,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-06.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-06",
@@ -928,7 +928,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-07.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-07",
@@ -944,7 +944,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-08.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-08",
@@ -960,7 +960,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-09.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-09",
@@ -976,7 +976,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/closure-action-10.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "closure-action-10",
@@ -992,7 +992,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-01.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-01",
@@ -1009,7 +1009,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-02.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-02",
@@ -1026,7 +1026,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-03.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-03",
@@ -1042,7 +1042,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-04.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-04",
@@ -1058,7 +1058,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-05.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-05",
@@ -1074,7 +1074,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-06.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-06",
@@ -1090,7 +1090,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-07.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-07",
@@ -1106,7 +1106,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-08.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-08",
@@ -1122,7 +1122,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-09.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-09",
@@ -1138,7 +1138,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/computed-view-10.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "computed-view-10",
@@ -1154,7 +1154,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-01.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-01",
@@ -1171,7 +1171,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-02.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-02",
@@ -1188,7 +1188,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-03.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-03",
@@ -1204,7 +1204,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-04.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-04",
@@ -1220,7 +1220,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-05.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-05",
@@ -1236,7 +1236,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-06.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-06",
@@ -1252,7 +1252,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-07.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-07",
@@ -1268,7 +1268,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-08.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-08",
@@ -1284,7 +1284,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-09.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-09",
@@ -1300,7 +1300,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/helper-function-10.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "helper-function-10",
@@ -1316,7 +1316,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-01.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-01",
@@ -1333,7 +1333,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-02.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-02",
@@ -1350,7 +1350,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-03.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-03",
@@ -1366,7 +1366,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-04.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-04",
@@ -1382,7 +1382,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-05.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-05",
@@ -1398,7 +1398,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-06.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-06",
@@ -1414,7 +1414,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-07.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-07",
@@ -1430,7 +1430,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-08.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-08",
@@ -1446,7 +1446,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-09.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-09",
@@ -1462,7 +1462,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/async-task-10.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "async-task-10",
@@ -1478,7 +1478,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-01.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-01",
@@ -1495,7 +1495,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-02.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-02",
@@ -1512,7 +1512,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-03.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-03",
@@ -1528,7 +1528,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-04.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-04",
@@ -1544,7 +1544,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-05.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-05",
@@ -1560,7 +1560,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-06.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-06",
@@ -1576,7 +1576,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-07.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-07",
@@ -1592,7 +1592,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-08.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-08",
@@ -1608,7 +1608,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-09.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-09",
@@ -1624,7 +1624,7 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/nested-extension-view-10.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "nested-extension-view-10",
@@ -1640,7 +1640,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-01.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-01",
@@ -1657,7 +1657,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-02.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-02",
@@ -1674,7 +1674,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-03.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-03",
@@ -1690,7 +1690,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-04.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-04",
@@ -1706,7 +1706,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-05.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-05",
@@ -1722,7 +1722,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-06.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-06",
@@ -1738,7 +1738,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-07.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-07",
@@ -1754,7 +1754,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-08.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-08",
@@ -1770,7 +1770,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-09.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-09",
@@ -1786,7 +1786,7 @@
       "confirmationPolicy": "interposed-function",
       "mutation": "mutations/generic-actor-body-10.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       },
       "oracle": {
         "case": "generic-actor-body-10",
@@ -1802,8 +1802,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-01.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-01",
@@ -1821,8 +1821,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-02.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-02",
@@ -1840,8 +1840,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-03.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-03",
@@ -1858,8 +1858,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-04.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-04",
@@ -1876,8 +1876,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-05.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-05",
@@ -1894,8 +1894,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-06.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-06",
@@ -1912,8 +1912,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-07.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-07",
@@ -1930,8 +1930,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-08.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-08",
@@ -1948,8 +1948,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-09.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-09",
@@ -1966,8 +1966,8 @@
       "confirmationPolicy": "swiftui-body",
       "mutation": "mutations/multi-file-implementation-10.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984",
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "oracle": {
         "case": "multi-file-implementation-10",
@@ -1984,7 +1984,7 @@
       "mutation": "mutations/stored-property-01.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -1997,7 +1997,7 @@
       "mutation": "mutations/stored-property-02.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2010,7 +2010,7 @@
       "mutation": "mutations/stored-property-03.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2023,7 +2023,7 @@
       "mutation": "mutations/stored-property-04.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2036,7 +2036,7 @@
       "mutation": "mutations/stored-property-05.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2049,7 +2049,7 @@
       "mutation": "mutations/stored-property-06.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2062,7 +2062,7 @@
       "mutation": "mutations/stored-property-07.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2075,7 +2075,7 @@
       "mutation": "mutations/stored-property-08.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2088,7 +2088,7 @@
       "mutation": "mutations/stored-property-09.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2101,7 +2101,7 @@
       "mutation": "mutations/stored-property-10.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2114,7 +2114,7 @@
       "mutation": "mutations/stored-property-11.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2127,7 +2127,7 @@
       "mutation": "mutations/stored-property-12.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2140,7 +2140,7 @@
       "mutation": "mutations/stored-property-13.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2153,7 +2153,7 @@
       "mutation": "mutations/stored-property-14.patch",
       "baselineHashes": {
         "CatalogApp/CatalogScreen.swift": "442019dbbc41705a05a9b347ee5e74d58e91070db2374936131a4ab20740cd3a",
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       },
       "multiFile": true
     },
@@ -2231,7 +2231,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-01.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2242,7 +2242,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-02.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2253,7 +2253,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-03.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2264,7 +2264,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-04.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2275,7 +2275,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-05.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2286,7 +2286,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-06.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2297,7 +2297,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-07.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2308,7 +2308,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-08.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2319,7 +2319,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-09.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2330,7 +2330,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-10.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2341,7 +2341,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-11.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2352,7 +2352,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-12.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2363,7 +2363,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-13.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2374,7 +2374,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-14.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2385,7 +2385,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/signature-change-15.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2396,7 +2396,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-01.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2407,7 +2407,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-02.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2418,7 +2418,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-03.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2429,7 +2429,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-04.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2440,7 +2440,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-05.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2451,7 +2451,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-06.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2462,7 +2462,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-07.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2473,7 +2473,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-08.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2484,7 +2484,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-09.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2495,7 +2495,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-10.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2506,7 +2506,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-11.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2517,7 +2517,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-12.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2528,7 +2528,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-13.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2539,7 +2539,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-14.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2550,7 +2550,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/type-shape-15.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2561,7 +2561,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-01.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2572,7 +2572,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-02.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2583,7 +2583,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-03.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2594,7 +2594,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-04.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2605,7 +2605,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-05.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2616,7 +2616,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-06.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2627,7 +2627,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-07.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2638,7 +2638,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-08.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2649,7 +2649,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-09.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2660,7 +2660,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/enum-protocol-10.patch",
       "baselineHashes": {
-        "ArchitectureApp/ArchitectureScreen.swift": "b64fe796e0f1f93cef0cd2796fe94af2219e9e80541c7883e57691e2fe3da395"
+        "ArchitectureApp/ArchitectureScreen.swift": "329c64643bcd473c6259c2c3b5cb7b090ba8855603c41fb2553290a3c838a984"
       }
     },
     {
@@ -2671,7 +2671,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-01.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2682,7 +2682,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-02.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2693,7 +2693,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-03.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2704,7 +2704,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-04.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2715,7 +2715,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-05.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2726,7 +2726,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-06.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2737,7 +2737,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-07.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2748,7 +2748,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-08.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2759,7 +2759,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-09.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -2770,7 +2770,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/access-attribute-10.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3103,7 +3103,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-01.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3115,7 +3115,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-02.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3127,7 +3127,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-03.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3139,7 +3139,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-04.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3151,7 +3151,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-05.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3163,7 +3163,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-06.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3175,7 +3175,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-07.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3187,7 +3187,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-08.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3199,7 +3199,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-09.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3211,7 +3211,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-10.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3223,7 +3223,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-11.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3235,7 +3235,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-12.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3247,7 +3247,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-13.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3259,7 +3259,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-14.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3271,7 +3271,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-15.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3283,7 +3283,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-16.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3295,7 +3295,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-17.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3307,7 +3307,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-18.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3319,7 +3319,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-19.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     },
     {
@@ -3331,7 +3331,7 @@
       "confirmationPolicy": "unverified",
       "mutation": "mutations/authoring-error-20.patch",
       "baselineHashes": {
-        "StateApp/StateScreen.swift": "050536068c528502fb377c370fd9e8a4f06957dab2a4eda1a2f083865d4a167b"
+        "StateApp/StateScreen.swift": "eb8d217cb2954b553c94353cf769617666752beb4dd89d4ac09fd93a1c457522"
       }
     }
   ]

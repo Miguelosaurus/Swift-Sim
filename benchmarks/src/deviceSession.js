@@ -10,7 +10,7 @@ export function launchDeviceConsole({
   bundleID,
   environment = {},
   spawnProcess = nodeSpawn,
-  timeoutSeconds = 120,
+  timeoutSeconds = 600,
 } = {}) {
   if (!device) throw new Error("A trusted physical device must be selected explicitly with --device.");
   if (!bundleID) throw new Error("A fixture bundle identifier is required.");
