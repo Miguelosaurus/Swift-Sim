@@ -38,9 +38,13 @@ The native SwiftUI app:
 - groups every build under one stable app identity
 - keeps a local build timeline that survives expired install links
 - asks the trusted Mac to generate a new link for a saved build
+- asks the trusted Mac to rebuild current source from a saved private recipe
 - records install requests and displays connected-device verification
 
-It never builds the user's project. Simulator sessions execute on the Mac Simulator; device builds execute as normal installed iOS apps after iOS installs them.
+The iPhone app never receives project paths or source code. Simulator sessions
+execute on the Mac Simulator. Device builds are compiled and signed by the
+paired Mac helper, then execute as normal installed iOS apps after iOS installs
+them.
 
 ## Transport Paths
 
@@ -164,6 +168,7 @@ A device build tracks:
 - expiry timestamp and build logs
 - delivery mode, provider, and delivery expiry
 - install-request and device-verification state
+- optional phone-rebuild provenance, expected app identity, and idempotency key
 
 An app record tracks:
 
@@ -216,6 +221,11 @@ POST /api/sessions/<id>/control/<control>
 Device-build routes:
 
 ```text
+GET  /api/apps
+GET  /api/apps/<id>
+POST /api/apps/<id>/archive
+POST /api/apps/<id>/build-current-source
+DELETE /api/apps/<id>
 GET  /api/device-builds
 POST /api/device-builds/start
 GET  /api/device-builds/<id>
@@ -228,6 +238,14 @@ POST /api/device-builds/<id>/verify
 ```
 
 The temporary public delivery gateway exposes only one token-scoped build's read routes plus `install-request` and `verify`. App listing, archive, deletion, pairing, build start, Simulator media, and Simulator controls remain unavailable through the public gateway.
+
+`build-current-source` is pairing-token-only. The phone sends an opaque app ID
+and an idempotency key, never a filesystem path. The helper selects the latest
+successful private recipe for that app, rejects concurrent duplicates, checks
+that the project still exists, and runs the normal asynchronous device-build
+pipeline. Before archiving, the helper compares the current bundle identifier
+and signing team with the trusted source build and fails closed if either
+changed.
 
 Browser fallback and link entry points:
 

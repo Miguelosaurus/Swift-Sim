@@ -37,6 +37,7 @@ test("device runner proves a hot edit and baseline restore through injected adap
         build: async () => ({ bundleID: "com.swiftSim.benchmark.catalog", appPath: "/tmp/fixture.app" }),
         install: async () => {},
         launch: async () => session,
+        startLive: async () => ({ started: true, ready: true }),
         route: async ({ restore }) => {
           lines.push(restore
             ? 'SWIFT_SIM_BENCHMARK {"case":"baseline","value":"catalog","revision":3}'
@@ -59,4 +60,21 @@ test("device selection never guesses among trusted devices", () => {
   assert.equal(selectTrustedDevice({ device: "phone-a", devices }).identifier, "a");
   assert.throws(() => selectTrustedDevice({ devices }), /explicitly/);
   assert.throws(() => selectTrustedDevice({ device: "phone", devices }), /exactly one/);
+});
+
+test("device selection recognizes devicectl deviceProperties names", () => {
+  const selected = selectTrustedDevice({
+    device: "Fixture iPhone",
+    devices: {
+      result: {
+        devices: [{
+          identifier: "core-device-id",
+          deviceProperties: { name: "Fixture iPhone" },
+          hardwareProperties: { platform: "iOS" },
+        }],
+      },
+    },
+  });
+  assert.equal(selected.identifier, "core-device-id");
+  assert.equal(selected.name, "Fixture iPhone");
 });

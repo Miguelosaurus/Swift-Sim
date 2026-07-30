@@ -7,9 +7,11 @@ Implementation profile: deterministic Node tooling plus disposable SwiftUI fixtu
 
 Implementation checkpoint: Phases 1–2 are complete, and the Phase 3 fixture
 apps/oracle implementation is in place with all three unsigned Simulator builds
-passing. The Phase 3 physical-device probe and restore gate remains pending
-until the explicitly selected iPhone is unlocked; no Simulator or static result
-is a substitute for that gate.
+passing. A signed Catalog fixture has also completed one real iPhone hot edit
+and live baseline restore with a correlated replacement report and semantic
+marker. The complete three-workload physical smoke gate remains pending until
+the explicitly selected iPhone has a stable private-Tailnet live connection; no
+Simulator or static result is a substitute for that gate.
 
 ## Objective
 

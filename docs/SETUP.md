@@ -42,6 +42,23 @@ swift-sim setup
 
 No repository clone or manual skill copy is required. Setup skips agents that are not installed.
 
+Remote **Build Current Code** and live Simulator preview use a private
+Tailscale connection. They can be enabled later without following a command
+checklist: in the iPhone companion, tap **Pair Now** and then
+**Set Up With My Agent**. Share the prepared request with your local coding
+agent. It will inspect the Mac, ask only for any missing iPhone action, and
+return the pairing link.
+
+For first-time pairing, install Tailscale on the Mac and iPhone, give both
+internet access, and sign in to the same Tailnet. They do not need the same
+Wi-Fi network; either device may use cellular. Keep the Mac awake with the
+Swift Sim helper running. Opening the pairing link outside Swift Sim brings up
+the app's **Mac Connection** screen and verifies the Mac before saving it.
+
+Do not connect the iPhone by cable for Swift Sim pairing. A cable is only a
+separate fallback if Xcode has never trusted or registered that iPhone for its
+first development-signed build.
+
 Check the result at any time:
 
 ```sh
@@ -123,6 +140,11 @@ Only configure this lane when you want to control the Mac Simulator from Swift S
    ```
 
 Same Wi-Fi is not required. Do not use Tailscale Funnel; Simulator controls should remain private to the Tailnet.
+
+`swift-sim setup-status` reports the exact Mac hostname, Tailnet URL, selected
+Tailscale backend, and any backend conflict. Do not generate a pairing link
+until it reports `ok: true`. `swift-sim pair` then uses that verified URL
+automatically and refuses a URL belonging to another active Mac identity.
 
 ## Optional Remote iPhone Hot Reload
 

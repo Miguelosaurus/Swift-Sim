@@ -79,9 +79,13 @@ test("companion links use opaque id and token", () => {
 test("pairing links use helper token without session internals", () => {
   const links = buildPairingLinks({
     token: "pair-token",
+    macName: "Example Mac",
   }, "https://mac.example.ts.net/");
   assert.equal(links.universalLink, "https://mac.example.ts.net/pair?token=pair-token");
-  assert.equal(links.customScheme, "swift-sim://pair?token=pair-token&base=https%3A%2F%2Fmac.example.ts.net");
+  assert.equal(
+    links.customScheme,
+    "swift-sim://pair?token=pair-token&base=https%3A%2F%2Fmac.example.ts.net&name=Example%20Mac"
+  );
   assert.ok(!links.universalLink.includes("UDID"));
 });
 
@@ -290,9 +294,13 @@ test("PairingStore persists and rotates helper tokens", () => {
     const writer = new PairingStore({ path });
     const first = writer.current();
     assert.equal(writer.tokenMatches(first.token), true);
+    const renamed = writer.updateMacName("Miguel's MacBook Air");
+    assert.equal(renamed.token, first.token);
+    assert.equal(renamed.macName, "Miguel's MacBook Air");
 
     const reader = new PairingStore({ path });
     assert.equal(reader.tokenMatches(first.token), true);
+    assert.equal(reader.current().macName, "Miguel's MacBook Air");
 
     const second = reader.rotate();
     assert.notEqual(second.token, first.token);

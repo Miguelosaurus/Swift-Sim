@@ -101,6 +101,19 @@ swift-sim setup-status
 
 For simulator preview, if `ok` is true, use `suggestedRemoteBaseUrl`. If `ok` is false, follow `nextSteps` and explain only the missing pieces. For a device build, `deviceBuildReady` only requires the local helper; Tailscale setup is irrelevant.
 
+First-time pairing requires Tailscale installed and connected on the Mac and
+iPhone, both devices signed in to the same Tailnet, internet access on both,
+the Mac awake, the helper running, and a valid pairing link. Same Wi-Fi and a
+USB cable are not required; either device may use another Wi-Fi network or
+cellular. A cable is only a separate fallback when Xcode cannot yet trust or
+register that specific iPhone for its first signed device build. Do not ask the
+user to connect a cable during companion pairing.
+
+If `tailscale.conflict` is true, stop before generating a pairing link. Swift
+Sim found multiple Tailscale backends or Mac identities, so a locally valid
+Serve route may target the wrong Mac. Guide the user to keep one backend, or
+explicitly select the intended mode, then rerun `swift-sim setup-status`.
+
 Also inspect the returned `transport` section. If `transport.activeForPhone` is `serve-sim`, the companion link works through the fallback stream. If the user is testing latency, zoom, pinch, or full simulator controls, be explicit that the native transport is the correct target and the fallback is only for proof-of-loop.
 
 If `SWIFT_SIM_REMOTE_BASE_URL` is already set, use it after setup-status confirms the helper path is viable. If no remote URL can be discovered, ask the user for their Tailscale Serve URL or tell them to run:
@@ -118,12 +131,21 @@ Swift Sim has two different link types:
 - Pairing links: `/pair?...` links teach the native iOS app which Mac helper to trust.
 - Session links: `/s/<opaque-session-id>?token=...` links open a live simulator session.
 
-The iOS app does not use an account or login. If the user says the app shows **Pair a Mac**, a gray status light, missing Mac setup, or asks to relink, generate a pairing URL:
+The companion's **Set Up With My Agent** action shares a request beginning with
+“Set up Swift Sim remote access and pair this iPhone.” Treat that as an
+end-to-end setup request: inspect the Mac, perform every safe Mac-side step,
+explain only the next missing iPhone action (normally installing, signing into,
+or enabling Tailscale), then generate and return the pairing link. Do not send
+the user a terminal-command checklist unless an automatic step is blocked.
+
+The iOS app does not use an account or login. If the user says the app shows **Pair a Mac**, a gray status light, missing Mac setup, or asks to relink, first require `swift-sim setup-status` to report `ok: true` with the intended `tailscale.hostName` and `suggestedRemoteBaseUrl`. Then generate a pairing URL:
 
 ```bash
-swift-sim pair \
-  --remote-base-url "<tailscale-serve-url>"
+swift-sim pair
 ```
+
+The CLI now selects the verified active Serve URL and refuses a mismatched
+URL. Do not manually reuse a hostname from an older task or another Mac.
 
 Return the printed `links.universalLink` as a Markdown link labeled:
 
@@ -131,7 +153,12 @@ Return the printed `links.universalLink` as a Markdown link labeled:
 Pair Swift Sim Companion
 ```
 
-If universal links do not open the app, provide `links.customScheme` as the fallback. Pairing is separate from simulator session links: a user can have a valid session link and still need to pair the app for helper status, relink, and Test Connection to work.
+If universal links do not open the app, provide `links.customScheme` as the
+fallback. Opening either pairing link from outside Swift Sim must present the
+**Mac Connection** screen immediately while the app verifies the Mac; it must
+not leave the user at Home. Pairing is separate from simulator session links:
+a user can have a valid session link and still need to pair the app for helper
+status, relink, and Test Connection to work.
 
 Expected iOS helper status lights:
 
@@ -141,6 +168,19 @@ Expected iOS helper status lights:
 - red: helper unreachable. Check Tailscale, Tailscale Serve, helper process, and pairing URL.
 
 When setup is healthy and the app is unpaired, the coding agent should give the pairing link directly. When setup is not healthy, guide the user through the exact missing step first, for example installing/signing into Tailscale, starting the helper, or running `tailscale serve 47217`.
+
+The companion verifies `/api/pairing/status` before saving a Mac. If pairing
+does not complete, do not tell the user it succeeded merely because the link
+opened. Use the precise app error: unreachable Mac, expired/rejected token, or
+helper failure.
+
+When testing unreleased changes from the Swift Sim repository itself, do not
+assume the Homebrew CLI, running helper, and installed iPhone companion contain
+the checkout's changes merely because all report the same marketing version.
+A new pairing token changes credentials, not app code. Compare the actual CLI
+and helper paths, install the checkout's companion over the existing bundle
+identity, and verify a distinct bundle build number on the device before asking
+the user to retry the fixed flow.
 
 ## Workflow
 
@@ -314,7 +354,23 @@ Update preservation rules:
 
 Swift Sim organizes prototypes by a stable identity derived from bundle identifier plus signing team. The same app must occupy one library slot; later builds become history under it. A different bundle identifier or team intentionally creates another app because iOS no longer treats it as the same update identity.
 
-After a successful device build, always route the user through the Swift Sim handoff. The companion records a pending entry immediately, replaces it with authoritative build metadata from the helper, and groups later builds by bundle identifier plus signing team. Opening the install handoff uses the internal `requested` state, shown to the user as **Installation started**; it does not prove installation completed. iOS does not provide the companion an OTA completion callback.
+After one successful device build, the paired iPhone companion can trigger
+**Build Current Code** without a coding agent. The private Mac helper clones the
+latest successful recipe, builds the exact working tree currently on disk, and
+creates a normal temporary install link. It does not pull Git changes, switch
+branches, commit, or edit source. The phone sends only the opaque app ID and an
+idempotency key; project paths remain on the Mac. The helper rejects concurrent
+duplicates and fails before archiving if the current bundle identifier or
+signing team differs from the trusted recipe. This trigger works remotely from
+any network through the user's private Tailnet; it does not require USB or
+shared Wi-Fi. It does require one-time Mac pairing plus Tailscale online on both
+devices, because the phone is authorizing the user's Mac to run local Xcode.
+
+Keep **Build Current Code** distinct from **Create New Install Link**. The
+former compiles current source into a new IPA. The latter republishes the
+already-saved IPA and cannot contain newer edits.
+
+After a successful device build, always route the user through the Swift Sim handoff. The companion records a pending entry immediately, replaces it with authoritative build metadata from the helper, and groups later builds by bundle identifier plus signing team. Opening the install handoff uses the internal `requested` state, shown to the user as **Install opened**; it is a completed handoff, not proof that installation finished. Exact helper verification upgrades it to **Installed** when a trusted iPhone is reachable. iOS does not provide the companion an OTA completion callback.
 
 The Mac helper automatically reconciles requested installs in the background when a trusted iPhone is available over the local network or USB. The companion syncs that result when it opens or returns to the foreground. Use the CLI below as a troubleshooting fallback when the user asks whether a build is installed:
 
@@ -394,6 +450,7 @@ Use the repo's normal build/run script if it has one. Otherwise:
 - Session tokens do not currently expire automatically. Treat links as durable credentials; Stop ends the tracked stream but is not complete token revocation in V1.
 - Device-build pages are temporary, but local IPA artifacts remain under `~/.swift-sim/device-builds/` until deleted.
 - Device-build links expire after two hours by default and can fail earlier if the Mac sleeps, restarts, loses internet access, or the Quick Tunnel exits. If the companion is paired and the Mac still has the saved IPA, use **Generate New Link** in the app. Otherwise generate a fresh build.
+- Phone-triggered source builds require a previous successful device build, one-time Mac pairing, Tailscale online on both devices, the paired private helper, and the saved Xcode project at its original path. They work across different networks and are never exposed through the public Quick Tunnel.
 
 ## Troubleshooting
 
@@ -427,9 +484,11 @@ Use these branches when setup or links fail:
 
   Then inspect `~/.swift-sim/helper.log` if it still fails.
 
-- iOS app shows gray / **Pair a Mac**: generate a pairing link with the `pair` command and tell the user to open it on the iPhone.
+- iOS app shows gray / **Pair a Mac**: require `setup-status.ok`, confirm the reported Mac name, then run `swift-sim pair` and tell the user to open it on the iPhone.
 
-- iOS app shows red / offline: verify Tailscale is connected on both Mac and iPhone, run `tailscale serve status` on the Mac, confirm the helper is running, then generate a fresh pairing link.
+- iOS app says the Mac is unreachable: verify Tailscale is connected on both devices and use `swift-sim setup-status`; do not also claim the helper is broken because it has not been reached yet.
+
+- iOS app says pairing expired: the phone reached the Mac but the token was rejected. Run `swift-sim pair` for a fresh verified link; do not troubleshoot Tailscale first.
 
 - Universal link opens Safari instead of the app: universal links are not configured for the installed build, or iOS has not associated the app yet. Give the `swift-sim://...` fallback link. Also check the app entitlement host and `SWIFT_SIM_IOS_APP_ID`.
 
@@ -456,8 +515,7 @@ Use these branches when setup or links fail:
 Generate a setup/relink URL for the native iOS companion:
 
 ```bash
-swift-sim pair \
-  --remote-base-url "<tailscale-serve-url>"
+swift-sim pair
 ```
 
 Give the user the returned `links.universalLink` when they need to pair the phone with the Mac helper. This is separate from simulator session links.

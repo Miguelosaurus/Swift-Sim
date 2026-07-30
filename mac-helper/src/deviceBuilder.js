@@ -10,7 +10,11 @@ import {
 
 export class DeviceBuildError extends Error {}
 
-export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
+export async function runDeviceBuild(build, {
+  save,
+  logger = () => {},
+  nextBuildNumber = (_app, current) => current,
+} = {}) {
   const saveBuild = () => save?.(build);
   let lastLogSaveAt = 0;
   const log = (message) => {
@@ -34,7 +38,7 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
     const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
       && target.type === "project"
       && projectHasLivePackage(target);
-    const buildSettingArgs = liveEligible
+    let buildSettingArgs = liveEligible
       ? [...requestedBuildSettingArgs, ...managedLiveBuildSettings()]
       : requestedBuildSettingArgs;
     const root = join(homedir(), ".swift-sim", "device-builds", build.id);
@@ -59,10 +63,25 @@ export async function runDeviceBuild(build, { save, logger = () => {} } = {}) {
       allowProvisioningUpdates: build.allowProvisioningUpdates,
       buildSettingArgs,
     });
-    build.app.bundleIdentifier = settings.PRODUCT_BUNDLE_IDENTIFIER || "";
+    const resolvedIdentity = {
+      bundleIdentifier: settings.PRODUCT_BUNDLE_IDENTIFIER || "",
+      teamID: settings.DEVELOPMENT_TEAM || "",
+    };
+    assertRebuildIdentity(build, resolvedIdentity);
+    const projectBuildNumber = settings.CURRENT_PROJECT_VERSION || "";
+    const automaticBuildNumber = String(nextBuildNumber(resolvedIdentity, projectBuildNumber) || "");
+    if (automaticBuildNumber && automaticBuildNumber !== projectBuildNumber) {
+      buildSettingArgs = [
+        ...buildSettingArgs.filter((setting) => !String(setting).startsWith("CURRENT_PROJECT_VERSION=")),
+        `CURRENT_PROJECT_VERSION=${automaticBuildNumber}`,
+      ];
+      settings.CURRENT_PROJECT_VERSION = automaticBuildNumber;
+      log(`Using build number ${automaticBuildNumber} so every Swift Sim build is distinct.`);
+    }
+    build.app.bundleIdentifier = resolvedIdentity.bundleIdentifier;
     build.app.version = settings.MARKETING_VERSION || "";
     build.app.build = settings.CURRENT_PROJECT_VERSION || "";
-    build.app.teamID = settings.DEVELOPMENT_TEAM || "";
+    build.app.teamID = resolvedIdentity.teamID;
     build.app.identity = deviceAppIdentity(build.app);
     build.signing.style = settings.CODE_SIGN_STYLE || "";
     build.signing.deviceInstallable = Boolean(build.app.bundleIdentifier && build.app.teamID);
@@ -308,6 +327,20 @@ export function publicDeviceApp(app) {
     latestBuild: builds[0] || null,
     builds,
   };
+}
+
+export function assertRebuildIdentity(build, resolvedIdentity) {
+  const expectedBundleIdentifier = build.rebuild?.expectedBundleIdentifier || "";
+  const expectedTeamID = build.rebuild?.expectedTeamID || "";
+  if (!expectedBundleIdentifier && !expectedTeamID) return;
+
+  const bundleMatches = expectedBundleIdentifier === resolvedIdentity.bundleIdentifier;
+  const teamMatches = expectedTeamID === resolvedIdentity.teamID;
+  if (!bundleMatches || !teamMatches) {
+    throw new DeviceBuildError(
+      "Build stopped because the app identity or signing team changed. Open the project on your Mac and create a new trusted build recipe."
+    );
+  }
 }
 
 function resolveTarget(build) {

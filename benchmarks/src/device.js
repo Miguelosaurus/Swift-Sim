@@ -1,9 +1,10 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { routeLiveEditSet } from "../../mac-helper/src/liveReload.js";
+import { tmpdir } from "node:os";
+import { inspectLiveReload, routeLiveEditSet, startLiveReload } from "../../mac-helper/src/liveReload.js";
 import { loadCorpus } from "./corpus.js";
 import { materializeCase } from "./materialize.js";
 import { BenchmarkOracle, benchmarkMarkerPrefix } from "./oracle.js";
@@ -40,59 +41,90 @@ export async function runDeviceBenchmark({
   const attemptsPath = join(output, "attempts.jsonl");
   const previous = existsSync(attemptsPath) ? readAttempts(attemptsPath) : [];
   const completed = new Set(previous.filter((attempt) => attempt.terminalState).map((attempt) => attempt.attemptId));
-  const selected = selectCases(loaded.corpus.cases, { workload, caseID, smoke, full });
+  const selected = selectCases(loaded.corpus.cases, {
+    workload: workload || workloadForScheme(loaded.corpus.cases, scheme),
+    caseID,
+    smoke,
+    full,
+  });
   if (!selected.length) throw new Error("No benchmark cases matched the requested device lane.");
   const environment = await (adapters.doctor || defaultDoctor)();
   assertDoctorReady(environment);
   const selectedDevice = await (adapters.selectDevice || defaultSelectDevice)({ device });
   const deviceAddress = selectedDevice.identifier || selectedDevice.udid || selectedDevice.dnsName || device;
-  const build = await (adapters.build || defaultBuild)({ project, scheme, device: deviceAddress, runId, buildSettings });
-  const bundleID = build.bundleID || build.bundleIdentifier;
-  if (!bundleID) throw new Error("Signed fixture build did not report a bundle identifier.");
-  await (adapters.install || defaultInstall)({ device: deviceAddress, appPath: build.appPath });
-  const session = await (adapters.launch || defaultLaunch)({ device: deviceAddress, bundleID });
-  const oracle = new BenchmarkOracle();
-  await waitForMarker(session, oracle, { caseID: "baseline" });
-  const attempts = [...previous];
-  for (let iteration = 1; iteration <= Number(iterations); iteration += 1) {
-    for (const benchmarkCase of seededOrder(selected, Number(seed) + iteration - 1)) {
-      const attemptId = `${benchmarkCase.id}:device:${iteration}`;
-      if (completed.has(attemptId)) continue;
-      const caseResult = await runCase({
-        benchmarkCase,
-        attemptId,
-        iteration,
-        fixtureRoot,
-        corpusRoot: loaded.corpusRoot,
-        project,
-        scheme,
-        session,
-        oracle,
-        adapters,
-        runId,
-      });
-      const records = Array.isArray(caseResult) ? caseResult : [caseResult];
-      attempts.push(...records);
-      for (const record of records) appendFileSync(attemptsPath, `${JSON.stringify(sanitizeValue(record))}\n`, { mode: 0o600 });
-      const attempt = records[0];
-      if (attempt.dangerousFalseLive) {
-        throw new Error(`Dangerous false-live result for ${benchmarkCase.id}; device run stopped.`);
+  let workspace;
+  let session;
+  try {
+    workspace = createDisposableDeviceWorkspace({ project, fixtureRoot, buildSettings });
+    const runtimeProject = workspace.project;
+    const runtimeFixtureRoot = workspace.fixtureRoot;
+    const build = await (adapters.build || defaultBuild)({ project: runtimeProject, scheme, device: deviceAddress, runId, buildSettings });
+    const bundleID = build.bundleID || build.bundleIdentifier;
+    if (!bundleID) throw new Error("Signed fixture build did not report a bundle identifier.");
+    await (adapters.install || defaultInstall)({ device: deviceAddress, appPath: build.appPath });
+    const liveStart = await (adapters.startLive || defaultStartLive)({ project: runtimeProject });
+    if (!liveStart?.started) {
+      throw Object.assign(
+        new Error(liveStart?.error || "The disposable fixture live engine did not start."),
+        { code: "LIVE_NOT_READY" },
+      );
+    }
+    session = await (adapters.launch || defaultLaunch)({ device: deviceAddress, bundleID });
+    const live = liveStart.ready
+      ? liveStart
+      : await (adapters.waitLive || defaultWaitLive)({ project: runtimeProject });
+    if (!live?.started || !live.ready) {
+      throw Object.assign(
+        new Error(live?.error || "The disposable fixture did not reach live-reload readiness."),
+        { code: "LIVE_NOT_READY" },
+      );
+    }
+    const oracle = new BenchmarkOracle();
+    await waitForMarker(session, oracle, { caseID: "baseline" });
+    const attempts = [...previous];
+    for (let iteration = 1; iteration <= Number(iterations); iteration += 1) {
+      for (const benchmarkCase of seededOrder(selected, Number(seed) + iteration - 1)) {
+        const attemptId = `${benchmarkCase.id}:device:${iteration}`;
+        if (completed.has(attemptId)) continue;
+        resetDisposableFixture({ baselineRoot: workspace.baselineRoot, fixtureRoot: runtimeFixtureRoot });
+        const caseResult = await runCase({
+          benchmarkCase,
+          attemptId,
+          iteration,
+          fixtureRoot: runtimeFixtureRoot,
+          corpusRoot: loaded.corpusRoot,
+          project: runtimeProject,
+          scheme,
+          session,
+          oracle,
+          adapters,
+          runId,
+        });
+        const records = Array.isArray(caseResult) ? caseResult : [caseResult];
+        attempts.push(...records);
+        for (const record of records) appendFileSync(attemptsPath, `${JSON.stringify(sanitizeValue(record))}\n`, { mode: 0o600 });
+        const attempt = records[0];
+        if (attempt.dangerousFalseLive) {
+          throw new Error(`Dangerous false-live result for ${benchmarkCase.id}; device run stopped.`);
+        }
       }
     }
+    const summary = generateSummary({
+      runId,
+      corpus: loaded.corpus,
+      attempts,
+      environment,
+      limitations: [
+        "Physical-device results are only valid for the named fixture, Xcode toolchain, device, and Swift Sim engine versions.",
+        "The corpus is curated and must not be reported as an everyday-edit percentage.",
+      ],
+    });
+    writeReports({ outputDirectory: output, summary, attempts });
+    return { outputDirectory: output, summary, attempts };
+  } finally {
+    session?.close?.();
+    workspace?.cleanup?.();
   }
-  session.close?.();
-  const summary = generateSummary({
-    runId,
-    corpus: loaded.corpus,
-    attempts,
-    environment,
-    limitations: [
-      "Physical-device results are only valid for the named fixture, Xcode toolchain, device, and Swift Sim engine versions.",
-      "The corpus is curated and must not be reported as an everyday-edit percentage.",
-    ],
-  });
-  writeReports({ outputDirectory: output, summary, attempts });
-  return { outputDirectory: output, summary, attempts };
 }
 
 async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpusRoot, project, scheme, session, oracle, adapters, runId }) {
@@ -119,7 +151,14 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
   };
   try {
     materialized = materializeCase({ fixtureRoot, corpusRoot, benchmarkCase });
-    const route = await (adapters.route || defaultRoute)({ project, scheme, changes: materialized.changes });
+    if (benchmarkCase.expectedLane === "hot-reload") {
+      syncMaterializedAfterToLiveRoot(materialized, fixtureRoot);
+    }
+    const route = await (adapters.route || defaultRoute)({
+      project,
+      scheme,
+      changes: liveRouteChanges(materialized, fixtureRoot),
+    });
     const predictedLane = routeLane(route);
     const attempt = {
       ...base,
@@ -164,7 +203,7 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
       timing: {},
     };
     try {
-      await restoreCase({ materialized, project, scheme, session, oracle, adapters });
+      await restoreCase({ materialized, fixtureRoot, project, scheme, session, oracle, adapters });
       restoreAttempt.terminalState = "restored";
       restoreAttempt.refreshAcknowledged = true;
       attempt.restoreAcknowledged = true;
@@ -191,15 +230,92 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
   }
 }
 
-async function restoreCase({ materialized, project, scheme, session, oracle, adapters }) {
+async function restoreCase({ materialized, fixtureRoot, project, scheme, session, oracle, adapters }) {
+  syncMaterializedBeforeToLiveRoot(materialized, fixtureRoot);
   const changes = materialized.changes.map((change) => ({
     ...change,
     beforePath: change.afterPath,
-    afterPath: change.beforePath,
+    afterPath: join(fixtureRoot, change.path),
   }));
   const route = await (adapters.route || defaultRoute)({ project, scheme, changes, restore: true });
   if (route.action !== "hot-reload") throw Object.assign(new Error("Baseline restore was routed to a build."), { code: "REFRESH_NOT_ACKNOWLEDGED" });
   await waitForMarker(session, oracle, { caseID: "baseline" });
+}
+
+function liveRouteChanges(materialized, fixtureRoot) {
+  return materialized.changes.map((change) => ({
+    ...change,
+    afterPath: join(fixtureRoot, change.path),
+  }));
+}
+
+function syncMaterializedAfterToLiveRoot(materialized, fixtureRoot) {
+  for (const change of materialized.changes) {
+    const destination = join(fixtureRoot, change.path);
+    if (existsSync(change.afterPath)) {
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(change.afterPath, destination);
+    } else {
+      rmSync(destination, { force: true });
+    }
+  }
+}
+
+function syncMaterializedBeforeToLiveRoot(materialized, fixtureRoot) {
+  for (const change of materialized.changes) {
+    const destination = join(fixtureRoot, change.path);
+    if (existsSync(change.beforePath)) {
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(change.beforePath, destination);
+    } else {
+      rmSync(destination, { force: true });
+    }
+  }
+}
+
+function createDisposableDeviceWorkspace({ project, fixtureRoot, buildSettings = [] }) {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-benchmark-device-"));
+  const projectDestination = join(root, basename(project));
+  const fixtureDestination = join(root, basename(fixtureRoot));
+  const baselineDestination = join(root, "baseline");
+  cpSync(project, projectDestination, { recursive: true });
+  cpSync(fixtureRoot, fixtureDestination, { recursive: true });
+  cpSync(fixtureRoot, baselineDestination, { recursive: true });
+
+  const projectFile = join(projectDestination, "project.pbxproj");
+  if (existsSync(projectFile)) {
+    const packagePath = relative(dirname(projectDestination), repositoryRoot) || ".";
+    const source = readFileSync(projectFile, "utf8");
+    const team = buildSettingValue(buildSettings, "DEVELOPMENT_TEAM");
+    const rewritten = source
+      .replace(
+      /relativePath = \.\.\/\.\.;/g,
+      `relativePath = ${packagePath};`,
+      )
+      .replace(/DEVELOPMENT_TEAM = "";/g, team ? `DEVELOPMENT_TEAM = ${team};` : 'DEVELOPMENT_TEAM = "";');
+    if (rewritten !== source) {
+      writeFileSync(projectFile, rewritten, { mode: 0o600 });
+    }
+  }
+
+  return {
+    root,
+    project: projectDestination,
+    fixtureRoot: fixtureDestination,
+    baselineRoot: baselineDestination,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+function buildSettingValue(buildSettings, key) {
+  const prefix = `${key}=`;
+  const setting = (buildSettings || []).find((value) => String(value).startsWith(prefix));
+  return setting ? String(setting).slice(prefix.length) : "";
+}
+
+function resetDisposableFixture({ baselineRoot, fixtureRoot }) {
+  rmSync(fixtureRoot, { recursive: true, force: true });
+  cpSync(baselineRoot, fixtureRoot, { recursive: true });
 }
 
 export async function waitForMarker(session, oracle, expected, timeoutMs = 60_000) {
@@ -224,6 +340,10 @@ function selectCases(cases, { workload, caseID, smoke, full }) {
     if (!full && !smoke && benchmarkCase.validity === "authoring-error") return false;
     return true;
   });
+}
+
+function workloadForScheme(cases, scheme) {
+  return cases.some((benchmarkCase) => benchmarkCase.workload === scheme) ? scheme : undefined;
 }
 
 function routeLane(route) {
@@ -288,6 +408,20 @@ async function defaultLaunch({ device, bundleID }) {
 
 async function defaultRoute({ changes, project }) {
   return routeLiveEditSet({ project, files: changes });
+}
+
+async function defaultStartLive({ project }) {
+  return startLiveReload({ project });
+}
+
+async function defaultWaitLive({ project }) {
+  const deadline = Date.now() + 30_000;
+  let status = await inspectLiveReload({ project });
+  while (Date.now() < deadline && !status.ready) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+    status = await inspectLiveReload({ project });
+  }
+  return { ...status, started: true, error: status.ready ? "" : "The live engine did not become ready before the timeout." };
 }
 
 function elapsedMs(startedAt) {

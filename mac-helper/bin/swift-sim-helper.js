@@ -19,6 +19,10 @@ import {
   DeviceDeliveryAdapter,
   deviceDeliveryRequestAllowed,
 } from "../src/deviceDelivery.js";
+import {
+  deviceBuildExpiryDate,
+  normalizeDeviceBuildTTLMinutes,
+} from "../src/deviceBuildDefaults.js";
 import { PairingStore } from "../src/pairingStore.js";
 import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
 import { DeviceInventoryAdapter } from "../src/deviceInventory.js";
@@ -39,6 +43,11 @@ import {
   unauthorized,
 } from "../src/http.js";
 import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../src/links.js";
+import {
+  selectTailscaleProbe,
+  tailscaleBackendsConflict,
+} from "../src/tailscaleBackends.js";
+import { externalRequestBase } from "../src/requestOrigin.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -112,10 +121,12 @@ async function main() {
       args: rest,
       options: {
         "remote-base-url": { type: "string" },
+        "mac-name": { type: "string" },
         rotate: { type: "boolean" },
       },
     });
-    const pairing = values.rotate ? pairingStore.rotate() : pairingStore.current();
+    let pairing = values.rotate ? pairingStore.rotate() : pairingStore.current();
+    pairing = pairingStore.updateMacName(values["mac-name"]);
     const links = buildPairingLinks(pairing, values["remote-base-url"]);
     console.log(JSON.stringify({
       macName: pairing.macName,
@@ -145,8 +156,7 @@ async function main() {
       options: commonDeviceBuildOptions(),
     });
     const build = await createDeviceBuild(values);
-    await runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) });
-    await prepareDeviceDelivery(build);
+    await runDeviceBuildAndPrepareDelivery(build);
     console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
     return;
   }
@@ -356,7 +366,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         });
       }
 
-      const appMatch = url.pathname.match(/^\/api\/apps\/([^/]+)(?:\/(archive))?$/);
+      const appMatch = url.pathname.match(/^\/api\/apps\/([^/]+)(?:\/(archive|build-current-source))?$/);
       if (appMatch) {
         if (!pairingTokenMatches(req, url)) {
           return unauthorized(res);
@@ -370,6 +380,44 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           const body = await readJson(req);
           const app = deviceBuildStore.setAppArchived(appID, body.archived !== false);
           return app ? json(res, 200, publicDeviceApp(app)) : notFound(res, "Unknown app.");
+        }
+        if (req.method === "POST" && action === "build-current-source") {
+          const body = await readJson(req);
+          const idempotencyKey = String(body.idempotencyKey || "");
+          if (!/^[A-Za-z0-9_-]{8,128}$/.test(idempotencyKey)) {
+            return badRequest(res, 400, "A valid idempotency key is required.");
+          }
+
+          const existing = deviceBuildStore.findRebuild({ appID, idempotencyKey });
+          if (existing) {
+            return json(res, 200, publicDeviceBuild(existing));
+          }
+
+          const active = deviceBuildStore.findRebuild({ appID, activeOnly: true });
+          if (active) {
+            return json(res, 200, publicDeviceBuild(active));
+          }
+
+          const source = deviceBuildStore.latestReusableBuildForApp(appID);
+          if (!source) {
+            return badRequest(
+              res,
+              409,
+              "No successful device build is available as a trusted build recipe. Create one from the Mac first."
+            );
+          }
+          const sourcePath = source.workspace || source.project;
+          if (!existsSync(sourcePath)) {
+            return badRequest(
+              res,
+              409,
+              "The saved Xcode project is no longer available at its original location on this Mac."
+            );
+          }
+
+          const build = deviceBuildStore.createRebuild(source, { appID, idempotencyKey });
+          runDeviceBuildAndPrepareDelivery(build).catch(() => {});
+          return json(res, 202, publicDeviceBuild(build));
         }
         if (req.method === "DELETE" && !action) {
           const deleted = deviceBuildStore.deleteApp(appID, {
@@ -397,9 +445,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           "allow-provisioning-updates": Boolean(body.allowProvisioningUpdates),
           "replace-app-data": Boolean(body.replaceAppData),
         });
-        runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) })
-          .then(() => prepareDeviceDelivery(build))
-          .catch(() => {});
+        runDeviceBuildAndPrepareDelivery(build).catch(() => {});
         return json(res, 202, publicDeviceBuild(build));
       }
 
@@ -653,8 +699,20 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
 
       if (req.method === "GET" && url.pathname === "/pair") {
         const token = url.searchParams.get("token") || "";
-        const base = `${url.protocol}//${url.host}`;
-        return text(res, 200, pairingFallbackHtml({ token, base }), "text/html; charset=utf-8");
+        if (!pairingStore.tokenMatches(token)) {
+          return unauthorized(res);
+        }
+        const base = externalRequestBase(req, url);
+        const pairing = pairingStore.current();
+        return text(res, 200, pairingFallbackHtml({
+          token,
+          base,
+          macName: pairing.macName,
+        }), "text/html; charset=utf-8", {
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+        });
       }
 
       return notFound(res, "Not found.");
@@ -730,17 +788,20 @@ function verifyDeviceBuild(build) {
 }
 
 async function setupStatus({ host, port }) {
-  const [tailscale, serveStatus, helperHealth, transportInfo] = await Promise.all([
-    readTailscaleStatus(),
-    readTailscaleServeStatus(port),
+  const [tailscaleInspection, helperHealth, transportInfo] = await Promise.all([
+    inspectTailscaleBackends(),
     readHelperHealth(host, port),
     inspectTransports(),
   ]);
+  const tailscale = publicTailscaleStatus(tailscaleInspection);
+  const serveStatus = await readTailscaleServeStatus(port, tailscaleInspection.selected);
   const defaultRemoteBaseUrl = tailscale.dnsName ? `https://${tailscale.dnsName.replace(/\.$/, "")}` : "";
   const remoteBaseUrl = serveStatus.remoteBaseUrl || defaultRemoteBaseUrl;
   const nextSteps = [];
 
-  if (!tailscale.available) {
+  if (tailscale.conflict) {
+    nextSteps.push("Swift Sim found multiple Tailscale backends for different Mac identities. Keep one Tailscale connection, or set SWIFT_SIM_TAILSCALE_MODE explicitly before pairing.");
+  } else if (!tailscale.available) {
     nextSteps.push("Install Tailscale on the Mac and sign in to the same Tailnet as the iPhone.");
   } else if (!tailscale.online) {
     nextSteps.push("Open Tailscale on the Mac and connect it.");
@@ -750,19 +811,29 @@ async function setupStatus({ host, port }) {
     nextSteps.push("Run swift-sim setup to start the Mac helper.");
   }
 
-  if (tailscale.online && !serveStatus.configured) {
+  if (!tailscale.conflict && tailscale.online && !serveStatus.configured) {
     nextSteps.push(`Expose the helper privately: ${tailscaleServeCommand(tailscale.mode, port)}`);
   }
 
-  if (remoteBaseUrl && helperHealth.ok && serveStatus.configured) {
-    nextSteps.push(`Generate an iPhone pairing link: swift-sim pair --remote-base-url ${remoteBaseUrl}`);
+  if (!tailscale.conflict && remoteBaseUrl && helperHealth.ok && serveStatus.configured) {
+    nextSteps.push("Generate an iPhone pairing link: swift-sim pair");
   }
 
   return {
-    ok: tailscale.online && helperHealth.ok && serveStatus.configured,
+    ok: !tailscale.conflict && tailscale.online && helperHealth.ok && serveStatus.configured,
     helper: helperHealth,
     tailscale,
     tailscaleServe: serveStatus,
+    phoneConnection: {
+      pairingCableRequired: false,
+      installCableRequired: false,
+      sameWifiRequired: false,
+      sameTailnetRequired: true,
+      internetRequired: true,
+      macAwakeRequired: true,
+      firstXcodeTrustMayRequireCable: true,
+      detail: "For first-time pairing, install Tailscale on both devices, sign in to the same Tailnet, and keep the Mac awake with internet access. The devices may use different Wi-Fi networks or cellular. No cable is needed for Swift Sim pairing; connect one only if Xcode separately asks to trust or register this iPhone for its first signed device build.",
+    },
     deviceDelivery: deviceDelivery.status(),
     deviceBuildReady: helperHealth.ok,
     transport: {
@@ -792,43 +863,73 @@ function preferredPhoneTransport(info) {
   return "serve-sim";
 }
 
-async function readTailscaleStatus() {
-  const { result, mode } = await runTailscale(["status", "--json"]);
-  if (result.error) {
-    const timedOut = result.error.includes("timed out");
-    return {
-      available: timedOut,
-      online: false,
-      backendState: "",
-      dnsName: "",
-      error: result.error,
-      mode,
-    };
+async function inspectTailscaleBackends() {
+  const probes = [];
+  for (const candidate of tailscaleCandidates()) {
+    const result = await runTailscaleCandidate(candidate, ["status", "--json"]);
+    let parsed;
+    let parseError = "";
+    if (!result.error) {
+      try {
+        parsed = JSON.parse(result.stdout);
+      } catch (error) {
+        parseError = error instanceof Error ? error.message : String(error);
+      }
+    }
+    probes.push({
+      candidate,
+      result,
+      parsed,
+      error: result.error || parseError,
+    });
   }
-  try {
-    const parsed = JSON.parse(result.stdout);
-    return {
-      available: true,
-      online: Boolean(parsed.Self?.Online),
-      backendState: parsed.BackendState || "",
-      dnsName: parsed.Self?.DNSName || "",
-      tailnet: parsed.CurrentTailnet?.Name || "",
-      mode,
-    };
-  } catch (error) {
-    return {
-      available: true,
-      online: false,
-      backendState: "",
-      dnsName: "",
-      error: error instanceof Error ? error.message : String(error),
-      mode,
-    };
-  }
+
+  const preferredMode = process.env.SWIFT_SIM_TAILSCALE_MODE || "";
+  const selected = selectTailscaleProbe(probes, preferredMode);
+  const conflict = tailscaleBackendsConflict(probes, selected, preferredMode);
+
+  return {
+    selected,
+    probes,
+    conflict,
+    preferredMode,
+  };
 }
 
-async function readTailscaleServeStatus(port) {
-  const { result, mode } = await runTailscale(["serve", "status"]);
+function publicTailscaleStatus(inspection) {
+  const selected = inspection.selected;
+  const parsed = selected?.parsed;
+  return {
+    available: Boolean(selected),
+    online: Boolean(parsed?.Self?.Online),
+    backendState: parsed?.BackendState || "",
+    dnsName: parsed?.Self?.DNSName || "",
+    hostName: parsed?.Self?.HostName || "",
+    ips: parsed?.Self?.TailscaleIPs || parsed?.TailscaleIPs || [],
+    tailnet: parsed?.CurrentTailnet?.Name || "",
+    mode: selected?.candidate.mode || "",
+    conflict: inspection.conflict,
+    backends: inspection.probes.map((probe) => ({
+      mode: probe.candidate.mode,
+      available: Boolean(probe.parsed),
+      online: Boolean(probe.parsed?.Self?.Online),
+      dnsName: probe.parsed?.Self?.DNSName || "",
+      error: probe.error || "",
+    })),
+  };
+}
+
+async function readTailscaleServeStatus(port, selected) {
+  if (!selected) {
+    return {
+      configured: false,
+      error: "No working Tailscale backend was found.",
+      raw: "",
+      mode: "",
+    };
+  }
+  const result = await runTailscaleCandidate(selected.candidate, ["serve", "status"]);
+  const mode = selected.candidate.mode;
   if (result.error) {
     return {
       configured: false,
@@ -845,21 +946,19 @@ async function readTailscaleServeStatus(port) {
   };
 }
 
-async function runTailscale(args) {
-  let fallback = { result: { error: "tailscale not checked", stdout: "", stderr: "", code: null }, mode: "default" };
-  for (const candidate of tailscaleCandidates()) {
-    const result = await runCommand("tailscale", [...candidate.args, ...args], { timeoutMs: 2500 });
-    if (!result.error) return { result, mode: candidate.mode };
-    fallback = { result, mode: candidate.mode };
-  }
-  return fallback;
+function runTailscaleCandidate(candidate, args) {
+  return runCommand(candidate.command, [...candidate.args, ...args], { timeoutMs: 2500 });
 }
 
 function tailscaleCandidates() {
-  const candidates = [{ mode: "default", args: [] }];
+  const candidates = [{ mode: "default", command: "tailscale", args: [] }];
+  const appCommand = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+  if (existsSync(appCommand)) {
+    candidates.push({ mode: "app", command: appCommand, args: [] });
+  }
   const userspaceSocket = `${homedir()}/.tailscale-userspace/tailscaled.sock`;
   if (existsSync(userspaceSocket)) {
-    candidates.push({ mode: "userspace", args: [`--socket=${userspaceSocket}`] });
+    candidates.push({ mode: "userspace", command: "tailscale", args: [`--socket=${userspaceSocket}`] });
   }
   return candidates;
 }
@@ -1501,7 +1600,10 @@ async function createDeviceBuild(values) {
 
 async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
   try {
+    const ttlMinutes = normalizeDeviceBuildTTLMinutes(build.ttlMinutes);
+    build.ttlMinutes = ttlMinutes;
     if (build.remoteBaseUrl || build.delivery?.mode === "custom") {
+      build.expiresAt = deviceBuildExpiryDate(ttlMinutes);
       build.delivery = {
         mode: "custom",
         provider: "user-configured",
@@ -1511,9 +1613,9 @@ async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
       return build;
     }
 
-    const remainingMinutes = Math.max(5, Math.ceil((Date.parse(build.expiresAt) - Date.now()) / 60_000));
-    const delivery = await deviceDelivery.ensure({ ttlMinutes: remainingMinutes });
+    const delivery = await deviceDelivery.ensure({ ttlMinutes });
     build.remoteBaseUrl = delivery.publicBaseUrl;
+    build.expiresAt = delivery.expiresAt;
     build.delivery = {
       mode: "quick-tunnel",
       provider: delivery.provider,
@@ -1528,6 +1630,21 @@ async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
     deviceBuildStore.save(build);
     throw error;
   }
+}
+
+async function runDeviceBuildAndPrepareDelivery(build) {
+  await runDeviceBuild(build, {
+    save: (next) => deviceBuildStore.save(next),
+    nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
+  });
+  build.state = "delivering";
+  build.logs.push("Creating temporary install link.");
+  deviceBuildStore.save(build);
+  await prepareDeviceDelivery(build);
+  build.state = "ready";
+  build.logs.push("Install link is ready.");
+  deviceBuildStore.save(build);
+  return build;
 }
 
 function serveFile(res, path, { contentType, filename }) {
@@ -1614,8 +1731,9 @@ function sessionFallbackHtml(session) {
 </html>`;
 }
 
-function pairingFallbackHtml({ token, base }) {
-  const customScheme = `swift-sim://pair?token=${encodeURIComponent(token)}&base=${encodeURIComponent(base)}`;
+function pairingFallbackHtml({ token, base, macName }) {
+  const customScheme = buildPairingLinks({ token, macName }, base).customScheme;
+  const customSchemeScript = JSON.stringify(customScheme);
   return `<!doctype html>
 <html>
 <head>
@@ -1628,12 +1746,19 @@ function pairingFallbackHtml({ token, base }) {
     a.button { display: inline-block; margin-top: 18px; padding: 14px 18px; border-radius: 999px; color: white; background: #1677ff; text-decoration: none; font-weight: 700; }
     code { display: block; margin-top: 18px; padding: 14px; border-radius: 14px; background: white; word-break: break-all; }
   </style>
+  <script>
+    window.addEventListener("load", () => {
+      setTimeout(() => { window.location.href = ${customSchemeScript}; }, 250);
+    });
+  </script>
 </head>
 <body>
   <main>
-    <h1>Connect Swift Sim</h1>
-    <p>Open Swift Sim on your iPhone and connect it to this Mac over Tailscale.</p>
-    <a class="button" href="${escapeHtml(customScheme)}">Open Swift Sim</a>
+    <h1>Pair with ${escapeHtml(macName || "this Mac")}</h1>
+    <p>Swift Sim will verify this Mac before saving it and open the Mac Connection screen automatically.</p>
+    <p>Both devices need internet access and the same Tailnet, but not the same Wi-Fi network or a USB cable.</p>
+    <a class="button" href="${escapeHtml(customScheme)}">Pair in Swift Sim</a>
+    <p>If Swift Sim does not open automatically, tap the button or paste this link in the app:</p>
     <code>${escapeHtml(customScheme)}</code>
   </main>
 </body>

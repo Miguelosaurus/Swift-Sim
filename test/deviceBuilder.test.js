@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  assertRebuildIdentity,
   buildManifest,
   deviceBuildLinks,
+  DeviceBuildError,
   physicalIOSDestination,
   publicDeviceBuild,
 } from "../mac-helper/src/deviceBuilder.js";
@@ -105,4 +107,31 @@ test("live device builds prefer an available physical iPhone for first-time prov
   ]);
   assert.equal(physicalIOSDestination(output), "platform=iOS,id=PHYSICAL-ID");
   assert.equal(physicalIOSDestination("invalid"), "generic/platform=iOS");
+});
+
+test("phone-triggered rebuilds fail closed when update identity changes", () => {
+  const build = {
+    rebuild: {
+      expectedBundleIdentifier: "com.example.app",
+      expectedTeamID: "TEAM123",
+    },
+  };
+  assert.doesNotThrow(() => assertRebuildIdentity(build, {
+    bundleIdentifier: "com.example.app",
+    teamID: "TEAM123",
+  }));
+  assert.throws(
+    () => assertRebuildIdentity(build, {
+      bundleIdentifier: "com.example.other",
+      teamID: "TEAM123",
+    }),
+    DeviceBuildError
+  );
+  assert.throws(
+    () => assertRebuildIdentity(build, {
+      bundleIdentifier: "com.example.app",
+      teamID: "TEAM999",
+    }),
+    DeviceBuildError
+  );
 });

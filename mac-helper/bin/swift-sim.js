@@ -45,6 +45,7 @@ async function main() {
   if (command === "live-start") return liveStart(args);
   if (command === "classify-change") return classifyChange(args);
   if (command === "route-change") return routeChange(args);
+  if (command === "pair") return pair(args);
 
   if (command === "serve") return runHelper(["serve", ...args], { inherit: true });
 
@@ -57,18 +58,55 @@ async function main() {
     "companion-link",
     "device-delivery-status",
     "device-delivery-stop",
-    "pair",
     "serve-sim-info",
     "setup-status",
     "start-session",
     "stop-session",
   ]);
   if (helperCommands.has(command)) {
-    if (["pair", "start-session"].includes(command)) await ensureHelperRunning();
+    if (command === "start-session") await ensureHelperRunning();
     return runHelper([command, ...args], { inherit: true });
   }
 
   throw new Error(`Unknown command: ${command}. Run swift-sim help.`);
+}
+
+async function pair(args) {
+  await ensureHelperRunning();
+  const { values } = parseArgs({
+    args,
+    options: {
+      "remote-base-url": { type: "string" },
+      rotate: { type: "boolean" },
+    },
+  });
+  const setup = runHelperJSON(["setup-status"]);
+  if (!setup) {
+    throw new Error("Swift Sim could not inspect remote pairing readiness. Run swift-sim setup-status.");
+  }
+  if (!setup.ok) {
+    throw new Error(setup.nextSteps?.[0] || "Remote pairing is not ready. Run swift-sim setup-status.");
+  }
+
+  const suggested = normalizeURL(setup.suggestedRemoteBaseUrl);
+  const requested = normalizeURL(values["remote-base-url"] || suggested);
+  if (!requested) {
+    throw new Error("Swift Sim could not find the private Mac URL. Run swift-sim setup-status.");
+  }
+  if (suggested && requested !== suggested) {
+    throw new Error(`The requested Mac URL does not match the active Tailscale backend. Use ${suggested}`);
+  }
+
+  const helperArgs = ["pair", "--remote-base-url", requested];
+  if (setup.tailscale?.hostName) {
+    helperArgs.push("--mac-name", setup.tailscale.hostName);
+  }
+  if (values.rotate) helperArgs.push("--rotate");
+  return runHelper(helperArgs, { inherit: true });
+}
+
+function normalizeURL(value) {
+  return String(value || "").replace(/\/+$/, "");
 }
 
 async function liveStatus(args) {
@@ -195,8 +233,15 @@ async function setup(args) {
     console.log("Finish the item marked needs-attention, then run swift-sim doctor.");
   }
   if (!result.simulatorPreview.ready) {
-    console.log("Live Simulator preview is optional. Run swift-sim doctor after configuring Tailscale.");
+    console.log("Remote Build Current Code and live Simulator preview are optional.");
+    console.log("To enable them, ask your coding agent: Set up Swift Sim remote access and pair my iPhone.");
+  } else {
+    console.log("To pair the iPhone for remote builds and Simulator preview, ask your coding agent: Pair my iPhone with Swift Sim.");
   }
+  console.log("For first-time pairing, install Tailscale on both devices and sign in to the same Tailnet.");
+  console.log("Both devices need internet access, but they do not need the same Wi-Fi network or a USB cable.");
+  console.log("After pairing, keep Tailscale connected and the Mac awake for remote builds and Simulator preview.");
+  console.log("Connect a cable only if Xcode separately asks to trust or register the iPhone for its first signed device build.");
 }
 
 async function doctor(args) {
@@ -738,7 +783,7 @@ Usage:
   swift-sim archive-app ...        Archive or restore an app from the library
   swift-sim delete-app ...         Delete local app history and artifacts
   swift-sim start-session ...     Open a live Simulator session
-  swift-sim pair ...              Pair optional Simulator diagnostics
+  swift-sim pair                  Pair iPhone for remote builds and Simulator access
   swift-sim serve                 Run the local helper in the foreground
 
 iPhone app installs are the universal workflow and do not require Tailscale.

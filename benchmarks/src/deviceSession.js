@@ -115,7 +115,7 @@ function normalizeDeviceEntries(value) {
   return candidates.map((entry) => ({
     identifier: entry.identifier || entry.udid || entry.deviceIdentifier || entry.device?.identifier,
     udid: entry.udid || entry.deviceIdentifier,
-    name: entry.name || entry.deviceName,
+    name: entry.name || entry.deviceName || entry.deviceProperties?.name,
     dnsName: entry.dnsName || entry.networkAddress,
     platform: entry.hardwareProperties?.platform || entry.platform,
     trusted: entry.connectionProperties?.isTrusted ?? entry.trusted ?? true,

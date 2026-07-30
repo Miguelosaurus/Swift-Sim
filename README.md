@@ -96,6 +96,28 @@ Run `swift-sim doctor` to see exactly which agent integrations are ready.
 
 The companion is recommended for the organized app library and required for live Simulator control. A normal device-build install link can still work in Safari if the companion is unavailable.
 
+After an app has one successful device build, its app-history screen can also
+trigger **Build Current Code**. The paired Mac reuses the private build recipe,
+builds the project exactly as it currently exists on disk (including uncommitted
+changes), and creates a fresh install link without a coding agent. Swift Sim
+does not pull Git changes, switch branches, or edit the project. This trigger
+works remotely from anywhere through the user's private Tailscale connection.
+For first-time pairing, install Tailscale on both devices, give both internet
+access, and sign in to the same Tailnet. They may use different Wi-Fi networks
+or cellular. Pair them once, then keep Tailscale connected and the Mac awake so
+its local Xcode can perform the build.
+If the phone is not paired, tap **Pair Now**, then **Set Up With My Agent**.
+Share the prepared request with Codex, Cursor, Claude Code, or OpenCode; the
+agent checks the Mac, guides only the missing Tailscale step, and returns the
+pairing link. Terminal commands remain available only as a manual fallback.
+Opening the pairing link from Safari, Messages, or an agent opens Swift Sim
+directly to **Mac Connection**. Swift Sim verifies the selected Mac and pairing
+token before saving them; opening a link alone is not reported as success.
+
+No USB cable is used for companion pairing, remote builds, Simulator preview,
+or OTA installation. A cable may be needed separately if Xcode asks to trust or
+register a new iPhone for its first development-signed build.
+
 No Swift Sim account, Cloudflare account, repository clone, or manual plugin copy is required.
 
 ## Build To Your iPhone
@@ -107,6 +129,12 @@ Build this app to my iPhone with Swift Sim
 ```
 
 The agent runs the installed Swift Sim workflow, signs the app, and returns **Open in Swift Sim to Install**. Swift Sim saves the version before asking iOS to install it. The link works over cellular or any network and lasts two hours by default. If it expires, the app can generate a new link from the saved app while the trusted Mac is online. Tailscale is not required for the install itself.
+
+**Build Current Code** creates a new signed IPA from the current Mac working
+tree. **Create New Install Link** reuses the already-saved IPA and does not
+include newer source changes. Normal install links do not require Tailscale;
+initiating a new Xcode build from the phone does, because it is a private remote
+command to the user's Mac.
 
 If Swift Sim is not installed, the HTTPS page still offers **Install directly**. That option installs the signed app but cannot add the version to Swift Sim's history.
 

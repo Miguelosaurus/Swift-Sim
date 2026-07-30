@@ -106,7 +106,9 @@ export function deviceSummary(records) {
   // latency denominators unless the runner explicitly marks the record.
   const deviceRecords = records.filter((record) => record.deviceAttempt === true);
   const validHot = deviceRecords.filter((record) =>
-    record.validity !== "authoring-error" && record.expectedLane === "hot-reload"
+    record.operation !== "restore"
+      && record.validity !== "authoring-error"
+      && record.expectedLane === "hot-reload"
   );
   const confirmed = validHot.filter(isSemanticallyConfirmed);
   const fallback = validHot.filter((record) => record.terminalState === "hot-reload-failed");

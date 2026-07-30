@@ -10,3 +10,9 @@ export function normalizeDeviceBuildTTLMinutes(value) {
     Math.min(MAX_DEVICE_BUILD_TTL_MINUTES, minutes)
   );
 }
+
+export function deviceBuildExpiryDate(ttlMinutes, now = Date.now()) {
+  return new Date(
+    Number(now) + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000
+  ).toISOString();
+}

@@ -70,6 +70,13 @@ Session tokens do not currently expire automatically. They remain valid in the s
 
 Device-build install pages and their delivery tunnel expire after two hours by default. Callers may shorten that window to as little as five minutes. The local IPA file remains on the Mac under `~/.swift-sim/device-builds/` until deleted. A paired companion may ask the private Mac helper to generate a new link for that saved IPA. The public delivery gateway cannot renew links.
 
+A paired companion may also request a build of the current source through the
+private helper. The request contains only an opaque app ID and idempotency key.
+Local project/workspace paths and build-setting overrides remain in the Mac's
+private build store. This mutation is not available through the public delivery
+gateway. The helper reuses a successful recipe and refuses the phone-triggered
+build if the current bundle identifier or signing team no longer matches it.
+
 If a session or device-build link is exposed, stop the helper, remove the affected record from `~/.swift-sim/sessions.json` or `~/.swift-sim/device-builds.json`, delete the matching artifact directory if needed, then restart the helper and create a fresh link. Rotate pairing separately if the pairing link was exposed. Automatic cleanup and first-class revocation are future hardening work.
 
 ## Information Minimization

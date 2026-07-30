@@ -19,8 +19,8 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .top) {
-            if let message = sessionStore.libraryActionMessage {
-                LibraryActionBanner(message: message) {
+            if let notice = sessionStore.libraryActionNotice {
+                LibraryActionBanner(notice: notice) {
                     sessionStore.dismissLibraryActionMessage()
                 }
                 .padding(.horizontal, 18)
@@ -28,7 +28,11 @@ struct ContentView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.snappy(duration: 0.25), value: sessionStore.libraryActionMessage)
+        .animation(.snappy(duration: 0.25), value: sessionStore.libraryActionNotice)
+        .sheet(isPresented: $sessionStore.isMacSettingsPresented) {
+            MacSettingsSheet()
+                .environmentObject(sessionStore)
+        }
     }
 }
 
@@ -36,7 +40,6 @@ private struct HomeView: View {
     @EnvironmentObject private var sessionStore: SessionStore
     @AppStorage("swiftSim.homeMode") private var homeMode = HomeMode.installs.rawValue
     @State private var searchText = ""
-    @State private var showingMacSettings = false
     @State private var showingPasteLink = false
     @State private var showingArchivedApps = false
 
@@ -84,10 +87,6 @@ private struct HomeView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             commandDock
         }
-        .sheet(isPresented: $showingMacSettings) {
-            MacSettingsSheet()
-                .environmentObject(sessionStore)
-        }
         .sheet(isPresented: $showingPasteLink) {
             PasteLinkSheet()
                 .environmentObject(sessionStore)
@@ -120,7 +119,7 @@ private struct HomeView: View {
 
     private var macInstallStatusPanel: some View {
         Button {
-            showingMacSettings = true
+            sessionStore.isMacSettingsPresented = true
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: "macbook.and.iphone")
@@ -158,17 +157,19 @@ private struct HomeView: View {
         switch sessionStore.helperStatus {
         case .online: return "Connected to \(macName)"
         case .checking: return "Connecting to \(macName)"
-        case .offline: return "Installs still work"
-        case .notPaired: return "Installs work without a Mac"
+        case .offline: return "Mac offline"
+        case .pairingExpired: return "Pairing expired"
+        case .notPaired: return "Pair once for remote builds"
         }
     }
 
     private var macInstallStatusDetail: String {
         switch sessionStore.helperStatus {
-        case .online: return "Install status updates automatically."
-        case .checking: return "Installs still work while Swift Sim connects."
-        case .offline: return "Install status updates when your Mac reconnects."
-        case .notPaired: return "Connect one for automatic install status updates."
+        case .online: return "Remote builds and install verification are ready."
+        case .checking: return "Checking the private remote connection."
+        case .offline: return "Wake your Mac or reconnect Tailscale. Install links still work."
+        case .pairingExpired: return "Your Mac is reachable. Open a fresh pairing link to reconnect."
+        case .notPaired: return "No cable or shared Wi-Fi required. Install links still work without pairing."
         }
     }
 
@@ -176,13 +177,13 @@ private struct HomeView: View {
         switch sessionStore.helperStatus {
         case .online: return .green
         case .checking: return .blue
-        case .offline, .notPaired: return .secondary
+        case .offline, .pairingExpired, .notPaired: return .secondary
         }
     }
 
     private var macStatusPanel: some View {
         Button {
-            showingMacSettings = true
+            sessionStore.isMacSettingsPresented = true
         } label: {
             HStack(spacing: 14) {
                 ZStack {
@@ -306,12 +307,6 @@ private struct HomeView: View {
                 .accessibilityLabel(showingArchivedApps ? "Show active apps" : "Show archived apps")
                 .accessibilityHint(showingArchivedApps ? "Returns to your app library" : "Shows apps hidden from your library")
 
-                Text("\(filteredApps.count)")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .liquidGlassCapsule(tint: .white.opacity(0.24), interactive: false)
             }
 
             if filteredApps.isEmpty {
@@ -409,6 +404,7 @@ private struct PasteLinkSheet: View {
     @EnvironmentObject private var sessionStore: SessionStore
     @State private var linkText = ""
     @State private var errorText = ""
+    @State private var isOpeningLink = false
     @FocusState private var linkFieldIsFocused: Bool
 
     var body: some View {
@@ -451,16 +447,25 @@ private struct PasteLinkSheet: View {
             }
 
             Button {
-                openLink()
+                Task { await openLink() }
             } label: {
-                Label("Open Link", systemImage: "arrow.right")
-                    .font(.headline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
+                Group {
+                    if isOpeningLink {
+                        ProgressView()
+                            .tint(.blue)
+                    } else {
+                        Label("Open Link", systemImage: "arrow.right")
+                    }
+                }
+                .font(.headline.weight(.bold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
             }
-            .buttonStyle(.plain)
-            .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
-            .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(.blue)
+            .contentShape(Capsule())
+            .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isOpeningLink)
 
             Text("Paste a Swift Sim link to install an app, open a Simulator, or connect your Mac.")
                 .font(.footnote)
@@ -472,12 +477,26 @@ private struct PasteLinkSheet: View {
         }
     }
 
-    private func openLink() {
+    private func openLink() async {
         let trimmed = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed) else {
             errorText = "That link is not valid."
             return
         }
+
+        if PairedMac(url: url) != nil {
+            isOpeningLink = true
+            errorText = ""
+            let paired = await sessionStore.pairMac(using: url)
+            isOpeningLink = false
+            if paired {
+                dismiss()
+            } else {
+                errorText = sessionStore.pairingErrorMessage ?? "Could not verify that Mac."
+            }
+            return
+        }
+
         if sessionStore.open(url) {
             dismiss()
         } else {
@@ -499,6 +518,7 @@ private struct ManagedAppDetailView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     topBar
                     appHeader
+                    buildCurrentSourceSection
                     latestBuildSection
                     if app.builds.count > 1 {
                         buildHistorySection
@@ -620,6 +640,76 @@ private struct ManagedAppDetailView: View {
         }
     }
 
+    private var buildCurrentSourceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                Task { await sessionStore.buildCurrentSource(for: app) }
+            } label: {
+                HStack(spacing: 14) {
+                    Group {
+                        if sessionStore.isStartingCurrentSourceBuild {
+                            ProgressView()
+                                .tint(.blue)
+                        } else {
+                            Image(systemName: "hammer.fill")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    .frame(width: 48, height: 48)
+                    .liquidGlassCircle(tint: Color.blue.opacity(0.12), interactive: false)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(sessionStore.isStartingCurrentSourceBuild ? "Starting Build…" : "Build Current Code")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(.primary)
+                        Text("Remotely build the project exactly as it exists on your Mac and create a new install link.")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 6)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(16)
+                .liquidGlassPanel(
+                    cornerRadius: 26,
+                    tint: Color.blue.opacity(0.09),
+                    interactive: !sessionStore.isStartingCurrentSourceBuild
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(sessionStore.isStartingCurrentSourceBuild)
+            .accessibilityHint("Works remotely through your private Mac connection and builds uncommitted changes without pulling or switching branches")
+
+            if let message = sessionStore.buildCurrentSourceMessage {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(message)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    if sessionStore.pairedMac == nil {
+                        Button {
+                            sessionStore.isMacSettingsPresented = true
+                        } label: {
+                            Text("Pair Now")
+                                .font(.caption.weight(.bold))
+                                .underline()
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens instructions for pairing this iPhone with your Mac")
+                    }
+                }
+                .padding(.horizontal, 4)
+            }
+        }
+    }
+
     private var buildHistorySection: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
@@ -644,9 +734,11 @@ private struct ManagedAppDetailView: View {
 
     private var statusText: String {
         if app.isArchived { return "Archived" }
+        if app.latestBuild?.isPreparing == true { return "Building current code" }
+        if app.latestBuild?.state == "failed" { return "Build needs attention" }
         switch app.latestBuild?.installationStatus {
         case .verified: return "Installed on iPhone"
-        case .requested: return "Installing"
+        case .requested: return "Install opened"
         case .differentVersion: return "Update available"
         case .notInstalled: return "Ready to install"
         default: return "Latest version saved"
@@ -655,6 +747,8 @@ private struct ManagedAppDetailView: View {
 
     private var statusSymbol: String {
         if app.isArchived { return "archivebox.fill" }
+        if app.latestBuild?.isPreparing == true { return "hammer.circle.fill" }
+        if app.latestBuild?.state == "failed" { return "exclamationmark.triangle.fill" }
         switch app.latestBuild?.installationStatus {
         case .verified: return "checkmark.circle.fill"
         case .differentVersion: return "arrow.triangle.2.circlepath.circle.fill"
@@ -665,6 +759,8 @@ private struct ManagedAppDetailView: View {
 
     private var statusColor: Color {
         if app.isArchived { return .secondary }
+        if app.latestBuild?.isPreparing == true { return .blue }
+        if app.latestBuild?.state == "failed" { return .orange }
         switch app.latestBuild?.installationStatus {
         case .verified: return .green
         case .requested, .differentVersion, .notInstalled: return .blue
@@ -673,9 +769,11 @@ private struct ManagedAppDetailView: View {
     }
 
     private func latestBuildDetail(_ build: ManagedBuild) -> String {
+        if build.isPreparing { return "Building current code" }
+        if build.state == "failed" { return "Build failed — open for details" }
         switch build.installationStatus {
         case .verified: return "Installed"
-        case .requested: return "Installing"
+        case .requested: return "Install opened"
         case .differentVersion: return "Update available"
         case .notInstalled: return "Ready to install"
         case .unknown: return build.isLinkActive ? "Ready to install" : "Install link expired"
@@ -724,30 +822,36 @@ private struct BuildHistoryRow: View {
     }
 
     private var icon: String {
+        if build.isPreparing { return "hammer.circle.fill" }
+        if build.state == "failed" { return "exclamationmark.triangle.fill" }
         switch build.installationStatus {
-        case .verified: "checkmark.circle.fill"
-        case .requested: "arrow.down.circle.fill"
-        case .differentVersion: "arrow.triangle.2.circlepath.circle.fill"
-        case .notInstalled: "iphone.and.arrow.forward"
-        default: build.isLinkActive ? "arrow.down.circle.fill" : "clock.arrow.circlepath"
+        case .verified: return "checkmark.circle.fill"
+        case .requested: return "arrow.down.circle.fill"
+        case .differentVersion: return "arrow.triangle.2.circlepath.circle.fill"
+        case .notInstalled: return "iphone.and.arrow.forward"
+        default: return build.isLinkActive ? "arrow.down.circle.fill" : "clock.arrow.circlepath"
         }
     }
 
     private var color: Color {
+        if build.isPreparing { return .blue }
+        if build.state == "failed" { return .orange }
         switch build.installationStatus {
-        case .verified: .green
-        case .requested, .differentVersion, .notInstalled: .blue
-        default: build.isLinkActive ? .blue : .secondary
+        case .verified: return .green
+        case .requested, .differentVersion, .notInstalled: return .blue
+        default: return build.isLinkActive ? .blue : .secondary
         }
     }
 
     private var buildStatus: String {
+        if build.isPreparing { return "Building" }
+        if build.state == "failed" { return "Failed" }
         switch build.installationStatus {
-        case .verified: "Installed"
-        case .requested: "Installing"
-        case .differentVersion: "Update available"
-        case .notInstalled: "Ready to install"
-        default: build.isLinkActive ? "Ready to install" : "Link expired"
+        case .verified: return "Installed"
+        case .requested: return "Install opened"
+        case .differentVersion: return "Update available"
+        case .notInstalled: return "Ready to install"
+        default: return build.isLinkActive ? "Ready to install" : "Link expired"
         }
     }
 }
@@ -861,7 +965,7 @@ private struct DeviceBuildView: View {
     private var installStatusCard: some View {
         HStack(alignment: .top, spacing: 14) {
             Group {
-                if installationStatus == .requested || isPreparingBuild {
+                if isPreparingBuild {
                     ProgressView()
                         .tint(installStatusColor)
                 } else {
@@ -1096,7 +1200,7 @@ private struct DeviceBuildView: View {
 
     private var canInstall: Bool {
         if status == nil { return true }
-        guard status?.isReady == true else { return status?.state != "failed" }
+        guard status?.isReady == true else { return false }
         guard let expiry = status?.expiryDate else { return currentManagedBuild?.isLinkActive == true }
         return expiry > Date()
     }
@@ -1116,29 +1220,33 @@ private struct DeviceBuildView: View {
     }
 
     private func startInstall() {
-        sessionStore.beginCurrentBuildInstall()
+        if let installURL = sessionStore.currentBuildInstallURL() {
+            openInstallURL(installURL)
+            return
+        }
+
         Task { @MainActor in
             guard let installURL = await sessionStore.prepareCurrentBuildInstallURL() else {
-                sessionStore.finishCurrentBuildInstallHandoff(opened: false)
                 return
             }
+            openInstallURL(installURL)
+        }
+    }
 
-            // Refreshing the build above can replace the optimistic pending
-            // status. Mark it again immediately before handing off so one tap
-            // always leaves the local history in the requested state.
-            sessionStore.beginCurrentBuildInstall()
-            // iOS may suspend the app before the openURL completion arrives.
-            // Do not leave the button disabled waiting for that callback.
-            sessionStore.finishCurrentBuildInstallHandoff(opened: true)
-            openURL(installURL) { opened in
-                Task { @MainActor in
-                    if !opened {
-                        sessionStore.finishCurrentBuildInstallHandoff(opened: false)
-                    }
+    private func openInstallURL(_ installURL: URL) {
+        // Keep the system handoff in the original button event. Moving this
+        // behind an async Task can make iOS treat the first tap as preparation
+        // rather than the user-authorized request to open the manifest.
+        sessionStore.beginCurrentBuildInstall()
+        sessionStore.finishCurrentBuildInstallHandoff(opened: true)
+        openURL(installURL) { opened in
+            Task { @MainActor in
+                if !opened {
+                    sessionStore.finishCurrentBuildInstallHandoff(opened: false)
                 }
             }
-            await sessionStore.syncCurrentBuildInstallRequested()
         }
+        Task { await sessionStore.syncCurrentBuildInstallRequested() }
     }
 
     private var conciseVersionLabel: String {
@@ -1163,6 +1271,9 @@ private struct DeviceBuildView: View {
 
     private var installLinkDetail: String {
         if isInstallLinkExpired { return "Expired" }
+        if let state = status?.state, !["ready", "failed"].contains(state) {
+            return "Starts when ready"
+        }
         guard let expiry = status?.expiryDate else {
             return currentManagedBuild?.isLinkActive == true ? "Available" : "Unavailable"
         }
@@ -1181,7 +1292,7 @@ private struct DeviceBuildView: View {
 
     private var isPreparingBuild: Bool {
         switch status?.state {
-        case "queued", "preparing", "archiving", "exporting", nil: return true
+        case "queued", "preparing", "building", "archiving", "exporting", "delivering", nil: return true
         default: return false
         }
     }
@@ -1189,14 +1300,18 @@ private struct DeviceBuildView: View {
     private var installStatusTitle: String {
         switch installationStatus {
         case .verified: return "Installed"
-        case .requested: return "Installing"
+        case .requested: return "Install opened"
         case .differentVersion: return "Update available"
         case .notInstalled: return "Ready to install"
         case .unknown: break
         }
         if isInstallLinkExpired { return "Install link expired" }
         switch status?.state ?? "loading" {
-        case "queued", "preparing", "archiving", "exporting", "loading": return "Preparing app"
+        case "queued", "loading": return "Waiting to build"
+        case "preparing": return "Checking project"
+        case "building", "archiving": return "Building current code"
+        case "exporting": return "Exporting app"
+        case "delivering": return "Creating install link"
         case "ready": return "Ready to install"
         case "failed": return "Couldn't prepare app"
         default: return "Checking status"
@@ -1211,7 +1326,7 @@ private struct DeviceBuildView: View {
             }
             return "This version is installed on your iPhone."
         case .requested:
-            return "The install has started. This status updates automatically."
+            return "iOS opened the install prompt. Swift Sim will mark this Installed when a reachable Mac can verify the exact version."
         case .differentVersion:
             if let installedVersionLabel {
                 return "\(installedVersionLabel) is installed. This link has Version \(conciseVersionLabel)."
@@ -1224,9 +1339,10 @@ private struct DeviceBuildView: View {
         if isInstallLinkExpired { return "Create a new link to install this version." }
         switch status?.state {
         case "queued": return "Waiting to start."
-        case "preparing": return "Getting the app ready."
-        case "archiving": return "Building the app on your Mac."
-        case "exporting": return "Finishing the install file."
+        case "preparing": return "Reading the project and signing settings on your Mac."
+        case "building", "archiving": return "Xcode is compiling the current working tree on your Mac."
+        case "exporting": return "Xcode is signing and packaging the install file."
+        case "delivering": return "Swift Sim is creating the temporary install link."
         case "ready": return "Tap Install on iPhone below."
         case "failed": return "Open Build Details for more information."
         default: return "Swift Sim is checking the latest status."
@@ -1336,7 +1452,7 @@ private struct ManagedAppRow: View {
     private var statusLabel: String {
         switch app.latestBuild?.installationStatus {
         case .verified: "Installed"
-        case .requested: "Installing"
+        case .requested: "Install opened"
         case .differentVersion: "Update available"
         case .notInstalled: "Ready to install"
         default: app.latestBuild?.isLinkActive == true ? "Ready to install" : "Version history"
@@ -1472,16 +1588,20 @@ private struct EmptyDeviceBuildCard: View {
 }
 
 private struct LibraryActionBanner: View {
-    let message: String
+    let notice: LibraryActionNotice
     let dismiss: () -> Void
+
+    private var accent: Color {
+        notice.kind == .success ? .green : .red
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: notice.kind == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(accent)
 
-            Text(message)
+            Text(notice.message)
                 .font(.callout.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1496,7 +1616,7 @@ private struct LibraryActionBanner: View {
         .padding(.leading, 16)
         .padding(.trailing, 10)
         .padding(.vertical, 10)
-        .liquidGlassPanel(cornerRadius: 22, tint: Color.orange.opacity(0.12), interactive: true)
+        .liquidGlassPanel(cornerRadius: 22, tint: accent.opacity(0.12), interactive: true)
     }
 }
 
@@ -1535,25 +1655,26 @@ private struct AppBadge: View {
 private struct MacSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: SessionStore
+    @State private var showingPasteLink = false
 
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    HStack(spacing: 12) {
-                        Circle()
-                            .fill(helperStatusColor)
-                            .frame(width: 11, height: 11)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(sessionStore.helperStatus.title)
-                                .font(.headline)
-                            Text(sessionStore.helperStatus.detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                if let mac = sessionStore.pairedMac {
+                    Section {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(helperStatusColor)
+                                .frame(width: 11, height: 11)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(sessionStore.helperStatus.title)
+                                    .font(.headline)
+                                Text(sessionStore.helperStatus.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                    }
 
-                    if let mac = sessionStore.pairedMac {
                         Label(mac.displayName, systemImage: "macbook")
 
                         Button {
@@ -1567,51 +1688,108 @@ private struct MacSettingsSheet: View {
                         } label: {
                             Label("Forget Mac", systemImage: "xmark.circle")
                         }
-                    } else {
-                        Text("Open a Mac connection link in Swift Sim to connect it.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+
+                        if sessionStore.helperStatus == .pairingExpired {
+                            ShareLink(item: agentPairingRequest) {
+                                Label("Pair Again With My Agent", systemImage: "sparkles")
+                            }
+
+                            Button {
+                                showingPasteLink = true
+                            } label: {
+                                Label("Open Fresh Pairing Link", systemImage: "link")
+                            }
+                        }
+                    } header: {
+                        Text("Mac")
+                    } footer: {
+                        Text("Remote builds and install verification need the paired Mac awake and online.")
                     }
-                } header: {
-                    Text("Mac")
-                } footer: {
-                    Text("Installs still work when your Mac is offline. When connected, install status updates automatically.")
-                }
 
-                Section {
-                    ConnectionRequirementRow(
-                        icon: "lock.shield.fill",
-                        tint: .blue,
-                        title: "1. Turn On Tailscale",
-                        detail: "Turn on Tailscale on both your Mac and iPhone.",
-                        check: sessionStore.tailscaleCheck
-                    )
-                    ConnectionRequirementRow(
-                        icon: "macbook",
-                        tint: .blue,
-                        title: "2. Open Swift Sim on Mac",
-                        detail: helperRequirementDetail,
-                        check: sessionStore.macHelperCheck
-                    )
-                    ConnectionRequirementRow(
-                        icon: "play.rectangle.on.rectangle.fill",
-                        tint: .blue,
-                        title: "3. Open a Simulator",
-                        detail: "Open a Simulator link in Swift Sim.",
-                        check: sessionStore.simulatorCheck
-                    )
-                } header: {
-                    Text("Simulator Preview")
-                } footer: {
-                    Text("This connection is only needed to control a Simulator from your iPhone.")
-                }
+                    Section {
+                        ConnectionRequirementRow(
+                            icon: "lock.shield.fill",
+                            tint: .blue,
+                            title: "Tailscale",
+                            detail: "Keep Tailscale on for remote builds and Simulator preview.",
+                            check: sessionStore.tailscaleCheck
+                        )
+                        ConnectionRequirementRow(
+                            icon: "macbook",
+                            tint: .blue,
+                            title: "Mac Helper",
+                            detail: helperRequirementDetail,
+                            check: sessionStore.macHelperCheck
+                        )
+                        ConnectionRequirementRow(
+                            icon: "play.rectangle.on.rectangle.fill",
+                            tint: .blue,
+                            title: "Simulator Preview",
+                            detail: "Open a Simulator link to start a live preview.",
+                            check: sessionStore.simulatorCheck
+                        )
+                    } header: {
+                        Text("Connection")
+                    }
+                } else {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Let your agent handle it", systemImage: "sparkles")
+                                .font(.headline)
+                                .foregroundStyle(.blue)
+                            Text("Send one request to Codex, Cursor, Claude Code, or OpenCode. Your agent will check the Mac, tell you only what is needed on this iPhone, and send back the pairing link.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Text("For first-time pairing, install Tailscale on both devices and sign in to the same Tailnet. They need internet access, but can use different Wi-Fi networks or cellular.")
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.vertical, 4)
 
-                Section {
-                    DisclosureGroup("Manual Setup") {
-                        Text("If automatic setup doesn't work, run `swift-sim setup` and `tailscale serve 47217` on your Mac. Keep Tailscale Funnel turned off.")
+                        ShareLink(item: agentPairingRequest) {
+                            Label("Set Up With My Agent", systemImage: "paperplane.fill")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .foregroundStyle(.white)
+                                .padding(.vertical, 8)
+                        }
+                        .listRowBackground(Color.blue)
+                    } footer: {
+                        Text("No cable is needed for Swift Sim pairing. A cable is only sometimes needed separately if Xcode must trust or register this iPhone for its first development-signed build.")
+                    }
+
+                    Section {
+                        if sessionStore.isPairingMac {
+                            Label("Verifying Mac…", systemImage: "arrow.triangle.2.circlepath")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let pairingError = sessionStore.pairingErrorMessage {
+                            Label(pairingError, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                        }
+
+                        Button {
+                            showingPasteLink = true
+                        } label: {
+                            Label("Open or Paste Pairing Link", systemImage: "link")
+                        }
+                    } header: {
+                        Text("Already Have The Link?")
+                    }
+
+                    Section {
+                        DisclosureGroup("Set Up Manually") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("1. Turn on Tailscale on your Mac and iPhone.")
+                                Text("2. Run swift-sim setup on your Mac.")
+                                Text("3. Run swift-sim setup-status and follow its next step.")
+                                Text("4. Open the pairing link that swift-sim pair returns.")
+                            }
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 8)
+                        }
                     }
                 }
 
@@ -1629,6 +1807,10 @@ private struct MacSettingsSheet: View {
             .task {
                 await sessionStore.refreshConnectionChecks()
             }
+            .sheet(isPresented: $showingPasteLink) {
+                PasteLinkSheet()
+                    .environmentObject(sessionStore)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
@@ -1643,6 +1825,12 @@ private struct MacSettingsSheet: View {
         !sessionStore.recentSessions.isEmpty
     }
 
+    private var agentPairingRequest: String {
+        """
+        Set up Swift Sim remote access and pair this iPhone so Build Current Code and live Simulator preview work. Use the installed Swift Sim workflow. Check swift-sim doctor --json and swift-sim setup-status, confirm the reported Mac name is this Mac, handle everything you can on the Mac, and stop if Swift Sim reports conflicting Tailscale backends. Tell me clearly that pairing does not need a USB cable, guide me through only the missing iPhone step such as installing or turning on Tailscale, then run swift-sim pair and send me the Pair Swift Sim Companion link. Do not claim pairing succeeded until the iPhone verifies the Mac, and do not give me the full manual setup unless something blocks you.
+        """
+    }
+
     private var simulatorSummary: String {
         let count = sessionStore.recentSessions.count
         guard count > 0 else { return "Open a Simulator link to add your first preview." }
@@ -1653,7 +1841,7 @@ private struct MacSettingsSheet: View {
         if let mac = sessionStore.pairedMac {
             return "Keep Swift Sim open on \(mac.displayName)."
         }
-        return "Connect this iPhone to Swift Sim on your Mac."
+        return "Pair this iPhone with Swift Sim on your Mac once."
     }
 
     private var helperStatusColor: Color {
@@ -1662,6 +1850,7 @@ private struct MacSettingsSheet: View {
         case .checking: .blue
         case .online: .green
         case .offline: .gray
+        case .pairingExpired: .orange
         }
     }
 }

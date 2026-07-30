@@ -61,6 +61,33 @@ test("does not count static classifier records as device attempts", () => {
   assert.equal(summary.confirmedHotEdits, 0);
 });
 
+test("does not count restore records in the hot-edit denominator", () => {
+  const summary = deviceSummary([
+    {
+      deviceAttempt: true,
+      operation: "edit",
+      validity: "valid",
+      expectedLane: "hot-reload",
+      terminalState: "semantically-observed",
+      applied: true,
+      refreshAcknowledged: true,
+      oracleMatched: true,
+      priorRevision: 1,
+      revision: 2,
+      timing: { totalMs: 500 },
+    },
+    {
+      deviceAttempt: true,
+      operation: "restore",
+      validity: "valid",
+      expectedLane: "hot-reload",
+      terminalState: "restored",
+    },
+  ]);
+  assert.equal(summary.attemptedValidHotEdits, 1);
+  assert.equal(summary.confirmedHotEdits, 1);
+});
+
 test("returns bounded Wilson intervals", () => {
   const interval = wilsonInterval(5, 10);
   assert.equal(interval.proportion, 0.5);

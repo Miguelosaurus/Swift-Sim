@@ -30,6 +30,19 @@ export class PairingStore {
     return this.pairing;
   }
 
+  updateMacName(macName) {
+    const pairing = this.current();
+    const nextName = String(macName || "").trim();
+    if (!nextName || nextName === pairing.macName) return pairing;
+    this.pairing = {
+      ...pairing,
+      macName: nextName,
+      updatedAt: new Date().toISOString(),
+    };
+    this.flush();
+    return this.pairing;
+  }
+
   status() {
     const pairing = this.current();
     return {

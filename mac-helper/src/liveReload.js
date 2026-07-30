@@ -236,7 +236,12 @@ export function classifySwiftSource(before, after, paths = {}) {
 }
 
 export async function inspectLiveReload({ project = "", host = "" } = {}) {
-  const projectPath = project ? resolve(project) : "";
+  const requestedProjectPath = project ? resolve(project) : "";
+  const projectPath = requestedProjectPath && existsSync(requestedProjectPath)
+    && statSync(requestedProjectPath).isDirectory()
+    && (requestedProjectPath.endsWith(".xcodeproj") || requestedProjectPath.endsWith(".xcworkspace"))
+    ? join(requestedProjectPath, requestedProjectPath.endsWith(".xcodeproj") ? "project.pbxproj" : "contents.xcworkspacedata")
+    : requestedProjectPath;
   const projectSource = projectPath && existsSync(projectPath)
     ? readFileSync(projectPath, "utf8")
     : "";

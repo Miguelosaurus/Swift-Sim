@@ -256,9 +256,11 @@ struct SimulatorSessionView: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 20, weight: .semibold))
-                .frame(width: 38, height: 44)
+                .frame(width: 48, height: 48)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .accessibilityLabel(label)
     }
 
@@ -283,7 +285,7 @@ struct SimulatorSessionView: View {
         .foregroundStyle(.primary)
         .padding(.horizontal, 14)
         .frame(height: 52)
-        .liquidGlassCapsule(tint: Color(.systemBackground).opacity(0.24), interactive: true)
+        .liquidGlassCapsule(tint: Color(.systemBackground).opacity(0.24), interactive: false)
     }
 }
 

@@ -22,7 +22,7 @@ The iPhone app does not execute project source code. Xcode signs device builds o
 
 ## Beta Review Notes
 
-Swift Sim requires Xcode, the Swift Sim Homebrew package, and at least one supported local coding agent on a Mac. `swift-sim setup` installs the matching Codex, Cursor, Claude Code, or OpenCode integration and starts the helper. Tailscale is required only for optional live Simulator sessions. The selected agent is the coding and orchestration surface; the iPhone companion does not build projects itself. No Swift Sim account or demo credentials are required.
+Swift Sim requires Xcode, the Swift Sim Homebrew package, and at least one supported local coding agent on a Mac. `swift-sim setup` installs the matching Codex, Cursor, Claude Code, or OpenCode integration and starts the helper. Normal install links work without Tailscale. Tailscale is required for optional live Simulator sessions, remote hot reload, and the companion's **Build Current Code** command because those operations privately reach the user's Mac. The iPhone and Mac do not need shared Wi-Fi or USB. The selected agent remains the coding surface; the companion can independently ask the paired Mac to build its current working tree. No Swift Sim account or demo credentials are required.
 
 Setup instructions: https://github.com/Miguelosaurus/Swift-Sim/blob/main/docs/SETUP.md
 

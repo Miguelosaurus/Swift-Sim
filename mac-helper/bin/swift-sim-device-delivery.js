@@ -25,7 +25,10 @@ const gatewayPort = Number(values["gateway-port"] || 47218);
 const ttlMinutes = normalizeDeviceBuildTTLMinutes(values["ttl-minutes"]);
 const localBaseUrl = `http://127.0.0.1:${gatewayPort}`;
 const createdAt = new Date().toISOString();
-const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+let readyAt = "";
+let expiresAt = "";
+let expiryTimeout;
+let startupTimeout;
 let gateway;
 let tunnel;
 let finished = false;
@@ -33,6 +36,10 @@ let finished = false;
 mkdirSync(dirname(statePath), { recursive: true });
 mkdirSync(dirname(logPath), { recursive: true });
 writeState({ status: "starting", provider: "cloudflare-quick-tunnel", publicBaseUrl: "" });
+startupTimeout = setTimeout(
+  () => fail("Temporary delivery tunnel did not become ready."),
+  45_000
+);
 
 try {
   gateway = spawn(process.execPath, [
@@ -57,8 +64,12 @@ try {
     combinedOutput = `${combinedOutput}${value}`.slice(-40_000);
     publicBaseUrl = publicBaseUrl || parseQuickTunnelUrl(combinedOutput);
     connected = connected || combinedOutput.includes("Registered tunnel connection");
-    if (publicBaseUrl && connected) {
+    if (publicBaseUrl && connected && !readyAt) {
+      readyAt = new Date().toISOString();
+      expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+      clearTimeout(startupTimeout);
       writeState({ status: "ready", provider: "cloudflare-quick-tunnel", publicBaseUrl });
+      expiryTimeout = setTimeout(() => shutdown("expired"), ttlMinutes * 60 * 1000);
     }
   };
   tunnel.stdout.on("data", (chunk) => capture("tunnel", chunk));
@@ -72,9 +83,8 @@ try {
     if (!finished) fail(`Device delivery gateway exited (${signal || code || "unknown"}).`);
   });
 
-  const timeout = setTimeout(() => shutdown("expired"), ttlMinutes * 60 * 1000);
-  process.on("SIGTERM", () => { clearTimeout(timeout); shutdown("stopped"); });
-  process.on("SIGINT", () => { clearTimeout(timeout); shutdown("stopped"); });
+  process.on("SIGTERM", () => shutdown("stopped"));
+  process.on("SIGINT", () => shutdown("stopped"));
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
 }
@@ -116,6 +126,8 @@ async function waitForHealth(baseUrl, timeoutMs) {
 function shutdown(status) {
   if (finished) return;
   finished = true;
+  clearTimeout(startupTimeout);
+  clearTimeout(expiryTimeout);
   try { tunnel?.kill("SIGTERM"); } catch {}
   try { gateway?.kill("SIGTERM"); } catch {}
   writeState({ status, provider: "cloudflare-quick-tunnel", publicBaseUrl: "" });
@@ -125,6 +137,8 @@ function shutdown(status) {
 function fail(message) {
   if (finished) return;
   finished = true;
+  clearTimeout(startupTimeout);
+  clearTimeout(expiryTimeout);
   appendLog(`[manager] ${message}\n`);
   try { tunnel?.kill("SIGTERM"); } catch {}
   try { gateway?.kill("SIGTERM"); } catch {}
@@ -136,6 +150,7 @@ function writeState(extra) {
   const state = {
     generation,
     createdAt,
+    readyAt,
     expiresAt,
     managerPid: process.pid,
     gatewayPid: gateway?.pid || null,

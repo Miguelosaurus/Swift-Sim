@@ -127,6 +127,25 @@ If the Mac is not connected or the saved app was deleted, ask your coding agent 
 
 The old random `trycloudflare.com` hostname disappearing is expected after its tunnel closes. Durable hosting requires a separately secured custom delivery service.
 
+## Build Current Code From iPhone
+
+Open an app in Swift Sim and tap **Build Current Code**. The trusted Mac builds
+the exact working tree already on disk, including uncommitted changes, then
+opens the normal install flow. It does not pull, commit, or switch branches.
+This works remotely from anywhere through the private Tailnet; no cable or
+shared Wi-Fi is required.
+
+This action needs a previous successful device build, one-time Mac pairing,
+Tailscale online on both devices, the Mac awake with its helper running, and the
+saved project at its original path. Pairing is how the app securely learns which
+Mac may run Xcode; it is not a local-network or USB connection. If Swift Sim
+reports an identity change, open the project on the Mac and create a new trusted
+device build there; the remote rebuild intentionally refuses to turn an update
+into a different app.
+
+**Create New Install Link** is different: it republishes the previously saved
+IPA and does not compile newer source changes.
+
 ## App Installed As A Second App
 
 The bundle identifier changed. iOS treats it as a different app and cannot reuse the previous app container.
@@ -154,10 +173,29 @@ Use the exact `suggestedRemoteBaseUrl` returned by the command. Same Wi-Fi is no
 
 ## Companion Shows No Mac Or A Gray Status
 
-Mac pairing is only for Simulator diagnostics. Generate a fresh pairing link:
+Mac pairing enables **Build Current Code**, install verification, and Simulator
+diagnostics. Tap **Pair Now**, then **Set Up With My Agent**. Share the prepared
+request with your local coding agent; it will inspect the Mac, guide the missing
+iPhone step, and send back the pairing link.
+
+The companion verifies the Mac before saving it. If it says the token expired,
+generate a fresh link. If it says the Mac is unreachable, check Tailscale on
+both devices. First-time pairing requires internet access and the same Tailnet,
+not the same Wi-Fi network. A USB cable does not help Swift Sim pairing and is
+not required. Opening the pairing link from another app should take Swift Sim
+directly to **Mac Connection** while verification runs.
+
+If a newly fixed pairing flow still shows the old generic **Paired Mac** screen,
+confirm the updated companion was actually installed. Rotating or regenerating
+a pairing link updates the credential only; it cannot update an older iPhone
+app or Homebrew CLI. For unreleased repository testing, use a distinct companion
+build number and verify that exact build on the device.
+
+For manual recovery, generate a fresh pairing link:
 
 ```sh
-swift-sim pair --remote-base-url "<suggestedRemoteBaseUrl>"
+swift-sim setup-status
+swift-sim pair
 ```
 
 Open the returned link on the iPhone. If Safari does not switch apps, paste the returned `swift-sim://pair?...` link into Swift Sim.
@@ -168,9 +206,9 @@ For device builds, Safari hosts the secure handoff because random temporary tunn
 
 For Simulator sessions, arbitrary private Tailscale hosts cannot all be declared as universal-link domains in a public companion build. Use the printed `swift-sim://session/...` fallback or paste it into the app.
 
-## App Still Says Installing
+## Install Opened But Is Not Verified
 
-The Mac helper confirms requested installs automatically in the background. The iPhone can connect wirelessly over the local network after it has been paired once in Xcode; USB also works. Open Swift Sim again to sync the result.
+**Install opened** means iOS showed the install prompt, so Swift Sim no longer leaves an endless progress state. It does not claim that iOS finished installing. The Mac helper upgrades the entry to **Installed** automatically after it verifies the exact version on a reachable iPhone. The iPhone can connect wirelessly over the local network after it has been paired once in Xcode; USB also works. Open Swift Sim again to sync the result.
 
 For troubleshooting, confirm the exact installed version from the Mac:
 
