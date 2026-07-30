@@ -31,6 +31,7 @@ jobs:
             python3 scripts/round4_store.py
             python3 scripts/round4_backend.py
             python3 scripts/round4_swift.py
+            python3 scripts/round4_fix1.py
             python3 scripts/round4_tests.py
           fi
           git diff --check
