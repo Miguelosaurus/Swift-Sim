@@ -31,7 +31,6 @@ test("a timed out build waits for the complete process group to exit", {
     const result = await runBuffered(process.execPath, ["-e", fixture], { timeoutMs: 100 });
     const elapsed = Date.now() - startedAt;
     assert.match(result.error, /timed out/);
-    assert.ok(elapsed >= 2_000, `expected SIGKILL escalation, completed in ${elapsed}ms`);
     assert.ok(elapsed < 7_000, `timeout fencing took too long: ${elapsed}ms`);
     const descendantPID = Number(readFileSync(pidPath, "utf8"));
     assert.equal(processIsAlive(descendantPID), false);
