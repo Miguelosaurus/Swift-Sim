@@ -18,8 +18,6 @@ const RENEWAL_LEASE_MS = 2 * 60 * 1000;
 const CLEANUP_RETRY_INTERVAL_MS = 30_000;
 const ACTIVE_BUILD_CLEANUP_DELAY_MS = 70 * 60 * 1000;
 const MAX_CLEANUP_BACKOFF_MS = 60 * 60 * 1000;
-// round3-capability-generations
-const MAX_RETAINED_CAPABILITIES = 16;
 const ACTIVE_BUILD_STATES = new Set([
   "queued",
   "validating",
@@ -163,6 +161,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       const app = listAppsFromState(state, true).find((candidate) => candidate.id === id);
       if (!app) return { deleted: false };
       const now = Date.now();
+      const queuedDeliveryReferences = new Set();
       for (const build of app.builds) {
         const active = ACTIVE_BUILD_STATES.has(build.state);
         if (active && build.control?.cancelPath) {
@@ -186,6 +185,26 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
           };
           state.artifactCleanupJobs.set(job.id, job);
         }
+        for (const delivery of [
+          build.delivery,
+          ...(Array.isArray(build.capabilities) ? build.capabilities.map((capability) => capability.delivery) : []),
+        ]) {
+          if (!delivery?.generation || !delivery?.referenceID) continue;
+          const key = `${delivery.generation}\0${delivery.referenceID}`;
+          if (queuedDeliveryReferences.has(key)) continue;
+          queuedDeliveryReferences.add(key);
+          const job = {
+            id: randomUUID(),
+            generation: delivery.generation,
+            referenceID: delivery.referenceID,
+            buildId: build.id,
+            createdAt: new Date(now).toISOString(),
+            nextAttemptAt: new Date(now).toISOString(),
+            attempts: 0,
+            lastError: "",
+          };
+          state.deliveryReferenceCleanupJobs.set(job.id, job);
+        }
         state.builds.delete(build.id);
       }
       state.apps.delete(id);
@@ -193,6 +212,31 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     });
     if (result.deleted) this.drainArtifactCleanupJobs();
     return result.deleted;
+  }
+
+  listDeliveryReferenceCleanupJobs() {
+    return this.readOnly((state) => [...(state.deliveryReferenceCleanupJobs || new Map()).values()]
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))));
+  }
+
+  completeDeliveryReferenceCleanupJob(id) {
+    return this.withTransaction((state) => state.deliveryReferenceCleanupJobs.delete(id));
+  }
+
+  failDeliveryReferenceCleanupJob(id, error) {
+    return this.withTransaction((state) => {
+      const job = state.deliveryReferenceCleanupJobs.get(id);
+      if (!job) return false;
+      job.attempts = Number(job.attempts || 0) + 1;
+      job.lastError = error instanceof Error ? error.message : String(error);
+      job.updatedAt = new Date().toISOString();
+      const backoff = Math.min(
+        MAX_CLEANUP_BACKOFF_MS,
+        CLEANUP_RETRY_INTERVAL_MS * 2 ** Math.min(job.attempts - 1, 7)
+      );
+      job.nextAttemptAt = new Date(Date.now() + backoff).toISOString();
+      return true;
+    });
   }
 
   drainArtifactCleanupJobs() {
@@ -411,8 +455,7 @@ function normalizeCapabilities(capabilities, now = Date.now()) {
     byToken.set(normalized.token, normalized);
   }
   return [...byToken.values()]
-    .sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt))
-    .slice(-MAX_RETAINED_CAPABILITIES);
+    .sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt));
 }
 
 function mergeCapabilities(first, second) {
@@ -425,6 +468,7 @@ function normalizeInstallation(installation = {}) {
     requestedAt: installation.requestedAt || "",
     verifiedAt: installation.verifiedAt || "",
     updatedAt: installation.updatedAt || installation.verifiedAt || installation.requestedAt || "",
+    verificationDeadlineAt: installation.verificationDeadlineAt || "",
     devices: Array.isArray(installation.devices) ? installation.devices : [],
   };
 }

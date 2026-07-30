@@ -298,3 +298,69 @@ extension InstallationStateTests {
         XCTAssertEqual(testTokenStatus(account: secondAccount), errSecItemNotFound)
     }
 }
+
+
+extension InstallationStateTests {
+    @MainActor
+    func testDeviceBuildResponsesAreBoundToCurrentViewGeneration() {
+        let first = DeviceBuildSession(id: "first", token: "token-a", baseURL: URL(string: "https://a.example")!)
+        let second = DeviceBuildSession(id: "second", token: "token-b", baseURL: URL(string: "https://b.example")!)
+        XCTAssertTrue(SessionStore.deviceBuildResponseIsCurrent(
+            current: first,
+            expected: first,
+            currentRevision: 3,
+            expectedRevision: 3
+        ))
+        XCTAssertFalse(SessionStore.deviceBuildResponseIsCurrent(
+            current: second,
+            expected: first,
+            currentRevision: 3,
+            expectedRevision: 3
+        ))
+        XCTAssertFalse(SessionStore.deviceBuildResponseIsCurrent(
+            current: first,
+            expected: first,
+            currentRevision: 4,
+            expectedRevision: 3
+        ))
+    }
+
+    @MainActor
+    func testInstallVerificationRemainsActiveAcrossNegativeObservations() {
+        XCTAssertTrue(SessionStore.installationVerificationIsActive("requested"))
+        XCTAssertTrue(SessionStore.installationVerificationIsActive("not-installed"))
+        XCTAssertTrue(SessionStore.installationVerificationIsActive("different-version"))
+        XCTAssertFalse(SessionStore.installationVerificationIsActive("verified"))
+    }
+
+    @MainActor
+    func testThreeStagedPairingsCanCancelBackToTheFirstCredential() throws {
+        let defaults = UserDefaults.standard
+        let firstID = "https://first-\(UUID().uuidString).example"
+        let secondID = "https://second-\(UUID().uuidString).example"
+        let thirdID = "https://third-\(UUID().uuidString).example"
+        XCTAssertTrue(PairingCredentialVault.stagePairing(token: "first-\(UUID().uuidString)", pairingID: firstID))
+        let firstAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertTrue(PairingCredentialVault.stagePairing(token: "second-\(UUID().uuidString)", pairingID: secondID))
+        let secondAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertTrue(PairingCredentialVault.stagePairing(token: "third-\(UUID().uuidString)", pairingID: thirdID))
+        let thirdAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        defer {
+            PairingCredentialVault.cancelStagedPairing(pairingID: thirdID)
+            PairingCredentialVault.cancelStagedPairing(pairingID: secondID)
+            PairingCredentialVault.cancelStagedPairing(pairingID: firstID)
+            deleteTestToken(account: firstAccount)
+            deleteTestToken(account: secondAccount)
+            deleteTestToken(account: thirdAccount)
+            defaults.removeObject(forKey: "pairedMacPendingCredentialHistory")
+            defaults.removeObject(forKey: "pairedMacPreviousPendingCredentialAccount")
+            defaults.removeObject(forKey: "pairedMacPreviousPendingPairingID")
+        }
+
+        PairingCredentialVault.cancelStagedPairing(pairingID: thirdID)
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingCredentialAccount"), secondAccount)
+        PairingCredentialVault.cancelStagedPairing(pairingID: secondID)
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingCredentialAccount"), firstAccount)
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), firstID)
+    }
+}

@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 
@@ -121,12 +121,23 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
     let settled = false;
     let terminating = false;
     let cancellationTimer;
+    const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
+    if (workerPath) {
+      mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
+      writeFileSync(workerPath, JSON.stringify({
+        pid: child.pid,
+        startedAt: requiredProcessStartedAt(child.pid),
+        command: "required-validation",
+        createdAt: new Date().toISOString(),
+      }), { mode: 0o600 });
+    }
 
-    const finish = (error) => {
+    const finish = (error, preserveWorkerRecord = false) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutTimer);
       clearInterval(cancellationTimer);
+      if (workerPath && !preserveWorkerRecord) rmSync(workerPath, { force: true });
       if (error) reject(error);
       else resolvePromise();
     };
@@ -138,7 +149,7 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
         if (!terminated) {
           error.message += " Its process group could not be confirmed stopped.";
         }
-        finish(error);
+        finish(error, !terminated);
       });
     };
 
@@ -165,14 +176,24 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
     });
     child.once("exit", (code, signal) => {
       if (terminating) return;
-      if (code === 0) {
-        finish();
-        return;
-      }
-      finish(validationError(
-        `Required validation failed with ${signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`}; device build cancelled.`,
-        code || 1
-      ));
+      terminating = true;
+      void (async () => {
+        const exited = await waitForProcessGroupExit(child.pid, 500);
+        if (code === 0 && exited) {
+          terminating = false;
+          finish();
+          return;
+        }
+        const terminated = exited || await terminateProcessGroup(child.pid, 2_000);
+        const error = code === 0
+          ? validationError("Required validation exited successfully while descendant processes were still running; device build cancelled.")
+          : validationError(
+              `Required validation failed with ${signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`}; device build cancelled.`,
+              code || 1
+            );
+        if (!terminated) error.message += " Its process group could not be confirmed stopped.";
+        finish(error, !terminated);
+      })();
     });
   });
 }
@@ -182,6 +203,15 @@ async function terminateProcessGroup(pid, graceMs) {
   if (await waitForProcessGroupExit(pid, graceMs)) return true;
   signalProcessGroup(pid, "SIGKILL");
   return waitForProcessGroupExit(pid, 2_000);
+}
+
+function requiredProcessStartedAt(pid) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+    const startedAt = result.status === 0 ? String(result.stdout || "").trim() : "";
+    if (startedAt) return startedAt;
+  }
+  return "";
 }
 
 function signalProcessGroup(pid, signal) {

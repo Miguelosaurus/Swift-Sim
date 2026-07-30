@@ -29,7 +29,9 @@ import {
   deviceBuildLinks,
   publicDeviceApp,
   publicDeviceBuild,
+  requestDeviceBuildCancellation,
   runDeviceBuild,
+  terminateRecordedDeviceBuildWorker,
 } from "../src/deviceBuilder.js";
 import {
   badRequest,
@@ -53,6 +55,9 @@ const pairingStore = new PairingStore();
 const simulatorProfiles = new SimulatorProfileResolver();
 const deviceInventory = new DeviceInventoryAdapter();
 const adapter = new ServeSimAdapter();
+const activeDeviceBuildTasks = new Map();
+let deliveryReferenceCleanupRunning = false;
+
 const transports = {
   "serve-sim": new ServeSimTransport({ adapter }),
   "native-companion": new NativeCompanionTransport({ adapter }),
@@ -192,6 +197,7 @@ async function main() {
     const appID = required(values["app-id"], "app-id");
     const deleted = deviceBuildStore.deleteApp(appID, { deleteArtifacts: !values["keep-artifacts"] });
     if (!deleted) throw new Error("Unknown app id.");
+    await drainDeliveryReferenceCleanupJobs();
     console.log(JSON.stringify({ deleted: true, appId: appID }, null, 2));
     return;
   }
@@ -271,6 +277,8 @@ function commonDeviceBuildOptions() {
 }
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
+  await recoverInterruptedDeviceBuilds();
+  await drainDeliveryReferenceCleanupJobs();
   const activeSockets = new Set();
   const server = createServer(async (req, res) => {
     try {
@@ -378,11 +386,10 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           return app ? json(res, 200, publicDeviceApp(app)) : notFound(res, "Unknown app.");
         }
         if (req.method === "DELETE" && !action) {
-          const appBeforeDeletion = deviceBuildStore.getApp(appID);
           const deleted = deviceBuildStore.deleteApp(appID, {
             deleteArtifacts: url.searchParams.get("keepArtifacts") !== "true",
           });
-          if (deleted && appBeforeDeletion) releaseAppDeliveryReferences(appBeforeDeletion);
+          if (deleted) void drainDeliveryReferenceCleanupJobs();
           return deleted ? json(res, 200, { deleted: true, appId: appID }) : notFound(res, "Unknown app.");
         }
       }
@@ -405,13 +412,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           "allow-provisioning-updates": Boolean(body.allowProvisioningUpdates),
           "replace-app-data": Boolean(body.replaceAppData),
         });
-        runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) })
-          .then(() => {
-            build.state = "delivering";
-            deviceBuildStore.save(build);
-            return prepareDeviceDelivery(build);
-          })
-          .catch(() => {});
+        startManagedDeviceBuild(build);
         return json(res, 202, publicDeviceBuild(build));
       }
 
@@ -707,10 +708,15 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     });
   };
   let reconciliationTimer;
+  let deliveryCleanupTimer;
   if (!deviceBuildsOnly) {
     scheduleReconciliation();
     reconciliationTimer = setInterval(scheduleReconciliation, 15_000);
   }
+  deliveryCleanupTimer = setInterval(() => {
+    void drainDeliveryReferenceCleanupJobs();
+  }, 30_000);
+  deliveryCleanupTimer.unref?.();
 
   const keepAlive = setInterval(() => {}, 60 * 60 * 1000);
   let shuttingDown = false;
@@ -718,7 +724,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     if (shuttingDown) return;
     shuttingDown = true;
     if (reconciliationTimer) clearInterval(reconciliationTimer);
+    if (deliveryCleanupTimer) clearInterval(deliveryCleanupTimer);
     clearInterval(keepAlive);
+    for (const { build } of activeDeviceBuildTasks.values()) {
+      requestDeviceBuildCancellation(build, "Swift Sim helper is shutting down.");
+    }
     server.closeIdleConnections?.();
     let serverClosed = false;
     let sessionsStopped = false;
@@ -730,7 +740,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       maybeExit();
     });
     const sessions = typeof store.list === "function" ? store.list() : [];
-    void Promise.allSettled(sessions.map((session) => stopSession(session.id))).finally(() => {
+    const buildTasks = [...activeDeviceBuildTasks.values()].map(({ promise }) => promise);
+    void Promise.allSettled([
+      ...sessions.map((session) => stopSession(session.id)),
+      ...buildTasks,
+    ]).finally(() => {
       sessionsStopped = true;
       maybeExit();
     });
@@ -739,7 +753,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       server.closeAllConnections?.();
     }, 1_000);
     closeTimer.unref?.();
-    const forceTimer = setTimeout(() => process.exit(0), 5_000);
+    const forceTimer = setTimeout(() => process.exit(1), 8_000);
     forceTimer.unref?.();
   };
   process.once("SIGTERM", shutdown);
@@ -755,7 +769,7 @@ async function reconcileRequestedDeviceBuilds() {
   try {
     const requested = deviceBuildStore.list().filter((build) =>
       build.state === "ready"
-      && build.installation?.state === "requested"
+      && installationVerificationIsActive(build.installation)
       && build.app?.bundleIdentifier
     );
     for (const build of requested) {
@@ -774,6 +788,13 @@ async function reconcileRequestedDeviceBuilds() {
   } finally {
     deviceReconciliationRunning = false;
   }
+}
+
+function installationVerificationIsActive(installation = {}) {
+  const state = installation.state || "unknown";
+  if (!["requested", "not-installed", "different-version"].includes(state)) return false;
+  const deadline = Date.parse(installation.verificationDeadlineAt || "");
+  return Number.isFinite(deadline) && deadline > Date.now();
 }
 
 function verifyDeviceBuild(build) {
@@ -1651,15 +1672,67 @@ function secretsMatch(expectedValue, actualValue) {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-function releaseAppDeliveryReferences(app) {
-  for (const build of app.builds || []) {
-    const deliveries = [build.delivery, ...(build.capabilities || []).map((capability) => capability.delivery)];
-    for (const delivery of deliveries) {
-      if (!delivery?.generation || !delivery?.referenceID) continue;
+async function drainDeliveryReferenceCleanupJobs() {
+  if (deliveryReferenceCleanupRunning) return;
+  deliveryReferenceCleanupRunning = true;
+  try {
+    for (const job of deviceBuildStore.listDeliveryReferenceCleanupJobs()) {
+      const dueAt = Date.parse(job.nextAttemptAt || job.createdAt || "");
+      if (Number.isFinite(dueAt) && dueAt > Date.now()) continue;
       try {
-        deviceDelivery.stopGeneration(delivery.generation, { referenceID: delivery.referenceID });
-      } catch {}
+        const released = deviceDelivery.stopGeneration(job.generation, { referenceID: job.referenceID });
+        if (!released) throw new Error("Delivery generation is still referenced or could not be stopped.");
+        deviceBuildStore.completeDeliveryReferenceCleanupJob(job.id);
+      } catch (error) {
+        deviceBuildStore.failDeliveryReferenceCleanupJob(job.id, error);
+      }
     }
+  } finally {
+    deliveryReferenceCleanupRunning = false;
+  }
+}
+
+function startManagedDeviceBuild(build) {
+  const promise = runDeviceBuild(build, { save: (next) => deviceBuildStore.save(next) })
+    .then(() => {
+      build.state = "delivering";
+      deviceBuildStore.save(build);
+      return prepareDeviceDelivery(build);
+    })
+    .catch((error) => {
+      if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") {
+        build.state = "failed";
+        build.logs = Array.isArray(build.logs) ? build.logs : [];
+        build.logs.push("Build was interrupted before completion.");
+        try { deviceBuildStore.save(build); } catch {}
+      }
+    })
+    .finally(() => {
+      activeDeviceBuildTasks.delete(build.id);
+    });
+  activeDeviceBuildTasks.set(build.id, { build, promise });
+  return promise;
+}
+
+async function recoverInterruptedDeviceBuilds() {
+  const activeStates = new Set(["validating", "preparing", "archiving", "building", "exporting", "delivering"]);
+  for (const build of deviceBuildStore.list().filter((candidate) => activeStates.has(candidate.state))) {
+    requestDeviceBuildCancellation(build, "Recovering an interrupted Swift Sim helper run.");
+    const terminated = await terminateRecordedDeviceBuildWorker(build);
+    for (const delivery of deviceDelivery.statuses()) {
+      for (const referenceID of delivery.references || []) {
+        if (referenceID === `build:${build.id}`
+            || referenceID === `renewal:${build.pendingRenewal?.id || ""}`) {
+          try { deviceDelivery.stopGeneration(delivery.generation, { referenceID }); } catch {}
+        }
+      }
+    }
+    build.state = "failed";
+    build.logs = Array.isArray(build.logs) ? build.logs : [];
+    build.logs.push(terminated
+      ? "A previous helper run ended during this build. Start a new build to continue."
+      : "A previous helper run ended during this build, and its worker could not be safely confirmed stopped.");
+    try { deviceBuildStore.save(build); } catch {}
   }
 }
 
