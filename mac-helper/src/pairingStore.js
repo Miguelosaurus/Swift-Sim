@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir, hostname } from "node:os";
@@ -22,8 +22,9 @@ export class PairingStore {
     const now = new Date().toISOString();
     this.pairing = {
       token: randomBytes(32).toString("base64url"),
+      installationID: this.pairing?.installationID || randomUUID(),
       macName: process.env.SWIFT_SIM_MAC_NAME || hostname(),
-      createdAt: now,
+      createdAt: this.pairing?.createdAt || now,
       updatedAt: now,
     };
     this.flush();
@@ -34,6 +35,7 @@ export class PairingStore {
     const pairing = this.current();
     return {
       ok: true,
+      installationID: pairing.installationID,
       macName: pairing.macName,
       helper: "swift-sim-helper",
       updatedAt: pairing.updatedAt,
@@ -46,14 +48,23 @@ export class PairingStore {
 
   load() {
     try {
-      this.pairing = JSON.parse(readFileSync(this.path, "utf8"));
+      const parsed = JSON.parse(readFileSync(this.path, "utf8"));
+      if (!parsed || typeof parsed !== "object" || !parsed.token) {
+        this.pairing = undefined;
+        return;
+      }
+      this.pairing = {
+        ...parsed,
+        installationID: parsed.installationID || randomUUID(),
+      };
+      if (!parsed.installationID) this.flush();
     } catch {
       this.pairing = undefined;
     }
   }
 
   flush() {
-    mkdirSync(dirname(this.path), { recursive: true });
-    writeFileSync(this.path, JSON.stringify(this.pairing, null, 2));
+    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
+    writeFileSync(this.path, JSON.stringify(this.pairing, null, 2), { mode: 0o600 });
   }
 }
