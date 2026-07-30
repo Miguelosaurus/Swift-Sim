@@ -82,15 +82,48 @@ private struct PendingPairing: Identifiable {
     let pairingID: String
 
     init(url: URL) throws {
-        guard let pairing = PairedMac(url: url) else {
+        guard let stableURL = Self.stablePairingURL(from: url),
+              let pairing = PairedMac(url: stableURL) else {
             throw PairingCredentialVault.credentialError("This pairing link is invalid.")
         }
         guard PairingCredentialVault.stagePairing(token: pairing.token, pairingID: pairing.id) else {
             throw PairingCredentialVault.credentialError("The pairing credential could not be protected in Keychain. Unlock this iPhone and try again.")
         }
-        self.url = url
+        self.url = stableURL
         self.host = pairing.hostDisplayName
         self.pairingID = pairing.id
+    }
+
+    private static func stablePairingURL(from url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let token = components.queryItems?.first(where: { $0.name == "token" })?.value ?? ""
+        let macID = components.queryItems?.first(where: { $0.name == "macID" })?.value ?? ""
+        guard !token.isEmpty else { return nil }
+
+        let baseValue: String
+        if url.scheme == "swift-sim", url.host == "pair" {
+            baseValue = components.queryItems?.first(where: { $0.name == "base" })?.value ?? ""
+        } else if url.scheme == "https" || url.scheme == "http", url.path == "/pair" {
+            var base = URLComponents()
+            base.scheme = url.scheme
+            base.host = url.host
+            base.port = url.port
+            baseValue = base.url?.absoluteString ?? ""
+        } else {
+            return nil
+        }
+        guard var base = URLComponents(string: baseValue), base.url != nil else { return nil }
+        base.fragment = "swift-sim-mac=\(macID.isEmpty ? token : macID)"
+        guard let stableBase = base.url?.absoluteString else { return nil }
+
+        var stable = URLComponents()
+        stable.scheme = "swift-sim"
+        stable.host = "pair"
+        stable.queryItems = [
+            URLQueryItem(name: "token", value: token),
+            URLQueryItem(name: "base", value: stableBase),
+        ]
+        return stable.url
     }
 }
 
