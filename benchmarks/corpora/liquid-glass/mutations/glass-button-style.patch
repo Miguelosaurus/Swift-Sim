@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -23,3 +23,3 @@
+                 BenchmarkMarkerView(value: "glass-transition").glassEffect().glassEffectID("transition", in: glassNamespace).glassEffectTransition(.materialize)
+-                Button {} label: { BenchmarkMarkerView(value: "glass-button-style") }.buttonStyle(.glass)
++                Button {} label: { BenchmarkMarkerView(caseID: "glass-button-style", value: "glass-button-style-edited") }.buttonStyle(.glassProminent)
+                 Button {} label: { BenchmarkMarkerView(value: "glass-configured-button") }.buttonStyle(.glass(.regular.tint(.blue)))

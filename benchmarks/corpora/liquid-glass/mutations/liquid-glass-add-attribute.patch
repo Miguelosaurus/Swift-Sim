@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -8,3 +8,3 @@
+     // extra-member-slot
+-    // extra-attribute-slot
++    @MainActor
+     var body: some View {

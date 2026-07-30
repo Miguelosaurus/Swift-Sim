@@ -1,0 +1,7 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -1,2 +1,3 @@
+ import SwiftUI
++import UIKit
+ @available(iOS 26.1, *)

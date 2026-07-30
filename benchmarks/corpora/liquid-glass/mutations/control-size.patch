@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -38,3 +38,3 @@
+                 BenchmarkMarkerView(value: "toolbar-title").toolbarTitleDisplayMode(.inline)
+-                BenchmarkMarkerView(value: "control-size").controlSize(.regular)
++                BenchmarkMarkerView(caseID: "control-size", value: "control-size-edited").controlSize(.extraLarge)
+             }

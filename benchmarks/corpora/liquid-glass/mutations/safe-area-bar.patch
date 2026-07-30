@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -31,3 +31,3 @@
+                 BenchmarkMarkerView(value: "background-extension").backgroundExtensionEffect(isEnabled: false)
+-                BenchmarkMarkerView(value: "safe-area-bar").safeAreaBar(edge: .bottom, alignment: .center, spacing: 8) { Text("Status") }
++                BenchmarkMarkerView(caseID: "safe-area-bar", value: "safe-area-bar-edited").safeAreaBar(edge: .bottom, alignment: .center, spacing: 20) { Text("Status") }
+                 BenchmarkMarkerView(value: "tab-minimize").tabBarMinimizeBehavior(.never)

@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -35,3 +35,3 @@
+                 BottomAccessoryPlacementProbe()
+-                TabView { Tab("Search", systemImage: "magnifyingglass", role: nil) { BenchmarkMarkerView(value: "search-tab-role") } }
++                TabView { Tab("Search", systemImage: "magnifyingglass", role: .search) { BenchmarkMarkerView(caseID: "search-tab-role", value: "search-tab-role-edited") } }
+                 BenchmarkMarkerView(value: "search-presentation").searchable(text: .constant(""), isPresented: .constant(false), prompt: "Find")

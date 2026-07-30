@@ -88,3 +88,20 @@ test("smoke hot mutations do not hide explicit semantic markers", () => {
     assert.doesNotMatch(mutation, /^\+\s*if false \{.*BenchmarkMarkerView\(caseID:/m);
   }
 });
+
+test("the Liquid Glass corpus covers the SDK surface and structural boundaries", () => {
+  const corpusPath = new URL("../corpora/liquid-glass/corpus.json", import.meta.url);
+  const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
+  const hot = corpus.cases.filter((benchmarkCase) => benchmarkCase.expectedLane === "hot-reload");
+  const rebuild = corpus.cases.filter((benchmarkCase) => benchmarkCase.expectedLane === "build-device");
+  assert.equal(corpus.corpusVersion, "liquid-glass-1");
+  assert.equal(corpus.cases.length, 34);
+  assert.equal(hot.length, 27);
+  assert.equal(rebuild.length, 7);
+  assert.equal(hot.every((benchmarkCase) => benchmarkCase.smoke), true);
+  assert.equal(new Set(hot.map((benchmarkCase) => benchmarkCase.category)).size, 27);
+  assert.deepEqual(
+    new Set(rebuild.map((benchmarkCase) => benchmarkCase.category)),
+    new Set(["stored-property", "declaration-shape", "declaration-attribute", "type-shape", "import-change"]),
+  );
+});

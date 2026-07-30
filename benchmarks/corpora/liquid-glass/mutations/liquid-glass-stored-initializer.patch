@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -4,3 +4,3 @@
+     @Namespace private var glassNamespace
+-    private let storedGlass: Glass = .regular
++    private let storedGlass: Glass = .clear
+     // extra-namespace-slot

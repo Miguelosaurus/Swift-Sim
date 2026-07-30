@@ -11,6 +11,8 @@ scoped regression evidence; they are not an everyday SwiftUI coverage claim.
 ```sh
 npm run benchmark:validate
 npm run benchmark:static -- --output /tmp/swift-sim-static
+npm run benchmark:validate:liquid-glass
+npm run benchmark:static:liquid-glass
 npm run benchmark:report -- --run /tmp/swift-sim-static
 ```
 
@@ -50,3 +52,9 @@ rebuild, and 20 authoring-error/recovery cases. It includes all twelve hot
 categories, 25 multi-file operations, and 24 smoke-marked hot cases. The three
 fixture schemes are `CatalogApp`, `StateApp`, and `ArchitectureApp`; each links
 the local `SwiftSimLive` package and applies the root modifier once.
+
+The supplemental `liquid-glass-1` corpus keeps the fixed core corpus intact
+while covering 27 current SwiftUI Liquid Glass and adjacent system-surface
+edits plus seven structural rebuild controls. Its scope and evidence levels are
+documented in
+[`docs/LIQUID_GLASS_HOT_RELOAD.md`](../docs/LIQUID_GLASS_HOT_RELOAD.md).

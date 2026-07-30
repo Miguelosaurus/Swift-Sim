@@ -1,0 +1,551 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "liquid-glass-1",
+  "fixtureRevision": "liquid-glass-fixture-1",
+  "metadata": {
+    "totalCases": 34,
+    "expectedHotReload": 27,
+    "expectedRebuild": 7,
+    "authoringErrors": 0,
+    "multiFileOperations": 0,
+    "smokeHotCases": 27
+  },
+  "cases": [
+    {
+      "id": "glass-variant",
+      "workload": "CatalogApp",
+      "category": "custom-glass-variant",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-variant",
+        "value": "glass-variant-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-variant.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-material-identity",
+      "workload": "CatalogApp",
+      "category": "custom-glass-identity",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-material-identity",
+        "value": "glass-material-identity-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-material-identity.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-tint",
+      "workload": "CatalogApp",
+      "category": "custom-glass-tint",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-tint",
+        "value": "glass-tint-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-tint.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-interactive",
+      "workload": "CatalogApp",
+      "category": "custom-glass-interactivity",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-interactive",
+        "value": "glass-interactive-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-interactive.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-shape",
+      "workload": "CatalogApp",
+      "category": "custom-glass-shape",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-shape",
+        "value": "glass-shape-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-shape.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-default-shape",
+      "workload": "CatalogApp",
+      "category": "custom-glass-default-shape",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-default-shape",
+        "value": "glass-default-shape-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-default-shape.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-concentric-shape",
+      "workload": "CatalogApp",
+      "category": "concentric-control-shape",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-concentric-shape",
+        "value": "glass-concentric-shape-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-concentric-shape.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-container",
+      "workload": "CatalogApp",
+      "category": "glass-container-spacing",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-container",
+        "value": "glass-container-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-container.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-identity",
+      "workload": "CatalogApp",
+      "category": "glass-effect-identity",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-identity",
+        "value": "glass-identity-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-identity.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-union",
+      "workload": "CatalogApp",
+      "category": "glass-effect-union",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-union",
+        "value": "glass-union-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-union.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-transition",
+      "workload": "CatalogApp",
+      "category": "glass-effect-transition",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-transition",
+        "value": "glass-transition-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-transition.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-button-style",
+      "workload": "CatalogApp",
+      "category": "glass-button-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-button-style",
+        "value": "glass-button-style-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-button-style.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "glass-configured-button",
+      "workload": "CatalogApp",
+      "category": "configured-glass-button-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "glass-configured-button",
+        "value": "glass-configured-button-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/glass-configured-button.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "toolbar-spacer",
+      "workload": "CatalogApp",
+      "category": "system-toolbar-grouping",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "toolbar-spacer",
+        "value": "toolbar-spacer-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/toolbar-spacer.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "toolbar-shared-background",
+      "workload": "CatalogApp",
+      "category": "system-toolbar-glass-background",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "toolbar-shared-background",
+        "value": "toolbar-shared-background-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/toolbar-shared-background.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "toolbar-background",
+      "workload": "CatalogApp",
+      "category": "system-toolbar-background-visibility",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "toolbar-background",
+        "value": "toolbar-background-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/toolbar-background.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "scroll-edge-style",
+      "workload": "CatalogApp",
+      "category": "scroll-edge-legibility",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "scroll-edge-style",
+        "value": "scroll-edge-style-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/scroll-edge-style.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "scroll-edge-hidden",
+      "workload": "CatalogApp",
+      "category": "scroll-edge-visibility",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "scroll-edge-hidden",
+        "value": "scroll-edge-hidden-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/scroll-edge-hidden.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "background-extension",
+      "workload": "CatalogApp",
+      "category": "edge-to-edge-background",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "background-extension",
+        "value": "background-extension-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/background-extension.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "safe-area-bar",
+      "workload": "CatalogApp",
+      "category": "custom-scroll-edge-bar",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "safe-area-bar",
+        "value": "safe-area-bar-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/safe-area-bar.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "tab-minimize",
+      "workload": "CatalogApp",
+      "category": "liquid-glass-tab-behavior",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "tab-minimize",
+        "value": "tab-minimize-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/tab-minimize.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "tab-accessory",
+      "workload": "CatalogApp",
+      "category": "liquid-glass-tab-accessory",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "tab-accessory",
+        "value": "tab-accessory-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/tab-accessory.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "tab-accessory-placement",
+      "workload": "CatalogApp",
+      "category": "liquid-glass-tab-accessory-placement",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "tab-accessory-placement",
+        "value": "tab-accessory-placement-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/tab-accessory-placement.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "search-tab-role",
+      "workload": "CatalogApp",
+      "category": "liquid-glass-search-tab",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "search-tab-role",
+        "value": "search-tab-role-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/search-tab-role.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "search-presentation",
+      "workload": "CatalogApp",
+      "category": "liquid-glass-search-presentation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "search-presentation",
+        "value": "search-presentation-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/search-presentation.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "toolbar-title",
+      "workload": "CatalogApp",
+      "category": "liquid-glass-toolbar-title",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "toolbar-title",
+        "value": "toolbar-title-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/toolbar-title.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "control-size",
+      "workload": "CatalogApp",
+      "category": "liquid-glass-control-sizing",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "control-size",
+        "value": "control-size-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/control-size.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "liquid-glass-stored-initializer",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/liquid-glass-stored-initializer.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "liquid-glass-add-namespace",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/liquid-glass-add-namespace.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "liquid-glass-add-state",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/liquid-glass-add-state.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "liquid-glass-add-member",
+      "workload": "CatalogApp",
+      "category": "declaration-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/liquid-glass-add-member.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "liquid-glass-add-attribute",
+      "workload": "CatalogApp",
+      "category": "declaration-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/liquid-glass-add-attribute.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "liquid-glass-conformance",
+      "workload": "CatalogApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/liquid-glass-conformance.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    },
+    {
+      "id": "liquid-glass-import",
+      "workload": "CatalogApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/liquid-glass-import.patch",
+      "baselineHashes": {
+        "CatalogApp/LiquidGlassCoverageScreen.swift": "7892e283f2b3fff223a8132090b66563e8a5e235caa5af0c422024f4b883d162"
+      }
+    }
+  ]
+}

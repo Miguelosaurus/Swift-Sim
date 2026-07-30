@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -19,3 +19,3 @@
+                 BenchmarkMarkerView(value: "glass-concentric-shape").glassEffect(.regular, in: .rect(corners: .concentric, isUniform: false))
+-                GlassEffectContainer(spacing: 12) { BenchmarkMarkerView(value: "glass-container").glassEffect() }
++                GlassEffectContainer(spacing: 28) { BenchmarkMarkerView(caseID: "glass-container", value: "glass-container-edited").glassEffect() }
+                 BenchmarkMarkerView(value: "glass-identity").glassEffect().glassEffectID("primary", in: glassNamespace)

@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -13,3 +13,3 @@
+                 BenchmarkMarkerView(value: "glass-variant").glassEffect(.regular)
+-                BenchmarkMarkerView(value: "glass-material-identity").glassEffect(.identity)
++                BenchmarkMarkerView(caseID: "glass-material-identity", value: "glass-material-identity-edited").glassEffect(.regular)
+                 BenchmarkMarkerView(value: "glass-tint").glassEffect(.regular.tint(.blue))

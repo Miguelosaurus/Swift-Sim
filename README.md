@@ -144,7 +144,7 @@ Building the same bundle again updates the existing app and preserves its contai
 
 Swift Sim can accelerate an already-installed Debug app without turning it into a livestream or requiring the iPhone to share Wi-Fi with the Mac. `swift-sim setup` installs and manages a private, headless live engine; users do not install, open, or configure another Mac app. Compatible same-team-signed patches travel directly to the running app over the user's private Tailscale connection.
 
-This path is validated end to end on a physical iPhone: consecutive SwiftUI body edits compiled, crossed the private Tailnet, loaded into the regular signed app, and returned runtime refresh acknowledgments in 650 ms and 546 ms. That proves the mechanism and latency, not a universal percentage of app edits; Swift Sim still classifies every change and rebuilds when live Swift metadata would change.
+This path is validated end to end on a physical iPhone across 24 supported smoke edits and their restores, with zero fallbacks or timeouts and sub-second median latency in each UI/state workload. A supplemental 27-case Liquid Glass capability corpus also validates current SDK compilation, routing, and replacement generation; its focused physical-device gate is tracked separately. These results prove the named mechanisms and categories, not a universal percentage of app edits. Swift Sim still classifies every change and rebuilds when live Swift metadata would change.
 
 The coding agent adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at the app's root view as a one-time project change. The user does not operate the engine or scatter Swift Sim code through the app. Release builds make the modifier a no-op.
 
@@ -208,6 +208,7 @@ Swift Sim never reads or transmits your Apple ID password. Xcode owns signing cr
 - [Troubleshooting](docs/TROUBLESHOOTING.md): symptom-based fixes
 - [Architecture](docs/ARCHITECTURE.md): helper, delivery, and Simulator transports
 - [Development](docs/DEVELOPMENT.md): contributor-only source workflow
+- [Liquid Glass Hot Reload](docs/LIQUID_GLASS_HOT_RELOAD.md): focused API coverage and proof boundaries
 - [Privacy](docs/PRIVACY.md): data handling and third parties
 - [Changelog](CHANGELOG.md): notable changes by release
 

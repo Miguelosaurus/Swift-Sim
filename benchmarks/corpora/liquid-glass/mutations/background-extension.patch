@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -30,3 +30,3 @@
+                 BenchmarkMarkerView(value: "scroll-edge-hidden").scrollEdgeEffectHidden(false, for: .top)
+-                BenchmarkMarkerView(value: "background-extension").backgroundExtensionEffect(isEnabled: false)
++                BenchmarkMarkerView(caseID: "background-extension", value: "background-extension-edited").backgroundExtensionEffect(isEnabled: true)
+                 BenchmarkMarkerView(value: "safe-area-bar").safeAreaBar(edge: .bottom, alignment: .center, spacing: 8) { Text("Status") }

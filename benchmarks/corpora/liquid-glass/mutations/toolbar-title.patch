@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -37,3 +37,3 @@
+                 BenchmarkMarkerView(value: "search-presentation").searchable(text: .constant(""), isPresented: .constant(false), prompt: "Find")
+-                BenchmarkMarkerView(value: "toolbar-title").toolbarTitleDisplayMode(.inline)
++                BenchmarkMarkerView(caseID: "toolbar-title", value: "toolbar-title-edited").toolbarTitleDisplayMode(.inlineLarge)
+                 BenchmarkMarkerView(value: "control-size").controlSize(.regular)

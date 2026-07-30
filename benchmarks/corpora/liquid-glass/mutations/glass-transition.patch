@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -22,3 +22,3 @@
+                 HStack { BenchmarkMarkerView(value: "glass-union").glassEffect() }.glassEffectUnion(id: "group-a", namespace: glassNamespace)
+-                BenchmarkMarkerView(value: "glass-transition").glassEffect().glassEffectID("transition", in: glassNamespace).glassEffectTransition(.materialize)
++                BenchmarkMarkerView(caseID: "glass-transition", value: "glass-transition-edited").glassEffect().glassEffectID("transition", in: glassNamespace).glassEffectTransition(.matchedGeometry)
+                 Button {} label: { BenchmarkMarkerView(value: "glass-button-style") }.buttonStyle(.glass)

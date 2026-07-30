@@ -14,7 +14,12 @@ struct HotReloadBenchmarkApp: App {
 struct BenchmarkRootView: View {
     var body: some View {
         #if CATALOG_APP
-        CatalogScreen()
+        VStack(spacing: 0) {
+            CatalogScreen()
+            if #available(iOS 26.1, *) {
+                LiquidGlassCoverageScreen()
+            }
+        }
         #elseif STATE_APP
         StateScreen()
         #else

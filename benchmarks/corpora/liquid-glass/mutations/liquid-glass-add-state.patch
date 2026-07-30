@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -6,3 +6,3 @@
+     // extra-namespace-slot
+-    // extra-state-slot
++    @State private var expanded = false
+     // extra-member-slot

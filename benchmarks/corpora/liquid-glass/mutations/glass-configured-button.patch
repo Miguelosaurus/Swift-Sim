@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -24,3 +24,3 @@
+                 Button {} label: { BenchmarkMarkerView(value: "glass-button-style") }.buttonStyle(.glass)
+-                Button {} label: { BenchmarkMarkerView(value: "glass-configured-button") }.buttonStyle(.glass(.regular.tint(.blue)))
++                Button {} label: { BenchmarkMarkerView(caseID: "glass-configured-button", value: "glass-configured-button-edited") }.buttonStyle(.glass(.regular.tint(.orange)))
+                 BenchmarkMarkerView(value: "toolbar-spacer").toolbar { ToolbarSpacer(.fixed); ToolbarItem { Image(systemName: "star") } }

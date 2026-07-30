@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -45,3 +45,3 @@
+         @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+-        var body: some View { BenchmarkMarkerView(value: "tab-accessory-placement").opacity(placement == .inline ? 0.9 : 1.0) }
++        var body: some View { BenchmarkMarkerView(caseID: "tab-accessory-placement", value: "tab-accessory-placement-edited").opacity(placement == .inline ? 0.8 : 1.0) }
+     }

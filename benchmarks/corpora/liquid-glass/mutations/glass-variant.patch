@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -12,3 +12,3 @@
+             VStack(spacing: 4) {
+-                BenchmarkMarkerView(value: "glass-variant").glassEffect(.regular)
++                BenchmarkMarkerView(caseID: "glass-variant", value: "glass-variant-edited").glassEffect(.clear)
+                 BenchmarkMarkerView(value: "glass-material-identity").glassEffect(.identity)

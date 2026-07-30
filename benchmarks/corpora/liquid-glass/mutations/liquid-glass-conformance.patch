@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -2,3 +2,3 @@
+ @available(iOS 26.1, *)
+-struct LiquidGlassCoverageScreen: View {
++struct LiquidGlassCoverageScreen: View, Sendable {
+     @Namespace private var glassNamespace

@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -33,3 +33,3 @@
+                 BenchmarkMarkerView(value: "tab-minimize").tabBarMinimizeBehavior(.never)
+-                TabView { BenchmarkMarkerView(value: "tab-accessory") }.tabViewBottomAccessory(isEnabled: false) { Text("Accessory") }
++                TabView { BenchmarkMarkerView(caseID: "tab-accessory", value: "tab-accessory-edited") }.tabViewBottomAccessory(isEnabled: true) { Text("Accessory") }
+                 BottomAccessoryPlacementProbe()

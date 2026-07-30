@@ -65,7 +65,12 @@ Run the deterministic benchmark gates locally:
 ```sh
 npm run benchmark:validate
 npm run benchmark:static -- --output /tmp/swift-sim-static-benchmark
+npm run benchmark:validate:liquid-glass
+npm run benchmark:static:liquid-glass
 ```
+
+The focused Liquid Glass matrix, availability boundary, and physical proof
+status are documented in [Liquid Glass Hot Reload Coverage](LIQUID_GLASS_HOT_RELOAD.md).
 
 The physical runner requires an explicitly named, unlocked trusted iPhone and
 an automatic-signing override when the fixture project has no committed team:

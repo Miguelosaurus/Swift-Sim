@@ -23,9 +23,12 @@
     "check:docs": "node scripts/verify-docs.js",
     "test": "node --test test/*.test.js benchmarks/test/*.test.js",
     "test:benchmarks": "node --test benchmarks/test/*.test.js",
-    "benchmark:generate": "node benchmarks/src/generateCoreCorpus.js",
+    "benchmark:generate": "node benchmarks/src/generateCoreCorpus.js && node benchmarks/src/generateLiquidGlassCorpus.js",
+    "benchmark:generate:liquid-glass": "node benchmarks/src/generateLiquidGlassCorpus.js",
     "benchmark:validate": "node benchmarks/src/cli.js validate",
+    "benchmark:validate:liquid-glass": "node benchmarks/src/cli.js validate --corpus benchmarks/corpora/liquid-glass/corpus.json",
     "benchmark:static": "node benchmarks/src/cli.js static",
+    "benchmark:static:liquid-glass": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/liquid-glass/corpus.json",
     "benchmark:device": "node benchmarks/src/cli.js device",
     "benchmark:report": "node benchmarks/src/cli.js report"
   },

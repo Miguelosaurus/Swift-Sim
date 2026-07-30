@@ -885,6 +885,16 @@ claim that all Swift edits—or a fixed percentage of arbitrary real-app
 workflows—can hot reload. The broader workflow percentage remains gated on the
 chronological real-app dogfood protocol in Phase 6.
 
+### Supplemental Liquid Glass corpus
+
+The fixed 240-case core corpus remains unchanged. A separate
+`liquid-glass-1` capability corpus covers the current SwiftUI Liquid Glass API
+surface and closely related toolbar, scroll-edge, safe-area, tab, search, and
+control APIs. It contains 27 hot-edit cases and seven structural rebuild
+controls. See [Liquid Glass Hot Reload Coverage](LIQUID_GLASS_HOT_RELOAD.md)
+for the matrix, availability requirements, and independently stated proof
+levels.
+
 ## Explicitly Deferred
 
 - Public hosted benchmark infrastructure

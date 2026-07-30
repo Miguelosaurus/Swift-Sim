@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -28,3 +28,3 @@
+                 BenchmarkMarkerView(value: "toolbar-background").toolbarBackgroundVisibility(.visible, for: .navigationBar)
+-                BenchmarkMarkerView(value: "scroll-edge-style").scrollEdgeEffectStyle(.soft, for: .top)
++                BenchmarkMarkerView(caseID: "scroll-edge-style", value: "scroll-edge-style-edited").scrollEdgeEffectStyle(.hard, for: .top)
+                 BenchmarkMarkerView(value: "scroll-edge-hidden").scrollEdgeEffectHidden(false, for: .top)

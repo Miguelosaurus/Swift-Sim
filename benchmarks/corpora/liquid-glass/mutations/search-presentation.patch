@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/LiquidGlassCoverageScreen.swift b/CatalogApp/LiquidGlassCoverageScreen.swift
+--- a/CatalogApp/LiquidGlassCoverageScreen.swift
++++ b/CatalogApp/LiquidGlassCoverageScreen.swift
+@@ -36,3 +36,3 @@
+                 TabView { Tab("Search", systemImage: "magnifyingglass", role: nil) { BenchmarkMarkerView(value: "search-tab-role") } }
+-                BenchmarkMarkerView(value: "search-presentation").searchable(text: .constant(""), isPresented: .constant(false), prompt: "Find")
++                BenchmarkMarkerView(caseID: "search-presentation", value: "search-presentation-edited").searchable(text: .constant(""), isPresented: .constant(false), prompt: "Explore")
+                 BenchmarkMarkerView(value: "toolbar-title").toolbarTitleDisplayMode(.inline)
