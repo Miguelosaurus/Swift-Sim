@@ -31,7 +31,10 @@ const ACTIVE_BUILD_STATES = new Set([
 
 export class DeviceBuildStore extends DeviceBuildStoreCore {
   constructor(options = {}) {
-    super(options);
+    const { maintenance = true, ...storeOptions } = options;
+    super(storeOptions);
+    this.maintenanceEnabled = maintenance;
+    if (!maintenance) return;
     this.runMaintenance();
     this.maintenanceTimer = setInterval(() => {
       try { this.runMaintenance(); } catch {}
@@ -422,7 +425,6 @@ function normalizeIncomingBuild(build) {
   build.capabilities = normalizeCapabilities(build.capabilities);
   return build;
 }
-
 
 function currentCapability(build) {
   return {
