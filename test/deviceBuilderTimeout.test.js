@@ -9,6 +9,9 @@ import {
   runBuffered,
   terminateRecordedDeviceBuildWorker,
 } from "../mac-helper/src/deviceBuilderCore.js";
+import {
+  terminateRecordedDeviceBuildWorker as terminateRecordedDeviceBuildWorkerFailClosed,
+} from "../mac-helper/src/deviceBuilder.js";
 
 test("a timed out build waits for the complete process group to exit", {
   skip: process.platform === "win32",
@@ -131,6 +134,63 @@ Build settings for action build and target ExampleWidget:
 `, "Example");
   assert.equal(settings.PRODUCT_BUNDLE_IDENTIFIER, "com.example.app");
   assert.equal(settings.DEVELOPMENT_TEAM, "TEAMAPP");
+});
+
+test("a differently named multi-app scheme selects its host application", () => {
+  const settings = parseBuildSettings(`
+Build settings for action build and target ExampleHost:
+    TARGET_NAME = ExampleHost
+    PRODUCT_NAME = ExampleHost
+    PRODUCT_TYPE = com.apple.product-type.application
+    WRAPPER_EXTENSION = app
+    SKIP_INSTALL = NO
+    SUPPORTED_PLATFORMS = iphoneos iphonesimulator
+    PRODUCT_BUNDLE_IDENTIFIER = com.example.host
+    DEVELOPMENT_TEAM = TEAMHOST
+
+Build settings for action build and target ExampleClip:
+    TARGET_NAME = ExampleClip
+    PRODUCT_NAME = ExampleClip
+    PRODUCT_TYPE = com.apple.product-type.application.on-demand-install-capable
+    WRAPPER_EXTENSION = app
+    SKIP_INSTALL = NO
+    SUPPORTED_PLATFORMS = iphoneos iphonesimulator
+    PRODUCT_BUNDLE_IDENTIFIER = com.example.host.Clip
+    DEVELOPMENT_TEAM = TEAMCLIP
+`, "Production");
+  assert.equal(settings.PRODUCT_BUNDLE_IDENTIFIER, "com.example.host");
+  assert.equal(settings.DEVELOPMENT_TEAM, "TEAMHOST");
+});
+
+test("buffered process output preserves UTF-8 split across chunks", async () => {
+  const lines = [];
+  const fixture = `
+    const value = Buffer.from("Café 🚀\\n");
+    const rocket = value.indexOf(Buffer.from("🚀"));
+    process.stdout.write(value.subarray(0, rocket + 1));
+    setTimeout(() => process.stdout.write(value.subarray(rocket + 1)), 25);
+  `;
+  const result = await runBuffered(process.execPath, ["-e", fixture], {
+    onLine: (line) => lines.push(line),
+  });
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, "Café 🚀\n");
+  assert.deepEqual(lines, ["Café 🚀"]);
+});
+
+test("restart recovery rejects an active build without a durable worker journal", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-worker-journal-test-"));
+  try {
+    await assert.rejects(
+      terminateRecordedDeviceBuildWorkerFailClosed({
+        id: "missing-worker-build",
+        control: { cancelPath: join(directory, ".cancelled") },
+      }),
+      (error) => error?.code === "SWIFT_SIM_UNSAFE_BUILD_RECOVERY"
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("a persisted interrupted worker identity can be terminated after restart", {
