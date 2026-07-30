@@ -1,12 +1,16 @@
 import { createRequire, syncBuiltinESMExports } from "node:module";
+import { timingSafeEqual } from "node:crypto";
 import { URL } from "node:url";
 import { PairingStore } from "./pairingStore.js";
 import { buildPairingLinks } from "./links.js";
+import { DeviceBuildStore } from "./deviceBuildStore.js";
+import { sanitizePublicBuildLogs } from "./publicBuildLogs.js";
 
 const require = createRequire(import.meta.url);
 const http = require("node:http");
 const originalCreateServer = http.createServer;
 const pairingStore = new PairingStore();
+const deviceBuildStore = new DeviceBuildStore({ maintenance: false });
 let installed = false;
 
 export function installHelperHttpBoundary() {
@@ -22,6 +26,7 @@ export function installHelperHttpBoundary() {
     const guardedListener = typeof resolvedListener === "function"
       ? (req, res) => {
           if (handlePairingFallback(req, res, pairingStore)) return;
+          if (handlePublicBuildLogs(req, res, { pairingStore, deviceBuildStore })) return;
           return resolvedListener(req, res);
         }
       : resolvedListener;
@@ -52,6 +57,50 @@ export function handlePairingFallback(req, res, store = pairingStore) {
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHtml(res, pairingPage(customScheme));
   return true;
+}
+
+export function handlePublicBuildLogs(req, res, { pairingStore: pairings = pairingStore, deviceBuildStore: builds = deviceBuildStore } = {}) {
+  if (req?.method !== "GET") return false;
+  let url;
+  try {
+    url = new URL(req.url || "/", `http://${req.headers?.host || "127.0.0.1"}`);
+  } catch {
+    return false;
+  }
+  const match = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/logs$/);
+  if (!match) return false;
+  const header = String(req.headers?.authorization || "");
+  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
+  const token = bearer || url.searchParams.get("token") || "";
+  if (pairings.tokenMatches(token)) return false;
+
+  const build = builds.get(match[1]);
+  const capability = build && capabilityForToken(build, token);
+  if (!capability) {
+    writeJson(res, 401, { error: "Unauthorized." });
+    return true;
+  }
+  const expiresAt = Date.parse(capability.expiresAt || "");
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    writeJson(res, 410, { error: "This install link has expired." });
+    return true;
+  }
+  writeJson(res, 200, { buildId: build.id, logs: sanitizePublicBuildLogs(build) });
+  return true;
+}
+
+function capabilityForToken(build, token) {
+  if (secretsMatch(build?.token, token)) return build;
+  return (Array.isArray(build?.capabilities) ? build.capabilities : [])
+    .find((item) => secretsMatch(item?.token, token)) || null;
+}
+
+function secretsMatch(expected, actual) {
+  if (!expected || !actual) return false;
+  const expectedBuffer = Buffer.from(String(expected));
+  const actualBuffer = Buffer.from(String(actual));
+  return expectedBuffer.length === actualBuffer.length
+    && timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 installHelperHttpBoundary();
