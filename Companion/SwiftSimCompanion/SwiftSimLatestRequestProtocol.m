@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <objc/runtime.h>
 
 typedef NS_ENUM(NSUInteger, SwiftSimRequestKind) {
     SwiftSimRequestKindNone = 0,
@@ -21,6 +22,10 @@ typedef NS_ENUM(NSUInteger, SwiftSimRequestKind) {
 @property(nonatomic) BOOL completed;
 @property(nonatomic) BOOL stopped;
 @end
+
+static BOOL SwiftSimDisableLegacyFence(id self, SEL command, NSURLRequest *request) {
+    return NO;
+}
 
 @implementation SwiftSimLatestRequestProtocol
 
@@ -47,6 +52,8 @@ static NSUInteger SwiftSimActiveSessionEpoch;
 + (void)replaceLegacyFenceRegistration {
     Class oldFence = NSClassFromString(@"SwiftSimCompanion.SwiftSimRequestFenceProtocol");
     if (oldFence && [oldFence isSubclassOfClass:[NSURLProtocol class]]) {
+        Class metaClass = object_getClass(oldFence);
+        class_replaceMethod(metaClass, @selector(canInitWithRequest:), (IMP)SwiftSimDisableLegacyFence, "c@:@");
         [NSURLProtocol unregisterClass:oldFence];
     }
     [NSURLProtocol unregisterClass:self];
