@@ -21,7 +21,7 @@ export class DeviceDeliveryAdapter {
     statePath = join(homedir(), ".swift-sim", "device-delivery.json"),
     logPath = join(homedir(), ".swift-sim", "device-delivery.log"),
     managerPath = join(moduleDirectory, "..", "bin", "swift-sim-device-delivery.js"),
-    helperPath = join(moduleDirectory, "..", "bin", "swift-sim-helper-entry.js"),
+    helperPath = join(moduleDirectory, "..", "bin", "swift-sim-device-gateway.js"),
     gatewayPort = Number(process.env.SWIFT_SIM_DEVICE_GATEWAY_PORT || 0),
   } = {}) {
     this.statePath = statePath;
@@ -117,12 +117,12 @@ export class DeviceDeliveryAdapter {
 export function deviceDeliveryRequestAllowed(method, pathname) {
   const verb = String(method || "").toUpperCase();
   if (verb === "POST") {
-    return /^\/api\/device-builds\/[^/]+\/install-request$/.test(pathname);
+    return /^\/api\/device-builds\/[^/]+\/(?:install-request|verify)$/.test(pathname);
   }
   if (verb !== "GET") return false;
   if (pathname === "/health") return true;
   if (/^\/d\/[^/]+$/.test(pathname)) return true;
-  return /^\/api\/device-builds\/[^/]+(?:\/links|\/artifact\/(?:ipa|manifest))?$/.test(pathname);
+  return /^\/api\/device-builds\/[^/]+(?:\/logs|\/links|\/artifact\/(?:ipa|manifest))?$/.test(pathname);
 }
 
 export function parseQuickTunnelUrl(output) {
