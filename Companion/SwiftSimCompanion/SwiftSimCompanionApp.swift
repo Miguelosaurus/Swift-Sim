@@ -1,6 +1,6 @@
 import SwiftUI
 import Security
-import Foundation
+@preconcurrency import Foundation
 
 @main
 struct SwiftSimCompanionApp: App {
@@ -63,7 +63,7 @@ struct SwiftSimCompanionApp: App {
     }
 }
 
-private final class SwiftSimRequestFenceProtocol: URLProtocol, @unchecked Sendable {
+private final class SwiftSimRequestFenceProtocol: URLProtocol {
     private struct LaneState {
         var running: SwiftSimRequestFenceProtocol?
         var pending: SwiftSimRequestFenceProtocol?
@@ -72,8 +72,9 @@ private final class SwiftSimRequestFenceProtocol: URLProtocol, @unchecked Sendab
     private static let lock = NSLock()
     nonisolated(unsafe) private static var lanes: [String: LaneState] = [:]
 
-    private var task: URLSessionDataTask?
+    private var networkTask: URLSessionDataTask?
     private var session: URLSession?
+    private var networkDelegate: NetworkDelegate?
     private var completed = false
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -109,12 +110,12 @@ private final class SwiftSimRequestFenceProtocol: URLProtocol, @unchecked Sendab
         Self.lock.unlock()
 
         pendingToSupersede?.failBeforeStart()
-        runningToCancel?.task?.cancel()
+        runningToCancel?.networkTask?.cancel()
         if shouldStart { beginNetworkRequest() }
     }
 
     override func stopLoading() {
-        task?.cancel()
+        networkTask?.cancel()
     }
 
     private func beginNetworkRequest() {
@@ -122,24 +123,12 @@ private final class SwiftSimRequestFenceProtocol: URLProtocol, @unchecked Sendab
         forwarded.setValue("1", forHTTPHeaderField: "X-Swift-Sim-Fenced")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = []
-        let session = URLSession(configuration: configuration)
+        let delegate = NetworkDelegate(owner: self)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        self.networkDelegate = delegate
         self.session = session
-        task = session.dataTask(with: forwarded) { [weak self] data, response, error in
-            guard let self else { return }
-            if let error {
-                self.client?.urlProtocol(self, didFailWithError: error)
-            } else if let response {
-                self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                if let data, !data.isEmpty {
-                    self.client?.urlProtocol(self, didLoad: data)
-                }
-                self.client?.urlProtocolDidFinishLoading(self)
-            } else {
-                self.client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            }
-            self.finishLane()
-        }
-        task?.resume()
+        networkTask = session.dataTask(with: forwarded)
+        networkTask?.resume()
     }
 
     private func failBeforeStart() {
@@ -167,6 +156,43 @@ private final class SwiftSimRequestFenceProtocol: URLProtocol, @unchecked Sendab
         }
         Self.lock.unlock()
         next?.beginNetworkRequest()
+    }
+
+    private final class NetworkDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        weak var owner: SwiftSimRequestFenceProtocol?
+
+        init(owner: SwiftSimRequestFenceProtocol) {
+            self.owner = owner
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            guard let owner else {
+                completionHandler(.cancel)
+                return
+            }
+            owner.client?.urlProtocol(owner, didReceive: response, cacheStoragePolicy: .notAllowed)
+            completionHandler(.allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            guard let owner, !data.isEmpty else { return }
+            owner.client?.urlProtocol(owner, didLoad: data)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            guard let owner else { return }
+            if let error {
+                owner.client?.urlProtocol(owner, didFailWithError: error)
+            } else {
+                owner.client?.urlProtocolDidFinishLoading(owner)
+            }
+            owner.finishLane()
+        }
     }
 
     private static func lane(for request: URLRequest) -> String? {
