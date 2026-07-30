@@ -30,7 +30,7 @@ const { values } = parseArgs({
 const generation = required(values.generation, "generation");
 const statePath = required(values["state-path"], "state path");
 const logPath = required(values["log-path"], "log path");
-const helperPath = required(values["helper-path"], "helper path");
+const helperPath = required(values["helper-path"], "gateway path");
 const gatewayPort = Number(values["gateway-port"] || 47218);
 const ttlMinutes = normalizeDeviceBuildTTLMinutes(values["ttl-minutes"]);
 const localBaseUrl = `http://127.0.0.1:${gatewayPort}`;
@@ -52,16 +52,14 @@ writeState({ status: "starting", provider: "cloudflare-quick-tunnel", publicBase
 try {
   gateway = spawn(process.execPath, [
     helperPath,
-    "serve",
     "--host", "127.0.0.1",
     "--port", String(gatewayPort),
-    "--device-builds-only",
   ], {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, SWIFT_SIM_PUBLIC_GATEWAY: "1" },
   });
-  gatewayIdentity = processIdentity(gateway.pid, [helperPath, "serve", "--device-builds-only"]);
+  gatewayIdentity = processIdentity(gateway.pid, [helperPath, "--port", String(gatewayPort)]);
   pipeLogs(gateway, "gateway");
   await waitForHealth(localBaseUrl, 10_000);
 
