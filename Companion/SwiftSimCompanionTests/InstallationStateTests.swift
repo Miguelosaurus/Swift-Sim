@@ -276,7 +276,7 @@ extension InstallationStateTests {
     }
 
     @MainActor
-    func testCancellingSecondStagedPairingRestoresFirstTransaction() throws {
+    func testReplacingStagedPairingDeletesSupersededCredential() throws {
         let defaults = UserDefaults.standard
         let firstID = "https://first-pending-\(UUID().uuidString).example"
         let secondID = "https://second-pending-\(UUID().uuidString).example"
@@ -284,21 +284,21 @@ extension InstallationStateTests {
         let firstAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
         XCTAssertTrue(PairingCredentialVault.stagePairing(token: "second-\(UUID().uuidString)", pairingID: secondID))
         let secondAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
-        PairingCredentialVault.cancelStagedPairing(pairingID: secondID)
         defer {
-            PairingCredentialVault.cancelStagedPairing(pairingID: firstID)
             deleteTestToken(account: firstAccount)
             deleteTestToken(account: secondAccount)
+            defaults.removeObject(forKey: "pairedMacPendingCredentialHistory")
             defaults.removeObject(forKey: "pairedMacPreviousPendingCredentialAccount")
             defaults.removeObject(forKey: "pairedMacPreviousPendingPairingID")
         }
-        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingCredentialAccount"), firstAccount)
-        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), firstID)
-        XCTAssertEqual(testTokenStatus(account: firstAccount), errSecSuccess)
+        XCTAssertEqual(testTokenStatus(account: firstAccount), errSecItemNotFound)
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), secondID)
+        PairingCredentialVault.cancelStagedPairing(pairingID: secondID)
+        XCTAssertNil(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertNil(defaults.string(forKey: "pairedMacPendingPairingID"))
         XCTAssertEqual(testTokenStatus(account: secondAccount), errSecItemNotFound)
     }
 }
-
 
 extension InstallationStateTests {
     @MainActor
@@ -334,7 +334,7 @@ extension InstallationStateTests {
     }
 
     @MainActor
-    func testThreeStagedPairingsCanCancelBackToTheFirstCredential() throws {
+    func testRepeatedStagingKeepsOnlyLatestCredential() throws {
         let defaults = UserDefaults.standard
         let firstID = "https://first-\(UUID().uuidString).example"
         let secondID = "https://second-\(UUID().uuidString).example"
@@ -343,12 +343,10 @@ extension InstallationStateTests {
         let firstAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
         XCTAssertTrue(PairingCredentialVault.stagePairing(token: "second-\(UUID().uuidString)", pairingID: secondID))
         let secondAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertEqual(testTokenStatus(account: firstAccount), errSecItemNotFound)
         XCTAssertTrue(PairingCredentialVault.stagePairing(token: "third-\(UUID().uuidString)", pairingID: thirdID))
         let thirdAccount = try XCTUnwrap(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
         defer {
-            PairingCredentialVault.cancelStagedPairing(pairingID: thirdID)
-            PairingCredentialVault.cancelStagedPairing(pairingID: secondID)
-            PairingCredentialVault.cancelStagedPairing(pairingID: firstID)
             deleteTestToken(account: firstAccount)
             deleteTestToken(account: secondAccount)
             deleteTestToken(account: thirdAccount)
@@ -356,15 +354,15 @@ extension InstallationStateTests {
             defaults.removeObject(forKey: "pairedMacPreviousPendingCredentialAccount")
             defaults.removeObject(forKey: "pairedMacPreviousPendingPairingID")
         }
-
+        XCTAssertEqual(testTokenStatus(account: secondAccount), errSecItemNotFound)
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingCredentialAccount"), thirdAccount)
+        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), thirdID)
         PairingCredentialVault.cancelStagedPairing(pairingID: thirdID)
-        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingCredentialAccount"), secondAccount)
-        PairingCredentialVault.cancelStagedPairing(pairingID: secondID)
-        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingCredentialAccount"), firstAccount)
-        XCTAssertEqual(defaults.string(forKey: "pairedMacPendingPairingID"), firstID)
+        XCTAssertNil(defaults.string(forKey: "pairedMacPendingCredentialAccount"))
+        XCTAssertNil(defaults.string(forKey: "pairedMacPendingPairingID"))
+        XCTAssertEqual(testTokenStatus(account: thirdAccount), errSecItemNotFound)
     }
 }
-
 
 extension InstallationStateTests {
     @MainActor
