@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildPairingLinks } from "../mac-helper/src/links.js";
@@ -37,6 +37,32 @@ test("legacy pairing state is migrated to a persistent installation identity", (
     const pairing = new PairingStore({ path }).current();
     assert.ok(pairing.installationID);
     assert.equal(JSON.parse(readFileSync(path, "utf8")).installationID, pairing.installationID);
+    assert.deepEqual(readdirSync(directory), ["pairing.json"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("malformed pairing state fails closed without rotating identity", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-pairing-corrupt-"));
+  try {
+    const path = join(directory, "pairing.json");
+    writeFileSync(path, "{not-json");
+    assert.throws(() => new PairingStore({ path }), /will not rotate the helper identity automatically/);
+    assert.equal(readFileSync(path, "utf8"), "{not-json");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("pairing tokens use a length-safe constant-time comparison", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-pairing-token-"));
+  try {
+    const store = new PairingStore({ path: join(directory, "pairing.json") });
+    const pairing = store.current();
+    assert.equal(store.tokenMatches(pairing.token), true);
+    assert.equal(store.tokenMatches(`${pairing.token}x`), false);
+    assert.equal(store.tokenMatches(""), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
