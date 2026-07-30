@@ -9,8 +9,8 @@ import { sanitizePublicBuildLogs } from "./publicBuildLogs.js";
 const require = createRequire(import.meta.url);
 const http = require("node:http");
 const originalCreateServer = http.createServer;
-const pairingStore = new PairingStore();
-const deviceBuildStore = new DeviceBuildStore({ maintenance: false });
+let defaultPairingStore;
+let defaultDeviceBuildStore;
 let installed = false;
 
 export function installHelperHttpBoundary() {
@@ -25,8 +25,8 @@ export function installHelperHttpBoundary() {
     }
     const guardedListener = typeof resolvedListener === "function"
       ? (req, res) => {
-          if (handlePairingFallback(req, res, pairingStore)) return;
-          if (handlePublicBuildLogs(req, res, { pairingStore, deviceBuildStore })) return;
+          if (handlePairingFallback(req, res)) return;
+          if (handlePublicBuildLogs(req, res)) return;
           return resolvedListener(req, res);
         }
       : resolvedListener;
@@ -37,7 +37,7 @@ export function installHelperHttpBoundary() {
   syncBuiltinESMExports();
 }
 
-export function handlePairingFallback(req, res, store = pairingStore) {
+export function handlePairingFallback(req, res, store = pairingStore()) {
   if (req?.method !== "GET") return false;
   let url;
   try {
@@ -59,7 +59,7 @@ export function handlePairingFallback(req, res, store = pairingStore) {
   return true;
 }
 
-export function handlePublicBuildLogs(req, res, { pairingStore: pairings = pairingStore, deviceBuildStore: builds = deviceBuildStore } = {}) {
+export function handlePublicBuildLogs(req, res, { pairingStore: pairings = pairingStore(), deviceBuildStore: builds = buildStore() } = {}) {
   if (req?.method !== "GET") return false;
   let url;
   try {
@@ -101,6 +101,16 @@ function secretsMatch(expected, actual) {
   const actualBuffer = Buffer.from(String(actual));
   return expectedBuffer.length === actualBuffer.length
     && timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+function pairingStore() {
+  defaultPairingStore ||= new PairingStore();
+  return defaultPairingStore;
+}
+
+function buildStore() {
+  defaultDeviceBuildStore ||= new DeviceBuildStore({ maintenance: false });
+  return defaultDeviceBuildStore;
 }
 
 installHelperHttpBoundary();
