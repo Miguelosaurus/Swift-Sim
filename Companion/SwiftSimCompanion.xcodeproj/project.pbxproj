@@ -16,6 +16,7 @@
 		000000000000000000000107 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000209 /* Assets.xcassets */; };
 		000000000000000000000108 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000210 /* PrivacyInfo.xcprivacy */; };
 		000000000000000000000109 /* InstallationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000211 /* InstallationStateTests.swift */; };
+		00000000000000000000010A /* SwiftSimLatestRequestProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000212 /* SwiftSimLatestRequestProtocol.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 		000000000000000000000209 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		000000000000000000000210 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		000000000000000000000211 /* InstallationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallationStateTests.swift; sourceTree = "<group>"; };
+		000000000000000000000212 /* SwiftSimLatestRequestProtocol.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SwiftSimLatestRequestProtocol.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000201 /* SwiftSimCompanionApp.swift */,
+				000000000000000000000212 /* SwiftSimLatestRequestProtocol.m */,
 				000000000000000000000202 /* ContentView.swift */,
 				000000000000000000000203 /* SimulatorSessionView.swift */,
 				000000000000000000000204 /* SimulatorWebView.swift */,
@@ -199,6 +202,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000101 /* SwiftSimCompanionApp.swift in Sources */,
+				00000000000000000000010A /* SwiftSimLatestRequestProtocol.m in Sources */,
 				000000000000000000000102 /* ContentView.swift in Sources */,
 				000000000000000000000103 /* SimulatorSessionView.swift in Sources */,
 				000000000000000000000104 /* SimulatorWebView.swift in Sources */,
