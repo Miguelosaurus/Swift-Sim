@@ -29,6 +29,7 @@ final class SessionStore: ObservableObject {
     private var keyboardTail: Task<Void, Never>?
     private var installRequestSnapshot: (build: ManagedBuild, status: DeviceBuildStatus?)?
     private var pairingRevision: UInt64 = 0
+    private var deviceBuildViewRevision: UInt64 = 0
     private var managedAppsRevision: UInt64 = 0
     private var managedAppOperationRevisions: [String: UInt64] = [:]
 
@@ -49,12 +50,16 @@ final class SessionStore: ObservableObject {
                 return false
             }
             pairingRevision &+= 1
+            if previousPairing?.id != pairing.id {
+                invalidateRemoteManagedAppsForPairingChange()
+            }
             helperStatus = .checking
             Task { await refreshHelperStatus() }
             return true
         }
 
         if let build = DeviceBuildSession(url: url) {
+            deviceBuildViewRevision &+= 1
             currentDeviceBuild = build
             currentSession = nil
             deviceBuildStatus = nil
@@ -68,8 +73,11 @@ final class SessionStore: ObservableObject {
         }
 
         guard let session = SimulatorSession(url: url) else { return false }
+        deviceBuildViewRevision &+= 1
         currentSession = session
         currentDeviceBuild = nil
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
         activeTransport = nil
         simulatorCheck = .checking("Checking this Simulator preview")
         upsertRecentSession(RecentSession(session: session, displayName: nil))
@@ -78,7 +86,11 @@ final class SessionStore: ObservableObject {
     }
 
     func reopen(_ recent: RecentSession) {
+        deviceBuildViewRevision &+= 1
         currentSession = recent.session
+        currentDeviceBuild = nil
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
         activeTransport = nil
         simulatorCheck = .checking("Checking (recent.displayName)")
         upsertRecentSession(recent.touch())
@@ -86,6 +98,7 @@ final class SessionStore: ObservableObject {
     }
 
     func closeCurrentSession() {
+        deviceBuildViewRevision &+= 1
         currentSession = nil
         currentDeviceBuild = nil
         isConnected = false
@@ -97,9 +110,12 @@ final class SessionStore: ObservableObject {
     }
 
     func openManagedApp(_ app: ManagedApp) {
+        deviceBuildViewRevision &+= 1
         selectedManagedAppID = app.id
         currentSession = nil
         currentDeviceBuild = nil
+        deviceBuildStatus = nil
+        deviceBuildLogs = []
         touchManagedApp(app.id)
     }
 
@@ -108,6 +124,7 @@ final class SessionStore: ObservableObject {
     }
 
     func reopen(_ build: ManagedBuild) {
+        deviceBuildViewRevision &+= 1
         selectedManagedAppID = build.appID
         currentDeviceBuild = build.session
         currentSession = nil
@@ -119,6 +136,7 @@ final class SessionStore: ObservableObject {
     }
 
     func closeCurrentBuild() {
+        deviceBuildViewRevision &+= 1
         currentDeviceBuild = nil
         deviceBuildStatus = nil
         deviceBuildLogs = []
@@ -171,6 +189,8 @@ final class SessionStore: ObservableObject {
 
     func refreshDeviceBuild() async {
         guard let build = currentDeviceBuild else { return }
+        let viewRevision = deviceBuildViewRevision
+        let pairingSnapshot = pairingRevision
         do {
             let decoded = try await fetchDeviceBuildStatus(
                 urls: preferredDeviceBuildURLs(
@@ -178,7 +198,14 @@ final class SessionStore: ObservableObject {
                     paired: pairedMac?.buildStatusURL(build.id)
                 )
             )
+            guard Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ), pairingRevision == pairingSnapshot else { return }
             let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
+            if resolvedSession != build { deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
             let managedBuild = ManagedBuild(session: resolvedSession, status: decoded)
@@ -186,6 +213,12 @@ final class SessionStore: ObservableObject {
             selectedManagedAppID = managedBuild.appID
             await fetchDeviceBuildLogs()
         } catch {
+            guard Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ), pairingRevision == pairingSnapshot else { return }
             deviceBuildLogs = ["Unable to load device build: \(error.localizedDescription)"]
         }
     }
@@ -193,7 +226,7 @@ final class SessionStore: ObservableObject {
     func refreshAppState() async {
         if currentDeviceBuild != nil {
             await refreshDeviceBuild()
-            if deviceBuildStatus?.installation?.state == "requested" {
+            if Self.installationVerificationIsActive(deviceBuildStatus?.installation?.state) {
                 await verifyCurrentBuildInstallation()
             }
         }
@@ -207,11 +240,24 @@ final class SessionStore: ObservableObject {
 
     func fetchDeviceBuildLogs() async {
         guard let build = currentDeviceBuild else { return }
+        let viewRevision = deviceBuildViewRevision
         do {
             let (data, _) = try await URLSession.shared.data(from: build.logsURL)
+            guard Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             let decoded = try JSONDecoder().decode(DeviceBuildLogs.self, from: data)
             deviceBuildLogs = decoded.logs
         } catch {
+            guard Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             deviceBuildLogs = ["Unable to load build logs: \(error.localizedDescription)"]
         }
     }
@@ -246,13 +292,27 @@ final class SessionStore: ObservableObject {
 
     func syncCurrentBuildInstallRequested() async {
         guard let build = currentDeviceBuild else { return }
+        let viewRevision = deviceBuildViewRevision
         var request = URLRequest(url: build.installRequestURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 8
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
-              let decoded = try? JSONDecoder().decode(DeviceBuildStatus.self, from: data) else {
-            deviceBuildActionMessage = "Install opened. Status will update when your Mac reconnects."
+              let decoded = try? JSONDecoder().decode(DeviceBuildStatus.self, from: data),
+              Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+              ) else {
+            if Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) {
+                deviceBuildActionMessage = "Install opened. Status will update when your Mac reconnects."
+            }
             return
         }
         deviceBuildStatus = decoded
@@ -266,6 +326,7 @@ final class SessionStore: ObservableObject {
             await refreshDeviceBuild()
         }
 
+        guard currentDeviceBuild?.id == build.id else { return nil }
         guard let status = deviceBuildStatus, status.isReady else {
             deviceBuildActionMessage = "This app is still being prepared. Try again in a moment."
             return nil
@@ -285,6 +346,8 @@ final class SessionStore: ObservableObject {
 
     func verifyCurrentBuildInstallation() async {
         guard let build = currentDeviceBuild else { return }
+        let viewRevision = deviceBuildViewRevision
+        let pairingSnapshot = pairingRevision
         do {
             let decoded = try await fetchDeviceBuildStatus(
                 urls: preferredDeviceBuildURLs(
@@ -294,7 +357,14 @@ final class SessionStore: ObservableObject {
                 method: "POST",
                 timeout: 25
             )
+            guard Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ), pairingRevision == pairingSnapshot else { return }
             let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
+            if resolvedSession != build { deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
             upsertManagedBuild(ManagedBuild(session: resolvedSession, status: decoded))
@@ -364,6 +434,8 @@ final class SessionStore: ObservableObject {
             return
         }
 
+        let expectedPairingRevision = pairingRevision
+        let viewRevision = deviceBuildViewRevision
         isRenewingDeviceBuildLink = true
         deviceBuildActionMessage = nil
         defer { isRenewingDeviceBuildLink = false }
@@ -378,6 +450,17 @@ final class SessionStore: ObservableObject {
                 deviceBuildActionMessage = decodeServerError(data) ?? "Swift Sim couldn't create a new link. Try again."
                 return
             }
+            guard Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: mac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+            ), Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             let decoded = try JSONDecoder().decode(DeviceBuildStatus.self, from: data)
             guard let link = decoded.links?.customScheme,
                   let url = URL(string: link),
@@ -385,11 +468,23 @@ final class SessionStore: ObservableObject {
                 deviceBuildActionMessage = "Swift Sim couldn't create the link. Try again."
                 return
             }
+            deviceBuildViewRevision &+= 1
             currentDeviceBuild = renewedSession
             deviceBuildStatus = decoded
             upsertManagedBuild(ManagedBuild(session: renewedSession, status: decoded))
             deviceBuildActionMessage = "New install link created."
         } catch {
+            guard Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: mac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+            ), Self.deviceBuildResponseIsCurrent(
+                current: currentDeviceBuild,
+                expected: build,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             deviceBuildActionMessage = "Your Mac is offline. Open Swift Sim on the Mac, then try again."
         }
     }
@@ -571,6 +666,7 @@ final class SessionStore: ObservableObject {
     func forgetPairedMac() {
         pairingRevision &+= 1
         pairedMac = nil
+        invalidateRemoteManagedAppsForPairingChange()
         helperStatus = .notPaired
         UserDefaults.standard.removeObject(forKey: pairedMacKey)
     }
@@ -582,10 +678,14 @@ final class SessionStore: ObservableObject {
 
     func archiveManagedApp(_ app: ManagedApp, archived: Bool) {
         guard let index = managedApps.firstIndex(where: { $0.id == app.id }) else { return }
-        managedAppsRevision &+= 1
-        let operationRevision = nextManagedAppOperationRevision(app.id)
         let expectedMac = pairedMac
         let expectedPairingRevision = pairingRevision
+        guard app.ownerPairingID == nil || app.ownerPairingID == expectedMac?.id else {
+            libraryActionMessage = "This app belongs to a different Mac. Refresh the library before changing it."
+            return
+        }
+        managedAppsRevision &+= 1
+        let operationRevision = nextManagedAppOperationRevision(app.id)
         managedApps[index] = managedApps[index].settingArchived(archived)
         selectedManagedAppID = nil
         sortAndSaveManagedApps()
@@ -595,11 +695,15 @@ final class SessionStore: ObservableObject {
                 appID: app.id,
                 archived: archived,
                 expectedMac: expectedMac,
-                expectedPairingRevision: expectedPairingRevision
+                expectedPairingRevision: expectedPairingRevision,
+                expectedOwnerPairingID: app.ownerPairingID
             ) == false else { return }
-            guard Self.appOperationIsCurrent(
-                currentRevision: managedAppOperationRevisions[app.id],
-                expectedRevision: operationRevision
+            guard rollbackContextIsCurrent(
+                appID: app.id,
+                operationRevision: operationRevision,
+                ownerPairingID: app.ownerPairingID,
+                expectedMac: expectedMac,
+                expectedPairingRevision: expectedPairingRevision
             ) else { return }
             if let index = managedApps.firstIndex(where: { $0.id == app.id }) {
                 managedApps[index] = app
@@ -612,10 +716,14 @@ final class SessionStore: ObservableObject {
     }
 
     func deleteManagedApp(_ app: ManagedApp) {
-        managedAppsRevision &+= 1
-        let operationRevision = nextManagedAppOperationRevision(app.id)
         let expectedMac = pairedMac
         let expectedPairingRevision = pairingRevision
+        guard app.ownerPairingID == nil || app.ownerPairingID == expectedMac?.id else {
+            libraryActionMessage = "This app belongs to a different Mac. Refresh the library before deleting it."
+            return
+        }
+        managedAppsRevision &+= 1
+        let operationRevision = nextManagedAppOperationRevision(app.id)
         managedApps.removeAll { $0.id == app.id }
         if selectedManagedAppID == app.id {
             selectedManagedAppID = nil
@@ -626,11 +734,15 @@ final class SessionStore: ObservableObject {
             guard await syncDeleteToMac(
                 appID: app.id,
                 expectedMac: expectedMac,
-                expectedPairingRevision: expectedPairingRevision
+                expectedPairingRevision: expectedPairingRevision,
+                expectedOwnerPairingID: app.ownerPairingID
             ) == false else { return }
-            guard Self.appOperationIsCurrent(
-                currentRevision: managedAppOperationRevisions[app.id],
-                expectedRevision: operationRevision
+            guard rollbackContextIsCurrent(
+                appID: app.id,
+                operationRevision: operationRevision,
+                ownerPairingID: app.ownerPairingID,
+                expectedMac: expectedMac,
+                expectedPairingRevision: expectedPairingRevision
             ) else { return }
             if !managedApps.contains(where: { $0.id == app.id }) {
                 managedApps.append(app)
@@ -711,7 +823,14 @@ final class SessionStore: ObservableObject {
             app.id.hasPrefix("pending:") && app.builds.contains(where: { $0.id == build.id })
         }
         if let index = managedApps.firstIndex(where: { $0.id == build.appID }) {
-            managedApps[index] = managedApps[index].upserting(build)
+            let alreadyOwnedBuild = managedApps[index].builds.contains { $0.id == build.id }
+            var updated = managedApps[index].upserting(build)
+            if managedApps[index].ownerPairingID != nil && !alreadyOwnedBuild {
+                // A link from an unknown Mac must not inherit authority to mutate
+                // a same-identity app on the currently paired Mac.
+                updated.ownerPairingID = nil
+            }
+            managedApps[index] = updated
         } else {
             managedApps.append(ManagedApp(build: build))
         }
@@ -758,6 +877,11 @@ final class SessionStore: ObservableObject {
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             let remote = try JSONDecoder().decode(RemoteAppList.self, from: data)
             let remoteIDs = Set(remote.apps.map(\.id))
+            let existingRemoteIDs = Set(managedApps
+                .filter { !$0.id.hasPrefix("local:") && !$0.id.hasPrefix("pending:") }
+                .map(\.id))
+            invalidateManagedAppOperations(existingRemoteIDs.union(remoteIDs))
+            managedAppsRevision &+= 1
             managedApps.removeAll { app in
                 !app.id.hasPrefix("local:")
                     && !app.id.hasPrefix("pending:")
@@ -772,6 +896,7 @@ final class SessionStore: ObservableObject {
                 }
                 guard let latest = builds.first else { continue }
                 var managed = ManagedApp(build: latest)
+                managed.ownerPairingID = mac.id
                 managed.displayName = app.name
                 managed.bundleIdentifier = app.bundleIdentifier
                 managed.builds = builds.sorted { $0.createdAt > $1.createdAt }
@@ -795,10 +920,12 @@ final class SessionStore: ObservableObject {
         appID: String,
         archived: Bool,
         expectedMac: PairedMac?,
-        expectedPairingRevision: UInt64
+        expectedPairingRevision: UInt64,
+        expectedOwnerPairingID: String?
     ) async -> Bool {
         guard !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return true }
-        guard let expectedMac,
+        guard let expectedOwnerPairingID else { return true }
+        guard let expectedMac, expectedMac.id == expectedOwnerPairingID,
               Self.pairingResponseIsCurrent(
                 current: pairedMac,
                 expected: expectedMac,
@@ -823,10 +950,12 @@ final class SessionStore: ObservableObject {
     private func syncDeleteToMac(
         appID: String,
         expectedMac: PairedMac?,
-        expectedPairingRevision: UInt64
+        expectedPairingRevision: UInt64,
+        expectedOwnerPairingID: String?
     ) async -> Bool {
         guard !appID.hasPrefix("local:"), !appID.hasPrefix("pending:") else { return true }
-        guard let expectedMac,
+        guard let expectedOwnerPairingID else { return true }
+        guard let expectedMac, expectedMac.id == expectedOwnerPairingID,
               Self.pairingResponseIsCurrent(
                 current: pairedMac,
                 expected: expectedMac,
@@ -856,6 +985,58 @@ final class SessionStore: ObservableObject {
 
     static func appOperationIsCurrent(currentRevision: UInt64?, expectedRevision: UInt64) -> Bool {
         currentRevision == expectedRevision
+    }
+
+    private func rollbackContextIsCurrent(
+        appID: String,
+        operationRevision: UInt64,
+        ownerPairingID: String?,
+        expectedMac: PairedMac?,
+        expectedPairingRevision: UInt64
+    ) -> Bool {
+        guard Self.appOperationIsCurrent(
+            currentRevision: managedAppOperationRevisions[appID],
+            expectedRevision: operationRevision
+        ) else { return false }
+        guard let ownerPairingID else { return true }
+        guard let expectedMac, expectedMac.id == ownerPairingID else { return false }
+        return Self.pairingResponseIsCurrent(
+            current: pairedMac,
+            expected: expectedMac,
+            currentRevision: pairingRevision,
+            expectedRevision: expectedPairingRevision
+        )
+    }
+
+    private func invalidateRemoteManagedAppsForPairingChange() {
+        let remoteIDs = Set(managedApps.compactMap { $0.ownerPairingID == nil ? nil : $0.id })
+        invalidateManagedAppOperations(remoteIDs)
+        managedApps.removeAll { $0.ownerPairingID != nil }
+        if let selectedManagedAppID, remoteIDs.contains(selectedManagedAppID) {
+            self.selectedManagedAppID = nil
+        }
+        managedAppsRevision &+= 1
+        saveManagedApps()
+    }
+
+    private func invalidateManagedAppOperations(_ ids: Set<String>) {
+        for id in ids {
+            managedAppOperationRevisions[id] = (managedAppOperationRevisions[id] ?? 0) &+ 1
+        }
+    }
+
+    static func deviceBuildResponseIsCurrent(
+        current: DeviceBuildSession?,
+        expected: DeviceBuildSession,
+        currentRevision: UInt64,
+        expectedRevision: UInt64
+    ) -> Bool {
+        // round4-final-fencing
+        currentRevision == expectedRevision && current == expected
+    }
+
+    static func installationVerificationIsActive(_ state: String?) -> Bool {
+        ["requested", "not-installed", "different-version"].contains(state ?? "")
     }
 
     private static func parseDate(_ value: String) -> Date? {
@@ -1259,6 +1440,7 @@ struct ManagedApp: Identifiable, Codable, Equatable {
     var displayName: String
     var bundleIdentifier: String
     var teamID: String
+    var ownerPairingID: String?
     var builds: [ManagedBuild]
     var archivedAt: Date?
     var lastOpened: Date
@@ -1282,6 +1464,7 @@ struct ManagedApp: Identifiable, Codable, Equatable {
         displayName = build.displayName
         bundleIdentifier = build.bundleIdentifier
         teamID = build.teamID
+        ownerPairingID = nil
         builds = [build]
         archivedAt = nil
         lastOpened = build.lastOpened

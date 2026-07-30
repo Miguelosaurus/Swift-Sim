@@ -447,3 +447,94 @@ test("renewal retains the previous bearer capability until its own expiry", () =
   assert.equal(oldCapability.delivery.generation, "old-generation");
   assert.notEqual(committed.token, oldToken);
 }));
+
+
+test("all unexpired capability generations remain valid beyond sixteen renewals", () => withStore((store) => {
+  let build = completeBuild(store, "Example", "com.example.capabilities", "TEAM123", "1.0", "1");
+  build.remoteBaseUrl = "https://generation-0.example.com";
+  build.expiresAt = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+  build.delivery = {
+    mode: "quick-tunnel",
+    provider: "cloudflare-quick-tunnel",
+    expiresAt: build.expiresAt,
+    generation: "generation-0",
+    referenceID: `build:${build.id}`,
+  };
+  store.save(build);
+  const tokens = [build.token];
+  for (let index = 1; index <= 20; index += 1) {
+    const renewed = store.renewInstallLink(build.id, { ttlMinutes: 120 });
+    renewed.remoteBaseUrl = `https://generation-${index}.example.com`;
+    renewed.expiresAt = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+    renewed.delivery = {
+      mode: "quick-tunnel",
+      provider: "cloudflare-quick-tunnel",
+      expiresAt: renewed.expiresAt,
+      generation: `generation-${index}`,
+      referenceID: `renewal:${renewed.pendingRenewal.id}`,
+    };
+    store.save(renewed);
+    build = store.get(build.id);
+    tokens.push(build.token);
+  }
+  const saved = store.get(build.id);
+  assert.equal(saved.capabilities.length, 20);
+  for (const token of tokens.slice(0, -1)) {
+    assert.ok(saved.capabilities.some((capability) => capability.token === token));
+  }
+}));
+
+test("app deletion durably queues every delivery reference across restart", () => withStore((store, directory) => {
+  const statePath = join(directory, "builds.json");
+  const build = completeBuild(store, "Example", "com.example.cleanup", "TEAM123", "1.0", "1");
+  build.delivery = {
+    mode: "quick-tunnel",
+    generation: "current-generation",
+    referenceID: `build:${build.id}`,
+  };
+  build.capabilities = [{
+    token: "old-token",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    remoteBaseUrl: "https://old.example.com",
+    delivery: {
+      mode: "quick-tunnel",
+      generation: "old-generation",
+      referenceID: "renewal:old",
+    },
+    installTTLMinutes: 5,
+    createdAt: new Date().toISOString(),
+  }];
+  store.save(build);
+  assert.equal(store.deleteApp(build.app.identity, { deleteArtifacts: false }), true);
+  const restarted = new DeviceBuildStore({ path: statePath });
+  const jobs = restarted.listDeliveryReferenceCleanupJobs();
+  assert.equal(jobs.length, 2);
+  assert.deepEqual(new Set(jobs.map((job) => job.generation)), new Set(["current-generation", "old-generation"]));
+}));
+
+test("an early not-installed observation retains the install verification deadline", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.install", "TEAM123", "1.0", "1");
+  store.markInstallRequested(build.id);
+  store.saveVerification(build.id, {
+    state: "not-installed",
+    devices: [{ name: "Phone", state: "not-installed", version: "", build: "" }],
+  });
+  const saved = store.get(build.id);
+  assert.equal(saved.installation.state, "not-installed");
+  assert.ok(Date.parse(saved.installation.verificationDeadlineAt) > Date.now());
+}));
+
+
+test("transient unknown observation preserves a negative active install state", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.install.retry", "TEAM123", "1.0", "1");
+  store.markInstallRequested(build.id);
+  store.saveVerification(build.id, {
+    state: "not-installed",
+    devices: [{ name: "Phone", state: "not-installed", version: "", build: "" }],
+  });
+  store.saveVerification(build.id, {
+    state: "unknown",
+    devices: [{ name: "Phone", state: "unreachable", version: "", build: "" }],
+  });
+  assert.equal(store.get(build.id).installation.state, "not-installed");
+}));

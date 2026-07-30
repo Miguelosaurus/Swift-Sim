@@ -103,6 +103,7 @@ enum PairingCredentialVault {
     private static let pendingPairingIDKey = "pairedMacPendingPairingID"
     private static let previousPendingAccountKey = "pairedMacPreviousPendingCredentialAccount"
     private static let previousPendingPairingIDKey = "pairedMacPreviousPendingPairingID"
+    private static let pendingHistoryKey = "pairedMacPendingCredentialHistory"
     private static let service = "dev.local.SwiftSimCompanion.pairing"
     private static let legacyAccount = "paired-mac-token"
     private static var defaultsObserver: NSObjectProtocol?
@@ -194,6 +195,12 @@ enum PairingCredentialVault {
         let previousPending = defaults.string(forKey: pendingAccountKey)
         let previousPairingID = defaults.string(forKey: pendingPairingIDKey)
 
+        if let olderAccount = defaults.string(forKey: previousPendingAccountKey),
+           let olderPairingID = defaults.string(forKey: previousPendingPairingIDKey) {
+            var history = pendingHistory()
+            history.append(PendingCredential(account: olderAccount, pairingID: olderPairingID))
+            savePendingHistory(history)
+        }
         if let previousPending {
             defaults.set(previousPending, forKey: previousPendingAccountKey)
         } else {
@@ -292,6 +299,10 @@ enum PairingCredentialVault {
         if let previous = defaults.string(forKey: previousPendingAccountKey), previous != currentAccount {
             deleteToken(account: previous)
         }
+        for item in pendingHistory() where item.account != currentAccount {
+            deleteToken(account: item.account)
+        }
+        savePendingHistory([])
         clearPreviousPendingTransaction()
     }
 
@@ -303,6 +314,10 @@ enum PairingCredentialVault {
         if let previous = defaults.string(forKey: previousPendingAccountKey) {
             deleteToken(account: previous)
         }
+        for item in pendingHistory() {
+            deleteToken(account: item.account)
+        }
+        savePendingHistory([])
         defaults.removeObject(forKey: pendingAccountKey)
         defaults.removeObject(forKey: pendingPairingIDKey)
         clearPreviousPendingTransaction()
@@ -319,6 +334,10 @@ enum PairingCredentialVault {
         if let previousPendingAccount = defaults.string(forKey: previousPendingAccountKey) {
             deleteToken(account: previousPendingAccount)
         }
+        for item in pendingHistory() {
+            deleteToken(account: item.account)
+        }
+        savePendingHistory([])
         deleteToken(account: legacyAccount)
         if defaults.object(forKey: committedAccountKey) != nil {
             defaults.removeObject(forKey: committedAccountKey)
@@ -335,17 +354,53 @@ enum PairingCredentialVault {
 
     private static func restorePreviousPendingTransaction() {
         let defaults = UserDefaults.standard
-        if let previousAccount = defaults.string(forKey: previousPendingAccountKey) {
-            defaults.set(previousAccount, forKey: pendingAccountKey)
+        let restoredAccount = defaults.string(forKey: previousPendingAccountKey)
+        let restoredPairingID = defaults.string(forKey: previousPendingPairingIDKey)
+        var history = pendingHistory()
+        let nextPrevious = history.popLast()
+        savePendingHistory(history)
+
+        if let restoredAccount {
+            defaults.set(restoredAccount, forKey: pendingAccountKey)
         } else {
             defaults.removeObject(forKey: pendingAccountKey)
         }
-        if let previousPairingID = defaults.string(forKey: previousPendingPairingIDKey) {
-            defaults.set(previousPairingID, forKey: pendingPairingIDKey)
+        if let restoredPairingID {
+            defaults.set(restoredPairingID, forKey: pendingPairingIDKey)
         } else {
             defaults.removeObject(forKey: pendingPairingIDKey)
         }
-        clearPreviousPendingTransaction()
+        if let nextPrevious {
+            defaults.set(nextPrevious.account, forKey: previousPendingAccountKey)
+            defaults.set(nextPrevious.pairingID, forKey: previousPendingPairingIDKey)
+        } else {
+            clearPreviousPendingTransaction()
+        }
+    }
+
+    private struct PendingCredential: Codable {
+        let account: String
+        let pairingID: String
+    }
+
+    private static func pendingHistory() -> [PendingCredential] {
+        guard let data = UserDefaults.standard.data(forKey: pendingHistoryKey),
+              let decoded = try? JSONDecoder().decode([PendingCredential].self, from: data) else { return [] }
+        return decoded
+    }
+
+    private static func savePendingHistory(_ history: [PendingCredential]) {
+        let defaults = UserDefaults.standard
+        guard !history.isEmpty else {
+            if defaults.object(forKey: pendingHistoryKey) != nil {
+                defaults.removeObject(forKey: pendingHistoryKey)
+            }
+            return
+        }
+        if let data = try? JSONEncoder().encode(history),
+           defaults.data(forKey: pendingHistoryKey) != data {
+            defaults.set(data, forKey: pendingHistoryKey)
+        }
     }
 
     private static func clearPreviousPendingTransaction() {

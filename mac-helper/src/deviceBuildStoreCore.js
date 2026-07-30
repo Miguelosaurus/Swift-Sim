@@ -8,6 +8,7 @@ import { runRequiredBuildValidation } from "./buildValidation.js";
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
+const ACTIVE_INSTALL_OBSERVATION_STATES = new Set(["requested", "not-installed", "different-version"]);
 
 export class DeviceBuildStore {
   constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
@@ -16,6 +17,7 @@ export class DeviceBuildStore {
     this.builds = new Map();
     this.apps = new Map();
     this.artifactCleanupJobs = new Map();
+    this.deliveryReferenceCleanupJobs = new Map();
     this.load();
     this.drainArtifactCleanupJobs();
   }
@@ -122,6 +124,7 @@ export class DeviceBuildStore {
       build.installation = normalizeInstallation(build.installation);
       build.installation.state = build.installation.state === "verified" ? "verified" : "requested";
       build.installation.requestedAt = new Date().toISOString();
+      build.installation.verificationDeadlineAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       build.installation.updatedAt = new Date().toISOString();
       touchBuild(build);
       return build;
@@ -166,8 +169,9 @@ export class DeviceBuildStore {
       if (!build) return null;
       const previous = normalizeInstallation(build.installation);
       const reportedState = verification.state || "unknown";
-      const nextState = reportedState === "unknown" && previous.state === "requested"
-        ? "requested"
+      const nextState = reportedState === "unknown"
+        && ACTIVE_INSTALL_OBSERVATION_STATES.has(previous.state)
+        ? previous.state
         : reportedState;
       build.installation = {
         ...previous,
@@ -176,6 +180,7 @@ export class DeviceBuildStore {
           ? verification.verifiedAt || new Date().toISOString()
           : previous.verifiedAt,
         updatedAt: new Date().toISOString(),
+        verificationDeadlineAt: reportedState === "verified" ? "" : previous.verificationDeadlineAt,
         devices: Array.isArray(verification.devices) ? verification.devices : [],
       };
       touchBuild(build);
@@ -325,10 +330,16 @@ export class DeviceBuildStore {
         })),
         apps: new Map(Object.entries(parsed.apps || {})),
         artifactCleanupJobs: new Map(Object.entries(parsed.artifactCleanupJobs || {})),
+        deliveryReferenceCleanupJobs: new Map(Object.entries(parsed.deliveryReferenceCleanupJobs || {})),
       };
     } catch (error) {
       if (error?.code === "ENOENT") {
-        return { builds: new Map(), apps: new Map(), artifactCleanupJobs: new Map() };
+        return {
+          builds: new Map(),
+          apps: new Map(),
+          artifactCleanupJobs: new Map(),
+          deliveryReferenceCleanupJobs: new Map(),
+        };
       }
       throw new Error(`Unable to read Swift Sim build state: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -338,9 +349,10 @@ export class DeviceBuildStore {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
     writeFileSync(temporaryPath, JSON.stringify({
-      version: 4,
+      version: 5,
       apps: Object.fromEntries(state.apps),
       artifactCleanupJobs: Object.fromEntries(state.artifactCleanupJobs),
+      deliveryReferenceCleanupJobs: Object.fromEntries(state.deliveryReferenceCleanupJobs || []),
       builds: [...state.builds.values()],
     }, null, 2), { mode: 0o600 });
     renameSync(temporaryPath, this.path);
@@ -350,6 +362,7 @@ export class DeviceBuildStore {
     this.builds = new Map(state.builds);
     this.apps = new Map(state.apps);
     this.artifactCleanupJobs = new Map(state.artifactCleanupJobs);
+    this.deliveryReferenceCleanupJobs = new Map(state.deliveryReferenceCleanupJobs || []);
   }
 }
 
@@ -444,6 +457,7 @@ function normalizeInstallation(installation = {}) {
     requestedAt: installation.requestedAt || "",
     verifiedAt: installation.verifiedAt || "",
     updatedAt: installation.updatedAt || installation.verifiedAt || installation.requestedAt || "",
+    verificationDeadlineAt: installation.verificationDeadlineAt || "",
     devices: Array.isArray(installation.devices) ? installation.devices : [],
   };
 }

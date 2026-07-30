@@ -132,3 +132,26 @@ test("cancelling validation kills a TERM-ignoring descendant before rejecting", 
   const status = spawnSync("/bin/ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
   assert.equal(status.status === 0 && !String(status.stdout || "").trim().startsWith("Z"), false);
 }));
+
+
+test("successful validation rejects and terminates surviving descendants", () => withProjects(async ({ root, projectA }) => {
+  const pidPath = join(root, "success-descendant.pid");
+  const descendantSource = "process.on('SIGHUP', () => {}); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)";
+  const descendant = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(descendantSource)}`;
+  const command = `${descendant} & echo $! > ${JSON.stringify(pidPath)}; exit 0`;
+  await assert.rejects(
+    runRequiredBuildValidation({
+      project: projectA,
+      preferences: {
+        buildValidationMode: "always",
+        buildValidationCommand: command,
+        buildValidationWorkingDirectory: "",
+        buildValidationTimeoutSeconds: 10,
+      },
+    }),
+    /descendant processes were still running/
+  );
+  const pid = Number(readFileSync(pidPath, "utf8").trim());
+  const status = spawnSync("/bin/ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
+  assert.equal(status.status === 0 && !String(status.stdout || "").trim().startsWith("Z"), false);
+}));

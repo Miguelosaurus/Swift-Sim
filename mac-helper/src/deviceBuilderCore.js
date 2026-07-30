@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
 import {
@@ -334,7 +334,7 @@ function resolveTarget(build) {
 }
 
 async function readBuildSettings({ target, scheme, configuration, allowProvisioningUpdates, buildSettingArgs, build }) {
-  const settings = {};
+  const collector = createBuildSettingsCollector();
   const result = await runBuffered("xcodebuild", [
     ...targetArgs(target),
     "-scheme", required(scheme, "scheme"),
@@ -345,13 +345,13 @@ async function readBuildSettings({ target, scheme, configuration, allowProvision
     "-showBuildSettings",
   ], {
     cancelPath: build?.control?.cancelPath || "",
-    onLine: (line) => parseBuildSettingLine(settings, line),
+    onLine: (line) => collectBuildSettingLine(collector, line),
   });
   if (result.cancellationError) throw result.cancellationError;
   if (result.code !== 0) {
     throw new DeviceBuildError(result.error || result.stderr || result.stdout || "Unable to read Xcode build settings.");
   }
-  return settings;
+  return selectApplicationBuildSettings(collector, scheme);
 }
 
 function xcodeBuildSettingArgs(buildSettings) {
@@ -365,15 +365,50 @@ function xcodeBuildSettingArgs(buildSettings) {
   });
 }
 
-function parseBuildSettings(output) {
-  const settings = {};
-  for (const line of output.split(/\r?\n/)) parseBuildSettingLine(settings, line);
-  return settings;
+export function parseBuildSettings(output, scheme = "") {
+  const collector = createBuildSettingsCollector();
+  for (const line of String(output || "").split(/\r?\n/)) collectBuildSettingLine(collector, line);
+  return selectApplicationBuildSettings(collector, scheme);
 }
 
-function parseBuildSettingLine(settings, line) {
+function createBuildSettingsCollector() {
+  return { sections: [], current: null, loose: {} };
+}
+
+function collectBuildSettingLine(collector, line) {
+  const header = String(line || "").match(/^Build settings for action .* and target (.+):\s*$/);
+  if (header) {
+    const section = { target: header[1].trim(), settings: {} };
+    collector.sections.push(section);
+    collector.current = section;
+    return;
+  }
   const match = String(line || "").match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
-  if (match) settings[match[1]] = match[2].trim();
+  if (!match) return;
+  const destination = collector.current?.settings || collector.loose;
+  destination[match[1]] = match[2].trim();
+}
+
+function selectApplicationBuildSettings(collector, scheme = "") {
+  const applicationSections = collector.sections.filter(({ settings }) =>
+    settings.WRAPPER_EXTENSION === "app"
+    && !String(settings.PRODUCT_TYPE || "").includes("app-extension")
+  );
+  const normalizedScheme = String(scheme || "").trim();
+  const exact = applicationSections.find(({ target, settings }) =>
+    target === normalizedScheme
+    || settings.TARGET_NAME === normalizedScheme
+    || settings.PRODUCT_NAME === normalizedScheme
+  );
+  const selected = exact || (applicationSections.length === 1 ? applicationSections[0] : null);
+  if (selected) return selected.settings;
+  if (applicationSections.length > 1) {
+    throw new DeviceBuildError(`Xcode reported multiple application targets for scheme ${normalizedScheme || "(unknown)"}.`);
+  }
+  if (Object.keys(collector.loose).length > 0 && collector.loose.WRAPPER_EXTENSION === "app") {
+    return collector.loose;
+  }
+  throw new DeviceBuildError(`Xcode did not report an application target for scheme ${normalizedScheme || "(unknown)"}.`);
 }
 
 function targetArgs(target) {
@@ -415,6 +450,22 @@ export function runBuffered(command, args, {
     let settled = false;
     let terminating = false;
     let cancellationTimer;
+    let timer;
+    let workerRecordError = null;
+    const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
+    if (workerPath) {
+      try {
+        mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
+        writeFileSync(workerPath, JSON.stringify({
+          pid: child.pid,
+          startedAt: requiredProcessStartedAt(child.pid),
+          command,
+          createdAt: new Date().toISOString(),
+        }), { mode: 0o600 });
+      } catch (error) {
+        workerRecordError = error;
+      }
+    }
 
     const invokeLine = (line) => {
       if (!line.trim() || !onLine) return null;
@@ -431,6 +482,7 @@ export function runBuffered(command, args, {
       settled = true;
       clearTimeout(timer);
       clearInterval(cancellationTimer);
+      if (workerPath && !result?.preserveWorkerRecord) rmSync(workerPath, { force: true });
       resolve(result);
     };
 
@@ -439,9 +491,19 @@ export function runBuffered(command, args, {
       terminating = true;
       clearInterval(cancellationTimer);
       void terminateProcessGroup(child.pid, 2_000).then((terminated) => {
-        finish(resultFactory(terminated));
+        finish({ ...resultFactory(terminated), preserveWorkerRecord: !terminated });
       });
     };
+
+    if (workerRecordError) {
+      terminateOnce((terminated) => ({
+        code: null,
+        stdout,
+        stderr,
+        error: `Unable to persist the active build worker identity: ${workerRecordError instanceof Error ? workerRecordError.message : String(workerRecordError)}${terminated ? "" : "; process group could not be confirmed stopped"}`,
+      }));
+      return;
+    }
 
     const outputCallbackFailed = (error) => {
       terminateOnce((terminated) => ({
@@ -471,7 +533,7 @@ export function runBuffered(command, args, {
     if (cancelPath) {
       cancellationTimer = setInterval(() => {
         if (!existsSync(cancelPath) || settled || terminating) return;
-        terminateOnce(() => {
+        terminateOnce((_terminated) => {
           const error = new DeviceBuildError("Device build was cancelled.");
           error.code = "SWIFT_SIM_BUILD_CANCELLED";
           return { code: null, stdout, stderr, error: error.message, cancellationError: error };
@@ -480,7 +542,7 @@ export function runBuffered(command, args, {
       cancellationTimer.unref?.();
     }
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       if (settled || terminating) return;
       terminateOnce((terminated) => ({
         code: null,
@@ -513,7 +575,31 @@ export function runBuffered(command, args, {
         outputCallbackFailed(pendingError);
         return;
       }
-      finish({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
+      terminating = true;
+      void (async () => {
+        const exited = await waitForProcessGroupExit(child.pid, 500);
+        const terminated = exited || await terminateProcessGroup(child.pid, 2_000);
+        if (!terminated) {
+          finish({
+            code: null,
+            stdout,
+            stderr,
+            error: `${command} exited, but its process group could not be confirmed stopped`,
+            preserveWorkerRecord: true,
+          });
+          return;
+        }
+        if (code === 0 && !exited) {
+          finish({
+            code: null,
+            stdout,
+            stderr,
+            error: `${command} exited successfully while descendant processes were still running`,
+          });
+          return;
+        }
+        finish({ code, stdout, stderr, error: code === 0 ? "" : (stderr || stdout) });
+      })();
     });
   });
 }
@@ -523,6 +609,47 @@ async function terminateProcessGroup(pid, graceMs) {
   if (await waitForProcessGroupExit(pid, graceMs)) return true;
   signalProcessGroup(pid, "SIGKILL");
   return waitForProcessGroupExit(pid, 2_000);
+}
+
+export function requestDeviceBuildCancellation(build, reason = "Device build cancelled.") {
+  const cancelPath = build?.control?.cancelPath || "";
+  if (!cancelPath) return false;
+  mkdirSync(dirname(cancelPath), { recursive: true, mode: 0o700 });
+  writeFileSync(cancelPath, JSON.stringify({
+    buildId: build.id,
+    reason,
+    cancelledAt: new Date().toISOString(),
+  }), { mode: 0o600 });
+  return true;
+}
+
+export async function terminateRecordedDeviceBuildWorker(build) {
+  const workerPath = build?.control?.cancelPath ? `${build.control.cancelPath}.worker.json` : "";
+  if (!workerPath || !existsSync(workerPath)) return true;
+  let record;
+  try { record = JSON.parse(readFileSync(workerPath, "utf8")); } catch { return false; }
+  const pid = Number(record?.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (record.startedAt && processStartedAt(pid) !== record.startedAt) {
+    rmSync(workerPath, { force: true });
+    return true;
+  }
+  const terminated = await terminateProcessGroup(pid, 2_000);
+  if (terminated) rmSync(workerPath, { force: true });
+  return terminated;
+}
+
+function requiredProcessStartedAt(pid) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const startedAt = processStartedAt(pid);
+    if (startedAt) return startedAt;
+  }
+  throw new Error("Unable to establish the active build worker process identity.");
+}
+
+function processStartedAt(pid) {
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+  return result.status === 0 ? String(result.stdout || "").trim() : "";
 }
 
 function signalProcessGroup(pid, signal) {

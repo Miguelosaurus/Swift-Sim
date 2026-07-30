@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runBuffered } from "../mac-helper/src/deviceBuilderCore.js";
+import {
+  parseBuildSettings,
+  runBuffered,
+  terminateRecordedDeviceBuildWorker,
+} from "../mac-helper/src/deviceBuilderCore.js";
 
 test("a timed out build waits for the complete process group to exit", {
   skip: process.platform === "win32",
@@ -100,6 +104,89 @@ test("an output callback failure terminates the detached process group", {
       onLine: () => { throw new Error("state write failed"); },
     });
     assert.match(result.error, /Output handler failed: state write failed/);
+    const descendantPID = Number(readFileSync(pidPath, "utf8"));
+    assert.equal(processIsAlive(descendantPID), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("multi-target settings select the scheme application instead of an extension", () => {
+  const settings = parseBuildSettings(`
+Build settings for action build and target Example:
+    TARGET_NAME = Example
+    PRODUCT_NAME = Example
+    PRODUCT_TYPE = com.apple.product-type.application
+    WRAPPER_EXTENSION = app
+    PRODUCT_BUNDLE_IDENTIFIER = com.example.app
+    DEVELOPMENT_TEAM = TEAMAPP
+
+Build settings for action build and target ExampleWidget:
+    TARGET_NAME = ExampleWidget
+    PRODUCT_NAME = ExampleWidget
+    PRODUCT_TYPE = com.apple.product-type.app-extension
+    WRAPPER_EXTENSION = appex
+    PRODUCT_BUNDLE_IDENTIFIER = com.example.app.widget
+    DEVELOPMENT_TEAM = TEAMEXT
+`, "Example");
+  assert.equal(settings.PRODUCT_BUNDLE_IDENTIFIER, "com.example.app");
+  assert.equal(settings.DEVELOPMENT_TEAM, "TEAMAPP");
+});
+
+test("a persisted interrupted worker identity can be terminated after restart", {
+  skip: process.platform === "win32",
+  timeout: 10_000,
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-worker-recovery-"));
+  const cancelPath = join(directory, ".cancelled");
+  const workerPath = `${cancelPath}.worker.json`;
+  const child = spawn(process.execPath, [
+    "-e",
+    "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+  ], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  try {
+    const identity = spawnSync("/bin/ps", ["-p", String(child.pid), "-o", "lstart="], { encoding: "utf8" });
+    writeFileSync(workerPath, JSON.stringify({
+      pid: child.pid,
+      startedAt: String(identity.stdout || "").trim(),
+    }));
+    const terminated = await terminateRecordedDeviceBuildWorker({
+      id: "build-id",
+      control: { cancelPath },
+    });
+    assert.equal(terminated, true);
+    assert.equal(processIsAlive(child.pid), false);
+  } finally {
+    try { process.kill(-child.pid, "SIGKILL"); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("a successful buffered command rejects surviving descendants", {
+  skip: process.platform === "win32",
+  timeout: 15_000,
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-success-descendant-"));
+  const pidPath = join(directory, "descendant.pid");
+  try {
+    const fixture = `
+      const { spawn } = require("node:child_process");
+      const { writeFileSync } = require("node:fs");
+      const descendant = spawn(process.execPath, ["-e", "process.on('SIGHUP', () => {}); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+        stdio: "ignore",
+      });
+      writeFileSync(${JSON.stringify(pidPath)}, String(descendant.pid));
+      descendant.unref();
+      process.exit(0);
+    `;
+    const result = await runBuffered(process.execPath, ["-e", fixture], { timeoutMs: 8_000 });
+    assert.match(result.error, /descendant processes were still running/);
     const descendantPID = Number(readFileSync(pidPath, "utf8"));
     assert.equal(processIsAlive(descendantPID), false);
   } finally {
