@@ -1,5 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { runRequiredBuildValidation } from "./buildValidation.js";
-import { runDeviceBuild as runDeviceBuildCore } from "./deviceBuilderCore.js";
+import {
+  runDeviceBuild as runDeviceBuildCore,
+  terminateRecordedDeviceBuildWorker as terminateRecordedDeviceBuildWorkerCore,
+} from "./deviceBuilderCore.js";
 
 export * from "./deviceBuilderCore.js";
 
@@ -23,5 +29,64 @@ export async function runDeviceBuild(build, options = {}) {
       save();
     }
     throw error;
+  }
+}
+
+export async function terminateRecordedDeviceBuildWorker(build) {
+  const cancelPath = build?.control?.cancelPath || "";
+  const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
+  if (!workerPath || !existsSync(workerPath)) {
+    throw recoveryError(build, "has no durable worker identity");
+  }
+
+  let record;
+  try {
+    record = JSON.parse(readFileSync(workerPath, "utf8"));
+  } catch {
+    throw recoveryError(build, "has an unreadable worker identity");
+  }
+
+  const pid = Number(record?.pid);
+  if (!Number.isInteger(pid) || pid <= 0 || !record?.startedAt || !record?.command) {
+    throw recoveryError(build, "has an incomplete worker identity");
+  }
+
+  if (processIsAlive(pid)) {
+    const command = processCommand(pid);
+    const expected = record.command === "required-validation"
+      ? ["/bin/sh", " sh "]
+      : [basename(String(record.command))];
+    if (!command || !expected.some((fragment) => command.includes(fragment))) {
+      throw recoveryError(build, "points to a process whose command cannot be verified");
+    }
+  }
+
+  const terminated = await terminateRecordedDeviceBuildWorkerCore(build);
+  if (!terminated) {
+    throw recoveryError(build, "could not be confirmed stopped");
+  }
+  return true;
+}
+
+function recoveryError(build, detail) {
+  const error = new Error(
+    `Interrupted device build ${build?.id || "(unknown)"} ${detail}. `
+      + "Swift Sim will not start another build until the worker is safely resolved."
+  );
+  error.code = "SWIFT_SIM_UNSAFE_BUILD_RECOVERY";
+  return error;
+}
+
+function processCommand(pid) {
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+  return result.status === 0 ? String(result.stdout || "").trim() : "";
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
