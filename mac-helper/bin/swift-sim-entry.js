@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import "../src/ownedWorkerPreload.js";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { readBuildValidationPreferences } from "../src/buildValidation.js";
 
+const { readBuildValidationPreferences } = await import("../src/buildValidation.js");
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
 const args = process.argv.slice(2);
 const command = args[0] || "help";
