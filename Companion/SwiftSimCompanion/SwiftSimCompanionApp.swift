@@ -190,49 +190,24 @@ enum PairingCredentialVault {
 
     static func stagePairing(token: String, pairingID: String) -> Bool {
         guard !token.isEmpty else { return false }
+        discardAllStagedPairings()
         let stagedAccount = stagingAccount(for: pairingID)
         let defaults = UserDefaults.standard
-        let previousPending = defaults.string(forKey: pendingAccountKey)
-        let previousPairingID = defaults.string(forKey: pendingPairingIDKey)
-
-        if let olderAccount = defaults.string(forKey: previousPendingAccountKey),
-           let olderPairingID = defaults.string(forKey: previousPendingPairingIDKey) {
-            var history = pendingHistory()
-            history.append(PendingCredential(account: olderAccount, pairingID: olderPairingID))
-            savePendingHistory(history)
-        }
-        if let previousPending {
-            defaults.set(previousPending, forKey: previousPendingAccountKey)
-        } else {
-            defaults.removeObject(forKey: previousPendingAccountKey)
-        }
-        if let previousPairingID {
-            defaults.set(previousPairingID, forKey: previousPendingPairingIDKey)
-        } else {
-            defaults.removeObject(forKey: previousPendingPairingIDKey)
-        }
         defaults.set(stagedAccount, forKey: pendingAccountKey)
         defaults.set(pairingID, forKey: pendingPairingIDKey)
         defaults.synchronize()
         guard storeToken(token, account: stagedAccount) else {
             deleteToken(account: stagedAccount)
-            restorePreviousPendingTransaction()
+            clearAllPendingMetadata()
             return false
         }
-        // Keep the prior staged transaction reachable until this new pairing
-        // is either committed or cancelled. Reconciliation deletes it only
-        // after the new metadata becomes authoritative.
         return true
     }
 
     static func cancelStagedPairing(pairingID: String) {
         let defaults = UserDefaults.standard
-        guard defaults.string(forKey: pendingPairingIDKey) == pairingID,
-              let stagedAccount = defaults.string(forKey: pendingAccountKey) else { return }
-        if defaults.string(forKey: committedAccountKey) != stagedAccount {
-            deleteToken(account: stagedAccount)
-        }
-        restorePreviousPendingTransaction()
+        guard defaults.string(forKey: pendingPairingIDKey) == pairingID else { return }
+        discardAllStagedPairings()
     }
 
     static func tokenForDecoding(_ storedValue: String, pairingID: String) throws -> String {
@@ -323,6 +298,27 @@ enum PairingCredentialVault {
         clearPreviousPendingTransaction()
     }
 
+    private static func discardAllStagedPairings() {
+        let defaults = UserDefaults.standard
+        let committed = defaults.string(forKey: committedAccountKey)
+        let accounts = [
+            defaults.string(forKey: pendingAccountKey),
+            defaults.string(forKey: previousPendingAccountKey),
+        ].compactMap { $0 } + pendingHistory().map(\.account)
+        for account in Set(accounts) where account != committed {
+            deleteToken(account: account)
+        }
+        clearAllPendingMetadata()
+    }
+
+    private static func clearAllPendingMetadata() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: pendingAccountKey)
+        defaults.removeObject(forKey: pendingPairingIDKey)
+        savePendingHistory([])
+        clearPreviousPendingTransaction()
+    }
+
     private static func cleanupWithoutMetadata() {
         let defaults = UserDefaults.standard
         if let committedAccount = defaults.string(forKey: committedAccountKey) {
@@ -349,33 +345,6 @@ enum PairingCredentialVault {
             defaults.removeObject(forKey: pendingPairingIDKey)
         }
         clearPreviousPendingTransaction()
-    }
-
-
-    private static func restorePreviousPendingTransaction() {
-        let defaults = UserDefaults.standard
-        let restoredAccount = defaults.string(forKey: previousPendingAccountKey)
-        let restoredPairingID = defaults.string(forKey: previousPendingPairingIDKey)
-        var history = pendingHistory()
-        let nextPrevious = history.popLast()
-        savePendingHistory(history)
-
-        if let restoredAccount {
-            defaults.set(restoredAccount, forKey: pendingAccountKey)
-        } else {
-            defaults.removeObject(forKey: pendingAccountKey)
-        }
-        if let restoredPairingID {
-            defaults.set(restoredPairingID, forKey: pendingPairingIDKey)
-        } else {
-            defaults.removeObject(forKey: pendingPairingIDKey)
-        }
-        if let nextPrevious {
-            defaults.set(nextPrevious.account, forKey: previousPendingAccountKey)
-            defaults.set(nextPrevious.pairingID, forKey: previousPendingPairingIDKey)
-        } else {
-            clearPreviousPendingTransaction()
-        }
     }
 
     private struct PendingCredential: Codable {
