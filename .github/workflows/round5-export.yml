@@ -1,0 +1,25 @@
+name: Round 5 Export
+
+on:
+  push:
+    branches:
+      - agent/round5-local-export
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Package checkout
+        run: tar --exclude=.git -czf swift-sim-round5.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift-sim-round5
+          path: swift-sim-round5.tar.gz
+          if-no-files-found: error
+          retention-days: 1
