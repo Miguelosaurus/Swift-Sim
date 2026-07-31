@@ -86,6 +86,15 @@ test("malformed state fails closed instead of being replaced with an empty libra
   assert.equal(readFileSync(path, "utf8"), "{not-json");
 }));
 
+test("loading an existing session file repairs legacy broad permissions", () => withPath((path) => {
+  const store = new SessionStore({ path });
+  store.create(input("private-token", "A"));
+  const content = readFileSync(path);
+  writeFileSync(path, content, { mode: 0o644 });
+  new SessionStore({ path });
+  assert.equal(statSync(path).mode & 0o077, 0);
+}));
+
 test("session tokens are persisted in a private file", () => withPath((path) => {
   new SessionStore({ path }).create(input("private-token", "A"));
   assert.equal(statSync(path).mode & 0o077, 0);
