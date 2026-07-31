@@ -1,3 +1,5 @@
+import { enterSessionRequestContext } from "./sessionRequestContext.js";
+
 const DEFAULT_MAX_JSON_BYTES = 64 * 1024;
 
 export async function readJson(req, { maxBytes = DEFAULT_MAX_JSON_BYTES } = {}) {
@@ -19,7 +21,11 @@ export async function readJson(req, { maxBytes = DEFAULT_MAX_JSON_BYTES } = {}) 
   }
   const body = Buffer.concat(chunks, received).toString("utf8");
   if (!body.trim()) return {};
-  return JSON.parse(body);
+  const parsed = JSON.parse(body);
+  if (req.method === "POST" && /^\/api\/sessions\/start(?:\?|$)/.test(String(req.url || ""))) {
+    enterSessionRequestContext({ transport: parsed?.transport || "" });
+  }
+  return parsed;
 }
 
 export function json(res, status, body) {
