@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import {
   closeSync,
   fsyncSync,
@@ -7,12 +8,14 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 export const DEFAULT_VERIFICATION_INTERVAL_MS = 15_000;
+const STALE_CLAIM_MS = 30_000;
 
 export function claimDeviceVerification(build, {
   now = Date.now(),
@@ -22,42 +25,17 @@ export function claimDeviceVerification(build, {
   if (!path) return false;
   const interval = Math.max(1_000, Number(minimumIntervalMs) || DEFAULT_VERIFICATION_INTERVAL_MS);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  const release = tryAcquireClaim(`${path}.lock`, now);
+  if (!release) return false;
+  try {
     const current = readMarker(path);
     const lastAttemptAt = Date.parse(current?.lastAttemptAt || "");
     if (Number.isFinite(lastAttemptAt) && now - lastAttemptAt < interval) return false;
-
-    if (!current) {
-      try {
-        writeMarker(path, build, now);
-        return true;
-      } catch (error) {
-        if (error?.code === "EEXIST") continue;
-        throw error;
-      }
-    }
-
-    const stalePath = `${path}.${process.pid}.${randomUUID()}.stale`;
-    try {
-      renameSync(path, stalePath);
-    } catch (error) {
-      if (error?.code === "ENOENT") continue;
-      throw error;
-    }
-    try {
-      try {
-        writeMarker(path, build, now);
-        return true;
-      } catch (error) {
-        if (error?.code === "EEXIST") return false;
-        throw error;
-      }
-    } finally {
-      rmSync(stalePath, { force: true });
-    }
+    writeMarkerAtomically(path, build, now);
+    return true;
+  } finally {
+    release();
   }
-  return false;
 }
 
 function defaultGatePath(build) {
@@ -66,19 +44,66 @@ function defaultGatePath(build) {
   return join(homedir(), ".swift-sim", "verification-gates", `${id}.json`);
 }
 
-function readMarker(path) {
+function tryAcquireClaim(lockPath, now) {
+  const ownerPath = join(lockPath, "owner.json");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const owner = {
+      pid: process.pid,
+      startedAt: processStartedAt(process.pid),
+      nonce: randomUUID(),
+      createdAt: new Date(now).toISOString(),
+    };
+    try {
+      mkdirSync(lockPath, { mode: 0o700 });
+      writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
+      return () => {
+        const current = readMarker(ownerPath);
+        if (Number(current?.pid) === owner.pid && current?.nonce === owner.nonce) {
+          rmSync(lockPath, { recursive: true, force: true });
+        }
+      };
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        try { rmSync(lockPath, { recursive: true, force: true }); } catch {}
+        throw error;
+      }
+      const existing = readMarker(ownerPath);
+      if (!claimIsStale(existing, now, lockPath)) return null;
+      rmSync(lockPath, { recursive: true, force: true });
+    }
+  }
+  return null;
+}
+
+function claimIsStale(owner, now, lockPath) {
+  const pid = Number(owner?.pid);
+  if (Number.isInteger(pid) && pid > 0 && processIsAlive(pid)) {
+    if (!owner?.startedAt) return false;
+    const observed = processStartedAt(pid);
+    if (!observed || observed === owner.startedAt) return false;
+  }
+  const createdAt = Date.parse(owner?.createdAt || "");
+  if (Number.isFinite(createdAt)) return now - createdAt >= STALE_CLAIM_MS;
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    return { lastAttemptAt: "" };
+    return now - statSync(lockPath).mtimeMs >= STALE_CLAIM_MS;
+  } catch {
+    return false;
   }
 }
 
-function writeMarker(path, build, now) {
+function readMarker(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function writeMarkerAtomically(path, build, now) {
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   let descriptor;
   try {
-    descriptor = openSync(path, "wx", 0o600);
+    descriptor = openSync(temporary, "wx", 0o600);
     writeFileSync(descriptor, JSON.stringify({
       buildId: String(build?.id || ""),
       lastAttemptAt: new Date(now).toISOString(),
@@ -86,11 +111,26 @@ function writeMarker(path, build, now) {
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = undefined;
+    renameSync(temporary, path);
   } catch (error) {
     if (descriptor !== undefined) {
       try { closeSync(descriptor); } catch {}
     }
-    if (error?.code !== "EEXIST") rmSync(path, { force: true });
+    rmSync(temporary, { force: true });
     throw error;
   }
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function processStartedAt(pid) {
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+  return result.status === 0 ? String(result.stdout || "").trim() : "";
 }
