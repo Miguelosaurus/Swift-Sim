@@ -7,22 +7,24 @@ const helperEntry = readFileSync(new URL("../mac-helper/bin/swift-sim-helper-ent
 const preload = readFileSync(new URL("../mac-helper/src/hardenedRuntimePreload.js", import.meta.url), "utf8");
 const packageJSON = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-test("CLI installs current child hardening before loading the implementation", () => {
-  const optionsIndex = cliEntry.indexOf("process.env.NODE_OPTIONS = replaceSwiftSimNodeImport");
+test("CLI installs child-only hardening before loading the implementation", () => {
+  const boundaryIndex = cliEntry.indexOf("installSwiftSimChildRuntimeBoundary()");
   const importIndex = cliEntry.indexOf('await import("./swift-sim.js")');
-  assert.ok(optionsIndex >= 0);
-  assert.ok(importIndex > optionsIndex);
+  assert.ok(boundaryIndex >= 0);
+  assert.ok(importIndex > boundaryIndex);
+  assert.doesNotMatch(cliEntry, /process\.env\.NODE_OPTIONS/);
   assert.match(cliEntry, /rememberHelperStateForUpdate/);
   assert.match(cliEntry, /reconcileHelperRuntime/);
   assert.match(cliEntry, /if \(!skipService \|\| wasRunningBeforeUpdate\)/);
   assert.match(cliEntry, /installCompatibleHelperHealthFetchBoundary/);
 });
 
-test("helper entrypoint propagates current hardening to delivery and gateway children", () => {
+test("helper entrypoint hardens descendants without a global Node option", () => {
   assert.match(helperEntry, /runtimeHealthPreload\.js/);
-  assert.match(helperEntry, /hardenedRuntimePreload\.js/);
-  assert.match(helperEntry, /process\.env\.NODE_OPTIONS = replaceSwiftSimNodeImport/);
+  assert.match(helperEntry, /installSwiftSimChildRuntimeBoundary/);
+  assert.doesNotMatch(helperEntry, /process\.env\.NODE_OPTIONS/);
   assert.match(preload, /script === "swift-sim-helper\.js"/);
+  assert.match(preload, /installSwiftSimChildRuntimeBoundary/);
   assert.match(preload, /script === "swift-sim-device-gateway\.js"/);
   assert.match(preload, /script === "swift-sim-device-delivery\.js"/);
   assert.match(preload, /installGatewayHealthFetchBoundary/);
