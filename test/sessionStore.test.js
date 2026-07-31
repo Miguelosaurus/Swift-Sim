@@ -79,11 +79,12 @@ test("stale log-only saves do not restore an obsolete stream", () => withPath((p
 }));
 
 test("malformed state fails closed instead of being replaced with an empty library", () => withPath((path) => {
-  writeFileSync(path, "{not-json", { mode: 0o600 });
+  writeFileSync(path, "{not-json", { mode: 0o644 });
   const store = new SessionStore({ path });
   assert.deepEqual(store.list(), []);
   assert.throws(() => store.create(input("token", "A")), { code: "SWIFT_SIM_SESSION_STATE_INVALID" });
   assert.equal(readFileSync(path, "utf8"), "{not-json");
+  assert.equal(statSync(path).mode & 0o077, 0);
 }));
 
 test("loading an existing session file repairs legacy broad permissions", () => withPath((path) => {
