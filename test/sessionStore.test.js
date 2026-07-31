@@ -54,9 +54,11 @@ test("stale saves merge appended logs instead of erasing newer work", () => with
   assert.equal(saved.stream.state, "stopped");
 }));
 
-test("malformed state fails closed instead of being replaced with an empty library", () => withPath((path) => {
+test("malformed state fails closed without blocking unrelated helper workflows", () => withPath((path) => {
   writeFileSync(path, "{not-json", { mode: 0o600 });
-  assert.throws(() => new SessionStore({ path }), {
+  const store = new SessionStore({ path });
+  assert.deepEqual(store.list(), []);
+  assert.throws(() => store.create(input("token", "A")), {
     code: "SWIFT_SIM_SESSION_STATE_INVALID",
   });
   assert.equal(readFileSync(path, "utf8"), "{not-json");
