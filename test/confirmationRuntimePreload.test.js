@@ -61,7 +61,7 @@ test("raw public gateway child installs the claimed-lock guard", () => {
   }
 });
 
-test("raw helper child rejects an incompatible helper health response", async () => {
+test("raw helper child rejects an incompatible custom health endpoint", async () => {
   const server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, helper: "legacy-or-unrelated" }));
@@ -77,12 +77,17 @@ test("raw helper child rejects an incompatible helper health response", async ()
   `, "utf8");
 
   try {
-    const child = spawn(process.execPath, [script], {
+    const child = spawn(process.execPath, [
+      script,
+      "setup-status",
+      "--host", "127.0.0.1",
+      "--port", String(address.port),
+    ], {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         HOME: directory,
-        SWIFT_SIM_PORT: String(address.port),
+        SWIFT_SIM_PORT: "47217",
         NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import=${preloadURL}`.trim(),
       },
     });
