@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { runRequiredBuildValidation } from "./buildValidation.js";
 import {
+  requestDeviceBuildCancellation as requestDeviceBuildCancellationCore,
   runDeviceBuild as runDeviceBuildCore,
   terminateRecordedDeviceBuildWorker as terminateRecordedDeviceBuildWorkerCore,
 } from "./deviceBuilderCore.js";
@@ -30,6 +31,28 @@ export async function runDeviceBuild(build, options = {}) {
     }
     throw error;
   }
+}
+
+export function requestDeviceBuildCancellation(build, reason = "Device build cancelled.") {
+  if (build?.state !== "ready" || !build?.pendingRenewal?.id) {
+    return requestDeviceBuildCancellationCore(build, reason);
+  }
+
+  const cancelPath = build?.control?.cancelPath || "";
+  if (!cancelPath) return false;
+  mkdirSync(dirname(cancelPath), { recursive: true, mode: 0o700 });
+  writeFileSync(cancelPath, JSON.stringify({
+    buildId: build.id,
+    reason,
+    scope: "renewal",
+    renewalID: build.pendingRenewal.id,
+    owner: {
+      pid: process.pid,
+      startedAt: processStartedAt(process.pid),
+    },
+    cancelledAt: new Date().toISOString(),
+  }), { mode: 0o600 });
+  return true;
 }
 
 export async function terminateRecordedDeviceBuildWorker(build) {
@@ -83,6 +106,11 @@ function recoveryError(build, detail) {
 
 function processCommand(pid) {
   const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
+  return result.status === 0 ? String(result.stdout || "").trim() : "";
+}
+
+function processStartedAt(pid) {
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
   return result.status === 0 ? String(result.stdout || "").trim() : "";
 }
 
