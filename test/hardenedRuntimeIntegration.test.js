@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import {
   GATEWAY_RUNTIME_ROLE,
@@ -12,9 +12,9 @@ import {
   SWIFT_SIM_VERSION,
 } from "../mac-helper/src/runtimeHealth.js";
 
-const preloadURL = pathToFileURL(
-  new URL("../mac-helper/src/hardenedRuntimePreload.js", import.meta.url).pathname
-).href;
+const preloadURL = pathToFileURL(fileURLToPath(
+  new URL("../mac-helper/src/hardenedRuntimePreload.js", import.meta.url)
+)).href;
 
 for (const [scriptName, role] of [
   ["swift-sim-device-gateway.js", GATEWAY_RUNTIME_ROLE],
@@ -43,6 +43,7 @@ for (const [scriptName, role] of [
         env: {
           ...process.env,
           HOME: directory,
+          SWIFT_SIM_GATEWAY_HEALTH_NONCE: "",
           NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import=${preloadURL}`.trim(),
         },
       });
