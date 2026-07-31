@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   GATEWAY_RUNTIME_ROLE,
   runtimeHealthMatches,
@@ -8,13 +9,15 @@ let installed = false;
 export function installGatewayHealthFetchBoundary() {
   if (installed || typeof globalThis.fetch !== "function") return;
   installed = true;
+  const nonce = String(process.env.SWIFT_SIM_GATEWAY_HEALTH_NONCE || randomUUID());
+  process.env.SWIFT_SIM_GATEWAY_HEALTH_NONCE = nonce;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async function guardedGatewayFetch(input, init) {
     const response = await originalFetch.call(this, input, init);
     if (!isGatewayHealthRequest(input)) return response;
     let payload = null;
     try { payload = await response.clone().json(); } catch {}
-    if (response.ok && runtimeHealthMatches(payload, GATEWAY_RUNTIME_ROLE)) return response;
+    if (response.ok && runtimeHealthMatches(payload, GATEWAY_RUNTIME_ROLE, { nonce })) return response;
     return new Response(JSON.stringify({ error: "The Swift Sim device gateway is not ready." }), {
       status: 503,
       headers: {
