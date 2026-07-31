@@ -86,10 +86,14 @@ export function installCompatibleHelperHealthFetchBoundary() {
 
 export function helperCommandLooksOwned(command) {
   const value = String(command || "").trim();
-  const executable = value.split(/\s+/, 1)[0]?.replace(/^['"]|['"]$/g, "") || "";
-  if (!/^node(?:[.-]\d+)*$/.test(basename(executable))) return false;
-  return /(?:^|\s)(?:['"]?[^\r\n]*\/)?swift-sim-helper(?:-entry)?\.js['"]?(?:\s|$)/.test(value)
-    && /(?:^|\s)serve(?:\s|$)/.test(value);
+  const match = value.match(
+    /^("[^"]+"|'[^']+'|\S+)\s+("[^"]+"|'[^']+'|\S+)\s+serve(?:\s|$)/
+  );
+  if (!match) return false;
+  const executable = unquote(match[1]);
+  const script = unquote(match[2]);
+  return /^node(?:[.-]\d+)*$/.test(basename(executable))
+    && /(?:^|\/)mac-helper\/bin\/swift-sim-helper(?:-entry)?\.js$/.test(script);
 }
 
 async function currentHelperRuntimeHealth() {
@@ -232,6 +236,15 @@ function runCapture(command, args) {
 
 function compactError(result) {
   return String(result.stderr || result.stdout || "").trim().split(/\r?\n/).slice(-2).join(" ");
+}
+
+function unquote(value) {
+  const text = String(value || "");
+  if ((text.startsWith('"') && text.endsWith('"'))
+      || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
 }
 
 function sleep(milliseconds) {
