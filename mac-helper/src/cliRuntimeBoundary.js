@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   HELPER_RUNTIME_ROLE,
@@ -85,8 +85,10 @@ export function installCompatibleHelperHealthFetchBoundary() {
 }
 
 export function helperCommandLooksOwned(command) {
-  const value = String(command || "");
-  return /(?:^|\s)(?:[^\s]*\/)?swift-sim-helper(?:-entry)?\.js(?:\s|$)/.test(value)
+  const value = String(command || "").trim();
+  const executable = value.split(/\s+/, 1)[0]?.replace(/^['"]|['"]$/g, "") || "";
+  if (!/^node(?:[.-]\d+)*$/.test(basename(executable))) return false;
+  return /(?:^|\s)(?:['"]?[^\r\n]*\/)?swift-sim-helper(?:-entry)?\.js['"]?(?:\s|$)/.test(value)
     && /(?:^|\s)serve(?:\s|$)/.test(value);
 }
 
