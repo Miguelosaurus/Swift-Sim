@@ -8,7 +8,9 @@ if (script === "swift-sim-helper.js") {
   await import("./runtimeHealthPreload.js");
   await import("./deviceBuildCapabilityBoundaryPreload.js");
   await import("./helperHttpBoundaryPreload.js");
+  const { installSwiftSimChildRuntimeBoundary } = await import("./swiftSimChildRuntimeBoundary.js");
   const { installRenewalShutdownGuard } = await import("./renewalShutdownPreload.js");
+  installSwiftSimChildRuntimeBoundary();
   installRenewalShutdownGuard();
 } else if (script === "swift-sim-device-gateway.js") {
   await import("./runtimeHealthPreload.js");
