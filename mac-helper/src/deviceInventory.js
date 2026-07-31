@@ -34,6 +34,9 @@ export class DeviceInventoryAdapter {
     const cached = this.verificationCache.get(key);
     if (cached?.result && cached.expiresAt > now) return structuredClone(cached.result);
     if (cached?.promise) return structuredClone(await cached.promise);
+    if (!this.makeVerificationCacheRoom()) {
+      throw new Error("Device verification is busy. Try again shortly.");
+    }
 
     const promise = this.verifyAppUncached(bundleIdentifier, expected)
       .then((result) => {
@@ -98,11 +101,16 @@ export class DeviceInventoryAdapter {
     for (const [key, value] of this.verificationCache) {
       if (!value.promise && value.expiresAt <= now) this.verificationCache.delete(key);
     }
-    while (this.verificationCache.size > MAX_VERIFICATION_CACHE_ENTRIES) {
-      const oldest = this.verificationCache.keys().next().value;
-      if (oldest === undefined) break;
-      this.verificationCache.delete(oldest);
+  }
+
+  makeVerificationCacheRoom() {
+    if (this.verificationCache.size < MAX_VERIFICATION_CACHE_ENTRIES) return true;
+    for (const [key, value] of this.verificationCache) {
+      if (value.promise) continue;
+      this.verificationCache.delete(key);
+      return true;
     }
+    return false;
   }
 }
 
@@ -112,7 +120,9 @@ export function physicalIOSDevices(payload) {
     .filter((device) => device?.hardwareProperties?.reality === "physical")
     .filter((device) => device?.hardwareProperties?.udid)
     .map((device) => ({
-      name: device.deviceProperties?.name || device.hardwareProperties?.marketingName || "iPhone",
+      // Capability-token verification results are remotely visible. Never
+      // expose a user-assigned device name such as "Miguel's iPhone".
+      name: device.hardwareProperties?.marketingName || "iPhone",
       udid: device.hardwareProperties.udid,
     }));
 }
