@@ -11,10 +11,10 @@ import {
   reconcileHelperRuntime,
   rememberHelperStateForUpdate,
 } from "../src/cliRuntimeBoundary.js";
-import { appendNodeImport } from "../src/runtimePreloadOptions.js";
+import { replaceSwiftSimNodeImport } from "../src/runtimePreloadOptions.js";
 
 const hardenedPreloadURL = new URL("../src/hardenedRuntimePreload.js", import.meta.url).href;
-process.env.NODE_OPTIONS = appendNodeImport(process.env.NODE_OPTIONS, hardenedPreloadURL);
+process.env.NODE_OPTIONS = replaceSwiftSimNodeImport(process.env.NODE_OPTIONS, hardenedPreloadURL);
 
 const { readBuildValidationPreferences } = await import("../src/buildValidation.js");
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
