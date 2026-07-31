@@ -11,10 +11,23 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const LEGACY_LOCK_MAX_AGE_MS = 30_000;
+const SESSION_BASELINE = Symbol("swift-sim-session-baseline");
+const IMMUTABLE_SESSION_FIELDS = new Set([
+  "id",
+  "token",
+  "project",
+  "scheme",
+  "simulatorUDID",
+  "createdAt",
+  "updatedAt",
+  "revision",
+  "logs",
+]);
 let currentProcessStartedAt;
 
 export class SessionStore {
@@ -62,9 +75,12 @@ export class SessionStore {
     if (!session?.id) throw new Error("A Swift Sim session id is required.");
     return this.withLock(() => {
       const sessions = this.readStateUnlocked();
+      const baseline = session[SESSION_BASELINE]
+        ? normalizeSession(session[SESSION_BASELINE])
+        : null;
       const incoming = normalizeSession(session);
       const existing = sessions.get(incoming.id);
-      const saved = mergeSession(existing, incoming);
+      const saved = mergeSession(existing, incoming, baseline);
       saved.revision = Math.max(
         Number(existing?.revision || 0),
         Number(incoming.revision || 0),
@@ -82,13 +98,13 @@ export class SessionStore {
     const sessions = this.readCurrentState();
     this.sessions = sessions;
     const session = sessions.get(sessionId);
-    return session ? structuredClone(session) : undefined;
+    return session ? sessionCopy(session) : undefined;
   }
 
   list() {
     try {
       const sessions = this.readCurrentState();
-      return [...sessions.values()].map((session) => structuredClone(session));
+      return [...sessions.values()].map(sessionCopy);
     } catch {
       return [];
     }
@@ -96,12 +112,13 @@ export class SessionStore {
 
   findReusable({ project, scheme, simulatorUDID }) {
     this.assertReadableState();
-    return [...this.readCurrentState().values()].find((session) => (
-      session.simulatorUDID === simulatorUDID
-      && session.project === project
-      && session.scheme === scheme
-      && session.stream.state === "running"
+    const session = [...this.readCurrentState().values()].find((candidate) => (
+      candidate.simulatorUDID === simulatorUDID
+      && candidate.project === project
+      && candidate.scheme === scheme
+      && candidate.stream.state === "running"
     ));
+    return session ? sessionCopy(session) : undefined;
   }
 
   load() {
@@ -112,7 +129,7 @@ export class SessionStore {
       this.sessions = new Map();
       this.stateError = error;
     }
-    return [...this.sessions.values()].map((session) => structuredClone(session));
+    return [...this.sessions.values()].map(sessionCopy);
   }
 
   flush() {
@@ -260,30 +277,90 @@ function normalizeSession(value) {
   return session;
 }
 
-function mergeSession(existing, incoming) {
+function mergeSession(existing, incoming, baseline = null) {
   if (!existing) return normalizeSession(incoming);
-  const merged = {
-    ...existing,
-    ...incoming,
-    createdAt: existing.createdAt || incoming.createdAt,
-    remoteBaseUrl: incoming.remoteBaseUrl || existing.remoteBaseUrl || "",
-    build: { ...(existing.build || {}), ...(incoming.build || {}) },
-    stream: { ...(existing.stream || {}), ...(incoming.stream || {}) },
-    logs: mergeLogs(existing.logs, incoming.logs),
-  };
+  if (!baseline) {
+    return normalizeSession({
+      ...existing,
+      ...incoming,
+      id: existing.id,
+      token: existing.token,
+      project: existing.project,
+      scheme: existing.scheme,
+      simulatorUDID: existing.simulatorUDID,
+      createdAt: existing.createdAt || incoming.createdAt,
+      logs: mergeLegacyLogs(existing.logs, incoming.logs),
+    });
+  }
+
+  const merged = structuredClone(existing);
+  for (const key of new Set([...Object.keys(baseline), ...Object.keys(incoming)])) {
+    if (IMMUTABLE_SESSION_FIELDS.has(key)) continue;
+    const value = incoming[key];
+    const original = baseline[key];
+    if (isDeepStrictEqual(value, original)) continue;
+    if (isPlainObject(value) && isPlainObject(original)) {
+      merged[key] = mergeChangedObject(existing[key], value, original);
+    } else if (key in incoming) {
+      merged[key] = structuredClone(value);
+    } else {
+      delete merged[key];
+    }
+  }
+  merged.logs = mergeAppendedLogs(existing.logs, incoming.logs, baseline.logs);
   return normalizeSession(merged);
 }
 
-function mergeLogs(existing, incoming) {
+function mergeChangedObject(existing, incoming, baseline) {
+  const merged = isPlainObject(existing) ? structuredClone(existing) : {};
+  for (const key of new Set([...Object.keys(baseline), ...Object.keys(incoming)])) {
+    const value = incoming[key];
+    const original = baseline[key];
+    if (isDeepStrictEqual(value, original)) continue;
+    if (isPlainObject(value) && isPlainObject(original)) {
+      merged[key] = mergeChangedObject(existing?.[key], value, original);
+    } else if (key in incoming) {
+      merged[key] = structuredClone(value);
+    } else {
+      delete merged[key];
+    }
+  }
+  return merged;
+}
+
+function isPlainObject(value) {
+  return Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function mergeAppendedLogs(existing, incoming, baseline) {
   const current = Array.isArray(existing) ? existing.map(String) : [];
   const candidate = Array.isArray(incoming) ? incoming.map(String) : [];
-  let commonPrefix = 0;
-  while (commonPrefix < current.length
-      && commonPrefix < candidate.length
-      && current[commonPrefix] === candidate[commonPrefix]) {
-    commonPrefix += 1;
+  const original = Array.isArray(baseline) ? baseline.map(String) : [];
+  const unchangedPrefix = original.length <= candidate.length
+    && original.every((line, index) => candidate[index] === line);
+  const additions = unchangedPrefix
+    ? candidate.slice(original.length)
+    : candidate.slice(commonPrefixLength(original, candidate));
+  return [...current, ...additions];
+}
+
+function mergeLegacyLogs(existing, incoming) {
+  const current = Array.isArray(existing) ? existing.map(String) : [];
+  const candidate = Array.isArray(incoming) ? incoming.map(String) : [];
+  return [...current, ...candidate.slice(commonPrefixLength(current, candidate))];
+}
+
+function commonPrefixLength(first, second) {
+  let length = 0;
+  while (length < first.length
+      && length < second.length
+      && first[length] === second[length]) {
+    length += 1;
   }
-  return [...current, ...candidate.slice(commonPrefix)];
+  return length;
 }
 
 function replaceSession(target, source) {
@@ -291,6 +368,21 @@ function replaceSession(target, source) {
     if (!(key in source)) delete target[key];
   }
   Object.assign(target, structuredClone(source));
+  attachBaseline(target, source);
+}
+
+function sessionCopy(source) {
+  const copy = structuredClone(source);
+  attachBaseline(copy, source);
+  return copy;
+}
+
+function attachBaseline(target, source) {
+  Object.defineProperty(target, SESSION_BASELINE, {
+    value: structuredClone(source),
+    enumerable: false,
+    configurable: true,
+  });
 }
 
 function lockOwnerIsAlive(owner) {
