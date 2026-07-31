@@ -4,6 +4,7 @@ import {
   drainDeliveryReferenceCleanupJobsOnce,
   handlePairingFallback,
   handlePublicBuildLogs,
+  reconcileDeliveryReferencesOnce,
 } from "../mac-helper/src/helperHttpBoundaryPreload.js";
 
 function responseRecorder() {
@@ -38,18 +39,34 @@ test("pairing fallback rejects arbitrary query tokens", () => {
   assert.equal(response.status, 401);
 });
 
-test("pairing fallback preserves helper identity and explicit HTTPS origin", () => {
+test("pairing fallback preserves helper identity and proxy-authorized HTTPS origin", () => {
   const response = responseRecorder();
   assert.equal(handlePairingFallback({
     method: "GET",
     url: "/pair?token=pair-token&macID=ignored-input&base=https%3A%2F%2Fmac.example.test",
-    headers: { host: "127.0.0.1:47217" },
+    headers: {
+      host: "127.0.0.1:47217",
+      "x-forwarded-host": "mac.example.test",
+      "x-forwarded-proto": "https",
+    },
   }, response, store), true);
   assert.equal(response.status, 200);
   assert.match(response.body, /macID=stable-helper-id/);
   assert.match(response.body, /base=https%3A%2F%2Fmac\.example\.test/);
   assert.doesNotMatch(response.body, /ignored-input/);
   assert.equal(response.headers["referrer-policy"], "no-referrer");
+});
+
+test("pairing fallback rejects a base origin on another host", () => {
+  const response = responseRecorder();
+  assert.equal(handlePairingFallback({
+    method: "GET",
+    url: "/pair?token=pair-token&base=https%3A%2F%2Fevil.example",
+    headers: { host: "mac.example.test" },
+  }, response, store), true);
+  assert.equal(response.status, 200);
+  assert.match(response.body, /base=http%3A%2F%2Fmac\.example\.test/);
+  assert.doesNotMatch(response.body, /evil\.example/);
 });
 
 test("legacy pairing links honor a trusted forwarded HTTPS protocol", () => {
@@ -116,4 +133,56 @@ test("delivery reference cleanup retries due jobs and skips future jobs", async 
   assert.deepEqual(completed, ["due-ok"]);
   assert.equal(failed.length, 1);
   assert.equal(failed[0][0], "due-fail");
+});
+
+test("orphan delivery references are released without touching live capabilities", async () => {
+  const now = Date.parse("2026-07-31T01:00:00.000Z");
+  const stopped = [];
+  const builds = {
+    list: () => [
+      {
+        id: "active",
+        state: "delivering",
+        expiresAt: "",
+        delivery: null,
+        capabilities: [],
+      },
+      {
+        id: "saved",
+        state: "ready",
+        expiresAt: "2026-07-31T02:00:00.000Z",
+        delivery: { referenceID: "build:saved" },
+        pendingRenewal: { id: "pending-live" },
+        capabilities: [
+          {
+            expiresAt: "2026-07-31T02:00:00.000Z",
+            delivery: { referenceID: "build:historical" },
+          },
+        ],
+      },
+    ],
+  };
+  const delivery = {
+    statuses: () => [{
+      generation: "generation-1",
+      references: [
+        "build:active",
+        "build:saved",
+        "build:historical",
+        "renewal:pending-live",
+        "renewal:orphan",
+        "build:expired",
+        "external:leave-alone",
+      ],
+    }],
+    stopGeneration: (generation, { referenceID }) => {
+      stopped.push([generation, referenceID]);
+      return true;
+    },
+  };
+  await reconcileDeliveryReferencesOnce({ deviceBuildStore: builds, deviceDelivery: delivery, now });
+  assert.deepEqual(stopped, [
+    ["generation-1", "renewal:orphan"],
+    ["generation-1", "build:expired"],
+  ]);
 });

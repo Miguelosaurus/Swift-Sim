@@ -11,10 +11,21 @@ const require = createRequire(import.meta.url);
 const http = require("node:http");
 const originalCreateServer = http.createServer;
 const DELIVERY_CLEANUP_INTERVAL_MS = 30_000;
+const ACTIVE_BUILD_STATES = new Set([
+  "queued",
+  "validating",
+  "preparing",
+  "archiving",
+  "building",
+  "exporting",
+  "delivering",
+]);
 let defaultPairingStore;
 let defaultDeviceBuildStore;
 let defaultDeviceDelivery;
 let deliveryCleanupPromise;
+let deliveryReconciliationPromise;
+let boundaryMaintenancePromise;
 let maintenanceTimer;
 let installed = false;
 
@@ -42,12 +53,13 @@ export function installHelperHttpBoundary() {
           return resolvedListener(req, res);
         }
       : resolvedListener;
-    return resolvedOptions === undefined
+    const server = resolvedOptions === undefined
       ? originalCreateServer.call(this, guardedListener)
       : originalCreateServer.call(this, resolvedOptions, guardedListener);
+    startBoundaryMaintenance();
+    return server;
   };
   syncBuiltinESMExports();
-  startBoundaryMaintenance();
 }
 
 export function handlePairingFallback(req, res, store = pairingStore()) {
@@ -72,7 +84,10 @@ export function handlePairingFallback(req, res, store = pairingStore()) {
   return true;
 }
 
-export function handlePublicBuildLogs(req, res, { pairingStore: pairings = pairingStore(), deviceBuildStore: builds = buildStore() } = {}) {
+export function handlePublicBuildLogs(req, res, {
+  pairingStore: pairings = pairingStore(),
+  deviceBuildStore: builds = buildStore(),
+} = {}) {
   if (req?.method !== "GET") return false;
   let url;
   try {
@@ -126,12 +141,76 @@ export function drainDeliveryReferenceCleanupJobsOnce({
   return deliveryCleanupPromise;
 }
 
+export function reconcileDeliveryReferencesOnce({
+  deviceBuildStore: builds = buildStore(),
+  deviceDelivery: delivery = deliveryStore(),
+  now = Date.now(),
+} = {}) {
+  if (deliveryReconciliationPromise) return deliveryReconciliationPromise;
+  deliveryReconciliationPromise = Promise.resolve().then(() => {
+    const liveReferences = new Set();
+    for (const build of builds.list()) {
+      const currentExpiresAt = Date.parse(build.expiresAt || "");
+      if (Number.isFinite(currentExpiresAt) && currentExpiresAt > now) {
+        addDeliveryReference(liveReferences, build.delivery);
+      }
+      for (const capability of Array.isArray(build.capabilities) ? build.capabilities : []) {
+        const expiresAt = Date.parse(capability?.expiresAt || "");
+        if (Number.isFinite(expiresAt) && expiresAt > now) {
+          addDeliveryReference(liveReferences, capability.delivery);
+        }
+      }
+      if (build.pendingRenewal?.id) {
+        liveReferences.add(`renewal:${build.pendingRenewal.id}`);
+      }
+      if (ACTIVE_BUILD_STATES.has(build.state)) {
+        liveReferences.add(`build:${build.id}`);
+      }
+    }
+
+    for (const status of delivery.statuses()) {
+      for (const referenceID of Array.isArray(status.references) ? status.references : []) {
+        if (!isManagedReference(referenceID) || liveReferences.has(referenceID)) continue;
+        try {
+          delivery.stopGeneration(status.generation, { referenceID });
+        } catch {
+          // A later maintenance pass retries surviving state. Never make helper
+          // startup depend on a best-effort orphan reconciliation.
+        }
+      }
+    }
+  }).finally(() => {
+    deliveryReconciliationPromise = undefined;
+  });
+  return deliveryReconciliationPromise;
+}
+
+export function runBoundaryMaintenanceOnce(options = {}) {
+  if (boundaryMaintenancePromise) return boundaryMaintenancePromise;
+  boundaryMaintenancePromise = Promise.resolve()
+    .then(() => reconcileDeliveryReferencesOnce(options))
+    .then(() => drainDeliveryReferenceCleanupJobsOnce(options))
+    .finally(() => {
+      boundaryMaintenancePromise = undefined;
+    });
+  return boundaryMaintenancePromise;
+}
+
 function startBoundaryMaintenance() {
   if (maintenanceTimer) return;
+  void runBoundaryMaintenanceOnce().catch(() => {});
   maintenanceTimer = setInterval(() => {
-    void drainDeliveryReferenceCleanupJobsOnce().catch(() => {});
+    void runBoundaryMaintenanceOnce().catch(() => {});
   }, DELIVERY_CLEANUP_INTERVAL_MS);
   maintenanceTimer.unref?.();
+}
+
+function addDeliveryReference(set, delivery) {
+  if (delivery?.referenceID) set.add(String(delivery.referenceID));
+}
+
+function isManagedReference(referenceID) {
+  return /^(?:build|renewal):/.test(String(referenceID || ""));
 }
 
 function capabilityForToken(build, token) {
@@ -164,8 +243,12 @@ function deliveryStore() {
 }
 
 function externalBaseURL(req, url) {
+  const requestHost = normalizedHost(req.headers?.host || url.host);
+  const proxyHost = normalizedForwardedHost(req.headers?.["x-forwarded-host"]);
+  const allowedHosts = new Set([requestHost, proxyHost].filter(Boolean));
   const explicit = normalizedExternalOrigin(url.searchParams.get("base"));
-  if (explicit) return explicit;
+  if (explicit && allowedHosts.has(normalizedHost(new URL(explicit).host))) return explicit;
+
   const forwarded = String(req.headers?.["x-forwarded-proto"] || "")
     .split(",")[0]
     .trim()
@@ -173,8 +256,24 @@ function externalBaseURL(req, url) {
   const protocol = forwarded === "https" || forwarded === "http"
     ? `${forwarded}:`
     : url.protocol;
-  return normalizedExternalOrigin(`${protocol}//${url.host}`)
+  const host = proxyHost || requestHost || normalizedHost(url.host);
+  return normalizedExternalOrigin(`${protocol}//${host}`)
     || `${url.protocol}//${url.host}`;
+}
+
+function normalizedForwardedHost(value) {
+  const candidate = String(value || "").split(",")[0].trim();
+  return normalizedHost(candidate);
+}
+
+function normalizedHost(value) {
+  const candidate = String(value || "").trim();
+  if (!candidate || /[\s/@\\]/.test(candidate)) return "";
+  try {
+    return new URL(`http://${candidate}`).host.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function normalizedExternalOrigin(value) {
