@@ -278,7 +278,8 @@ export class SessionStore {
 function sameSessionTarget(session, input) {
   return session?.project === (input.project || "")
     && session?.scheme === (input.scheme || "")
-    && session?.simulatorUDID === input.simulatorUDID;
+    && session?.simulatorUDID === input.simulatorUDID
+    && (session?.stream?.transport || "serve-sim") === (input.transport || "serve-sim");
 }
 
 function sessionStartIsActive(session) {
