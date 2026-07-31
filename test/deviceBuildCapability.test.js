@@ -64,6 +64,15 @@ test("failed root capabilities expire after a short diagnostic grace period", ()
   assert.equal(deviceBuildCapabilityExpired(stale, stale, now), true);
 });
 
+test("failed capability grace caps a longer partial-delivery expiry", () => {
+  const failed = build({
+    state: "failed",
+    updatedAt: new Date(now - FAILED_CAPABILITY_GRACE_MS - 1).toISOString(),
+    expiresAt: new Date(now + 60 * 60 * 1000).toISOString(),
+  });
+  assert.equal(deviceBuildCapabilityExpired(failed, failed, now), true);
+});
+
 test("terminal and historical capabilities fail closed without a valid explicit expiry", () => {
   const ready = build({ state: "ready" });
   assert.equal(deviceBuildCapabilityExpired(ready, ready, now), true);
