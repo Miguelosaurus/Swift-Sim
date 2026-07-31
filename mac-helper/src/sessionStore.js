@@ -171,20 +171,26 @@ export class SessionStore {
   }
 
   readStateUnlocked() {
-    let parsed;
+    let raw;
     try {
-      parsed = JSON.parse(readFileSync(this.path, "utf8"));
+      raw = readFileSync(this.path, "utf8");
     } catch (error) {
       if (error?.code === "ENOENT") return new Map();
       throw sessionStateError(this.path, error);
     }
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sessions)) {
-      throw sessionStateError(this.path, new Error("the stored session record is malformed"));
-    }
     try {
-      chmodSync(this.path, 0o600);
+      if ((statSync(this.path).mode & 0o077) !== 0) chmodSync(this.path, 0o600);
     } catch (error) {
       throw sessionStateError(this.path, error);
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw sessionStateError(this.path, error);
+    }
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sessions)) {
+      throw sessionStateError(this.path, new Error("the stored session record is malformed"));
     }
     const sessions = new Map();
     for (const candidate of parsed.sessions) {
