@@ -32,6 +32,14 @@ test("a concurrent start for the same Simulator fails closed", () => withPath((p
   assert.equal(new SessionStore({ path }).list().length, 1);
 }));
 
+test("a different transport may start for the same Simulator", () => withPath((path) => {
+  const first = new SessionStore({ path });
+  const second = new SessionStore({ path });
+  first.create({ ...input("a", "A"), transport: "serve-sim" });
+  second.create({ ...input("b", "A"), transport: "native-companion" });
+  assert.equal(new SessionStore({ path }).list().length, 2);
+}));
+
 test("stale saves merge appended logs instead of erasing newer work", () => withPath((path) => {
   const first = new SessionStore({ path });
   const created = first.create(input("token", "A"));
