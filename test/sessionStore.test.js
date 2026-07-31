@@ -22,6 +22,16 @@ test("stale store instances preserve independently created sessions", () => with
   assert.deepEqual(ids, [a.id, b.id].sort());
 }));
 
+test("a concurrent start for the same Simulator fails closed", () => withPath((path) => {
+  const first = new SessionStore({ path });
+  const stale = new SessionStore({ path });
+  first.create(input("a", "A"));
+  assert.throws(() => stale.create(input("b", "A")), {
+    code: "SWIFT_SIM_SESSION_START_IN_PROGRESS",
+  });
+  assert.equal(new SessionStore({ path }).list().length, 1);
+}));
+
 test("stale saves merge appended logs instead of erasing newer work", () => withPath((path) => {
   const first = new SessionStore({ path });
   const created = first.create(input("token", "A"));
