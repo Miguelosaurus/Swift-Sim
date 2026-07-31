@@ -156,3 +156,18 @@ test("validated bearer replaces a stale query token before artifact dispatch", a
   assert.doesNotMatch(request.url, /token=stale/);
   assert.equal(response.swiftSimPublicCapability, true);
 });
+
+test("paired-Mac query authorization replaces an unrelated bearer for downstream routes", async () => {
+  const build = readyBuild();
+  const request = {
+    method: "GET",
+    url: "/api/device-builds/build-1/logs?token=pair-token",
+    headers: { host: "example.test", authorization: "Bearer unrelated" },
+  };
+  const response = responseRecorder();
+  assert.equal(await handlePublicDeviceBuildCapability(
+    request, response, dependencies(build)
+  ), false);
+  assert.equal(request.headers.authorization, "Bearer pair-token");
+  assert.match(request.url, /token=pair-token/);
+});
