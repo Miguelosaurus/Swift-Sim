@@ -4,12 +4,24 @@ import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs");
+const originalExistsSync = fs.existsSync;
 const originalRmSync = fs.rmSync;
 let installed = false;
 
 export function installLockOwnershipGuard() {
   if (installed) return;
   installed = true;
+  fs.existsSync = function guardedExistsSync(path) {
+    if (!originalExistsSync.call(this, path)) return false;
+    if (looksLikeCancellationMarker(path)) {
+      const marker = readJSON(path);
+      if (renewalCancellationBelongsToDeadProcess(marker)) {
+        try { originalRmSync.call(fs, path, { force: true }); } catch {}
+        return false;
+      }
+    }
+    return true;
+  };
   fs.rmSync = function guardedRmSync(path, options) {
     if (options?.recursive === true && looksLikeLockDirectory(path)) {
       const owner = readOwner(path);
@@ -31,6 +43,15 @@ export function ownerBelongsToAnotherLiveProcess(owner) {
   return processStartedAt(pid) === owner.startedAt;
 }
 
+export function renewalCancellationBelongsToDeadProcess(marker) {
+  if (marker?.scope !== "renewal") return false;
+  const owner = marker.owner || {};
+  const pid = Number(owner.pid);
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
+  if (!processIsAlive(pid)) return true;
+  return Boolean(owner.startedAt) && processStartedAt(pid) !== owner.startedAt;
+}
+
 installLockOwnershipGuard();
 
 function looksLikeLockDirectory(path) {
@@ -38,9 +59,17 @@ function looksLikeLockDirectory(path) {
   return value.endsWith(".lock") || value.endsWith("lifecycle.lock");
 }
 
+function looksLikeCancellationMarker(path) {
+  return String(path || "").endsWith(".cancelled");
+}
+
 function readOwner(path) {
+  return readJSON(join(String(path), "owner.json"));
+}
+
+function readJSON(path) {
   try {
-    return JSON.parse(fs.readFileSync(join(String(path), "owner.json"), "utf8"));
+    return JSON.parse(fs.readFileSync(path, "utf8"));
   } catch {
     return null;
   }
