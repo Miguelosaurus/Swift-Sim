@@ -141,6 +141,7 @@ test("verification is ready-only and obeys the persisted cadence", async () => {
   assert.equal(failed.status, 409);
 });
 
+
 test("validated bearer replaces a stale query token before artifact dispatch", async () => {
   const build = readyBuild();
   const request = {
@@ -156,6 +157,7 @@ test("validated bearer replaces a stale query token before artifact dispatch", a
   assert.doesNotMatch(request.url, /token=stale/);
   assert.equal(response.swiftSimPublicCapability, true);
 });
+
 
 test("paired-Mac query authorization replaces an unrelated bearer for downstream routes", async () => {
   const build = readyBuild();
