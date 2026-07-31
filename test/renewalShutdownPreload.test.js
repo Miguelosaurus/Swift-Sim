@@ -27,9 +27,8 @@ test("renewal shutdown cancellation is scoped and owner journaled", () => {
   }
 });
 
-test("shutdown sweep cancels every persisted renewal and releases only matching references", () => {
+test("shutdown sweep cancels every persisted renewal independently of task-map keys", () => {
   const cancelled = [];
-  const stopped = [];
   const builds = [
     { id: "one", state: "ready", pendingRenewal: { id: "r1" }, control: { cancelPath: "/one" } },
     { id: "two", state: "ready", pendingRenewal: { id: "r2" }, control: { cancelPath: "/two" } },
@@ -37,16 +36,8 @@ test("shutdown sweep cancels every persisted renewal and releases only matching 
   ];
   const result = cancelPersistedRenewalsForShutdown({
     deviceBuildStore: { list: () => builds },
-    deviceDelivery: {
-      statuses: () => [{ generation: "g1", references: ["renewal:r1", "build:one", "renewal:other"] }],
-      stopGeneration: (generation, { referenceID }) => {
-        stopped.push([generation, referenceID]);
-        return true;
-      },
-    },
     cancelBuild: (build) => { cancelled.push(build.id); return true; },
   });
   assert.deepEqual(cancelled, ["one", "two"]);
-  assert.deepEqual(stopped, [["g1", "renewal:r1"]]);
-  assert.deepEqual(result, { cancelled: 2, released: 1 });
+  assert.deepEqual(result, { cancelled: 2 });
 });
