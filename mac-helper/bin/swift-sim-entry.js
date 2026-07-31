@@ -52,7 +52,9 @@ if (command === "update") {
 } else if (command === "setup") {
   const wasRunningBeforeUpdate = process.env.SWIFT_SIM_HELPER_WAS_RUNNING === "1";
   const skipService = args.includes("--skip-service");
-  await reconcileHelperRuntime({ startIfStopped: !skipService || wasRunningBeforeUpdate });
+  if (!skipService || wasRunningBeforeUpdate) {
+    await reconcileHelperRuntime({ startIfStopped: true });
+  }
   delete process.env.SWIFT_SIM_HELPER_WAS_RUNNING;
 } else if (["pair", "start-session"].includes(command)) {
   await reconcileHelperRuntime({ startIfStopped: true });
