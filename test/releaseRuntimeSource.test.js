@@ -8,9 +8,11 @@ const preload = readFileSync(new URL("../mac-helper/src/hardenedRuntimePreload.j
 const packageJSON = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 test("CLI installs child-only hardening before loading the implementation", () => {
+  const workerIndex = cliEntry.indexOf("ownedWorkerPreload.js");
   const boundaryIndex = cliEntry.indexOf("installSwiftSimChildRuntimeBoundary()");
   const importIndex = cliEntry.indexOf('await import("./swift-sim.js")');
-  assert.ok(boundaryIndex >= 0);
+  assert.ok(workerIndex >= 0);
+  assert.ok(boundaryIndex > workerIndex);
   assert.ok(importIndex > boundaryIndex);
   assert.doesNotMatch(cliEntry, /process\.env\.NODE_OPTIONS/);
   assert.match(cliEntry, /rememberHelperStateForUpdate/);
@@ -19,12 +21,19 @@ test("CLI installs child-only hardening before loading the implementation", () =
   assert.match(cliEntry, /installCompatibleHelperHealthFetchBoundary/);
 });
 
-test("helper entrypoint hardens descendants without a global Node option", () => {
+test("helper entrypoint composes child hardening after owned-worker supervision", () => {
+  const workerIndex = helperEntry.indexOf("ownedWorkerPreload.js");
+  const boundaryIndex = helperEntry.indexOf("installSwiftSimChildRuntimeBoundary()");
+  assert.ok(workerIndex >= 0);
+  assert.ok(boundaryIndex > workerIndex);
   assert.match(helperEntry, /runtimeHealthPreload\.js/);
-  assert.match(helperEntry, /installSwiftSimChildRuntimeBoundary/);
   assert.doesNotMatch(helperEntry, /process\.env\.NODE_OPTIONS/);
+
+  const preloadWorkerIndex = preload.indexOf("ownedWorkerPreload.js");
+  const preloadBoundaryIndex = preload.indexOf("installSwiftSimChildRuntimeBoundary()");
+  assert.ok(preloadWorkerIndex >= 0);
+  assert.ok(preloadBoundaryIndex > preloadWorkerIndex);
   assert.match(preload, /script === "swift-sim-helper\.js"/);
-  assert.match(preload, /installSwiftSimChildRuntimeBoundary/);
   assert.match(preload, /script === "swift-sim-device-gateway\.js"/);
   assert.match(preload, /script === "swift-sim-device-delivery\.js"/);
   assert.match(preload, /installGatewayHealthFetchBoundary/);
