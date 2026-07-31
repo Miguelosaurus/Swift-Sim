@@ -15,7 +15,6 @@ import { dirname, join } from "node:path";
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const LEGACY_LOCK_MAX_AGE_MS = 30_000;
-export const MAX_SESSION_LOG_LINES = 1_000;
 let currentProcessStartedAt;
 
 export class SessionStore {
@@ -23,10 +22,12 @@ export class SessionStore {
     this.path = path;
     this.lockPath = `${path}.lock`;
     this.sessions = new Map();
+    this.stateError = null;
     this.load();
   }
 
   create(input) {
+    this.assertReadableState();
     const now = new Date().toISOString();
     const session = {
       id: randomUUID(),
@@ -57,6 +58,7 @@ export class SessionStore {
   }
 
   save(session) {
+    this.assertReadableState();
     if (!session?.id) throw new Error("A Swift Sim session id is required.");
     return this.withLock(() => {
       const sessions = this.readStateUnlocked();
@@ -77,20 +79,24 @@ export class SessionStore {
   }
 
   get(sessionId) {
-    const sessions = this.readStateUnlocked();
+    const sessions = this.readCurrentState();
     this.sessions = sessions;
     const session = sessions.get(sessionId);
     return session ? structuredClone(session) : undefined;
   }
 
   list() {
-    const sessions = this.readStateUnlocked();
-    this.sessions = sessions;
-    return [...sessions.values()].map((session) => structuredClone(session));
+    try {
+      const sessions = this.readCurrentState();
+      return [...sessions.values()].map((session) => structuredClone(session));
+    } catch {
+      return [];
+    }
   }
 
   findReusable({ project, scheme, simulatorUDID }) {
-    return this.list().find((session) => (
+    this.assertReadableState();
+    return [...this.readCurrentState().values()].find((session) => (
       session.simulatorUDID === simulatorUDID
       && session.project === project
       && session.scheme === scheme
@@ -99,11 +105,18 @@ export class SessionStore {
   }
 
   load() {
-    this.sessions = this.readStateUnlocked();
+    try {
+      this.sessions = this.readStateUnlocked();
+      this.stateError = null;
+    } catch (error) {
+      this.sessions = new Map();
+      this.stateError = error;
+    }
     return [...this.sessions.values()].map((session) => structuredClone(session));
   }
 
   flush() {
+    this.assertReadableState();
     return this.withLock(() => {
       const sessions = this.readStateUnlocked();
       for (const candidate of this.sessions.values()) {
@@ -119,7 +132,7 @@ export class SessionStore {
       }
       this.writeStateUnlocked(sessions);
       this.sessions = sessions;
-      return [...sessions.values()].map((session) => structuredClone(session));
+      return this.list();
     });
   }
 
@@ -143,6 +156,23 @@ export class SessionStore {
       sessions.set(session.id, session);
     }
     return sessions;
+  }
+
+  readCurrentState() {
+    try {
+      const sessions = this.readStateUnlocked();
+      this.sessions = sessions;
+      this.stateError = null;
+      return sessions;
+    } catch (error) {
+      this.stateError = error;
+      throw error;
+    }
+  }
+
+  assertReadableState() {
+    if (!this.stateError) return;
+    this.readCurrentState();
   }
 
   writeStateUnlocked(sessions) {
@@ -219,7 +249,7 @@ function normalizeSession(value) {
   session.id = typeof session.id === "string" ? session.id : "";
   session.revision = Math.max(0, Number.isFinite(Number(session.revision)) ? Number(session.revision) : 0);
   session.logs = Array.isArray(session.logs)
-    ? session.logs.map((line) => String(line)).slice(-MAX_SESSION_LOG_LINES)
+    ? session.logs.map((line) => String(line))
     : [];
   session.build = session.build && typeof session.build === "object" && !Array.isArray(session.build)
     ? session.build
@@ -253,7 +283,7 @@ function mergeLogs(existing, incoming) {
       && current[commonPrefix] === candidate[commonPrefix]) {
     commonPrefix += 1;
   }
-  return [...current, ...candidate.slice(commonPrefix)].slice(-MAX_SESSION_LOG_LINES);
+  return [...current, ...candidate.slice(commonPrefix)];
 }
 
 function replaceSession(target, source) {
