@@ -1,37 +1,39 @@
-const LOCAL_PATH_MARKERS = [
-  "/Users/",
-  "/home/",
-  "/private/var/folders/",
-  "/tmp/",
-  "/Volumes/",
-  "file://",
-];
-const SENSITIVE_BUILD_DETAIL = /(?:DEVELOPMENT_TEAM|PROVISIONING_PROFILE|CODE_SIGN_IDENTITY|EXPANDED_CODE_SIGN_IDENTITY|Apple (?:Development|Distribution):|security find-identity|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i;
+const SAFE_PUBLIC_LOGS = new Map([
+  ["Reading Xcode signing settings.", "Reading Xcode signing settings."],
+  ["Archiving for generic iOS device.", "Archiving for generic iOS device."],
+  ["Exporting signed IPA.", "Exporting signed IPA."],
+  ["Build is ready to install.", "Build is ready to install."],
+  ["Build is ready to install and hot reload.", "Build is ready to install and hot reload."],
+  ["Temporary HTTPS install link is ready. Tailscale is not required.", "Temporary HTTPS install link is ready. Tailscale is not required."],
+  ["A new install link was generated from the saved app.", "A new install link was generated from the saved app."],
+  ["Build was interrupted before completion.", "Build was interrupted before completion."],
+  ["A previous helper run ended during this build. Start a new build to continue.", "A previous helper run ended during this build. Start a new build to continue."],
+  ["A previous helper run ended during this build, and its worker could not be safely confirmed stopped.", "A previous helper run ended during this build, and its worker could not be safely confirmed stopped."],
+  ["Preparing Swift Sim's private live patch lane.", "Preparing Swift Sim's private live patch lane."],
+  ["Building the signed live-enabled Debug app.", "Building the signed live-enabled Debug app."],
+  ["Packaging the signed Debug app as an installable IPA.", "Packaging the signed Debug app as an installable IPA."],
+  ["Live patch preparation was unavailable; the signed install will still continue.", "Live patch preparation was unavailable; the signed install will still continue."],
+]);
+const REDACTED_OUTPUT = "[build output redacted]";
 
 export function sanitizePublicBuildLogs(build, { limit = 300 } = {}) {
-  const secrets = [
-    build?.token,
-    ...(Array.isArray(build?.capabilities)
-      ? build.capabilities.map((item) => item?.token)
-      : []),
-  ].filter(Boolean).map(String);
-
-  return (Array.isArray(build?.logs) ? build.logs : [])
-    .slice(-Math.max(0, Number(limit) || 0))
-    .map((line) => sanitizeLine(line, secrets));
+  const maximum = Math.max(0, Math.min(300, Number(limit) || 0));
+  if (maximum === 0) return [];
+  const result = [];
+  for (const raw of (Array.isArray(build?.logs) ? build.logs : []).slice(-maximum)) {
+    const line = String(raw ?? "").replace(/[\r\n]+/g, " ").trim();
+    const safe = SAFE_PUBLIC_LOGS.get(line)
+      || capturedCompilationMessage(line)
+      || REDACTED_OUTPUT;
+    if (safe === REDACTED_OUTPUT && result.at(-1) === REDACTED_OUTPUT) continue;
+    result.push(safe);
+  }
+  return result;
 }
 
-function sanitizeLine(line, secrets) {
-  let sanitized = String(line ?? "").replace(/[\r\n]+/g, " ");
-  for (const secret of secrets) {
-    sanitized = sanitized.replaceAll(secret, "<redacted>");
-  }
-  sanitized = sanitized.replace(/([?&]token=)[^&\s"']+/gi, "$1<redacted>");
-  if (LOCAL_PATH_MARKERS.some((marker) => sanitized.includes(marker))) {
-    return "[local build detail redacted]";
-  }
-  if (SENSITIVE_BUILD_DETAIL.test(sanitized)) {
-    return "[signing detail redacted]";
-  }
-  return sanitized.length <= 500 ? sanitized : `${sanitized.slice(0, 497)}...`;
+function capturedCompilationMessage(line) {
+  const match = line.match(/^Captured (\d{1,6}) live Swift compilation commands?\.$/);
+  if (!match) return "";
+  const count = Number(match[1]);
+  return `Captured ${count} live Swift compilation ${count === 1 ? "command" : "commands"}.`;
 }
