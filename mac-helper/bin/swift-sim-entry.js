@@ -11,10 +11,9 @@ import {
   reconcileHelperRuntime,
   rememberHelperStateForUpdate,
 } from "../src/cliRuntimeBoundary.js";
-import { replaceSwiftSimNodeImport } from "../src/runtimePreloadOptions.js";
+import { installSwiftSimChildRuntimeBoundary } from "../src/swiftSimChildRuntimeBoundary.js";
 
-const hardenedPreloadURL = new URL("../src/hardenedRuntimePreload.js", import.meta.url).href;
-process.env.NODE_OPTIONS = replaceSwiftSimNodeImport(process.env.NODE_OPTIONS, hardenedPreloadURL);
+installSwiftSimChildRuntimeBoundary();
 
 const { readBuildValidationPreferences } = await import("../src/buildValidation.js");
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
