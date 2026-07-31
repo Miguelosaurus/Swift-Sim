@@ -23,7 +23,9 @@ export async function readJson(req, { maxBytes = DEFAULT_MAX_JSON_BYTES } = {}) 
   if (!body.trim()) return {};
   const parsed = JSON.parse(body);
   if (req.method === "POST" && /^\/api\/sessions\/start(?:\?|$)/.test(String(req.url || ""))) {
-    enterSessionRequestContext({ transport: parsed?.transport || "" });
+    enterSessionRequestContext({
+      transport: parsed?.transport || process.env.SWIFT_SIM_TRANSPORT || "auto",
+    });
   }
   return parsed;
 }
