@@ -5,9 +5,8 @@ import "../src/runtimeHealthPreload.js";
 import "../src/deviceBuildCapabilityBoundaryPreload.js";
 import "../src/helperHttpBoundaryPreload.js";
 import { installRenewalShutdownGuard } from "../src/renewalShutdownPreload.js";
-import { replaceSwiftSimNodeImport } from "../src/runtimePreloadOptions.js";
+import { installSwiftSimChildRuntimeBoundary } from "../src/swiftSimChildRuntimeBoundary.js";
 
-const hardenedPreloadURL = new URL("../src/hardenedRuntimePreload.js", import.meta.url).href;
-process.env.NODE_OPTIONS = replaceSwiftSimNodeImport(process.env.NODE_OPTIONS, hardenedPreloadURL);
+installSwiftSimChildRuntimeBoundary();
 installRenewalShutdownGuard();
 await import("./swift-sim-helper.js");
