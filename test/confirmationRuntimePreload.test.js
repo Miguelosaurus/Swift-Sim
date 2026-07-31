@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,29 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const preloadURL = pathToFileURL(fileURLToPath(
   new URL("../mac-helper/src/hardenedRuntimePreload.js", import.meta.url)
 )).href;
+const hardenedSource = readFileSync(
+  new URL("../mac-helper/src/hardenedRuntimePreload.js", import.meta.url),
+  "utf8",
+);
+const gatewaySource = readFileSync(
+  new URL("../mac-helper/bin/swift-sim-device-gateway.js", import.meta.url),
+  "utf8",
+);
+
+test("gateway and raw-helper production paths install their boundaries before use", () => {
+  const directLock = gatewaySource.indexOf('import "../src/lockOwnershipPreload.js"');
+  const capability = gatewaySource.indexOf('import "../src/deviceBuildCapabilityBoundaryPreload.js"');
+  assert.ok(directLock >= 0);
+  assert.ok(capability > directLock);
+  assert.match(
+    hardenedSource,
+    /script === "swift-sim-device-gateway\.js"[\s\S]*lockOwnershipPreload\.js[\s\S]*runtimeHealthPreload\.js/,
+  );
+  assert.match(
+    hardenedSource,
+    /script === "swift-sim-helper\.js"[\s\S]*installCompatibleHelperHealthFetchBoundary\(\)/,
+  );
+});
 
 test("raw public gateway child installs the claimed-lock guard", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-gateway-lock-"));
