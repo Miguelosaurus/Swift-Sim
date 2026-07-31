@@ -61,7 +61,11 @@ export async function handlePublicDeviceBuildCapability(req, res, {
   const route = parseBuildRoute(req);
   if (!route) return false;
   const tokens = requestTokens(req, route.url);
-  if (tokens.some((token) => pairings.tokenMatches(token))) return false;
+  const pairedToken = tokens.find((token) => pairings.tokenMatches(token));
+  if (pairedToken) {
+    normalizeDownstreamToken(req, route.url, pairedToken);
+    return false;
+  }
 
   const build = builds.get(route.buildID);
   if (!build) {
@@ -81,10 +85,7 @@ export async function handlePublicDeviceBuildCapability(req, res, {
   }
 
   if (route.kind === "page" || route.kind === "artifact") {
-    if (capability?.token) {
-      route.url.searchParams.set("token", capability.token);
-      req.url = `${route.url.pathname}${route.url.search}`;
-    }
+    if (capability?.token) normalizeDownstreamToken(req, route.url, capability.token);
     return false;
   }
   if (route.kind === "logs" && req.method === "GET") {
@@ -158,6 +159,13 @@ function requestTokens(req, url) {
   const header = String(req?.headers?.authorization || "");
   const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
   return [...new Set([bearer, url.searchParams.get("token") || ""].filter(Boolean))];
+}
+
+function normalizeDownstreamToken(req, url, token) {
+  url.searchParams.set("token", token);
+  req.url = `${url.pathname}${url.search}`;
+  req.headers ||= {};
+  req.headers.authorization = `Bearer ${token}`;
 }
 
 function pairingStore() {
