@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../src/lockOwnershipPreload.js";
 import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
