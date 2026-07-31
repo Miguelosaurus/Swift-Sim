@@ -27,6 +27,8 @@ export function json(res, status, body) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
   });
   res.end(payload);
 }
@@ -35,6 +37,8 @@ export function text(res, status, body, contentType = "text/plain; charset=utf-8
   res.writeHead(status, {
     "content-type": contentType,
     "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
     ...headers,
   });
   res.end(body);
@@ -42,6 +46,7 @@ export function text(res, status, body, contentType = "text/plain; charset=utf-8
 
 export function badRequest(res, status, message) {
   const publicMessage = process.env.SWIFT_SIM_PUBLIC_GATEWAY === "1"
+    || res?.swiftSimPublicCapability === true
     ? publicErrorMessage(status)
     : message;
   return json(res, status, { error: publicMessage });
@@ -52,7 +57,10 @@ export function unauthorized(res) {
 }
 
 export function notFound(res, message) {
-  return json(res, 404, { error: message });
+  const publicMessage = res?.swiftSimPublicCapability === true
+    ? "This build resource is unavailable."
+    : message;
+  return json(res, 404, { error: publicMessage });
 }
 
 function publicErrorMessage(status) {
