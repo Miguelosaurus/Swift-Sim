@@ -17,6 +17,7 @@ typedef NS_ENUM(NSUInteger, SwiftSimRequestKind) {
 @property(nonatomic, copy) NSString *lane;
 @property(nonatomic, copy) NSString *sessionID;
 @property(nonatomic, copy) NSString *selectionFingerprint;
+@property(nonatomic) NSTimeInterval selectionTimestamp;
 @property(nonatomic) SwiftSimRequestKind requestKind;
 @property(nonatomic) NSUInteger generation;
 @property(nonatomic) NSUInteger sessionEpoch;
@@ -34,7 +35,9 @@ static NSLock *SwiftSimFenceLock;
 static NSMutableDictionary<NSString *, NSNumber *> *SwiftSimFenceGenerations;
 static NSString *SwiftSimActiveSessionID;
 static NSString *SwiftSimActiveSelectionFingerprint;
+static NSTimeInterval SwiftSimActiveSelectionTimestamp;
 static NSString *SwiftSimClosedSelectionFingerprint;
+static NSTimeInterval SwiftSimClosedSelectionTimestamp;
 static NSTimeInterval SwiftSimClosedSelectionAt;
 static NSUInteger SwiftSimActiveSessionEpoch;
 
@@ -100,42 +103,56 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     if (kind >= SwiftSimRequestKindSessionStatus) {
         selection = [SwiftSimLatestRequestProtocol selectedSessionSnapshot];
         self.selectionFingerprint = selection[@"fingerprint"];
+        self.selectionTimestamp = [selection[@"selectedAt"] doubleValue];
     }
 
     BOOL authorized = YES;
     [SwiftSimFenceLock lock];
     if (kind == SwiftSimRequestKindSessionStatus) {
         BOOL selected = [selection[@"id"] isEqualToString:sessionID]
-            && self.selectionFingerprint.length > 0;
+            && self.selectionFingerprint.length > 0
+            && self.selectionTimestamp > 0;
+        BOOL activeMatches = selected
+            && [SwiftSimActiveSessionID isEqualToString:sessionID]
+            && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint];
         BOOL closedSameSelection = [SwiftSimActiveSessionID length] == 0
             && [SwiftSimClosedSelectionFingerprint isEqualToString:self.selectionFingerprint];
-        NSTimeInterval selectedAt = [selection[@"selectedAt"] doubleValue];
         BOOL explicitlyReopened = !closedSameSelection
-            || selectedAt > SwiftSimClosedSelectionAt;
+            || self.selectionTimestamp > SwiftSimClosedSelectionTimestamp;
+        BOOL newerVisibleSelection = activeMatches
+            && self.selectionTimestamp > SwiftSimActiveSelectionTimestamp;
         authorized = selected && explicitlyReopened;
-        if (authorized
-            && (![SwiftSimActiveSessionID isEqualToString:sessionID]
-                || ![SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint])) {
+        if (authorized && (!activeMatches || newerVisibleSelection)) {
             SwiftSimActiveSessionID = [sessionID copy];
             SwiftSimActiveSelectionFingerprint = [self.selectionFingerprint copy];
+            SwiftSimActiveSelectionTimestamp = self.selectionTimestamp;
             SwiftSimActiveSessionEpoch += 1;
         }
         self.sessionEpoch = SwiftSimActiveSessionEpoch;
     } else if (kind == SwiftSimRequestKindSessionStream) {
         BOOL selected = sessionID.length > 0
             && [selection[@"id"] isEqualToString:sessionID]
-            && self.selectionFingerprint.length > 0;
+            && self.selectionFingerprint.length > 0
+            && self.selectionTimestamp > 0;
         BOOL currentlyActive = selected
             && [SwiftSimActiveSessionID isEqualToString:sessionID]
             && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint];
         BOOL reconnecting = selected
+            && [SwiftSimActiveSessionID length] == 0
             && [SwiftSimClosedSelectionFingerprint isEqualToString:self.selectionFingerprint]
+            && self.selectionTimestamp >= SwiftSimClosedSelectionTimestamp
             && [NSDate timeIntervalSinceReferenceDate] - SwiftSimClosedSelectionAt <= 2.0;
         authorized = currentlyActive || reconnecting;
-        if (reconnecting && !currentlyActive) {
+        if (reconnecting) {
             SwiftSimActiveSessionID = [sessionID copy];
             SwiftSimActiveSelectionFingerprint = [self.selectionFingerprint copy];
+            SwiftSimActiveSelectionTimestamp = self.selectionTimestamp;
             SwiftSimActiveSessionEpoch += 1;
+        } else if (currentlyActive && self.selectionTimestamp > SwiftSimActiveSelectionTimestamp) {
+            // Status metadata refreshes update recent history after the status
+            // request completes. Follow-up stream/log/input requests adopt that
+            // timestamp without creating a new visible-selection epoch.
+            SwiftSimActiveSelectionTimestamp = self.selectionTimestamp;
         }
         self.sessionEpoch = SwiftSimActiveSessionEpoch;
     } else if (kind == SwiftSimRequestKindSessionLogs || kind == SwiftSimRequestKindSessionInput) {
@@ -143,6 +160,9 @@ static NSUInteger SwiftSimActiveSessionEpoch;
             && [selection[@"id"] isEqualToString:sessionID]
             && [SwiftSimActiveSessionID isEqualToString:sessionID]
             && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint];
+        if (authorized && self.selectionTimestamp > SwiftSimActiveSelectionTimestamp) {
+            SwiftSimActiveSelectionTimestamp = self.selectionTimestamp;
+        }
         self.sessionEpoch = SwiftSimActiveSessionEpoch;
     }
 
@@ -189,9 +209,11 @@ static NSUInteger SwiftSimActiveSessionEpoch;
         && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint]
         && SwiftSimActiveSessionEpoch == self.sessionEpoch) {
         SwiftSimClosedSelectionFingerprint = [SwiftSimActiveSelectionFingerprint copy];
+        SwiftSimClosedSelectionTimestamp = SwiftSimActiveSelectionTimestamp;
         SwiftSimClosedSelectionAt = [NSDate timeIntervalSinceReferenceDate];
         SwiftSimActiveSessionID = nil;
         SwiftSimActiveSelectionFingerprint = nil;
+        SwiftSimActiveSelectionTimestamp = 0;
         SwiftSimActiveSessionEpoch += 1;
     }
     [SwiftSimFenceLock unlock];
@@ -286,8 +308,6 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     NSString *baseURL = [first[@"baseURLString"] isKindOfClass:[NSString class]] ? first[@"baseURLString"] : nil;
     NSNumber *lastOpened = [first[@"lastOpened"] isKindOfClass:[NSNumber class]] ? first[@"lastOpened"] : nil;
     if (sessionID.length == 0 || token.length == 0 || baseURL.length == 0 || lastOpened == nil) return nil;
-    // Metadata refreshes update history timestamps. Keep that timestamp only as
-    // an explicit reopen signal; authority is bound to the stable capability.
     NSString *fingerprint = [NSString stringWithFormat:@"%@|%@|%@", sessionID, token, baseURL];
     return @{
         @"id": sessionID,
