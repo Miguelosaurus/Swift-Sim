@@ -56,7 +56,7 @@ export function buildPairingLinks(pairing, remoteBaseUrl = "") {
   const base = normalizeBaseUrl(remoteBaseUrl);
   const macID = encodeURIComponent(pairing.installationID || "");
   const universalLink = base
-    ? `${base}/pair?token=${encodeURIComponent(pairing.token)}&macID=${macID}`
+    ? `${base}/pair?token=${encodeURIComponent(pairing.token)}&macID=${macID}&base=${encodeURIComponent(base)}`
     : "";
   return {
     universalLink,

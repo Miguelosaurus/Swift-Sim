@@ -16,6 +16,7 @@ typedef NS_ENUM(NSUInteger, SwiftSimRequestKind) {
 @property(nonatomic, strong) NSURLSessionDataTask *forwardingTask;
 @property(nonatomic, copy) NSString *lane;
 @property(nonatomic, copy) NSString *sessionID;
+@property(nonatomic, copy) NSString *selectionFingerprint;
 @property(nonatomic) SwiftSimRequestKind requestKind;
 @property(nonatomic) NSUInteger generation;
 @property(nonatomic) NSUInteger sessionEpoch;
@@ -32,6 +33,9 @@ static BOOL SwiftSimDisableLegacyFence(id self, SEL command, NSURLRequest *reque
 static NSLock *SwiftSimFenceLock;
 static NSMutableDictionary<NSString *, NSNumber *> *SwiftSimFenceGenerations;
 static NSString *SwiftSimActiveSessionID;
+static NSString *SwiftSimActiveSelectionFingerprint;
+static NSString *SwiftSimClosedSelectionFingerprint;
+static NSTimeInterval SwiftSimClosedSelectionAt;
 static NSUInteger SwiftSimActiveSessionEpoch;
 
 + (void)load {
@@ -92,16 +96,49 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     self.requestKind = kind;
     self.sessionID = sessionID;
 
+    NSDictionary<NSString *, NSString *> *selection = nil;
+    if (kind >= SwiftSimRequestKindSessionStatus) {
+        selection = [SwiftSimLatestRequestProtocol selectedSessionSnapshot];
+        self.selectionFingerprint = selection[@"fingerprint"];
+    }
+
     BOOL authorized = YES;
     [SwiftSimFenceLock lock];
-    if (kind == SwiftSimRequestKindSessionStatus || kind == SwiftSimRequestKindSessionStream) {
-        if (![SwiftSimActiveSessionID isEqualToString:sessionID]) {
+    if (kind == SwiftSimRequestKindSessionStatus) {
+        authorized = [selection[@"id"] isEqualToString:sessionID]
+            && self.selectionFingerprint.length > 0
+            && !([SwiftSimActiveSessionID length] == 0
+                 && [SwiftSimClosedSelectionFingerprint isEqualToString:self.selectionFingerprint]);
+        if (authorized
+            && (![SwiftSimActiveSessionID isEqualToString:sessionID]
+                || ![SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint])) {
             SwiftSimActiveSessionID = [sessionID copy];
+            SwiftSimActiveSelectionFingerprint = [self.selectionFingerprint copy];
+            SwiftSimActiveSessionEpoch += 1;
+        }
+        self.sessionEpoch = SwiftSimActiveSessionEpoch;
+    } else if (kind == SwiftSimRequestKindSessionStream) {
+        BOOL selected = sessionID.length > 0
+            && [selection[@"id"] isEqualToString:sessionID]
+            && self.selectionFingerprint.length > 0;
+        BOOL currentlyActive = selected
+            && [SwiftSimActiveSessionID isEqualToString:sessionID]
+            && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint];
+        BOOL reconnecting = selected
+            && [SwiftSimClosedSelectionFingerprint isEqualToString:self.selectionFingerprint]
+            && [NSDate timeIntervalSinceReferenceDate] - SwiftSimClosedSelectionAt <= 2.0;
+        authorized = currentlyActive || reconnecting;
+        if (reconnecting && !currentlyActive) {
+            SwiftSimActiveSessionID = [sessionID copy];
+            SwiftSimActiveSelectionFingerprint = [self.selectionFingerprint copy];
             SwiftSimActiveSessionEpoch += 1;
         }
         self.sessionEpoch = SwiftSimActiveSessionEpoch;
     } else if (kind == SwiftSimRequestKindSessionLogs || kind == SwiftSimRequestKindSessionInput) {
-        authorized = sessionID.length > 0 && [SwiftSimActiveSessionID isEqualToString:sessionID];
+        authorized = sessionID.length > 0
+            && [selection[@"id"] isEqualToString:sessionID]
+            && [SwiftSimActiveSessionID isEqualToString:sessionID]
+            && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint];
         self.sessionEpoch = SwiftSimActiveSessionEpoch;
     }
 
@@ -130,16 +167,24 @@ static NSUInteger SwiftSimActiveSessionEpoch;
 }
 
 - (void)stopLoading {
+    BOOL wasCompleted = NO;
     @synchronized (self) {
         if (self.stopped) return;
         self.stopped = YES;
+        wasCompleted = self.completed;
         self.completed = YES;
     }
-    if (self.requestKind == SwiftSimRequestKindSessionStream) {
+    BOOL closesSelection = self.requestKind == SwiftSimRequestKindSessionStream
+        || (self.requestKind == SwiftSimRequestKindSessionStatus && !wasCompleted);
+    if (closesSelection) {
         [SwiftSimFenceLock lock];
         if ([SwiftSimActiveSessionID isEqualToString:self.sessionID]
+            && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint]
             && SwiftSimActiveSessionEpoch == self.sessionEpoch) {
+            SwiftSimClosedSelectionFingerprint = [SwiftSimActiveSelectionFingerprint copy];
+            SwiftSimClosedSelectionAt = [NSDate timeIntervalSinceReferenceDate];
             SwiftSimActiveSessionID = nil;
+            SwiftSimActiveSelectionFingerprint = nil;
             SwiftSimActiveSessionEpoch += 1;
         }
         [SwiftSimFenceLock unlock];
@@ -183,13 +228,19 @@ static NSUInteger SwiftSimActiveSessionEpoch;
 }
 
 - (BOOL)isAuthoritative {
+    NSDictionary<NSString *, NSString *> *selection = self.requestKind >= SwiftSimRequestKindSessionStatus
+        ? [SwiftSimLatestRequestProtocol selectedSessionSnapshot]
+        : nil;
     [SwiftSimFenceLock lock];
     BOOL current = YES;
     if (self.lane.length > 0) {
         current = [SwiftSimFenceGenerations[self.lane] unsignedIntegerValue] == self.generation;
     }
     if (current && self.requestKind >= SwiftSimRequestKindSessionStatus) {
-        current = [SwiftSimActiveSessionID isEqualToString:self.sessionID]
+        current = [selection[@"id"] isEqualToString:self.sessionID]
+            && [selection[@"fingerprint"] isEqualToString:self.selectionFingerprint]
+            && [SwiftSimActiveSessionID isEqualToString:self.sessionID]
+            && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint]
             && SwiftSimActiveSessionEpoch == self.sessionEpoch;
     }
     [SwiftSimFenceLock unlock];
@@ -212,6 +263,23 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     }
     [self.client URLProtocolDidFinishLoading:self];
     [self.forwardingSession finishTasksAndInvalidate];
+}
+
++ (NSDictionary<NSString *, NSString *> *)selectedSessionSnapshot {
+    NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:@"recentSessions"];
+    if (data.length == 0) return nil;
+    NSError *error = nil;
+    id decoded = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+    if (error != nil || ![decoded isKindOfClass:[NSArray class]] || [(NSArray *)decoded count] == 0) {
+        return nil;
+    }
+    id first = [(NSArray *)decoded firstObject];
+    if (![first isKindOfClass:[NSDictionary class]]) return nil;
+    NSString *sessionID = [first[@"id"] isKindOfClass:[NSString class]] ? first[@"id"] : nil;
+    id lastOpened = first[@"lastOpened"];
+    if (sessionID.length == 0 || ![lastOpened isKindOfClass:[NSNumber class]]) return nil;
+    NSString *fingerprint = [NSString stringWithFormat:@"%@|%@", sessionID, lastOpened];
+    return @{ @"id": sessionID, @"fingerprint": fingerprint };
 }
 
 + (SwiftSimRequestKind)classifyRequest:(NSURLRequest *)request sessionID:(NSString **)sessionID {
