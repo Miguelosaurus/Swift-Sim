@@ -69,11 +69,11 @@ test("raw helper child rejects an incompatible helper health response", async ()
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    const [code] = await once(child, "exit");
+    const [code] = await once(child, "close");
     assert.equal(code, 0, stderr || stdout);
     assert.equal(stdout.trim().split(/\r?\n/).at(-1), "503");
   } finally {
-    server.close();
+    await new Promise((resolve) => server.close(resolve));
     rmSync(directory, { recursive: true, force: true });
   }
 });
