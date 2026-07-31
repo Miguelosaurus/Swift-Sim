@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { terminateRecordedDeviceBuildWorker } from "../mac-helper/src/deviceBuilder.js";
@@ -28,6 +28,27 @@ test("recovery still fails closed for an existing incomplete journal", async () 
       terminateRecordedDeviceBuildWorker({ id: "bad-journal", control: { cancelPath } }),
       (error) => error?.code === "SWIFT_SIM_UNSAFE_BUILD_RECOVERY"
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a reused worker pid is cleared by start identity before command inspection", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-recovery-reused-pid-"));
+  try {
+    const cancelPath = join(directory, "build", ".cancelled");
+    const workerPath = `${cancelPath}.worker.json`;
+    mkdirSync(dirname(cancelPath), { recursive: true });
+    writeFileSync(workerPath, JSON.stringify({
+      pid: process.pid,
+      startedAt: "Mon Jan  1 00:00:00 1990",
+      command: "xcodebuild",
+    }));
+    assert.equal(await terminateRecordedDeviceBuildWorker({
+      id: "reused-pid",
+      control: { cancelPath },
+    }), true);
+    assert.equal(existsSync(workerPath), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

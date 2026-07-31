@@ -1,15 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requestDeviceBuildCancellation } from "../mac-helper/src/deviceBuilder.js";
+import { renewalCancellationPath } from "../mac-helper/src/renewalCancellation.js";
 import { cancelPersistedRenewalsForShutdown } from "../mac-helper/src/renewalShutdownPreload.js";
 
-test("renewal shutdown cancellation is scoped and owner journaled", () => {
+function processStartedAt(pid) {
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+  return String(result.stdout || "").trim();
+}
+
+test("renewal shutdown cancellation is process scoped and owner journaled", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-renewal-marker-"));
   try {
     const cancelPath = join(directory, ".cancelled");
+    const markerPath = renewalCancellationPath(cancelPath);
     const build = {
       id: "build-1",
       state: "ready",
@@ -17,11 +25,36 @@ test("renewal shutdown cancellation is scoped and owner journaled", () => {
       control: { cancelPath },
     };
     assert.equal(requestDeviceBuildCancellation(build, "shutdown"), true);
-    const marker = JSON.parse(readFileSync(cancelPath, "utf8"));
+    assert.notEqual(markerPath, cancelPath);
+    const marker = JSON.parse(readFileSync(markerPath, "utf8"));
     assert.equal(marker.scope, "renewal");
     assert.equal(marker.renewalID, "renewal-1");
     assert.equal(marker.owner.pid, process.pid);
     assert.ok(marker.owner.startedAt);
+    assert.equal(existsSync(cancelPath), true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a foreign helper renewal marker does not cancel this helper", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-renewal-isolation-"));
+  try {
+    const cancelPath = join(directory, ".cancelled");
+    const foreignPath = renewalCancellationPath(cancelPath, {
+      pid: process.pid + 10_000,
+      nonce: "foreign-helper",
+    });
+    writeFileSync(foreignPath, JSON.stringify({
+      scope: "renewal",
+      owner: {
+        pid: process.pid,
+        startedAt: processStartedAt(process.pid),
+      },
+      cancelledAt: new Date().toISOString(),
+    }));
+    assert.equal(existsSync(cancelPath), false);
+    assert.equal(existsSync(foreignPath), true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

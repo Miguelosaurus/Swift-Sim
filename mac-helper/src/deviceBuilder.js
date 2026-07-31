@@ -1,7 +1,9 @@
+import "./lockOwnershipPreload.js";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { runRequiredBuildValidation } from "./buildValidation.js";
+import { renewalCancellationPath } from "./renewalCancellation.js";
 import {
   requestDeviceBuildCancellation as requestDeviceBuildCancellationCore,
   runDeviceBuild as runDeviceBuildCore,
@@ -38,7 +40,8 @@ export function requestDeviceBuildCancellation(build, reason = "Device build can
     return requestDeviceBuildCancellationCore(build, reason);
   }
 
-  const cancelPath = build?.control?.cancelPath || "";
+  const baseCancelPath = build?.control?.cancelPath || "";
+  const cancelPath = renewalCancellationPath(baseCancelPath);
   if (!cancelPath) return false;
   mkdirSync(dirname(cancelPath), { recursive: true, mode: 0o700 });
   writeFileSync(cancelPath, JSON.stringify({
@@ -78,20 +81,35 @@ export async function terminateRecordedDeviceBuildWorker(build) {
     throw recoveryError(build, "has an incomplete worker identity");
   }
 
-  if (processIsAlive(pid)) {
-    const command = processCommand(pid);
-    const expected = record.command === "required-validation"
-      ? ["/bin/sh", " sh "]
-      : [basename(String(record.command))];
-    if (!command || !expected.some((fragment) => command.includes(fragment))) {
-      throw recoveryError(build, "points to a process whose command cannot be verified");
+  if (!processIsAlive(pid)) return clearStaleWorkerJournal(workerPath);
+  const observedStartedAt = processStartedAt(pid);
+  if (!observedStartedAt) {
+    if (!processIsAlive(pid)) return clearStaleWorkerJournal(workerPath);
+    throw recoveryError(build, "points to a process whose start identity cannot be verified");
+  }
+  if (observedStartedAt !== record.startedAt) return clearStaleWorkerJournal(workerPath);
+
+  const command = processCommand(pid);
+  const expected = record.command === "required-validation"
+    ? ["/bin/sh", " sh "]
+    : [basename(String(record.command))];
+  if (!command || !expected.some((fragment) => command.includes(fragment))) {
+    const finalStartedAt = processStartedAt(pid);
+    if (!processIsAlive(pid) || !finalStartedAt || finalStartedAt !== record.startedAt) {
+      return clearStaleWorkerJournal(workerPath);
     }
+    throw recoveryError(build, "points to a process whose command cannot be verified");
   }
 
   const terminated = await terminateRecordedDeviceBuildWorkerCore(build);
   if (!terminated) {
     throw recoveryError(build, "could not be confirmed stopped");
   }
+  return true;
+}
+
+function clearStaleWorkerJournal(path) {
+  rmSync(path, { force: true });
   return true;
 }
 
