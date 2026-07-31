@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../src/deviceBuildCapabilityBoundaryPreload.js";
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
