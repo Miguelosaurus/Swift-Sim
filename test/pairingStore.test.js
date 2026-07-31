@@ -1,10 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { buildPairingLinks } from "../mac-helper/src/links.js";
 import { PairingStore } from "../mac-helper/src/pairingStore.js";
+
+const execFileAsync = promisify(execFile);
 
 test("pairing token rotation preserves the helper installation identity", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-pairing-store-"));
@@ -68,11 +73,38 @@ test("pairing tokens use a length-safe constant-time comparison", () => {
   }
 });
 
-test("pairing links carry the stable helper identity", () => {
+test("concurrent first-use pairing readers converge on one credential", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-pairing-concurrent-"));
+  try {
+    const path = join(directory, "pairing.json");
+    const moduleURL = pathToFileURL(join(process.cwd(), "mac-helper/src/pairingStore.js")).href;
+    const script = `
+      import { PairingStore } from ${JSON.stringify(moduleURL)};
+      process.stdout.write(JSON.stringify(new PairingStore({ path: process.argv[1] }).current()));
+    `;
+    const outputs = await Promise.all(Array.from({ length: 4 }, () =>
+      execFileAsync(process.execPath, ["--input-type=module", "-e", script, path], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      })
+    ));
+    const records = outputs.map(({ stdout }) => JSON.parse(stdout));
+    const persisted = JSON.parse(readFileSync(path, "utf8"));
+    for (const record of records) {
+      assert.equal(record.token, persisted.token);
+      assert.equal(record.installationID, persisted.installationID);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("pairing links carry stable identity and preserve the external base URL", () => {
   const links = buildPairingLinks({
     token: "pair-token",
     installationID: "helper-installation-id",
   }, "https://mac.example.test");
   assert.match(links.universalLink, /macID=helper-installation-id/);
+  assert.match(links.universalLink, /base=https%3A%2F%2Fmac\.example\.test/);
   assert.match(links.customScheme, /macID=helper-installation-id/);
 });
