@@ -6,6 +6,15 @@ import { stdin as input, stdout as output } from "node:process";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import {
+  installCompatibleHelperHealthFetchBoundary,
+  reconcileHelperRuntime,
+  rememberHelperStateForUpdate,
+} from "../src/cliRuntimeBoundary.js";
+import { appendNodeImport } from "../src/runtimePreloadOptions.js";
+
+const hardenedPreloadURL = new URL("../src/hardenedRuntimePreload.js", import.meta.url).href;
+process.env.NODE_OPTIONS = appendNodeImport(process.env.NODE_OPTIONS, hardenedPreloadURL);
 
 const { readBuildValidationPreferences } = await import("../src/buildValidation.js");
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
@@ -38,6 +47,18 @@ if (command === "setup" && !args.includes("--json") && input.isTTY && output.isT
   await configureBuildValidation();
 }
 
+if (command === "update") {
+  await rememberHelperStateForUpdate();
+} else if (command === "setup") {
+  const wasRunningBeforeUpdate = process.env.SWIFT_SIM_HELPER_WAS_RUNNING === "1";
+  const skipService = args.includes("--skip-service");
+  await reconcileHelperRuntime({ startIfStopped: !skipService || wasRunningBeforeUpdate });
+  delete process.env.SWIFT_SIM_HELPER_WAS_RUNNING;
+} else if (["pair", "start-session"].includes(command)) {
+  await reconcileHelperRuntime({ startIfStopped: true });
+}
+
+installCompatibleHelperHealthFetchBoundary();
 await import("./swift-sim.js");
 
 async function configureBuildValidation() {
