@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../src/lockOwnershipPreload.js";
 import "../src/ownedWorkerPreload.js";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
