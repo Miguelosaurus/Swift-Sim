@@ -127,13 +127,14 @@ export class SessionStore {
     }
   }
 
-  findReusable({ project, scheme, simulatorUDID }) {
+  findReusable({ project, scheme, simulatorUDID, transport = "" }) {
     this.assertReadableState();
     const session = [...this.readCurrentState().values()].find((candidate) => (
       candidate.simulatorUDID === simulatorUDID
       && candidate.project === project
       && candidate.scheme === scheme
       && candidate.stream.state === "running"
+      && (!transport || (candidate.stream.transport || "serve-sim") === transport)
     ));
     return session ? sessionCopy(session) : undefined;
   }
@@ -189,14 +190,19 @@ export class SessionStore {
     } catch (error) {
       throw sessionStateError(this.path, error);
     }
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sessions)) {
+    if (!isPlainObject(parsed) || !Array.isArray(parsed.sessions)) {
       throw sessionStateError(this.path, new Error("the stored session record is malformed"));
     }
     const sessions = new Map();
     for (const candidate of parsed.sessions) {
+      try {
+        validateStoredSession(candidate);
+      } catch (error) {
+        throw sessionStateError(this.path, error);
+      }
       const session = normalizeSession(candidate);
-      if (!session.id || sessions.has(session.id)) {
-        throw sessionStateError(this.path, new Error("the stored session record contains an invalid or duplicate id"));
+      if (sessions.has(session.id)) {
+        throw sessionStateError(this.path, new Error("the stored session record contains a duplicate id"));
       }
       sessions.set(session.id, session);
     }
@@ -299,6 +305,57 @@ function sessionStartIsActive(session) {
   if (session?.stream?.state !== "starting") return false;
   const updatedAt = Date.parse(session.updatedAt || session.createdAt || "");
   return Number.isFinite(updatedAt) && updatedAt + SESSION_START_LEASE_MS > Date.now();
+}
+
+function validateStoredSession(value) {
+  if (!isPlainObject(value)) throw new Error("a stored session is not an object");
+  requireStoredString(value, "id", { nonempty: true });
+  requireStoredString(value, "token", { nonempty: true });
+  for (const field of [
+    "project",
+    "scheme",
+    "simulatorUDID",
+    "remoteBaseUrl",
+    "createdAt",
+    "updatedAt",
+    "orientation",
+  ]) {
+    requireStoredString(value, field, { optional: true });
+  }
+  if (value.revision !== undefined
+      && (!Number.isFinite(value.revision) || value.revision < 0)) {
+    throw new Error("a stored session has an invalid revision");
+  }
+  if (!Array.isArray(value.logs) || !value.logs.every((line) => typeof line === "string")) {
+    throw new Error("a stored session has invalid logs");
+  }
+  if (!isPlainObject(value.build)) throw new Error("a stored session has an invalid build record");
+  if (!isPlainObject(value.stream)) throw new Error("a stored session has an invalid stream record");
+  for (const field of ["state", "transport", "quality", "localUrl", "previewUrl", "wsUrl"]) {
+    requireStoredString(value.stream, field, { optional: true });
+  }
+  for (const field of ["port", "pid"]) {
+    const candidate = value.stream[field];
+    if (candidate !== undefined && candidate !== null && !Number.isFinite(candidate)) {
+      throw new Error(`a stored session stream has an invalid ${field}`);
+    }
+  }
+  if (value.stream.raw !== undefined && !isPlainObject(value.stream.raw)) {
+    throw new Error("a stored session stream has invalid raw metadata");
+  }
+  if (value.stream.limitations !== undefined
+      && (!Array.isArray(value.stream.limitations)
+        || !value.stream.limitations.every((item) => typeof item === "string"))) {
+    throw new Error("a stored session stream has invalid limitations");
+  }
+}
+
+function requireStoredString(value, field, { optional = false, nonempty = false } = {}) {
+  const candidate = value[field];
+  if (candidate === undefined && optional) return;
+  if (typeof candidate !== "string" || (nonempty && candidate.length === 0)) {
+    throw new Error(`a stored session has an invalid ${field}`);
+  }
 }
 
 function normalizeSession(value) {
