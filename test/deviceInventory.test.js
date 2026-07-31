@@ -51,3 +51,34 @@ test("verification does not confirm a different installed version", async () => 
   assert.equal(result.state, "different-version");
   assert.equal(result.devices[0].state, "different-version");
 });
+
+test("verification coalesces concurrent requests and caches briefly", async () => {
+  let now = 1_000;
+  let calls = 0;
+  const adapter = new DeviceInventoryAdapter({
+    now: () => now,
+    verificationCacheMs: 5_000,
+    run: async (args) => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return args[0] === "list"
+        ? devicePayload
+        : { result: { apps: [{ version: "1.2", bundleVersion: "7" }] } };
+    },
+  });
+
+  const [first, second] = await Promise.all([
+    adapter.verifyApp("com.example.app", { version: "1.2", build: "7" }),
+    adapter.verifyApp("com.example.app", { version: "1.2", build: "7" }),
+  ]);
+  assert.equal(first.state, "verified");
+  assert.deepEqual(second, first);
+  assert.equal(calls, 2);
+
+  await adapter.verifyApp("com.example.app", { version: "1.2", build: "7" });
+  assert.equal(calls, 2);
+
+  now += 5_001;
+  await adapter.verifyApp("com.example.app", { version: "1.2", build: "7" });
+  assert.equal(calls, 4);
+});
