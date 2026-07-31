@@ -4,13 +4,18 @@ import { URL } from "node:url";
 import { PairingStore } from "./pairingStore.js";
 import { buildPairingLinks } from "./links.js";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
+import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
 import { sanitizePublicBuildLogs } from "./publicBuildLogs.js";
 
 const require = createRequire(import.meta.url);
 const http = require("node:http");
 const originalCreateServer = http.createServer;
+const DELIVERY_CLEANUP_INTERVAL_MS = 30_000;
 let defaultPairingStore;
 let defaultDeviceBuildStore;
+let defaultDeviceDelivery;
+let deliveryCleanupPromise;
+let maintenanceTimer;
 let installed = false;
 
 export function installHelperHttpBoundary() {
@@ -42,6 +47,7 @@ export function installHelperHttpBoundary() {
       : originalCreateServer.call(this, resolvedOptions, guardedListener);
   };
   syncBuiltinESMExports();
+  startBoundaryMaintenance();
 }
 
 export function handlePairingFallback(req, res, store = pairingStore()) {
@@ -60,7 +66,7 @@ export function handlePairingFallback(req, res, store = pairingStore()) {
     return true;
   }
   const pairing = store.current();
-  const base = `${url.protocol}//${url.host}`;
+  const base = externalBaseURL(req, url);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHtml(res, pairingPage(customScheme));
   return true;
@@ -96,6 +102,38 @@ export function handlePublicBuildLogs(req, res, { pairingStore: pairings = pairi
   return true;
 }
 
+export function drainDeliveryReferenceCleanupJobsOnce({
+  deviceBuildStore: builds = buildStore(),
+  deviceDelivery: delivery = deliveryStore(),
+  now = Date.now(),
+} = {}) {
+  if (deliveryCleanupPromise) return deliveryCleanupPromise;
+  deliveryCleanupPromise = Promise.resolve().then(() => {
+    for (const job of builds.listDeliveryReferenceCleanupJobs()) {
+      const dueAt = Date.parse(job.nextAttemptAt || job.createdAt || "");
+      if (Number.isFinite(dueAt) && dueAt > now) continue;
+      try {
+        const released = delivery.stopGeneration(job.generation, { referenceID: job.referenceID });
+        if (!released) throw new Error("Delivery generation is still referenced or could not be stopped.");
+        builds.completeDeliveryReferenceCleanupJob(job.id);
+      } catch (error) {
+        builds.failDeliveryReferenceCleanupJob(job.id, error);
+      }
+    }
+  }).finally(() => {
+    deliveryCleanupPromise = undefined;
+  });
+  return deliveryCleanupPromise;
+}
+
+function startBoundaryMaintenance() {
+  if (maintenanceTimer) return;
+  maintenanceTimer = setInterval(() => {
+    void drainDeliveryReferenceCleanupJobsOnce().catch(() => {});
+  }, DELIVERY_CLEANUP_INTERVAL_MS);
+  maintenanceTimer.unref?.();
+}
+
 function capabilityForToken(build, token) {
   if (secretsMatch(build?.token, token)) return build;
   return (Array.isArray(build?.capabilities) ? build.capabilities : [])
@@ -118,6 +156,39 @@ function pairingStore() {
 function buildStore() {
   defaultDeviceBuildStore ||= new DeviceBuildStore({ maintenance: false });
   return defaultDeviceBuildStore;
+}
+
+function deliveryStore() {
+  defaultDeviceDelivery ||= new DeviceDeliveryAdapter();
+  return defaultDeviceDelivery;
+}
+
+function externalBaseURL(req, url) {
+  const explicit = normalizedExternalOrigin(url.searchParams.get("base"));
+  if (explicit) return explicit;
+  const forwarded = String(req.headers?.["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const protocol = forwarded === "https" || forwarded === "http"
+    ? `${forwarded}:`
+    : url.protocol;
+  return normalizedExternalOrigin(`${protocol}//${url.host}`)
+    || `${url.protocol}//${url.host}`;
+}
+
+function normalizedExternalOrigin(value) {
+  if (!value) return "";
+  try {
+    const parsed = new URL(String(value));
+    if (!["http:", "https:"].includes(parsed.protocol)
+        || !parsed.host
+        || parsed.username
+        || parsed.password) return "";
+    return parsed.origin;
+  } catch {
+    return "";
+  }
 }
 
 installHelperHttpBoundary();
