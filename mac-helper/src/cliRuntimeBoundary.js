@@ -12,6 +12,7 @@ import {
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 const helperEntrypoint = join(moduleDirectory, "..", "bin", "swift-sim-helper-entry.js");
 const rawFetch = globalThis.fetch;
+const compatibleHealthURLs = new Set();
 let fetchBoundaryInstalled = false;
 
 export async function rememberHelperStateForUpdate() {
@@ -61,14 +62,20 @@ export async function reconcileHelperRuntime({ startIfStopped = true } = {}) {
   return { id: "helper", state: "started", detail: "Compatible Mac helper started for this user session" };
 }
 
-export function installCompatibleHelperHealthFetchBoundary() {
+export function installCompatibleHelperHealthFetchBoundary({
+  healthURLs = helperHealthURLsFromProcess(),
+} = {}) {
+  for (const url of healthURLs) {
+    const normalized = requestURL(url);
+    if (normalized) compatibleHealthURLs.add(normalized);
+  }
+  compatibleHealthURLs.add(new URL("/health", helperBaseURL()).href);
   if (fetchBoundaryInstalled || typeof globalThis.fetch !== "function") return;
   fetchBoundaryInstalled = true;
-  const healthURL = new URL("/health", helperBaseURL()).href;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async function compatibleHelperFetch(input, init) {
     const response = await originalFetch.call(this, input, init);
-    if (requestURL(input) !== healthURL || !response.ok) return response;
+    if (!compatibleHealthURLs.has(requestURL(input)) || !response.ok) return response;
     let payload = null;
     try { payload = await response.clone().json(); } catch {}
     if (runtimeHealthMatches(payload, HELPER_RUNTIME_ROLE)) return response;
@@ -82,6 +89,16 @@ export function installCompatibleHelperHealthFetchBoundary() {
       },
     });
   };
+}
+
+export function helperHealthURLsFromProcess(argv = process.argv) {
+  const urls = [new URL("/health", helperBaseURL()).href];
+  if (String(argv?.[2] || "") !== "setup-status") return urls;
+  const values = parseHelperEndpointArgs(Array.isArray(argv) ? argv.slice(3) : []);
+  const host = values.host || process.env.SWIFT_SIM_HOST || "127.0.0.1";
+  const port = validPort(values.port) || helperPort();
+  urls.push(`http://${urlHost(host)}:${port}/health`);
+  return [...new Set(urls.map((url) => new URL(url).href))];
 }
 
 export function helperCommandLooksOwned(command) {
@@ -195,8 +212,7 @@ function processIsAlive(pid) {
 }
 
 function helperPort() {
-  const value = Number(process.env.SWIFT_SIM_PORT || 47217);
-  return Number.isInteger(value) && value > 0 && value <= 65_535 ? value : 47217;
+  return validPort(process.env.SWIFT_SIM_PORT) || 47217;
 }
 
 function helperBaseURL() {
@@ -214,6 +230,38 @@ function requestURL(input) {
   } catch {
     return "";
   }
+}
+
+function parseHelperEndpointArgs(args) {
+  const values = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = String(args[index] || "");
+    if (argument === "--host" && args[index + 1] !== undefined) {
+      values.host = String(args[index + 1]);
+      index += 1;
+    } else if (argument.startsWith("--host=")) {
+      values.host = argument.slice("--host=".length);
+    } else if (["--port", "-p"].includes(argument) && args[index + 1] !== undefined) {
+      values.port = String(args[index + 1]);
+      index += 1;
+    } else if (argument.startsWith("--port=")) {
+      values.port = argument.slice("--port=".length);
+    } else if (argument.startsWith("-p=")) {
+      values.port = argument.slice(3);
+    }
+  }
+  return values;
+}
+
+function validPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : 0;
+}
+
+function urlHost(value) {
+  const host = String(value || "127.0.0.1").trim();
+  if (host.startsWith("[") && host.endsWith("]")) return host;
+  return host.includes(":") ? `[${host}]` : host;
 }
 
 function existingCommand(path) {
