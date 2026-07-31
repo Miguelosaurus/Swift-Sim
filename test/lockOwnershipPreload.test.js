@@ -47,3 +47,27 @@ test("lock guard permits deletion of a stale owner's directory", () => {
   assert.equal(existsSync(lock), false);
   rmSync(directory, { recursive: true, force: true });
 });
+
+test("stale renewal cancellation markers self-heal without clearing build cancellation", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-renewal-cancel-guard-"));
+  const renewal = join(directory, "renewal.cancelled");
+  const build = join(directory, "build.cancelled");
+  writeFileSync(renewal, JSON.stringify({
+    scope: "renewal",
+    owner: { pid: 99999999, startedAt: "never" },
+  }));
+  writeFileSync(build, JSON.stringify({
+    scope: "build",
+    owner: { pid: 99999999, startedAt: "never" },
+  }));
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import ${JSON.stringify(preload)};
+    const fs = await import('node:fs');
+    if (fs.existsSync(${JSON.stringify(renewal)})) process.exit(2);
+    if (!fs.existsSync(${JSON.stringify(build)})) process.exit(3);
+  `], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(renewal), false);
+  assert.equal(existsSync(build), true);
+  rmSync(directory, { recursive: true, force: true });
+});
