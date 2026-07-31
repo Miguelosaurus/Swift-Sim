@@ -62,7 +62,7 @@ export function installLockOwnershipGuard() {
     return originalRmSync.call(this, path, options);
   };
   fs.renameSync = function durableRenameSync(source, destination) {
-    syncRegularFile(source);
+    syncRegularFile(source, true);
     const result = originalRenameSync.call(this, source, destination);
     syncDirectory(dirname(String(destination)));
     return result;
