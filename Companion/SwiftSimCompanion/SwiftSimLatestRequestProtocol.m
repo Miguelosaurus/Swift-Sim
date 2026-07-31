@@ -178,21 +178,23 @@ static NSUInteger SwiftSimActiveSessionEpoch;
         wasCompleted = self.completed;
         self.completed = YES;
     }
-    BOOL closesSelection = self.requestKind == SwiftSimRequestKindSessionStream
-        || (self.requestKind == SwiftSimRequestKindSessionStatus && !wasCompleted);
-    if (closesSelection) {
-        [SwiftSimFenceLock lock];
-        if ([SwiftSimActiveSessionID isEqualToString:self.sessionID]
-            && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint]
-            && SwiftSimActiveSessionEpoch == self.sessionEpoch) {
-            SwiftSimClosedSelectionFingerprint = [SwiftSimActiveSelectionFingerprint copy];
-            SwiftSimClosedSelectionAt = [NSDate timeIntervalSinceReferenceDate];
-            SwiftSimActiveSessionID = nil;
-            SwiftSimActiveSelectionFingerprint = nil;
-            SwiftSimActiveSessionEpoch += 1;
-        }
-        [SwiftSimFenceLock unlock];
+    [SwiftSimFenceLock lock];
+    BOOL currentLaneGeneration = self.lane.length == 0
+        || [SwiftSimFenceGenerations[self.lane] unsignedIntegerValue] == self.generation;
+    BOOL closesSelection = currentLaneGeneration
+        && (self.requestKind == SwiftSimRequestKindSessionStream
+            || (self.requestKind == SwiftSimRequestKindSessionStatus && !wasCompleted));
+    if (closesSelection
+        && [SwiftSimActiveSessionID isEqualToString:self.sessionID]
+        && [SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint]
+        && SwiftSimActiveSessionEpoch == self.sessionEpoch) {
+        SwiftSimClosedSelectionFingerprint = [SwiftSimActiveSelectionFingerprint copy];
+        SwiftSimClosedSelectionAt = [NSDate timeIntervalSinceReferenceDate];
+        SwiftSimActiveSessionID = nil;
+        SwiftSimActiveSelectionFingerprint = nil;
+        SwiftSimActiveSessionEpoch += 1;
     }
+    [SwiftSimFenceLock unlock];
     [self.forwardingTask cancel];
     [self.forwardingSession invalidateAndCancel];
 }
