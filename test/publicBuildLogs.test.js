@@ -2,34 +2,37 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { sanitizePublicBuildLogs } from "../mac-helper/src/publicBuildLogs.js";
 
-test("public build logs redact bearer tokens and local build paths", () => {
+test("public build logs expose only canonical helper status messages", () => {
   const build = {
     token: "current-secret",
     capabilities: [{ token: "old-secret" }],
     logs: [
-      "Build ready at https://example.test/d/1?token=current-secret",
+      "Reading Xcode signing settings.",
       "CompileSwift /Users/Miguel/My Project/App.swift",
-      "Using old-secret for retry",
+      "API_KEY=super-secret-value",
       "Build is ready to install.",
     ],
   };
   assert.deepEqual(sanitizePublicBuildLogs(build), [
-    "Build ready at https://example.test/d/1?token=<redacted>",
-    "[local build detail redacted]",
-    "Using <redacted> for retry",
+    "Reading Xcode signing settings.",
+    "[build output redacted]",
     "Build is ready to install.",
   ]);
 });
 
-test("public build logs redact signing identity details and bound line length", () => {
+test("public build logs collapse arbitrary output and bound the requested history", () => {
   const logs = sanitizePublicBuildLogs({
     logs: [
-      "DEVELOPMENT_TEAM = ABCDE12345",
-      "Apple Development: Developer <developer@example.com>",
-      "x".repeat(700),
+      "AWS_SECRET_ACCESS_KEY=secret",
+      "custom script printed private customer data",
+      "Captured 2 live Swift compilation commands.",
+      "Temporary HTTPS install link is ready. Tailscale is not required.",
     ],
-  });
-  assert.equal(logs[0], "[signing detail redacted]");
-  assert.equal(logs[1], "[signing detail redacted]");
-  assert.equal(logs[2].length, 500);
+  }, { limit: 4 });
+  assert.deepEqual(logs, [
+    "[build output redacted]",
+    "Captured 2 live Swift compilation commands.",
+    "Temporary HTTPS install link is ready. Tailscale is not required.",
+  ]);
+  assert.deepEqual(sanitizePublicBuildLogs({ logs: ["Build is ready to install."] }, { limit: 0 }), []);
 });
