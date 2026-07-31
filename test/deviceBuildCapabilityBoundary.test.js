@@ -140,3 +140,19 @@ test("verification is ready-only and obeys the persisted cadence", async () => {
   }, failed, dependencies(readyBuild({ state: "failed", expiresAt: new Date(Date.now() + 60_000).toISOString() }))), true);
   assert.equal(failed.status, 409);
 });
+
+test("validated bearer replaces a stale query token before artifact dispatch", async () => {
+  const build = readyBuild();
+  const request = {
+    method: "GET",
+    url: "/api/device-builds/build-1/artifact/ipa?token=stale",
+    headers: { host: "example.test", authorization: "Bearer cap-token" },
+  };
+  const response = responseRecorder();
+  assert.equal(await handlePublicDeviceBuildCapability(
+    request, response, dependencies(build)
+  ), false);
+  assert.match(request.url, /token=cap-token/);
+  assert.doesNotMatch(request.url, /token=stale/);
+  assert.equal(response.swiftSimPublicCapability, true);
+});
