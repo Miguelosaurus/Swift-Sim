@@ -26,20 +26,17 @@ export function capabilityForTokens(build, tokens = []) {
 
 export function effectiveCapabilityExpiry(build, capability = build) {
   const explicitValue = String(capability?.expiresAt || "").trim();
-  if (explicitValue) {
-    const explicit = Date.parse(explicitValue);
-    return Number.isFinite(explicit) ? explicit : Number.NaN;
-  }
+  const explicit = explicitValue ? Date.parse(explicitValue) : Number.NaN;
+  if (explicitValue && !Number.isFinite(explicit)) return Number.NaN;
 
-  if (!build || !capability || !secretsMatch(build.token, capability.token)) {
-    return Number.NaN;
-  }
+  const isCurrent = Boolean(build && capability && secretsMatch(build.token, capability.token));
+  if (!isCurrent) return Number.isFinite(explicit) ? explicit : Number.NaN;
 
   if (ACTIVE_BUILD_STATES.has(build.state)) {
     const createdAt = Date.parse(build.createdAt || "");
-    return Number.isFinite(createdAt)
-      ? createdAt + ACTIVE_CAPABILITY_LIFETIME_MS
-      : Number.NaN;
+    if (!Number.isFinite(createdAt)) return Number.NaN;
+    const activeExpiry = createdAt + ACTIVE_CAPABILITY_LIFETIME_MS;
+    return Number.isFinite(explicit) ? Math.min(explicit, activeExpiry) : activeExpiry;
   }
 
   if (build.state === "failed") {
@@ -47,12 +44,13 @@ export function effectiveCapabilityExpiry(build, capability = build) {
     if (!Number.isFinite(failedAt)) return Number.NaN;
     const diagnosticExpiry = failedAt + FAILED_CAPABILITY_GRACE_MS;
     const createdAt = Date.parse(build.createdAt || "");
-    return Number.isFinite(createdAt)
+    const boundedExpiry = Number.isFinite(createdAt)
       ? Math.min(diagnosticExpiry, createdAt + ACTIVE_CAPABILITY_LIFETIME_MS)
       : diagnosticExpiry;
+    return Number.isFinite(explicit) ? Math.min(explicit, boundedExpiry) : boundedExpiry;
   }
 
-  return Number.NaN;
+  return Number.isFinite(explicit) ? explicit : Number.NaN;
 }
 
 export function deviceBuildCapabilityExpired(build, capability = build, now = Date.now()) {
