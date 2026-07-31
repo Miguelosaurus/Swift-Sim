@@ -81,28 +81,23 @@ export async function terminateRecordedDeviceBuildWorker(build) {
     throw recoveryError(build, "has an incomplete worker identity");
   }
 
-  if (!processIsAlive(pid)) {
-    rmSync(workerPath, { force: true });
-    return true;
-  }
+  if (!processIsAlive(pid)) return clearStaleWorkerJournal(workerPath);
   const observedStartedAt = processStartedAt(pid);
   if (!observedStartedAt) {
-    if (!processIsAlive(pid)) {
-      rmSync(workerPath, { force: true });
-      return true;
-    }
+    if (!processIsAlive(pid)) return clearStaleWorkerJournal(workerPath);
     throw recoveryError(build, "points to a process whose start identity cannot be verified");
   }
-  if (observedStartedAt !== record.startedAt) {
-    rmSync(workerPath, { force: true });
-    return true;
-  }
+  if (observedStartedAt !== record.startedAt) return clearStaleWorkerJournal(workerPath);
 
   const command = processCommand(pid);
   const expected = record.command === "required-validation"
     ? ["/bin/sh", " sh "]
     : [basename(String(record.command))];
   if (!command || !expected.some((fragment) => command.includes(fragment))) {
+    const finalStartedAt = processStartedAt(pid);
+    if (!processIsAlive(pid) || !finalStartedAt || finalStartedAt !== record.startedAt) {
+      return clearStaleWorkerJournal(workerPath);
+    }
     throw recoveryError(build, "points to a process whose command cannot be verified");
   }
 
@@ -110,6 +105,11 @@ export async function terminateRecordedDeviceBuildWorker(build) {
   if (!terminated) {
     throw recoveryError(build, "could not be confirmed stopped");
   }
+  return true;
+}
+
+function clearStaleWorkerJournal(path) {
+  rmSync(path, { force: true });
   return true;
 }
 
