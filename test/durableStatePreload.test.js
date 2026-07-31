@@ -13,6 +13,8 @@ test("state renames fsync the source before atomic publication", () => {
   const destination = join(directory, "state.json");
   try {
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      const { createRequire } = await import('node:module');
+      const require = createRequire(import.meta.url);
       const fs = require('node:fs');
       const originalFsyncSync = fs.fsyncSync;
       let fsyncCalls = 0;
