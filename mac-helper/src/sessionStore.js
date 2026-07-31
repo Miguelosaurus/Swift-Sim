@@ -13,6 +13,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { currentSessionTransportPreference } from "./sessionRequestContext.js";
 
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
@@ -129,12 +130,16 @@ export class SessionStore {
 
   findReusable({ project, scheme, simulatorUDID, transport = "" }) {
     this.assertReadableState();
+    const requestedTransport = resolveRequestedTransport(
+      transport || currentSessionTransportPreference() || sessionTransportFromProcess()
+    );
     const session = [...this.readCurrentState().values()].find((candidate) => (
       candidate.simulatorUDID === simulatorUDID
       && candidate.project === project
       && candidate.scheme === scheme
       && candidate.stream.state === "running"
-      && (!transport || (candidate.stream.transport || "serve-sim") === transport)
+      && (!requestedTransport
+        || (candidate.stream.transport || "serve-sim") === requestedTransport)
     ));
     return session ? sessionCopy(session) : undefined;
   }
@@ -305,6 +310,31 @@ function sessionStartIsActive(session) {
   if (session?.stream?.state !== "starting") return false;
   const updatedAt = Date.parse(session.updatedAt || session.createdAt || "");
   return Number.isFinite(updatedAt) && updatedAt + SESSION_START_LEASE_MS > Date.now();
+}
+
+function sessionTransportFromProcess(argv = process.argv) {
+  if (String(argv?.[2] || "") !== "start-session") return "";
+  const args = Array.isArray(argv) ? argv.slice(3) : [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = String(args[index] || "");
+    if (argument === "--transport" && args[index + 1] !== undefined) {
+      return String(args[index + 1]);
+    }
+    if (argument.startsWith("--transport=")) {
+      return argument.slice("--transport=".length);
+    }
+  }
+  return process.env.SWIFT_SIM_TRANSPORT || "auto";
+}
+
+function resolveRequestedTransport(preference) {
+  if (!preference) return "";
+  if (preference === "auto") {
+    return process.env.SWIFT_SIM_DISABLE_NATIVE_TRANSPORT === "1"
+      ? "serve-sim"
+      : "native-companion";
+  }
+  return String(preference);
 }
 
 function validateStoredSession(value) {
