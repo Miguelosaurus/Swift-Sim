@@ -81,7 +81,7 @@ export async function handlePublicDeviceBuildCapability(req, res, {
   }
 
   if (route.kind === "page" || route.kind === "artifact") {
-    if (!route.url.searchParams.get("token") && capability?.token) {
+    if (capability?.token) {
       route.url.searchParams.set("token", capability.token);
       req.url = `${route.url.pathname}${route.url.search}`;
     }
