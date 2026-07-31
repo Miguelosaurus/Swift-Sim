@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { readJson } from "../mac-helper/src/http.js";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
 
 function withPath(run) {
@@ -12,6 +14,23 @@ function withPath(run) {
 }
 
 const input = (token, simulatorUDID) => ({ token, project: "/tmp/App.xcodeproj", scheme: "App", simulatorUDID });
+
+function markRunning(store, session, transport) {
+  session.stream.state = "running";
+  session.stream.transport = transport;
+  session.stream.localUrl = `http://127.0.0.1/${transport}`;
+  store.save(session);
+  return session;
+}
+
+async function enterHTTPTransport(transport) {
+  const body = JSON.stringify({ transport });
+  const req = Readable.from([body]);
+  req.method = "POST";
+  req.url = "/api/sessions/start";
+  req.headers = { "content-length": String(Buffer.byteLength(body)) };
+  await readJson(req);
+}
 
 test("stale store instances preserve independently created sessions", () => withPath((path) => {
   const first = new SessionStore({ path });
@@ -38,6 +57,34 @@ test("a different transport may start for the same Simulator", () => withPath((p
   first.create({ ...input("a", "A"), transport: "serve-sim" });
   second.create({ ...input("b", "A"), transport: "native-companion" });
   assert.equal(new SessionStore({ path }).list().length, 2);
+}));
+
+test("request-local transport selects the matching running session consistently", async () => withPath(async (path) => {
+  const store = new SessionStore({ path });
+  const serve = markRunning(
+    store,
+    store.create({ ...input("serve", "A"), transport: "serve-sim" }),
+    "serve-sim",
+  );
+  const native = markRunning(
+    store,
+    store.create({ ...input("native", "A"), transport: "native-companion" }),
+    "native-companion",
+  );
+
+  await enterHTTPTransport("native-companion");
+  assert.equal(store.findReusable({
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "A",
+  }).id, native.id);
+
+  await enterHTTPTransport("serve-sim");
+  assert.equal(store.findReusable({
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "A",
+  }).id, serve.id);
 }));
 
 test("stale saves merge appended logs instead of erasing newer work", () => withPath((path) => {
@@ -78,12 +125,29 @@ test("stale log-only saves do not restore an obsolete stream", () => withPath((p
   assert.deepEqual(saved.logs, ["input completed"]);
 }));
 
-test("malformed state fails closed instead of being replaced with an empty library", () => withPath((path) => {
+test("malformed JSON fails closed instead of being replaced with an empty library", () => withPath((path) => {
   writeFileSync(path, "{not-json", { mode: 0o644 });
   const store = new SessionStore({ path });
   assert.deepEqual(store.list(), []);
   assert.throws(() => store.create(input("token", "A")), { code: "SWIFT_SIM_SESSION_STATE_INVALID" });
   assert.equal(readFileSync(path, "utf8"), "{not-json");
+  assert.equal(statSync(path).mode & 0o077, 0);
+}));
+
+test("parseable malformed nested state is preserved and rejected", () => withPath((path) => {
+  const store = new SessionStore({ path });
+  store.create(input("private-token", "A"));
+  const parsed = JSON.parse(readFileSync(path, "utf8"));
+  parsed.sessions[0].logs = { corrupted: true };
+  const corrupted = JSON.stringify(parsed, null, 2);
+  writeFileSync(path, corrupted, { mode: 0o644 });
+
+  const reopened = new SessionStore({ path });
+  assert.deepEqual(reopened.list(), []);
+  assert.throws(() => reopened.create(input("new-token", "B")), {
+    code: "SWIFT_SIM_SESSION_STATE_INVALID",
+  });
+  assert.equal(readFileSync(path, "utf8"), corrupted);
   assert.equal(statSync(path).mode & 0o077, 0);
 }));
 
