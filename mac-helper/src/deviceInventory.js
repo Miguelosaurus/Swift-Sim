@@ -1,11 +1,22 @@
+import "./lockOwnershipPreload.js";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const DEFAULT_VERIFICATION_CACHE_MS = 5_000;
+const MAX_VERIFICATION_CACHE_ENTRIES = 64;
+
 export class DeviceInventoryAdapter {
-  constructor({ run = runDeviceCtl } = {}) {
+  constructor({
+    run = runDeviceCtl,
+    now = () => Date.now(),
+    verificationCacheMs = DEFAULT_VERIFICATION_CACHE_MS,
+  } = {}) {
     this.run = run;
+    this.now = now;
+    this.verificationCacheMs = Math.max(0, Number(verificationCacheMs) || 0);
+    this.verificationCache = new Map();
   }
 
   async verifyApp(bundleIdentifier, expected = {}) {
@@ -13,6 +24,35 @@ export class DeviceInventoryAdapter {
       return verification("unknown", [], "A bundle identifier is required for device verification.");
     }
 
+    const key = JSON.stringify([
+      String(bundleIdentifier),
+      String(expected.version || ""),
+      String(expected.build || ""),
+    ]);
+    const now = this.now();
+    this.pruneVerificationCache(now);
+    const cached = this.verificationCache.get(key);
+    if (cached?.result && cached.expiresAt > now) return structuredClone(cached.result);
+    if (cached?.promise) return structuredClone(await cached.promise);
+
+    const promise = this.verifyAppUncached(bundleIdentifier, expected)
+      .then((result) => {
+        this.verificationCache.set(key, {
+          result: structuredClone(result),
+          expiresAt: this.now() + this.verificationCacheMs,
+        });
+        this.pruneVerificationCache(this.now());
+        return result;
+      })
+      .catch((error) => {
+        this.verificationCache.delete(key);
+        throw error;
+      });
+    this.verificationCache.set(key, { promise, expiresAt: now + this.verificationCacheMs });
+    return structuredClone(await promise);
+  }
+
+  async verifyAppUncached(bundleIdentifier, expected) {
     const inventory = await this.run(["list", "devices"]);
     const devices = physicalIOSDevices(inventory);
     const results = [];
@@ -52,6 +92,17 @@ export class DeviceInventoryAdapter {
           ? "not-installed"
           : "unknown";
     return verification(state, results);
+  }
+
+  pruneVerificationCache(now) {
+    for (const [key, value] of this.verificationCache) {
+      if (!value.promise && value.expiresAt <= now) this.verificationCache.delete(key);
+    }
+    while (this.verificationCache.size > MAX_VERIFICATION_CACHE_ENTRIES) {
+      const oldest = this.verificationCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.verificationCache.delete(oldest);
+    }
   }
 }
 
