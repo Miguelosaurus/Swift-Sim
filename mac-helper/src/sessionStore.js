@@ -16,6 +16,7 @@ import { isDeepStrictEqual } from "node:util";
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const LEGACY_LOCK_MAX_AGE_MS = 30_000;
+const SESSION_START_LEASE_MS = 60_000;
 const SESSION_BASELINE = Symbol("swift-sim-session-baseline");
 const IMMUTABLE_SESSION_FIELDS = new Set([
   "id",
@@ -41,33 +42,48 @@ export class SessionStore {
 
   create(input) {
     this.assertReadableState();
-    const now = new Date().toISOString();
-    const session = {
-      id: randomUUID(),
-      token: input.token,
-      project: input.project,
-      scheme: input.scheme,
-      simulatorUDID: input.simulatorUDID,
-      remoteBaseUrl: input.remoteBaseUrl || "",
-      createdAt: now,
-      updatedAt: now,
-      revision: 0,
-      build: { state: "external-or-not-run" },
-      stream: {
-        state: "starting",
-        transport: input.transport || "serve-sim",
-        quality: "fallback",
-        localUrl: "",
-        previewUrl: "",
-        wsUrl: "",
-        port: undefined,
-        pid: undefined,
-        raw: {},
-        limitations: [],
-      },
-      logs: [],
-    };
-    return this.save(session);
+    return this.withLock(() => {
+      const sessions = this.readStateUnlocked();
+      const conflicting = [...sessions.values()].find((candidate) =>
+        sameSessionTarget(candidate, input) && sessionStartIsActive(candidate)
+      );
+      if (conflicting) {
+        const error = new Error("A Swift Sim session is already starting for this Simulator.");
+        error.code = "SWIFT_SIM_SESSION_START_IN_PROGRESS";
+        throw error;
+      }
+
+      const now = new Date().toISOString();
+      const session = normalizeSession({
+        id: randomUUID(),
+        token: input.token,
+        project: input.project,
+        scheme: input.scheme,
+        simulatorUDID: input.simulatorUDID,
+        remoteBaseUrl: input.remoteBaseUrl || "",
+        createdAt: now,
+        updatedAt: now,
+        revision: 1,
+        build: { state: "external-or-not-run" },
+        stream: {
+          state: "starting",
+          transport: input.transport || "serve-sim",
+          quality: "fallback",
+          localUrl: "",
+          previewUrl: "",
+          wsUrl: "",
+          port: undefined,
+          pid: undefined,
+          raw: {},
+          limitations: [],
+        },
+        logs: [],
+      });
+      sessions.set(session.id, session);
+      this.writeStateUnlocked(sessions);
+      this.sessions = sessions;
+      return sessionCopy(session);
+    });
   }
 
   save(session) {
@@ -257,6 +273,19 @@ export class SessionStore {
       } catch {}
     }
   }
+}
+
+function sameSessionTarget(session, input) {
+  return session?.project === (input.project || "")
+    && session?.scheme === (input.scheme || "")
+    && session?.simulatorUDID === input.simulatorUDID;
+}
+
+function sessionStartIsActive(session) {
+  if (session?.stream?.state === "running") return true;
+  if (session?.stream?.state !== "starting") return false;
+  const updatedAt = Date.parse(session.updatedAt || session.createdAt || "");
+  return Number.isFinite(updatedAt) && updatedAt + SESSION_START_LEASE_MS > Date.now();
 }
 
 function normalizeSession(value) {
