@@ -36,7 +36,11 @@ export async function terminateRecordedDeviceBuildWorker(build) {
   const cancelPath = build?.control?.cancelPath || "";
   const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
   if (!workerPath || !existsSync(workerPath)) {
-    throw recoveryError(build, "has no durable worker identity");
+    // Detached Xcode and validation commands are started behind the owned-worker
+    // journal handshake. Without a journal the real command was never released,
+    // or it already exited and removed its journal, so there is no owned worker
+    // left for restart recovery to terminate.
+    return true;
   }
 
   let record;
