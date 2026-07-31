@@ -2,6 +2,7 @@ import "./lockOwnershipPreload.js";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -179,6 +180,11 @@ export class SessionStore {
     }
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.sessions)) {
       throw sessionStateError(this.path, new Error("the stored session record is malformed"));
+    }
+    try {
+      chmodSync(this.path, 0o600);
+    } catch (error) {
+      throw sessionStateError(this.path, error);
     }
     const sessions = new Map();
     for (const candidate of parsed.sessions) {
