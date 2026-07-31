@@ -7,8 +7,13 @@ const devicePayload = {
     devices: [
       {
         identifier: "core-device-id",
-        deviceProperties: { name: "Test iPhone" },
-        hardwareProperties: { platform: "iOS", reality: "physical", udid: "private-udid" },
+        deviceProperties: { name: "Miguel's Private iPhone" },
+        hardwareProperties: {
+          platform: "iOS",
+          reality: "physical",
+          udid: "private-udid",
+          marketingName: "iPhone 16 Pro",
+        },
       },
       {
         deviceProperties: { name: "Simulator" },
@@ -18,13 +23,14 @@ const devicePayload = {
   },
 };
 
-test("physical device parsing excludes simulators", () => {
+test("physical device parsing excludes simulators and private device names", () => {
   assert.deepEqual(physicalIOSDevices(devicePayload), [
-    { name: "Test iPhone", udid: "private-udid" },
+    { name: "iPhone 16 Pro", udid: "private-udid" },
   ]);
+  assert.equal(JSON.stringify(physicalIOSDevices(devicePayload)).includes("Miguel"), false);
 });
 
-test("verification reports the installed version without returning the UDID", async () => {
+test("verification reports the installed version without returning the UDID or personal name", async () => {
   const adapter = new DeviceInventoryAdapter({
     run: async (args) => args[0] === "list"
       ? devicePayload
@@ -33,12 +39,14 @@ test("verification reports the installed version without returning the UDID", as
   const result = await adapter.verifyApp("com.example.app", { version: "1.2", build: "7" });
   assert.equal(result.state, "verified");
   assert.deepEqual(result.devices[0], {
-    name: "Test iPhone",
+    name: "iPhone 16 Pro",
     state: "installed",
     version: "1.2",
     build: "7",
   });
-  assert.equal(JSON.stringify(result).includes("private-udid"), false);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("private-udid"), false);
+  assert.equal(serialized.includes("Miguel"), false);
 });
 
 test("verification does not confirm a different installed version", async () => {
@@ -52,7 +60,79 @@ test("verification does not confirm a different installed version", async () => 
   assert.equal(result.devices[0].state, "different-version");
 });
 
-test("verification coalesces concurrent requests and caches briefly", async () => {
+test("identical in-flight verification is coalesced", async () => {
+  let resolveInventory;
+  let calls = 0;
+  const inventoryPromise = new Promise((resolve) => { resolveInventory = resolve; });
+  const adapter = new DeviceInventoryAdapter({
+    run: async (args) => {
+      calls += 1;
+      if (args[0] === "list") return inventoryPromise;
+      return { result: { apps: [] } };
+    },
+  });
+  const first = adapter.verifyApp("com.example.app");
+  const second = adapter.verifyApp("com.example.app");
+  assert.equal(calls, 1);
+  resolveInventory({ result: { devices: [] } });
+  await Promise.all([first, second]);
+  assert.equal(calls, 1);
+});
+
+test("verification cache never evicts in-flight work under unique-key saturation", async () => {
+  const resolvers = [];
+  let listCalls = 0;
+  const adapter = new DeviceInventoryAdapter({
+    run: async (args) => {
+      if (args[0] !== "list") return { result: { apps: [] } };
+      listCalls += 1;
+      return new Promise((resolve) => resolvers.push(resolve));
+    },
+  });
+
+  const pending = Array.from({ length: 64 }, (_, index) =>
+    adapter.verifyApp(`com.example.app${index}`)
+  );
+  await assert.rejects(
+    adapter.verifyApp("com.example.overflow"),
+    /verification is busy/i
+  );
+  const duplicate = adapter.verifyApp("com.example.app0");
+  assert.equal(listCalls, 64);
+  for (const resolve of resolvers) resolve({ result: { devices: [] } });
+  await Promise.all([...pending, duplicate]);
+  assert.equal(listCalls, 64);
+});
+
+test("failed verification is not cached", async () => {
+  let calls = 0;
+  const adapter = new DeviceInventoryAdapter({
+    run: async () => {
+      calls += 1;
+      throw new Error("inventory failed");
+    },
+  });
+  await assert.rejects(adapter.verifyApp("com.example.failure"), /inventory failed/);
+  await assert.rejects(adapter.verifyApp("com.example.failure"), /inventory failed/);
+  assert.equal(calls, 2);
+});
+
+test("verification cache evicts settled entries before rejecting new work", async () => {
+  let calls = 0;
+  const adapter = new DeviceInventoryAdapter({
+    run: async () => {
+      calls += 1;
+      return { result: { devices: [] } };
+    },
+  });
+  for (let index = 0; index < 65; index += 1) {
+    await adapter.verifyApp(`com.example.settled${index}`);
+  }
+  assert.equal(calls, 65);
+  assert.equal(adapter.verificationCache.size, 64);
+});
+
+test("verification caches successful results only for the configured window", async () => {
   let now = 1_000;
   let calls = 0;
   const adapter = new DeviceInventoryAdapter({
@@ -60,25 +140,17 @@ test("verification coalesces concurrent requests and caches briefly", async () =
     verificationCacheMs: 5_000,
     run: async (args) => {
       calls += 1;
-      await new Promise((resolve) => setTimeout(resolve, 10));
       return args[0] === "list"
         ? devicePayload
         : { result: { apps: [{ version: "1.2", bundleVersion: "7" }] } };
     },
   });
 
-  const [first, second] = await Promise.all([
-    adapter.verifyApp("com.example.app", { version: "1.2", build: "7" }),
-    adapter.verifyApp("com.example.app", { version: "1.2", build: "7" }),
-  ]);
-  assert.equal(first.state, "verified");
-  assert.deepEqual(second, first);
-  assert.equal(calls, 2);
-
-  await adapter.verifyApp("com.example.app", { version: "1.2", build: "7" });
+  await adapter.verifyApp("com.example.cached", { version: "1.2", build: "7" });
+  await adapter.verifyApp("com.example.cached", { version: "1.2", build: "7" });
   assert.equal(calls, 2);
 
   now += 5_001;
-  await adapter.verifyApp("com.example.app", { version: "1.2", build: "7" });
+  await adapter.verifyApp("com.example.cached", { version: "1.2", build: "7" });
   assert.equal(calls, 4);
 });
