@@ -96,7 +96,7 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     self.requestKind = kind;
     self.sessionID = sessionID;
 
-    NSDictionary<NSString *, NSString *> *selection = nil;
+    NSDictionary<NSString *, id> *selection = nil;
     if (kind >= SwiftSimRequestKindSessionStatus) {
         selection = [SwiftSimLatestRequestProtocol selectedSessionSnapshot];
         self.selectionFingerprint = selection[@"fingerprint"];
@@ -105,10 +105,14 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     BOOL authorized = YES;
     [SwiftSimFenceLock lock];
     if (kind == SwiftSimRequestKindSessionStatus) {
-        authorized = [selection[@"id"] isEqualToString:sessionID]
-            && self.selectionFingerprint.length > 0
-            && !([SwiftSimActiveSessionID length] == 0
-                 && [SwiftSimClosedSelectionFingerprint isEqualToString:self.selectionFingerprint]);
+        BOOL selected = [selection[@"id"] isEqualToString:sessionID]
+            && self.selectionFingerprint.length > 0;
+        BOOL closedSameSelection = [SwiftSimActiveSessionID length] == 0
+            && [SwiftSimClosedSelectionFingerprint isEqualToString:self.selectionFingerprint];
+        NSTimeInterval selectedAt = [selection[@"selectedAt"] doubleValue];
+        BOOL explicitlyReopened = !closedSameSelection
+            || selectedAt > SwiftSimClosedSelectionAt;
+        authorized = selected && explicitlyReopened;
         if (authorized
             && (![SwiftSimActiveSessionID isEqualToString:sessionID]
                 || ![SwiftSimActiveSelectionFingerprint isEqualToString:self.selectionFingerprint])) {
@@ -228,7 +232,7 @@ static NSUInteger SwiftSimActiveSessionEpoch;
 }
 
 - (BOOL)isAuthoritative {
-    NSDictionary<NSString *, NSString *> *selection = self.requestKind >= SwiftSimRequestKindSessionStatus
+    NSDictionary<NSString *, id> *selection = self.requestKind >= SwiftSimRequestKindSessionStatus
         ? [SwiftSimLatestRequestProtocol selectedSessionSnapshot]
         : nil;
     [SwiftSimFenceLock lock];
@@ -265,7 +269,7 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     [self.forwardingSession finishTasksAndInvalidate];
 }
 
-+ (NSDictionary<NSString *, NSString *> *)selectedSessionSnapshot {
++ (NSDictionary<NSString *, id> *)selectedSessionSnapshot {
     NSData *data = [[NSUserDefaults standardUserDefaults] dataForKey:@"recentSessions"];
     if (data.length == 0) return nil;
     NSError *error = nil;
@@ -276,10 +280,18 @@ static NSUInteger SwiftSimActiveSessionEpoch;
     id first = [(NSArray *)decoded firstObject];
     if (![first isKindOfClass:[NSDictionary class]]) return nil;
     NSString *sessionID = [first[@"id"] isKindOfClass:[NSString class]] ? first[@"id"] : nil;
-    id lastOpened = first[@"lastOpened"];
-    if (sessionID.length == 0 || ![lastOpened isKindOfClass:[NSNumber class]]) return nil;
-    NSString *fingerprint = [NSString stringWithFormat:@"%@|%@", sessionID, lastOpened];
-    return @{ @"id": sessionID, @"fingerprint": fingerprint };
+    NSString *token = [first[@"token"] isKindOfClass:[NSString class]] ? first[@"token"] : nil;
+    NSString *baseURL = [first[@"baseURLString"] isKindOfClass:[NSString class]] ? first[@"baseURLString"] : nil;
+    NSNumber *lastOpened = [first[@"lastOpened"] isKindOfClass:[NSNumber class]] ? first[@"lastOpened"] : nil;
+    if (sessionID.length == 0 || token.length == 0 || baseURL.length == 0 || lastOpened == nil) return nil;
+    // Metadata refreshes update history timestamps. Keep that timestamp only as
+    // an explicit reopen signal; authority is bound to the stable capability.
+    NSString *fingerprint = [NSString stringWithFormat:@"%@|%@|%@", sessionID, token, baseURL];
+    return @{
+        @"id": sessionID,
+        @"fingerprint": fingerprint,
+        @"selectedAt": lastOpened,
+    };
 }
 
 + (SwiftSimRequestKind)classifyRequest:(NSURLRequest *)request sessionID:(NSString **)sessionID {
