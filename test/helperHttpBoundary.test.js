@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   drainDeliveryReferenceCleanupJobsOnce,
   handlePairingFallback,
+  handlePublicBuildExpiry,
   handlePublicBuildLogs,
   reconcileDeliveryReferencesOnce,
 } from "../mac-helper/src/helperHttpBoundaryPreload.js";
@@ -49,6 +50,7 @@ test("pairing fallback preserves helper identity and proxy-authorized HTTPS orig
       "x-forwarded-host": "mac.example.test",
       "x-forwarded-proto": "https",
     },
+    socket: { remoteAddress: "127.0.0.1" },
   }, response, store), true);
   assert.equal(response.status, 200);
   assert.match(response.body, /macID=stable-helper-id/);
@@ -78,8 +80,48 @@ test("legacy pairing links honor a trusted forwarded HTTPS protocol", () => {
       host: "mac.example.test",
       "x-forwarded-proto": "https",
     },
+    socket: { remoteAddress: "::1" },
   }, response, store), true);
   assert.match(response.body, /base=https%3A%2F%2Fmac\.example\.test/);
+});
+
+test("pairing fallback ignores forwarded origin headers from a remote peer", () => {
+  const response = responseRecorder();
+  assert.equal(handlePairingFallback({
+    method: "GET",
+    url: "/pair?token=pair-token&base=https%3A%2F%2Fevil.example",
+    headers: {
+      host: "mac.example.test",
+      "x-forwarded-host": "evil.example",
+      "x-forwarded-proto": "https",
+    },
+    socket: { remoteAddress: "100.64.0.10" },
+  }, response, store), true);
+  assert.match(response.body, /base=http%3A%2F%2Fmac\.example\.test/);
+  assert.doesNotMatch(response.body, /evil\.example/);
+});
+
+test("ready public capabilities with missing expiry fail closed", () => {
+  const ready = { id: "ready", token: "ready-token", state: "ready", expiresAt: "" };
+  const queued = { id: "queued", token: "queued-token", state: "queued", expiresAt: "" };
+  const builds = { get: (id) => id === ready.id ? ready : id === queued.id ? queued : null };
+  const pairings = { tokenMatches: () => false };
+
+  const expired = responseRecorder();
+  assert.equal(handlePublicBuildExpiry({
+    method: "GET",
+    url: "/api/device-builds/ready?token=ready-token",
+    headers: { host: "mac.example.test" },
+  }, expired, { pairingStore: pairings, deviceBuildStore: builds }), true);
+  assert.equal(expired.status, 410);
+
+  const active = responseRecorder();
+  assert.equal(handlePublicBuildExpiry({
+    method: "GET",
+    url: "/api/device-builds/queued?token=queued-token",
+    headers: { host: "mac.example.test" },
+  }, active, { pairingStore: pairings, deviceBuildStore: builds }), false);
+  assert.equal(active.status, 0);
 });
 
 test("public capability logs are allowlisted while paired-Mac logs pass through", () => {

@@ -43,6 +43,7 @@ export function installHelperHttpBoundary() {
       ? (req, res) => {
           try {
             if (handlePairingFallback(req, res)) return;
+            if (handlePublicBuildExpiry(req, res)) return;
             if (handlePublicBuildLogs(req, res)) return;
           } catch (error) {
             console.error(error instanceof Error ? error.message : String(error));
@@ -81,6 +82,36 @@ export function handlePairingFallback(req, res, store = pairingStore()) {
   const base = externalBaseURL(req, url);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHtml(res, pairingPage(customScheme));
+  return true;
+}
+
+export function handlePublicBuildExpiry(req, res, {
+  pairingStore: pairings = pairingStore(),
+  deviceBuildStore: builds = buildStore(),
+} = {}) {
+  let url;
+  try {
+    url = new URL(req?.url || "/", `http://${req?.headers?.host || "127.0.0.1"}`);
+  } catch {
+    return false;
+  }
+  const match = url.pathname.match(
+    /^\/(?:d\/([^/]+)|api\/device-builds\/([^/]+)(?:\/(?:logs|links|install-request|verify|artifact\/(?:ipa|manifest)))?)$/
+  );
+  if (!match) return false;
+  const header = String(req?.headers?.authorization || "");
+  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
+  const token = bearer || url.searchParams.get("token") || "";
+  if (pairings.tokenMatches(token)) return false;
+
+  const build = builds.get(match[1] || match[2]);
+  const capability = build && capabilityForToken(build, token);
+  if (!capability) return false;
+  const mustHaveExpiry = capability !== build || build.state === "ready";
+  if (!mustHaveExpiry) return false;
+  const expiresAt = Date.parse(capability.expiresAt || "");
+  if (Number.isFinite(expiresAt) && expiresAt > Date.now()) return false;
+  writeJson(res, 410, { error: "This install link has expired." });
   return true;
 }
 
@@ -244,21 +275,33 @@ function deliveryStore() {
 
 function externalBaseURL(req, url) {
   const requestHost = normalizedHost(req.headers?.host || url.host);
-  const proxyHost = normalizedForwardedHost(req.headers?.["x-forwarded-host"]);
+  const trustForwarded = forwardedHeadersAreTrusted(req);
+  const proxyHost = trustForwarded
+    ? normalizedForwardedHost(req.headers?.["x-forwarded-host"])
+    : "";
   const allowedHosts = new Set([requestHost, proxyHost].filter(Boolean));
   const explicit = normalizedExternalOrigin(url.searchParams.get("base"));
   if (explicit && allowedHosts.has(normalizedHost(new URL(explicit).host))) return explicit;
 
-  const forwarded = String(req.headers?.["x-forwarded-proto"] || "")
-    .split(",")[0]
-    .trim()
-    .toLowerCase();
+  const forwarded = trustForwarded
+    ? String(req.headers?.["x-forwarded-proto"] || "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase()
+    : "";
   const protocol = forwarded === "https" || forwarded === "http"
     ? `${forwarded}:`
     : url.protocol;
   const host = proxyHost || requestHost || normalizedHost(url.host);
   return normalizedExternalOrigin(`${protocol}//${host}`)
     || `${url.protocol}//${url.host}`;
+}
+
+function forwardedHeadersAreTrusted(req) {
+  const address = String(req?.socket?.remoteAddress || "").toLowerCase();
+  return address === "::1"
+    || /^127(?:\.\d{1,3}){3}$/.test(address)
+    || /^::ffff:127(?:\.\d{1,3}){3}$/.test(address);
 }
 
 function normalizedForwardedHost(value) {
