@@ -210,15 +210,20 @@ function registeredRuntimeOwner(runtime, claim, { rootPath } = {}) {
   } catch {
     return "unknown";
   }
-  const owner = sessions.find((session) => {
-    if (!["starting", "running"].includes(session?.stream?.state)) return false;
+  const candidates = sessions.filter((session) => (
+    session?.simulatorUDID === runtime.simulatorUDID
+    && ["starting", "running"].includes(session?.stream?.state)
+  ));
+  const owner = candidates.find((session) => {
     const nonce = sessionNonce(session);
     if (nonce && (runtime.nonce === nonce || runtime.previousNonce === nonce)) return true;
     if (!nonce && Number(session?.stream?.pid) === Number(runtime?.pid)) return true;
     return startClaimOwnsRuntime(session, runtime, { rootPath })
       || restartClaimOwnsRuntime(session, runtime, { rootPath });
   });
-  return owner ? "owned" : "unowned";
+  if (owner) return "owned";
+  if (runtime.claimID && candidates.length > 0) return "unknown";
+  return "unowned";
 }
 
 function readCurrentSessionOwners(storeID) {
