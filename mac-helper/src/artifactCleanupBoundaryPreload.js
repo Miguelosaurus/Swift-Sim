@@ -4,6 +4,7 @@ import { DeviceBuildStore } from "./deviceBuildStore.js";
 
 const CLEANUP_RETRY_INTERVAL_MS = 30_000;
 const MAX_CLEANUP_BACKOFF_MS = 60 * 60 * 1000;
+const SAFE_BUILD_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 let installed = false;
 
 export function installArtifactCleanupBoundary() {
@@ -46,9 +47,14 @@ export function validatedArtifactCleanupRoot(statePath, job) {
   const base = resolve(join(dirname(resolve(String(statePath))), "device-builds"));
   const root = resolve(String(job?.root || ""));
   const buildID = String(job?.buildId || "").trim();
-  if (!job?.id || !root || root === base) throw invalidCleanupRootError();
+  if (!job?.id || !root || root === base || !isDirectChild(base, root)) {
+    throw invalidCleanupRootError();
+  }
 
   if (buildID) {
+    if (!SAFE_BUILD_ID.test(buildID) || buildID === "." || buildID === "..") {
+      throw invalidCleanupRootError();
+    }
     const expected = resolve(join(base, buildID));
     if (root !== expected) throw invalidCleanupRootError();
     return root;
@@ -56,15 +62,16 @@ export function validatedArtifactCleanupRoot(statePath, job) {
 
   // Legacy jobs did not persist buildId. They are accepted only when the
   // target is one direct child of Swift Sim's private artifact directory.
-  const child = relative(base, root);
-  if (!child
-      || isAbsolute(child)
-      || child === ".."
-      || child.startsWith(`..${sep}`)
-      || child.includes(sep)) {
-    throw invalidCleanupRootError();
-  }
   return root;
+}
+
+function isDirectChild(base, root) {
+  const child = relative(base, root);
+  return Boolean(child
+    && !isAbsolute(child)
+    && child !== ".."
+    && !child.startsWith(`..${sep}`)
+    && !child.includes(sep));
 }
 
 function invalidCleanupRootError() {
