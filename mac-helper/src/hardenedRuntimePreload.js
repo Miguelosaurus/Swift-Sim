@@ -16,8 +16,10 @@ if (script === "swift-sim-helper.js") {
   await import("./deviceBuildCapabilityBoundaryPreload.js");
   await import("./helperHttpBoundaryPreload.js");
   const { installCompatibleHelperHealthFetchBoundary } = await import("./cliRuntimeBoundary.js");
+  const { installLiveEngineOwnershipBoundary } = await import("./liveEngineOwnershipPreload.js");
   const { installSwiftSimChildRuntimeBoundary } = await import("./swiftSimChildRuntimeBoundary.js");
   installCompatibleHelperHealthFetchBoundary();
+  installLiveEngineOwnershipBoundary();
   installSwiftSimChildRuntimeBoundary();
   if (helperRunsAsService()) {
     const { installRenewalShutdownGuard } = await import("./renewalShutdownPreload.js");
