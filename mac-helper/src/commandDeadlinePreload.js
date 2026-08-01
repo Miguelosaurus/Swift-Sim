@@ -3,7 +3,9 @@ import { basename } from "node:path";
 
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
+const originalExecFileSync = childProcess.execFileSync;
 const originalSpawnSync = childProcess.spawnSync;
+const DEFAULT_FALLBACK_DEADLINE_MS = 15 * 60_000;
 let installed = false;
 
 export function installCommandDeadlinePreload() {
@@ -12,23 +14,21 @@ export function installCommandDeadlinePreload() {
   childProcess.spawnSync = function boundedSpawnSync(command, args, options) {
     const normalized = normalizeInvocation(args, options);
     const timeout = commandDeadline(command, normalized.args, normalized.options);
-    const timed = timeout > 0;
-    const processGrouped = timed && normalized.options.detached !== false;
-    const result = originalSpawnSync.call(
-      this,
-      command,
-      normalized.args,
-      timed
-        ? {
-            ...normalized.options,
-            detached: processGrouped,
-            timeout,
-            killSignal: normalized.options.killSignal || "SIGKILL",
-          }
-        : normalized.options,
-    );
-    if (processGrouped && result?.error) terminateProcessGroup(result.pid);
+    const bounded = boundedCommandOptions(normalized.options, timeout);
+    const result = originalSpawnSync.call(this, command, normalized.args, bounded.options);
+    if (bounded.processGrouped && result?.error) terminateProcessGroup(result.pid);
     return result;
+  };
+  childProcess.execFileSync = function boundedExecFileSync(command, args, options) {
+    const normalized = normalizeInvocation(args, options);
+    const timeout = commandDeadline(command, normalized.args, normalized.options);
+    const bounded = boundedCommandOptions(normalized.options, timeout);
+    try {
+      return originalExecFileSync.call(this, command, normalized.args, bounded.options);
+    } catch (error) {
+      if (bounded.processGrouped) terminateProcessGroup(error?.pid);
+      throw error;
+    }
   };
   syncBuiltinESMExports();
 }
@@ -40,6 +40,11 @@ export function commandDeadline(command, args = [], options = {}) {
 
   const executable = basename(String(command || ""));
   const normalizedArgs = Array.isArray(args) ? args.map(String) : [];
+  if (nodeExecutable(executable) && swiftSimHelperScript(normalizedArgs[0])) {
+    if (normalizedArgs[1] === "serve") return 0;
+    if (normalizedArgs[1] === "build-device") return 60 * 60_000;
+    return 5 * 60_000;
+  }
   if (executable === "brew") {
     if (normalizedArgs[0] === "upgrade") return 15 * 60_000;
     if (normalizedArgs[0] === "services") return 2 * 60_000;
@@ -47,13 +52,27 @@ export function commandDeadline(command, args = [], options = {}) {
   }
   if (["which", "ps", "lsof"].includes(executable)) return 5_000;
   if (executable === "xcodebuild" && normalizedArgs.includes("-version")) return 30_000;
-  if (executable === "security") return 30_000;
+  if (["xcrun", "plutil", "security", "cloudflared"].includes(executable)) return 60_000;
   if (["codex", "claude", "opencode", "cursor", "agent"].includes(executable)) return 2 * 60_000;
   if (/^swift-sim(?:-helper)?$/.test(executable)) return 5 * 60_000;
-  return 0;
+  return DEFAULT_FALLBACK_DEADLINE_MS;
 }
 
 installCommandDeadlinePreload();
+
+function boundedCommandOptions(options, timeout) {
+  if (!(timeout > 0)) return { options, processGrouped: false };
+  const processGrouped = options.detached !== false;
+  return {
+    processGrouped,
+    options: {
+      ...options,
+      detached: processGrouped,
+      timeout,
+      killSignal: options.killSignal || "SIGKILL",
+    },
+  };
+}
 
 function terminateProcessGroup(pid) {
   const numericPID = Number(pid);
@@ -72,6 +91,14 @@ function processGroupIsAlive(pid) {
   } catch {
     return false;
   }
+}
+
+function nodeExecutable(value) {
+  return /^node(?:[.-]\d+)*$/.test(String(value || ""));
+}
+
+function swiftSimHelperScript(value) {
+  return /(?:^|\/)swift-sim-helper(?:-entry)?\.js$/.test(String(value || ""));
 }
 
 function normalizeInvocation(args, options) {
