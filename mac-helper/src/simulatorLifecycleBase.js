@@ -28,13 +28,21 @@ export async function startSimulatorRuntime({
   const requiredUDID = requiredSimulatorUDID(simulatorUDID);
   return withSimulatorLifecycleLock(requiredUDID, async () => {
     const current = readSimulatorRuntimeState(requiredUDID, { rootPath });
+    let releaseRunningAuthorization = null;
     if (current?.status === "running") {
-      const authorized = typeof authorizeRunningRecovery === "function"
-        && await authorizeRunningRecovery(current) === true;
-      if (!authorized) throw activeRuntimeError();
+      const authorization = typeof authorizeRunningRecovery === "function"
+        ? await authorizeRunningRecovery(current)
+        : null;
+      if (!authorization) throw activeRuntimeError();
+      if (typeof authorization === "function") {
+        releaseRunningAuthorization = authorization;
+      }
     }
     if (current && current.status !== "stopped") {
-      if (typeof recover !== "function") throw uncertainRuntimeError();
+      if (typeof recover !== "function") {
+        releaseAuthorization(releaseRunningAuthorization);
+        throw uncertainRuntimeError();
+      }
       try {
         await recover();
       } catch (error) {
@@ -43,6 +51,8 @@ export async function startSimulatorRuntime({
           rootPath,
         });
         throw error;
+      } finally {
+        releaseAuthorization(releaseRunningAuthorization);
       }
     }
     const operationNonce = randomUUID();
@@ -386,6 +396,10 @@ function requiredSimulatorUDID(value) {
 function requiredOperation(operation) {
   if (typeof operation !== "function") throw new Error("A Simulator lifecycle operation is required.");
   return operation;
+}
+
+function releaseAuthorization(release) {
+  try { release?.(); } catch {}
 }
 
 function activeRuntimeError() {
