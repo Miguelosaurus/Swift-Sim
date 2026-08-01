@@ -96,7 +96,6 @@ test("workspace schemes are selected safely", () => {
   assert.match(ambiguous.error, /--scheme/);
 });
 
-
 test("string-valued property-wrapper arguments require a rebuild", () => {
   const before = `struct Model {
   @State(initialValue: "before") var value: String
@@ -125,7 +124,6 @@ test("live engine inspection is serialized with replacement", () => {
   );
   assert.match(source, /let status = await inspectLiveReloadUnlocked/);
 });
-
 
 test("deeply nested attribute arguments require a rebuild", () => {
   const before = `struct Model {
@@ -157,21 +155,19 @@ test("attribute-looking text in strings and comments does not change the surface
   assert.equal(result.reasonCode, LIVE_REASON_CODES.IMPLEMENTATION_ONLY);
 });
 
-
 test("engine-mutating live operations hold the lifecycle lock", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
-  assert.match(
-    source,
-    /export async function registerLiveBuildResult\(options\) \{
-  return withLiveEngineLifecycleLock\(\(\) => registerLiveBuildResultUnlocked\(options\)\);/,
-  );
-  assert.match(
-    source,
-    /export async function injectLiveSource\(sourcePath, runtime = \{\}\) \{[\s\S]*return withLiveEngineLifecycleLock\(\(\) => injectLiveSourceUnlocked\(sourcePath, runtime\)\);/,
-  );
-  assert.match(
-    source,
-    /if \(typeof runtime\.engineControl === "function"\) \{
-    return injectLiveSourceUnlocked\(sourcePath, runtime\);/,
-  );
+  assert.ok(source.includes(
+    "export async function registerLiveBuildResult(options) {\n"
+      + "  return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));\n"
+      + "}",
+  ));
+  assert.ok(source.includes(
+    "export async function injectLiveSource(sourcePath, runtime = {}) {\n"
+      + "  if (typeof runtime.engineControl === \"function\") {\n"
+      + "    return injectLiveSourceUnlocked(sourcePath, runtime);\n"
+      + "  }\n"
+      + "  return withLiveEngineLifecycleLock(() => injectLiveSourceUnlocked(sourcePath, runtime));\n"
+      + "}",
+  ));
 });
