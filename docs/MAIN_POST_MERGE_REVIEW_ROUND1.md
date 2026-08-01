@@ -2,84 +2,61 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `706dfd089ccc94e1f4d7ac96fe8e0a27c0aca271`
-
-This staging branch reviews the fully synchronized merge of the previous local main work with hardening head `5afa7728bb22d3ff6e54512615d988a9c7a85240`.
+Final code candidate before this ledger commit: `b7abbf4699fa4bfeb9b5280cf4bdd40c73954e9b`
 
 ## Result
 
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 15 | 15 | 0 |
+| P1 | 16 | 16 | 0 |
 | P2 | 7 | 7 | 0 |
 | P3 | 0 | 0 | 0 |
 
-## Resolved P1 findings
+## P1 fixes
 
-1. A stale live-engine PID file could authorize `SIGTERM` against an unrelated process after PID reuse. Engine ownership now persists and verifies exact process-start identity and controls the detached process group.
-2. Concurrent live-engine inspection, installation, restart, and session publication could interleave across processes. A cross-process lifecycle lock now serializes the complete ownership transition.
-3. Swift declaration attributes, property-wrapper arguments, availability annotations, and compiler-condition directives could be misclassified as implementation-only edits.
-4. Deeply nested and multiline attribute arguments were not represented reliably in the structural surface. The classifier now uses balanced scanning while preserving original argument text.
-5. Workspace live reload selected `-workspace` superficially but did not discover referenced projects, require an authoritative scheme, select signing settings for that scheme, or watch the workspace root correctly.
-6. Persisted build cleanup data could direct recursive deletion outside Swift Sim's private `device-builds` root. Helper, CLI, and public-gateway paths now share a fail-closed containment boundary.
-7. Pairing-origin generation trusted forwarded protocol headers from direct network peers. Forwarded origin metadata is now accepted only from the trusted loopback proxy boundary.
-8. Build Current Code could target an app without exact ownership by the currently paired Mac. Mutation authority now requires the stored owner pairing ID to match.
-9. Registering captured compilation commands could race a concurrent live-engine replacement and publish mappings to the wrong engine generation. Registration now holds the lifecycle lock.
-10. Default production patch injection could race a concurrent engine replacement between queueing and completion polling. Production injection now holds the lifecycle lock; injected test transports retain their isolated path.
-11. A contender that died after creating `reclaim.json` could permanently block all future live-engine lifecycle operations. Dead valid claims and sufficiently old malformed claims are now atomically quarantined, re-verified after rename, and removed only when they are still the exact abandoned file.
-12. Multiline runtime `#available` and `#unavailable` expressions could evade the single-line structural matcher and be sent down the hot-reload lane. Runtime availability conditions now use balanced multiline scanning that preserves the original condition text and fails closed on an unterminated expression.
-13. A creator suspended between lock-directory creation and owner publication could later recursively delete a replacement owner's lock. Failed-creator cleanup is now tied to the exact observed device/inode and uses atomic quarantine before removal.
-14. A workspace build setting with `EXPANDED_CODE_SIGN_IDENTITY` returned one 40-character hash as an iterable string, causing one-character signing probes. Expanded identities now remain a one-element candidate array.
-15. Production live routing inspected readiness, compiled, injected, acknowledged, and recovered under separate engine leases, allowing a replacement generation between phases. The complete production route now holds one lifecycle lease and uses unlocked engine primitives only inside that lease.
+1. Exact process identity and detached process-group ownership for the live engine.
+2. Cross-process serialization of engine ownership transitions.
+3. Declaration attributes and wrapper arguments participate in rebuild classification.
+4. Balanced handling of deeply nested and multiline attributes.
+5. Workspace project discovery, scheme authority, signing selection, and watcher-root resolution.
+6. Recursive artifact cleanup is contained to Swift Sim's private build root.
+7. Forwarded origin metadata is trusted only from the loopback proxy boundary.
+8. Build Current Code requires exact paired-Mac ownership.
+9. Compilation registration cannot cross an engine replacement generation.
+10. Production patch injection cannot cross an engine replacement generation.
+11. Abandoned valid or malformed reclaim claims are safely recoverable.
+12. Multiline runtime `#available` and `#unavailable` conditions require rebuilds.
+13. Failed lock-creator cleanup is bound to the exact observed directory identity.
+14. Expanded signing identities remain one-element candidate arrays.
+15. Production inspect, compile, inject, acknowledgement, and recovery use one lifecycle lease.
+16. Nested Swift block comments are masked to their true closing delimiter, so commented structural text cannot affect classification.
 
-## Resolved P2 findings
+## P2 fixes
 
-1. Durable delivery-reference cleanup ran synchronously before the helper began listening, so a valid backlog could delay availability for minutes. Startup now listens first and drains the durable queue asynchronously.
-2. Build Current Code accepted success and failure responses after the paired Mac changed. Both paths are fenced by pairing revision and exact Mac identity.
-3. Simulator status and log requests could mutate shared UI state after the user opened, reopened, or closed a different session. Success and failure paths now require the exact simulator-view revision and session.
-4. Concurrent pairing attempts could complete out of order and let an older request replace the newer Mac. Pairing attempts now have their own generation fence.
-5. Connection diagnostics could rename or mark a replacement Mac online, or overwrite a changed Simulator view, using stale responses. Diagnostics now snapshot and validate both pairing and view revisions.
-6. An ownerless stale lifecycle lock became young again when its reclaim claim updated the directory mtime. Reclamation now preserves the pre-claim stale observation and verifies the same directory by device/inode identity.
-7. The matching live start, Xcode build, and compilation registration were separately locked, allowing another project to replace the engine generation during compilation. The complete live-enabled build workflow now holds one lifecycle lease from start through registration and packaging.
+1. Durable delivery cleanup no longer blocks helper startup.
+2. Rebuild responses are fenced against paired-Mac changes.
+3. Simulator status and logs are fenced by exact view revision and session.
+4. Concurrent pairing attempts use an attempt generation.
+5. Connection diagnostics are fenced by pairing and Simulator revisions.
+6. Ownerless stale-lock reclamation preserves its pre-claim identity observation.
+7. Live start, device compilation, registration, and packaging use one lifecycle lease.
 
 ## Regression coverage
 
-Focused coverage now includes:
-
-- stale/reused engine PID rejection and detached process-group termination;
-- cross-process lifecycle serialization and stale-owner reclamation;
-- ownerless stale-lock reclamation after the claim file changes directory mtime;
-- abandoned valid and malformed reclaim-claim recovery;
-- replacement-lock preservation and exact ownerless-directory cleanup;
-- nested, multiline, string-valued, and declaration-associated Swift attributes;
-- compiler-condition, multiline `#available`, and multiline `#unavailable` rebuild controls;
-- workspace project-reference parsing, scheme selection, Xcode container arguments, root resolution, and expanded signing identity normalization;
-- complete live start → build → registration lifecycle-lease ordering;
-- one-lease production inspect → compile → inject → acknowledge → recovery routing;
-- helper startup ordering and persistent cleanup containment;
-- paired-Mac rebuild authority and stale response fences;
-- Simulator, pairing-attempt, and connection-diagnostics revision fences.
+Coverage includes stale/reused PIDs, process groups, lock ownership and reclamation, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, runtime availability conditions, nested block comments, workspace schemes and signing identities, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
 
 ## Validation policy
 
-Code head `706dfd089ccc94e1f4d7ac96fe8e0a27c0aca271` contains the complete production route lease and focused regression. This connector-authored ledger commit is the final exact-head validation and review trigger.
+The transformation run for code head `b7abbf4699fa4bfeb9b5280cf4bdd40c73954e9b` passed JavaScript syntax, documentation, the complete Node/release suite, workflow YAML, and shell syntax before its clean-candidate push superseded the iOS stage.
 
-Merge readiness requires the resulting head to pass GitHub Verify in full:
-
-- JavaScript syntax, documentation, and complete Node/release test suite;
-- workflow YAML and release-shell syntax;
-- iOS companion tests.
-
-All outstanding Codex threads must then be answered and resolved, followed by one clean exact-head Codex review.
+This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, including iOS companion tests, with all review threads resolved and a clean exact-head Codex review.
 
 ## Remaining external release gates
 
-These require real installed/runtime environments and are not represented as code residuals:
-
 1. Real Homebrew install and upgrade smoke test.
 2. Physical-device signed build and install.
-3. Real private publication / install-link flow.
-4. Real multi-project `.xcworkspace` live-start using an explicitly selected shared scheme and signing identity.
+3. Real private publication and install-link flow.
+4. Real multi-project `.xcworkspace` live-start with an explicitly selected shared scheme and signing identity.
 
-PR #21 must remain draft and unmerged until those release decisions are made.
+PR #21 remains draft and unmerged.
