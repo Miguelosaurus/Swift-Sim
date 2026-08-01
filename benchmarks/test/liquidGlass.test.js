@@ -54,3 +54,18 @@ test("every Liquid Glass structural case remains a rebuild", () => {
     }
   }
 });
+
+test("body replacements preserve enclosing availability annotations", () => {
+  const sourcePath = join(fixtureRoot, "CatalogApp", "LiquidGlassCoverageScreen.swift");
+  const source = readFileSync(sourcePath, "utf8");
+  const generated = generateDynamicReplacementSource({
+    source: source
+      .replace("cornerRadius: 12", "cornerRadius: 13")
+      .replace("opacity(placement == .inline ? 0.9 : 1.0)", "opacity(placement == .inline ? 0.8 : 1.0)"),
+    beforeSource: source,
+    sourcePath,
+    moduleName: "CatalogApp",
+  });
+  assert.match(generated, /@available\(iOS 26\.1, \*\)\nextension LiquidGlassCoverageScreen \{/);
+  assert.match(generated, /@available\(iOS 26\.1, \*\)\nextension LiquidGlassCoverageScreen\.BottomAccessoryPlacementProbe \{/);
+});

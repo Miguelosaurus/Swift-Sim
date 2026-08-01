@@ -11,8 +11,9 @@ This document separates three different claims:
    benchmark.
 2. The focused Liquid Glass corpus proves routing, replacement generation, SDK
    availability, and source compilation for the current API surface.
-3. A focused physical-device run is still required before claiming that every
-   focused case has executed on an iPhone.
+3. The focused physical-device run confirms that every curated hot case can
+   execute and restore on a real iPhone; this remains a scoped corpus result,
+   not a percentage for arbitrary app edits.
 
 ## Covered SwiftUI API Surface
 
@@ -105,7 +106,17 @@ keys, entitlements, and build settings always require a new signed build.
 | Dynamic body replacement generation | 27/27 |
 | Mutated-source iOS 26.5 type-check | 27/27 |
 | Full unsigned Simulator fixture build | Passed |
-| Focused physical iPhone execution | Pending |
+| Focused physical iPhone execution | 27/27 edits, 27/27 restores |
+| Physical fallback / timeout / partial counts | 0 / 0 / 0 |
+| Physical latency (p50 / p95) | 724 ms / 930 ms |
+
+The focused physical gate completed on August 1, 2026 with one warm pass over
+the signed Debug fixture on a real iPhone. Every one of the 27 hot cases
+produced its expected marker and increasing revision, and every baseline
+restore was acknowledged. The run used the private Tailnet live lane across
+different networks; it did not stream a Simulator or install a new build per
+edit. The result is valid for this fixture, device/OS, Xcode toolchain, and
+Swift Sim engine version only.
 
 The semantic marker is embedded in every hot mutation. A physical case can pass
 only after the running iPhone reports the expected case, value, refresh, and

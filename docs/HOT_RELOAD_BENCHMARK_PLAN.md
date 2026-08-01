@@ -5,13 +5,13 @@ Target: Swift Sim 0.6 development cycle
 Owner of architecture: Swift Sim maintainers  
 Implementation profile: deterministic Node tooling plus disposable SwiftUI fixture apps
 
-Implementation checkpoint: Phases 1–2 are complete, and the Phase 3 fixture
+Implementation checkpoint: Phases 1–3 are complete, and the Phase 3 fixture
 apps/oracle implementation is in place with all three unsigned Simulator builds
-passing. A signed Catalog fixture has also completed one real iPhone hot edit
-and live baseline restore with a correlated replacement report and semantic
-marker. The complete three-workload physical smoke gate remains pending until
-the explicitly selected iPhone has a stable private-Tailnet live connection; no
-Simulator or static result is a substitute for that gate.
+passing. The core three-workload physical smoke gate is complete (24/24 edits
+and 24/24 restores), and the supplemental Liquid Glass physical gate is also
+complete (27/27 edits and 27/27 restores). The full 120-hot-case, three-seeded
+run and chronological real-app dogfood remain intentionally pending; no
+Simulator or static result is a substitute for those broader gates.
 
 ## Objective
 
@@ -894,6 +894,15 @@ control APIs. It contains 27 hot-edit cases and seven structural rebuild
 controls. See [Liquid Glass Hot Reload Coverage](LIQUID_GLASS_HOT_RELOAD.md)
 for the matrix, availability requirements, and independently stated proof
 levels.
+
+The focused physical gate completed on August 1, 2026: one warm pass confirmed
+27/27 Liquid Glass hot edits and 27/27 baseline restores on a real iPhone, with
+zero fallbacks, timeouts, or partial applications. Median latency was 724 ms
+and p95 latency was 930 ms. The generated replacement source now carries an
+enclosing `@available` annotation into nested view extensions, which is
+required when an iOS 26-only body is compiled against the app's older
+deployment target. This is a scoped capability result, not an everyday-edit
+coverage claim.
 
 ## Explicitly Deferred
 

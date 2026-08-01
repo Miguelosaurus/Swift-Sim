@@ -1024,7 +1024,7 @@ export function generateDynamicReplacementSource({ source, beforeSource = "", so
     .filter((line) => !line.endsWith(` ${moduleName}`));
   const sourceFile = basename(sourcePath).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
   const replacements = changedViews.map((view, index) => `
-extension ${view.qualifiedName} {
+${view.availability ? `${view.availability}\n` : ""}extension ${view.qualifiedName} {
     @_dynamicReplacement(for: body)
     private var __swiftSim_body_${index + 1}: some View ${view.body}
 }`).join("\n");
@@ -1124,7 +1124,12 @@ function swiftUIViewBodies(source) {
     const open = match.index + match[0].lastIndexOf("{");
     const close = matchingBrace(masked, open);
     if (close < 0) continue;
-    candidates.push({ name: match[1], open, close });
+    candidates.push({
+      name: match[1],
+      open,
+      close,
+      availability: declarationAvailability(source, match.index),
+    });
   }
   candidates.sort((left, right) => left.open - right.open);
   for (const candidate of candidates) {
@@ -1134,6 +1139,7 @@ function swiftUIViewBodies(source) {
     candidate.qualifiedName = parent
       ? `${parent.qualifiedName || parent.name}.${candidate.name}`
       : candidate.name;
+    candidate.availability = candidate.availability || parent?.availability || "";
   }
 
   const output = [];
@@ -1148,12 +1154,29 @@ function swiftUIViewBodies(source) {
       if (bodyClose < 0 || bodyClose > candidate.close) continue;
       output.push({
         qualifiedName: candidate.qualifiedName,
+        availability: candidate.availability,
         body: source.slice(bodyOpen, bodyClose + 1),
       });
       break;
     }
   }
   return output;
+}
+
+function declarationAvailability(source, declarationOffset) {
+  const prefix = String(source).slice(0, declarationOffset);
+  const lines = prefix.split(/\r?\n/);
+  const attributes = [];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim();
+    if (!line) {
+      if (attributes.length > 0) break;
+      continue;
+    }
+    if (!line.startsWith("@available(")) break;
+    attributes.unshift(line);
+  }
+  return attributes.join("\n");
 }
 
 function matchingBrace(source, open) {

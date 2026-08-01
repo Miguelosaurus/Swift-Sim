@@ -9,6 +9,7 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - A deterministic 240-case hot-reload benchmark with conservative edit-set routing, schema validation, static safety scoring, semantic case/revision markers, and an injected physical-device runner.
 - Unsigned iOS Simulator fixture builds for Catalog, State, and Architecture workloads plus resumable sanitized JSONL reports.
 - A supplemental 34-case Liquid Glass corpus covering 27 current SwiftUI glass and adjacent system-surface edits plus seven structural rebuild controls.
+- A focused physical Liquid Glass gate covering 27/27 hot edits and 27/27 baseline restores with zero fallbacks, timeouts, or partial applications (724 ms median, 930 ms p95).
 
 ## 0.5.0 - 2026-07-22
 
@@ -31,6 +32,7 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Bounded stale live-engine logs on restart so a transport failure cannot leave an unbounded diagnostic file.
 - Added a noninteractive signing preflight before engine startup, avoiding a delayed first-patch failure when macOS has not granted private-key access.
 - Bounded persisted device-build logs and throttled progress writes to keep long Xcode builds responsive.
+- Preserved enclosing `@available` annotations when compiling generated dynamic-replacement extensions, allowing iOS 26-only SwiftUI bodies to hot reload from apps with older deployment targets.
 - Switched Homebrew releases to checksum-pinned, explicit GitHub release bundles that are never replaced in place.
 
 ## 0.3.0 - 2026-07-18
