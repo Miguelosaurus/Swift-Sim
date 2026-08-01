@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
@@ -191,6 +191,20 @@ test("claim-bound runtime cleanup fails closed when ownership evidence is missin
       // Simulate loss or corruption of the private claim evidence while the
       // durable session still identifies an active start for this Simulator.
       rmSync(join(directory, "claims"), { recursive: true, force: true });
+      const state = JSON.parse(readFileSync(path, "utf8"));
+      const owner = state.sessions.find((candidate) => candidate.id === session.id);
+      owner.updatedAt = new Date(Date.now() - 2 * 60_000).toISOString();
+      writeFileSync(path, JSON.stringify(state, null, 2), { mode: 0o600 });
+
+      const reconciledStore = new SessionStore({ path });
+      assert.equal(reconciledStore.findReusable({
+        project: session.project,
+        scheme: session.scheme,
+        simulatorUDID,
+        transport: "auto",
+      }), undefined);
+      assert.equal(reconciledStore.get(session.id).stream.state, "starting");
+
       const competitorStore = new BaseSessionStore({ path });
       const competitor = competitorStore.create(sessionInput(simulatorUDID, "ClaimCompetitor"));
       competitor.stream.raw = {
@@ -212,7 +226,7 @@ test("claim-bound runtime cleanup fails closed when ownership evidence is missin
 
       assert.equal(recoveries, 0);
       assert.equal(readSimulatorRuntimeState(simulatorUDID).nonce, originalRuntime.nonce);
-      assert.equal(store.get(session.id).stream.state, "starting");
+      assert.equal(new SessionStore({ path }).get(session.id).stream.state, "starting");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
