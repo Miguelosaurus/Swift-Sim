@@ -64,11 +64,10 @@ function tryAcquire(lockPath) {
       throw error;
     }
     if (error?.code !== "EEXIST") throw error;
-    let current;
-    try { current = JSON.parse(readFileSync(ownerPath, "utf8")); } catch {}
-    if ((current && !lockOwnerIsAlive(current))
-        || (!current && ownerlessLockIsStale(lockPath))) {
-      quarantineStaleLock(lockPath);
+    const observedOwner = readOwner(ownerPath);
+    if ((observedOwner && !lockOwnerIsAlive(observedOwner))
+        || (!observedOwner && ownerlessLockIsStale(lockPath))) {
+      claimAndQuarantineStaleLock(lockPath, observedOwner);
     }
     return null;
   }
@@ -76,23 +75,82 @@ function tryAcquire(lockPath) {
 
 function releaseOwnedLock(lockPath, ownerPath, owner) {
   try {
-    const current = JSON.parse(readFileSync(ownerPath, "utf8"));
-    if (current.pid === owner.pid
-        && current.startedAt === owner.startedAt
-        && current.nonce === owner.nonce) {
+    const current = readOwner(ownerPath);
+    if (sameOwner(current, owner)) {
       rmSync(lockPath, { recursive: true, force: true });
     }
   } catch {}
 }
 
-function quarantineStaleLock(lockPath) {
-  const quarantinePath = `${lockPath}.stale.${process.pid}.${randomUUID()}`;
+function claimAndQuarantineStaleLock(lockPath, observedOwner) {
+  const claimPath = join(lockPath, "reclaim.json");
+  const claim = {
+    pid: process.pid,
+    startedAt: processStartIdentity(),
+    nonce: randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
   try {
-    renameSync(lockPath, quarantinePath);
+    writeFileSync(claimPath, JSON.stringify(claim), { mode: 0o600, flag: "wx" });
   } catch (error) {
-    if (error?.code !== "ENOENT") return;
+    if (error?.code === "EEXIST" || error?.code === "ENOENT") return;
+    throw error;
   }
-  try { rmSync(quarantinePath, { recursive: true, force: true }); } catch {}
+
+  try {
+    const currentOwner = readOwner(join(lockPath, "owner.json"));
+    if (observedOwner) {
+      if (!sameOwner(currentOwner, observedOwner) || lockOwnerIsAlive(currentOwner)) return;
+    } else if (currentOwner || !ownerlessLockIsStale(lockPath)) {
+      return;
+    }
+
+    const currentClaim = readOwner(claimPath);
+    if (!sameOwner(currentClaim, claim)) return;
+    const quarantinePath = `${lockPath}.stale.${process.pid}.${claim.nonce}`;
+    try {
+      renameSync(lockPath, quarantinePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      return;
+    }
+
+    // Verify the exact claim and observed stale owner after the atomic rename.
+    // If either changed, restore the directory when possible instead of
+    // deleting a replacement owner's lock.
+    const quarantinedClaim = readOwner(join(quarantinePath, "reclaim.json"));
+    const quarantinedOwner = readOwner(join(quarantinePath, "owner.json"));
+    const stillClaimed = sameOwner(quarantinedClaim, claim);
+    const sameStaleOwner = observedOwner
+      ? sameOwner(quarantinedOwner, observedOwner)
+      : !quarantinedOwner;
+    if (!stillClaimed || !sameStaleOwner) {
+      try { renameSync(quarantinePath, lockPath); } catch {}
+      return;
+    }
+    try { rmSync(quarantinePath, { recursive: true, force: true }); } catch {}
+  } finally {
+    try {
+      const currentClaim = readOwner(claimPath);
+      if (sameOwner(currentClaim, claim)) rmSync(claimPath, { force: true });
+    } catch {}
+  }
+}
+
+function readOwner(path) {
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function sameOwner(left, right) {
+  return Boolean(left && right
+    && Number(left.pid) === Number(right.pid)
+    && left.startedAt === right.startedAt
+    && left.nonce === right.nonce);
 }
 
 function lockOwnerIsAlive(owner) {
