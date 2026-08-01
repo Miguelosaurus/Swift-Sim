@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -40,3 +40,3 @@
+                     NavigationSplitView(columnVisibility: $splitVisibility) { BenchmarkMarkerView(value: "native-split-sidebar") } detail: { BenchmarkMarkerView(value: "native-split-detail") }.navigationSplitViewStyle(.balanced)
+-                    VStack { BenchmarkMarkerView(value: "native-search"); Text("Search host") }.searchable(text: .constant(""), placement: .toolbar, prompt: "Search")
++                    VStack { BenchmarkMarkerView(caseID: "native-search", value: "native-search-edited"); Text("Find host") }.searchable(text: .constant(""), placement: .toolbar, prompt: "Search")
+                     BenchmarkMarkerView(value: "native-toolbar-role").toolbarRole(.editor)

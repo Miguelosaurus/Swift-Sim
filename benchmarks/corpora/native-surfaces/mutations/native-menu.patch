@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -21,3 +21,3 @@
+                     Text(storedSurfaceTitle).font(.headline)
+-                    Menu { Button("Menu Action") {} } label: { BenchmarkMarkerView(value: "native-menu") }
++                    Menu { Button("Updated Menu Action") {} } label: { BenchmarkMarkerView(caseID: "native-menu", value: "native-menu-edited") }
+                     BenchmarkMarkerView(value: "native-context-menu").contextMenu { Button("Context Action") {} }

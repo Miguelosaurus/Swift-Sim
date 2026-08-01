@@ -80,6 +80,7 @@ async function deviceRun(values) {
     outputDirectory: values.output,
     workload: values.workload,
     caseID: values.case,
+    expectedLane: values.lane || values["expected-lane"],
     smoke: Boolean(values.smoke),
     full: Boolean(values.full),
     seed: Number(values.seed || 1),
@@ -120,7 +121,7 @@ function printHelp() {
 Usage:
   node benchmarks/src/cli.js validate [--corpus <path>]
   node benchmarks/src/cli.js static [--corpus <path>] [--fixture <path>] [--output <path>] [--repeat 3] [--seed 1]
-  node benchmarks/src/cli.js device --project <path> --scheme <name> --device <device> [--corpus <path>] [--smoke|--full] [--seed 1] [--iterations 3] [--build-setting KEY=VALUE] [--output <path>]
+  node benchmarks/src/cli.js device --project <path> --scheme <name> --device <device> [--corpus <path>] [--smoke|--full] [--lane hot-reload|build-device] [--seed 1] [--iterations 3] [--build-setting KEY=VALUE] [--output <path>]
   node benchmarks/src/cli.js report --run <results-directory>
 `);
 }

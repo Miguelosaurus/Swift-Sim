@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -33,3 +33,3 @@
+                     ShareLink(item: "Native Surface") { BenchmarkMarkerView(value: "native-share-link") }
+-                    Toggle(isOn: .constant(true)) { BenchmarkMarkerView(value: "native-toggle") }.toggleStyle(.switch)
++                    Toggle(isOn: .constant(true)) { BenchmarkMarkerView(caseID: "native-toggle", value: "native-toggle-edited") }.toggleStyle(.button)
+                     Stepper(value: .constant(1), in: 0...3) { BenchmarkMarkerView(value: "native-stepper") }

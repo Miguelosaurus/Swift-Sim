@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -39,3 +39,3 @@
+                     ProgressView(value: 0.5) { BenchmarkMarkerView(value: "native-progress") }
+-                    NavigationSplitView(columnVisibility: $splitVisibility) { BenchmarkMarkerView(value: "native-split-sidebar") } detail: { BenchmarkMarkerView(value: "native-split-detail") }.navigationSplitViewStyle(.balanced)
++                    NavigationSplitView(columnVisibility: $splitVisibility) { BenchmarkMarkerView(caseID: "native-split-sidebar", value: "native-split-sidebar-edited") } detail: { BenchmarkMarkerView(value: "native-split-detail") }.navigationSplitViewStyle(.automatic)
+                     VStack { BenchmarkMarkerView(value: "native-search"); Text("Search host") }.searchable(text: .constant(""), placement: .toolbar, prompt: "Search")

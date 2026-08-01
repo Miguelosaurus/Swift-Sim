@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -23,3 +23,3 @@
+                     BenchmarkMarkerView(value: "native-context-menu").contextMenu { Button("Context Action") {} }
+-                    BenchmarkMarkerView(value: "native-confirmation-dialog").confirmationDialog("Confirm Action", isPresented: .constant(false), titleVisibility: .visible) { Button("Confirm") {} }
++                    BenchmarkMarkerView(caseID: "native-confirmation-dialog", value: "native-confirmation-dialog-edited").confirmationDialog("Updated Confirm Action", isPresented: .constant(false), titleVisibility: .visible) { Button("Confirm") {} }
+                     BenchmarkMarkerView(value: "native-sheet").sheet(isPresented: .constant(false)) { Text("Sheet Content").presentationDetents([.medium]) }

@@ -146,6 +146,13 @@ Swift Sim can accelerate an already-installed Debug app without turning it into 
 
 This path is validated end to end on a physical iPhone across 24 supported smoke edits and their restores, with zero fallbacks or timeouts and sub-second median latency in each UI/state workload. A supplemental 27-case Liquid Glass capability corpus also completed its focused physical gate with 27/27 edits and 27/27 restores, zero fallbacks/timeouts, and 724 ms median latency (930 ms p95). These results prove the named mechanisms and categories, not a universal percentage of app edits. Swift Sim still classifies every change and rebuilds when live Swift metadata would change.
 
+The native SwiftUI system-surface corpus extends that proof across menus,
+presentations, navigation, controls, lists, forms, search, and toolbars: 24/24
+curated hot edits and 24/24 restores completed on the physical fixture with
+zero fallback, timeout, or partial-application records (1,010 ms median,
+1,214 ms p95). See [the native-surface evidence](docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md)
+for the exact scope and build boundaries.
+
 The coding agent adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at the app's root view as a one-time project change. The user does not operate the engine or scatter Swift Sim code through the app. Release builds make the modifier a no-op.
 
 The coding-agent integration runs `swift-sim route-change` to choose the safe path:

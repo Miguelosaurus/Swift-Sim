@@ -18,6 +18,7 @@ struct BenchmarkRootView: View {
             CatalogScreen()
             if #available(iOS 26.1, *) {
                 LiquidGlassCoverageScreen()
+                NativeSurfaceCoverageScreen()
             }
         }
         #elseif STATE_APP

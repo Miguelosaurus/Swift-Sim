@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -32,3 +32,3 @@
+                     Form { Section("Native Form") { BenchmarkMarkerView(value: "native-form") } }.formStyle(.grouped).frame(height: 120)
+-                    ShareLink(item: "Native Surface") { BenchmarkMarkerView(value: "native-share-link") }
++                    ShareLink(item: "Updated Surface") { BenchmarkMarkerView(caseID: "native-share-link", value: "native-share-link-edited") }
+                     Toggle(isOn: .constant(true)) { BenchmarkMarkerView(value: "native-toggle") }.toggleStyle(.switch)

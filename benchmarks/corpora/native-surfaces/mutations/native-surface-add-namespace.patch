@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -12,3 +12,3 @@
+     // extra-state-slot
+-    // extra-namespace-slot
++    @Namespace private var extraSurfaceNamespace
+     // extra-member-slot

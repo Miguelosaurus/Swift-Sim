@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -6,3 +6,3 @@
+ @available(iOS 26.1, *)
+-struct NativeSurfaceCoverageScreen: View {
++@MainActor struct NativeSurfaceCoverageScreen: View {
+     @State private var nativePath: [String] = []

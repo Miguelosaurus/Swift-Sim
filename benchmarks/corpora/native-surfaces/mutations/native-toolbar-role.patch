@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -41,3 +41,3 @@
+                     VStack { BenchmarkMarkerView(value: "native-search"); Text("Search host") }.searchable(text: .constant(""), placement: .toolbar, prompt: "Search")
+-                    BenchmarkMarkerView(value: "native-toolbar-role").toolbarRole(.editor)
++                    BenchmarkMarkerView(caseID: "native-toolbar-role", value: "native-toolbar-role-edited").toolbarRole(.browser)
+                     BenchmarkMarkerView(value: "native-toolbar-title").navigationBarTitleDisplayMode(.inline)

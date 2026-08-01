@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -11,3 +11,3 @@
+     private let storedSurfaceTitle: String = "Native surfaces"
+-    // extra-state-slot
++    @State private var extraSurfaceState = false
+     // extra-namespace-slot

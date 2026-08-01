@@ -57,6 +57,10 @@ remain ordinary body replacements. See Apple's
 and [SwiftUI updates](https://developer.apple.com/documentation/updates/swiftui)
 documentation.
 
+The broader native system-surface matrix (menus, controls, navigation, search,
+forms, and presentation modifiers) is tracked separately in
+[NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md](NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md).
+
 The enabled bottom-accessory overload is iOS 26.1 or newer in the installed
 SDK, so the focused fixture is explicitly availability-gated at iOS 26.1. The
 main benchmark app keeps its existing deployment target and shows the focused

@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -25,3 +25,3 @@
+                     BenchmarkMarkerView(value: "native-sheet").sheet(isPresented: .constant(false)) { Text("Sheet Content").presentationDetents([.medium]) }
+-                    BenchmarkMarkerView(value: "native-popover").popover(isPresented: .constant(false)) { Text("Popover Content") }
++                    BenchmarkMarkerView(caseID: "native-popover", value: "native-popover-edited").popover(isPresented: .constant(false)) { Text("Updated Popover Content") }
+                     BenchmarkMarkerView(value: "native-navigation-stack").navigationTitle("Navigation")

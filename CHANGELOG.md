@@ -10,6 +10,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Unsigned iOS Simulator fixture builds for Catalog, State, and Architecture workloads plus resumable sanitized JSONL reports.
 - A supplemental 34-case Liquid Glass corpus covering 27 current SwiftUI glass and adjacent system-surface edits plus seven structural rebuild controls.
 - A focused physical Liquid Glass gate covering 27/27 hot edits and 27/27 baseline restores with zero fallbacks, timeouts, or partial applications (724 ms median, 930 ms p95).
+- A 31-case native SwiftUI system-surface corpus covering menus, presentations, navigation, controls, lists, forms, search, and toolbars, with seven explicit rebuild controls.
+- A clean physical native-surface gate covering 24/24 hot edits and 24/24 baseline restores with zero fallbacks, timeouts, or partial applications (1,010 ms median, 1,214 ms p95), plus lane-aware full core workload commands.
 
 ## 0.5.0 - 2026-07-22
 

@@ -1,0 +1,500 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "native-surfaces-1",
+  "fixtureRevision": "native-surfaces-fixture-1",
+  "metadata": {
+    "totalCases": 31,
+    "expectedHotReload": 24,
+    "expectedRebuild": 7,
+    "authoringErrors": 0,
+    "multiFileOperations": 0,
+    "smokeHotCases": 24
+  },
+  "cases": [
+    {
+      "id": "native-menu",
+      "workload": "CatalogApp",
+      "category": "native-menu-content",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-menu",
+        "value": "native-menu-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-menu.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-context-menu",
+      "workload": "CatalogApp",
+      "category": "native-context-menu",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-context-menu",
+        "value": "native-context-menu-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-context-menu.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-confirmation-dialog",
+      "workload": "CatalogApp",
+      "category": "native-confirmation-dialog",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-confirmation-dialog",
+        "value": "native-confirmation-dialog-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-confirmation-dialog.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-sheet",
+      "workload": "CatalogApp",
+      "category": "native-sheet-presentation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-sheet",
+        "value": "native-sheet-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-sheet.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-popover",
+      "workload": "CatalogApp",
+      "category": "native-popover-presentation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-popover",
+        "value": "native-popover-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-popover.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-navigation-stack",
+      "workload": "CatalogApp",
+      "category": "native-navigation-stack",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-navigation-stack",
+        "value": "native-navigation-stack-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-navigation-stack.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-navigation-link",
+      "workload": "CatalogApp",
+      "category": "native-navigation-link",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-navigation-link",
+        "value": "native-navigation-link-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-navigation-link.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-picker",
+      "workload": "CatalogApp",
+      "category": "native-picker-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-picker",
+        "value": "native-picker-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-picker.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-control-group",
+      "workload": "CatalogApp",
+      "category": "native-control-group-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-control-group",
+        "value": "native-control-group-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-control-group.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-list",
+      "workload": "CatalogApp",
+      "category": "native-list-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-list",
+        "value": "native-list-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-list.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-form",
+      "workload": "CatalogApp",
+      "category": "native-form-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-form",
+        "value": "native-form-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-form.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-share-link",
+      "workload": "CatalogApp",
+      "category": "native-share-link-content",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-share-link",
+        "value": "native-share-link-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-share-link.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-toggle",
+      "workload": "CatalogApp",
+      "category": "native-toggle-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-toggle",
+        "value": "native-toggle-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-toggle.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-stepper",
+      "workload": "CatalogApp",
+      "category": "native-stepper-range",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-stepper",
+        "value": "native-stepper-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-stepper.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-slider",
+      "workload": "CatalogApp",
+      "category": "native-slider-value",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-slider",
+        "value": "native-slider-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-slider.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-date-picker",
+      "workload": "CatalogApp",
+      "category": "native-date-picker-selection",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-date-picker",
+        "value": "native-date-picker-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-date-picker.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-text-field",
+      "workload": "CatalogApp",
+      "category": "native-text-field-label",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-text-field",
+        "value": "native-text-field-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-text-field.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-progress",
+      "workload": "CatalogApp",
+      "category": "native-progress-value",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-progress",
+        "value": "native-progress-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-progress.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-split-sidebar",
+      "workload": "CatalogApp",
+      "category": "native-split-style",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-split-sidebar",
+        "value": "native-split-sidebar-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-split-sidebar.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-search",
+      "workload": "CatalogApp",
+      "category": "native-search-prompt",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-search",
+        "value": "native-search-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-search.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-toolbar-role",
+      "workload": "CatalogApp",
+      "category": "native-toolbar-role",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-toolbar-role",
+        "value": "native-toolbar-role-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-toolbar-role.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-toolbar-title",
+      "workload": "CatalogApp",
+      "category": "native-toolbar-title",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-toolbar-title",
+        "value": "native-toolbar-title-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-toolbar-title.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-presentation-detent",
+      "workload": "CatalogApp",
+      "category": "native-presentation-detent",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-presentation-detent",
+        "value": "native-presentation-detent-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-presentation-detent.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-presentation-drag",
+      "workload": "CatalogApp",
+      "category": "native-presentation-drag",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "swiftui-body",
+      "oracle": {
+        "case": "native-presentation-drag",
+        "value": "native-presentation-drag-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/native-presentation-drag.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-surface-stored-property",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/native-surface-stored-property.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-surface-add-state",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/native-surface-add-state.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-surface-add-namespace",
+      "workload": "CatalogApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/native-surface-add-namespace.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-surface-add-member",
+      "workload": "CatalogApp",
+      "category": "declaration-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/native-surface-add-member.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-surface-add-attribute",
+      "workload": "CatalogApp",
+      "category": "declaration-attribute",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/native-surface-add-attribute.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-surface-conformance",
+      "workload": "CatalogApp",
+      "category": "type-shape",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/native-surface-conformance.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    },
+    {
+      "id": "native-surface-import",
+      "workload": "CatalogApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/native-surface-import.patch",
+      "baselineHashes": {
+        "CatalogApp/NativeSurfaceCoverageScreen.swift": "da2841a1197cec1430f151e32fbfba6a7b7e07f2fc29f6444649ac30465a619d"
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -31,3 +31,3 @@
+                     List { Section("Native List") { BenchmarkMarkerView(value: "native-list") } }.listStyle(.insetGrouped).frame(height: 120)
+-                    Form { Section("Native Form") { BenchmarkMarkerView(value: "native-form") } }.formStyle(.grouped).frame(height: 120)
++                    Form { Section("Native Form") { BenchmarkMarkerView(caseID: "native-form", value: "native-form-edited") } }.formStyle(.automatic).frame(height: 120)
+                     ShareLink(item: "Native Surface") { BenchmarkMarkerView(value: "native-share-link") }

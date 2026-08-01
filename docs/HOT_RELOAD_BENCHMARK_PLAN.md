@@ -7,11 +7,15 @@ Implementation profile: deterministic Node tooling plus disposable SwiftUI fixtu
 
 Implementation checkpoint: Phases 1–3 are complete, and the Phase 3 fixture
 apps/oracle implementation is in place with all three unsigned Simulator builds
-passing. The core three-workload physical smoke gate is complete (24/24 edits
-and 24/24 restores), and the supplemental Liquid Glass physical gate is also
-complete (27/27 edits and 27/27 restores). The full 120-hot-case, three-seeded
-run and chronological real-app dogfood remain intentionally pending; no
-Simulator or static result is a substitute for those broader gates.
+passing. The supplemental Liquid Glass physical gate is complete (27/27 edits
+and 27/27 restores), and the native-system-surface gate is complete (24/24
+edits and 24/24 restores). Independent one-iteration core lanes have now
+covered all 120 distinct hot cases on the physical fixture: CatalogApp 50/50,
+StateApp 40/40, and ArchitectureApp's 30 cases each semantically observed in a
+clean session. The long batch run also recorded three transport/session
+failures; those records remain preserved rather than being counted as passes.
+The three-seeded stress run and chronological real-app dogfood remain broader
+reliability gates; no Simulator or static result is a substitute for them.
 
 ## Objective
 
@@ -251,6 +255,14 @@ benchmarks/
       corpus.json
       mutations/
         <case-id>.patch
+    liquid-glass/
+      corpus.json
+      mutations/
+        <case-id>.patch
+    native-surfaces/
+      corpus.json
+      mutations/
+        <case-id>.patch
   fixtures/
     HotReloadBenchmarks.xcodeproj/
     Shared/
@@ -272,6 +284,8 @@ benchmarks/
     sanitize.js
   test/
     corpus.test.js
+    liquidGlass.test.js
+    nativeSurfaces.test.js
     fixtureWorkspace.test.js
     runner.test.js
     statistics.test.js
@@ -282,6 +296,14 @@ benchmarks/
 ```
 
 Generated content under `benchmarks/results/` is gitignored except `.gitkeep`.
+
+The lane selector is explicit: --lane hot-reload filters a device run to
+implementation-only cases, while --lane build-device is available for
+build-boundary runs. This prevents structural controls from silently changing
+a hot-reload reliability denominator.
+
+The current scoped core-device evidence is recorded in
+[`CORE_HOT_RELOAD_PHYSICAL_RESULTS.md`](CORE_HOT_RELOAD_PHYSICAL_RESULTS.md).
 The implementation uses Node 20 built-ins and the existing Swift/Xcode tools;
 do not add a runtime dependency merely for argument parsing, statistics, JSONL,
 or patch orchestration.

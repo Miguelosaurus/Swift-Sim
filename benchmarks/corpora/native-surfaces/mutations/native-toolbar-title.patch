@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -42,3 +42,3 @@
+                     BenchmarkMarkerView(value: "native-toolbar-role").toolbarRole(.editor)
+-                    BenchmarkMarkerView(value: "native-toolbar-title").navigationBarTitleDisplayMode(.inline)
++                    BenchmarkMarkerView(caseID: "native-toolbar-title", value: "native-toolbar-title-edited").navigationBarTitleDisplayMode(.large)
+                     BenchmarkMarkerView(value: "native-presentation-detent").sheet(isPresented: .constant(false)) { Text("Detent Content").presentationDetents([.medium]) }

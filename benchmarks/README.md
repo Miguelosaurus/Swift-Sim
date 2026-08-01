@@ -13,6 +13,8 @@ npm run benchmark:validate
 npm run benchmark:static -- --output /tmp/swift-sim-static
 npm run benchmark:validate:liquid-glass
 npm run benchmark:static:liquid-glass
+npm run benchmark:validate:native-surfaces
+npm run benchmark:static:native-surfaces
 npm run benchmark:report -- --run /tmp/swift-sim-static
 ```
 
@@ -28,8 +30,9 @@ iPhone. It runs `swift-sim doctor`, creates a live-enabled Debug device build,
 launches the fixture with `devicectl` console capture, waits for the baseline
 marker, applies the seeded edit set, verifies the request/replacement/root
 refresh/revision/oracle marker, and restores the baseline before continuing.
-The scheme selects the matching workload; run the smoke lane once for each
-scheme to cover all 24 smoke-marked cases.
+The scheme selects the matching workload. Use --lane hot-reload for a full
+implementation-only device lane; use --smoke for the small marked probe. The
+supplemental native-system-surface corpus is a separate CatalogApp lane.
 
 ```sh
 npm run benchmark:device -- \
@@ -39,6 +42,27 @@ npm run benchmark:device -- \
   --build-setting DEVELOPMENT_TEAM=<team supplied at run time> \
   --smoke
 ```
+
+Full core hot-reload lanes are run independently per workload so a transport
+restart cannot contaminate the next workload:
+
+~~~sh
+npm run benchmark:device -- \
+  --corpus benchmarks/corpora/core/corpus.json \
+  --project benchmarks/fixtures/HotReloadBenchmarks.xcodeproj \
+  --scheme CatalogApp \
+  --device "<exact trusted iPhone name>" \
+  --build-setting DEVELOPMENT_TEAM=<team supplied at run time> \
+  --lane hot-reload --iterations 1
+~~~
+
+Repeat the command with StateApp and ArchitectureApp. The Architecture
+workload contains multi-file and generic/actor cases; if a console session
+drops, preserve the failed record, rebuild the disposable baseline, and rerun
+the affected case from a fresh live session.
+
+The August 1, 2026 core evidence is summarized in
+[`docs/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md`](../docs/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md).
 
 Never use a Simulator or screenshot as device proof. Device output remains
 local; exported records redact paths, identifiers, signing metadata, Tailnet
@@ -58,3 +82,7 @@ while covering 27 current SwiftUI Liquid Glass and adjacent system-surface
 edits plus seven structural rebuild controls. Its scope and evidence levels are
 documented in
 [`docs/LIQUID_GLASS_HOT_RELOAD.md`](../docs/LIQUID_GLASS_HOT_RELOAD.md).
+
+The native-surfaces-1 corpus covers 24 native SwiftUI system-surface edits and
+seven rebuild controls. Its API matrix and physical evidence are documented in
+[`docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md`](../docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md).

@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -44,3 +44,3 @@
+                     BenchmarkMarkerView(value: "native-presentation-detent").sheet(isPresented: .constant(false)) { Text("Detent Content").presentationDetents([.medium]) }
+-                    BenchmarkMarkerView(value: "native-presentation-drag").sheet(isPresented: .constant(false)) { Text("Drag Content").presentationDragIndicator(.visible) }
++                    BenchmarkMarkerView(caseID: "native-presentation-drag", value: "native-presentation-drag-edited").sheet(isPresented: .constant(false)) { Text("Drag Content").presentationDragIndicator(.hidden) }
+                 }

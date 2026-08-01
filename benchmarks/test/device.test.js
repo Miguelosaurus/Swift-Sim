@@ -31,6 +31,7 @@ test("device runner proves a hot edit and baseline restore through injected adap
       device: "test-device",
       outputDirectory,
       caseID: "copy-literal-01",
+      expectedLane: "hot-reload",
       adapters: {
         doctor: async () => ({ deviceInstalls: { ready: true }, remoteHotReload: { ready: true } }),
         selectDevice: async () => ({ identifier: "test-device" }),

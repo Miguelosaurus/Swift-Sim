@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -27,3 +27,3 @@
+                     BenchmarkMarkerView(value: "native-navigation-stack").navigationTitle("Navigation")
+-                    NavigationLink(value: "detail") { BenchmarkMarkerView(value: "native-navigation-link") }
++                    NavigationLink(value: "updated-detail") { BenchmarkMarkerView(caseID: "native-navigation-link", value: "native-navigation-link-edited") }
+                     VStack { BenchmarkMarkerView(value: "native-picker"); Picker("Native Picker", selection: .constant("one")) { Text("One").tag("one"); Text("Two").tag("two") } }.pickerStyle(.segmented)

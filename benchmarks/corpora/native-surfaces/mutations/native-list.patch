@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -30,3 +30,3 @@
+                     ControlGroup { Button {} label: { BenchmarkMarkerView(value: "native-control-group") }; Button("Second") {} }.controlGroupStyle(.menu)
+-                    List { Section("Native List") { BenchmarkMarkerView(value: "native-list") } }.listStyle(.insetGrouped).frame(height: 120)
++                    List { Section("Native List") { BenchmarkMarkerView(caseID: "native-list", value: "native-list-edited") } }.listStyle(.plain).frame(height: 120)
+                     Form { Section("Native Form") { BenchmarkMarkerView(value: "native-form") } }.formStyle(.grouped).frame(height: 120)

@@ -24,6 +24,7 @@ export async function runDeviceBenchmark({
   outputDirectory,
   workload,
   caseID,
+  expectedLane,
   smoke = false,
   full = false,
   seed = 1,
@@ -44,6 +45,7 @@ export async function runDeviceBenchmark({
   const selected = selectCases(loaded.corpus.cases, {
     workload: workload || workloadForScheme(loaded.corpus.cases, scheme),
     caseID,
+    expectedLane,
     smoke,
     full,
   });
@@ -421,10 +423,11 @@ export async function waitForMarker(session, oracle, expected, timeoutMs = 60_00
   throw Object.assign(new Error(`Timed out waiting for marker ${expectedCase}.`), { code: "PATCH_TIMEOUT" });
 }
 
-function selectCases(cases, { workload, caseID, smoke, full }) {
+function selectCases(cases, { workload, caseID, expectedLane, smoke, full }) {
   return cases.filter((benchmarkCase) => {
     if (caseID && benchmarkCase.id !== caseID) return false;
     if (workload && benchmarkCase.workload !== workload) return false;
+    if (expectedLane && benchmarkCase.expectedLane !== expectedLane) return false;
     if (smoke && !benchmarkCase.smoke) return false;
     if (!full && !smoke && benchmarkCase.validity === "authoring-error") return false;
     return true;

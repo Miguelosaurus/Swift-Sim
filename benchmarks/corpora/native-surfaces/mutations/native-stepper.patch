@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -34,3 +34,3 @@
+                     Toggle(isOn: .constant(true)) { BenchmarkMarkerView(value: "native-toggle") }.toggleStyle(.switch)
+-                    Stepper(value: .constant(1), in: 0...3) { BenchmarkMarkerView(value: "native-stepper") }
++                    Stepper(value: .constant(1), in: 0...5) { BenchmarkMarkerView(caseID: "native-stepper", value: "native-stepper-edited") }
+                     VStack { BenchmarkMarkerView(value: "native-slider"); Slider(value: .constant(0.5), in: 0...1) }

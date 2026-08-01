@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -35,3 +35,3 @@
+                     Stepper(value: .constant(1), in: 0...3) { BenchmarkMarkerView(value: "native-stepper") }
+-                    VStack { BenchmarkMarkerView(value: "native-slider"); Slider(value: .constant(0.5), in: 0...1) }
++                    VStack { BenchmarkMarkerView(caseID: "native-slider", value: "native-slider-edited"); Slider(value: .constant(0.75), in: 0...1) }
+                     DatePicker(selection: .constant(Date()), displayedComponents: .date) { BenchmarkMarkerView(value: "native-date-picker") }

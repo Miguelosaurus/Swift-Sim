@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -26,3 +26,3 @@
+                     BenchmarkMarkerView(value: "native-popover").popover(isPresented: .constant(false)) { Text("Popover Content") }
+-                    BenchmarkMarkerView(value: "native-navigation-stack").navigationTitle("Navigation")
++                    BenchmarkMarkerView(caseID: "native-navigation-stack", value: "native-navigation-stack-edited").navigationTitle("Explore")
+                     NavigationLink(value: "detail") { BenchmarkMarkerView(value: "native-navigation-link") }

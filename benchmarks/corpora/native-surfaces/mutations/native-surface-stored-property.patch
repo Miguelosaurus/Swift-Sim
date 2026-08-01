@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -10,3 +10,3 @@
+     @Namespace private var nativeNamespace
+-    private let storedSurfaceTitle: String = "Native surfaces"
++    private let storedSurfaceTitle: String = "Updated surfaces"
+     // extra-state-slot

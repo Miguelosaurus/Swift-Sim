@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -38,3 +38,3 @@
+                     VStack { BenchmarkMarkerView(value: "native-text-field"); TextField("Native Field", text: .constant("")) }
+-                    ProgressView(value: 0.5) { BenchmarkMarkerView(value: "native-progress") }
++                    ProgressView(value: 0.75) { BenchmarkMarkerView(caseID: "native-progress", value: "native-progress-edited") }
+                     NavigationSplitView(columnVisibility: $splitVisibility) { BenchmarkMarkerView(value: "native-split-sidebar") } detail: { BenchmarkMarkerView(value: "native-split-detail") }.navigationSplitViewStyle(.balanced)

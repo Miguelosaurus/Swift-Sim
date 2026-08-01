@@ -1,0 +1,8 @@
+diff --git a/CatalogApp/NativeSurfaceCoverageScreen.swift b/CatalogApp/NativeSurfaceCoverageScreen.swift
+--- a/CatalogApp/NativeSurfaceCoverageScreen.swift
++++ b/CatalogApp/NativeSurfaceCoverageScreen.swift
+@@ -22,3 +22,3 @@
+                     Menu { Button("Menu Action") {} } label: { BenchmarkMarkerView(value: "native-menu") }
+-                    BenchmarkMarkerView(value: "native-context-menu").contextMenu { Button("Context Action") {} }
++                    BenchmarkMarkerView(caseID: "native-context-menu", value: "native-context-menu-edited").contextMenu { Button("Updated Context Action") {} }
+                     BenchmarkMarkerView(value: "native-confirmation-dialog").confirmationDialog("Confirm Action", isPresented: .constant(false), titleVisibility: .visible) { Button("Confirm") {} }
