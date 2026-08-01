@@ -60,10 +60,11 @@ jobs:
         name: Commit fail-closed diagnostic
         run: |
           git reset --hard HEAD
+          git checkout c7090b14c6f1fd12af9c311b1954b79b00c415ac -- .github/workflows/verify.yml
           cp /tmp/main-post-merge-workspace-fix.log docs/MAIN_POST_MERGE_WORKSPACE_FIX_ERROR.log
           git config user.name "swift-sim-review-bot"
           git config user.email "swift-sim-review-bot@users.noreply.github.com"
-          git add docs/MAIN_POST_MERGE_WORKSPACE_FIX_ERROR.log
+          git add .github/workflows/verify.yml docs/MAIN_POST_MERGE_WORKSPACE_FIX_ERROR.log
           git commit -m "Record workspace fix failure"
           git push origin HEAD:agent/main-post-merge-review-round-1
       - if: steps.guard.outputs.run == '1' && steps.apply.outputs.status == '0'
@@ -75,6 +76,7 @@ jobs:
             scripts/main_post_merge_classifier_fix.py \
             .github/workflows/main-post-merge-workspace-fix.yml
           git rm -f docs/MAIN_POST_MERGE_WORKSPACE_FIX_ERROR.log
+          git checkout c7090b14c6f1fd12af9c311b1954b79b00c415ac -- .github/workflows/verify.yml
           git config user.name "swift-sim-review-bot"
           git config user.email "swift-sim-review-bot@users.noreply.github.com"
           git add -A
