@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import {
   classifySwiftSource,
   LIVE_REASON_CODES,
+  selectLiveScheme,
+  workspaceProjectReferences,
   xcodeContainerArguments,
 } from "../mac-helper/src/liveReload.js";
 
@@ -66,6 +68,32 @@ test("live reload selects project and workspace containers correctly", () => {
     xcodeContainerArguments("/tmp/App.xcworkspace/contents.xcworkspacedata"),
     ["-workspace", "/tmp/App.xcworkspace"],
   );
+  assert.deepEqual(
+    xcodeContainerArguments("/tmp/App.xcworkspace/contents.xcworkspacedata", "App"),
+    ["-workspace", "/tmp/App.xcworkspace", "-scheme", "App"],
+  );
+});
+
+test("workspace project references resolve beside the workspace", () => {
+  const source = `<Workspace><FileRef location="group:App.xcodeproj"></FileRef></Workspace>`;
+  assert.deepEqual(
+    workspaceProjectReferences(source, "/tmp/Repo/App.xcworkspace/contents.xcworkspacedata"),
+    ["/tmp/Repo/App.xcodeproj/project.pbxproj"],
+  );
+});
+
+test("workspace schemes are selected safely", () => {
+  assert.deepEqual(
+    selectLiveScheme("/tmp/App.xcworkspace/contents.xcworkspacedata", "", ["App"]),
+    { scheme: "App", availableSchemes: ["App"], required: false, error: "" },
+  );
+  const ambiguous = selectLiveScheme(
+    "/tmp/App.xcworkspace/contents.xcworkspacedata",
+    "",
+    ["App", "Tests"],
+  );
+  assert.equal(ambiguous.required, true);
+  assert.match(ambiguous.error, /--scheme/);
 });
 
 
@@ -96,4 +124,35 @@ test("live engine inspection is serialized with replacement", () => {
     /export async function inspectLiveReload\(options = \{\}\) \{\n  return withLiveEngineLifecycleLock/,
   );
   assert.match(source, /let status = await inspectLiveReloadUnlocked/);
+});
+
+
+test("deeply nested attribute arguments require a rebuild", () => {
+  const before = `struct Model {
+  @Wrapper(configuration: .init(value: .init(raw: 1)))
+  var value: Int
+}`;
+  const after = before.replace("raw: 1", "raw: 2");
+  assert.equal(classifySwiftSource(before, after).hotReloadable, false);
+});
+
+test("multiline attribute arguments require a rebuild", () => {
+  const before = `struct Model {
+  @Wrapper(
+    configuration: .init(
+      value: 1
+    )
+  )
+  var value: Int
+}`;
+  const after = before.replace("value: 1", "value: 2");
+  assert.equal(classifySwiftSource(before, after).hotReloadable, false);
+});
+
+test("attribute-looking text in strings and comments does not change the surface", () => {
+  const before = `func value() -> String { "@Wrapper(value: 1)" } // @Other(value: 1)`;
+  const after = `func value() -> String { "@Wrapper(value: 2)" } // @Other(value: 2)`;
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, true);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.IMPLEMENTATION_ONLY);
 });

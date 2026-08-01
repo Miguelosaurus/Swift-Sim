@@ -856,11 +856,31 @@ final class SessionStore: ObservableObject {
         ownerPairingID == pairedMacID
     }
 
+    static func connectionDiagnosticsAreCurrent(
+        currentMac: PairedMac?,
+        expectedMac: PairedMac?,
+        currentPairingRevision: UInt64,
+        expectedPairingRevision: UInt64,
+        currentSimulatorViewRevision: UInt64,
+        expectedSimulatorViewRevision: UInt64
+    ) -> Bool {
+        pairingContextIsCurrent(
+            current: currentMac,
+            expected: expectedMac,
+            currentRevision: currentPairingRevision,
+            expectedRevision: expectedPairingRevision
+        ) && revisionIsCurrent(
+            current: currentSimulatorViewRevision,
+            expected: expectedSimulatorViewRevision
+        )
+    }
+
     func refreshConnectionChecks() async {
         connectionChecksRevision &+= 1
         let checkRevision = connectionChecksRevision
         let expectedMac = pairedMac
         let expectedPairingRevision = pairingRevision
+        let expectedSimulatorViewRevision = deviceBuildViewRevision
         let recentSnapshot = recentSessions
         guard let baseURL = Self.preferredConnectionBaseURL(
             paired: expectedMac?.baseURL,
@@ -874,7 +894,7 @@ final class SessionStore: ObservableObject {
 
         tailscaleCheck = .checking("Checking Tailscale")
         macHelperCheck = .checking("Looking for Swift Sim on your Mac")
-        simulatorCheck = recentSessions.isEmpty
+        simulatorCheck = recentSnapshot.isEmpty
             ? .notConfigured("Open a Simulator link in Swift Sim")
             : .checking("Checking saved Simulator previews")
 
@@ -945,11 +965,13 @@ final class SessionStore: ObservableObject {
         }
 
         guard Self.revisionIsCurrent(current: connectionChecksRevision, expected: checkRevision),
-              Self.pairingContextIsCurrent(
-                current: pairedMac,
-                expected: expectedMac,
-                currentRevision: pairingRevision,
-                expectedRevision: expectedPairingRevision
+              Self.connectionDiagnosticsAreCurrent(
+                currentMac: pairedMac,
+                expectedMac: expectedMac,
+                currentPairingRevision: pairingRevision,
+                expectedPairingRevision: expectedPairingRevision,
+                currentSimulatorViewRevision: deviceBuildViewRevision,
+                expectedSimulatorViewRevision: expectedSimulatorViewRevision
               ) else { return }
 
         if let availableSession {

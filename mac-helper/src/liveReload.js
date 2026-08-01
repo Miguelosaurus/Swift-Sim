@@ -200,6 +200,15 @@ export function classifySwiftSource(before, after, paths = {}) {
       LIVE_REASON_CODES.DECLARATION_CHANGED,
     );
   }
+  if (beforeSurface.attributes !== afterSurface.attributes) {
+    return result(
+      "rebuild-required",
+      false,
+      "A declaration attribute or property-wrapper argument changed.",
+      paths,
+      LIVE_REASON_CODES.DECLARATION_CHANGED,
+    );
+  }
   if (beforeSurface.modifiers !== afterSurface.modifiers) {
     return result(
       "rebuild-required",
@@ -250,16 +259,18 @@ export async function inspectLiveReload(options = {}) {
   return withLiveEngineLifecycleLock(() => inspectLiveReloadUnlocked(options));
 }
 
-async function inspectLiveReloadUnlocked({ project = "", host = "" } = {}) {
+async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" } = {}) {
   const requestedProjectPath = project ? resolve(project) : "";
   const projectPath = requestedProjectPath && existsSync(requestedProjectPath)
     && statSync(requestedProjectPath).isDirectory()
     && (requestedProjectPath.endsWith(".xcodeproj") || requestedProjectPath.endsWith(".xcworkspace"))
     ? join(requestedProjectPath, requestedProjectPath.endsWith(".xcodeproj") ? "project.pbxproj" : "contents.xcworkspacedata")
     : requestedProjectPath;
-  const projectSource = projectPath && existsSync(projectPath)
-    ? readFileSync(projectPath, "utf8")
-    : "";
+  const projectSource = liveProjectDefinitionSource(projectPath);
+  const availableSchemes = isWorkspaceProjectPath(projectPath)
+    ? listedLiveSchemes(projectPath)
+    : [];
+  const schemeSelection = selectLiveScheme(projectPath, scheme, availableSchemes);
   const tailnet = host
     ? { command: "", prefix: [], socket: "", host }
     : discoverTailnet();
@@ -280,6 +291,7 @@ async function inspectLiveReloadUnlocked({ project = "", host = "" } = {}) {
     tailscaleHost
     && packageConfigured
     && engineInstalled
+    && !schemeSelection.error
   );
 
   return {
@@ -322,6 +334,10 @@ async function inspectLiveReloadUnlocked({ project = "", host = "" } = {}) {
       packageConfigured,
       interposableConfigured,
       buildSettingsManagedBySwiftSim: packageConfigured,
+      scheme: schemeSelection.scheme,
+      availableSchemes: schemeSelection.availableSchemes,
+      schemeRequired: schemeSelection.required,
+      schemeError: schemeSelection.error,
     },
     requiredBuildSettings: {
       configuration: "Debug",
@@ -519,15 +535,18 @@ export async function startLiveReload(options = {}) {
   return withLiveEngineLifecycleLock(() => startLiveReloadUnlocked(options));
 }
 
-async function startLiveReloadUnlocked({ project = "", host = "", forceRestart = false } = {}) {
+async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", forceRestart = false } = {}) {
   await ensureLiveEngineInstalledUnlocked();
-  let status = await inspectLiveReloadUnlocked({ project, host });
+  let status = await inspectLiveReloadUnlocked({ project, host, scheme });
   if (!status.project.readable) {
     return {
       ...status,
       started: false,
-      error: "Pass the path to an .xcodeproj/project.pbxproj file.",
+      error: "Pass the path to an .xcodeproj/project.pbxproj or .xcworkspace/contents.xcworkspacedata file.",
     };
+  }
+  if (status.project.schemeError) {
+    return { ...status, started: false, error: status.project.schemeError };
   }
   if (!status.host) {
     return { ...status, started: false, error: "Connect this Mac to Tailscale first." };
@@ -542,7 +561,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", forceRestart =
 
   const tailnet = discoverTailnet();
   if (tailnet.socket) ensurePrivateTailnetForward(tailnet);
-  const signingIdentities = resolveSigningIdentities(status.project.path);
+  const signingIdentities = resolveSigningIdentities(status.project.path, status.project.scheme);
   if (signingIdentities.length === 0) {
     return {
       ...status,
@@ -578,6 +597,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", forceRestart =
     )
     && running.data?.codesigning_identity_configured
     && session?.projectRoot === status.project.root
+    && session?.scheme === status.project.scheme
     && session?.signingIdentity === signingIdentity
     && session?.engineVersion === ENGINE_VERSION;
   if (!alreadyWatching) {
@@ -607,6 +627,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", forceRestart =
     writeFileSync(ENGINE_PID, `${child.pid}\n`, { mode: 0o600 });
     writeFileSync(ENGINE_SESSION, `${JSON.stringify({
       projectRoot: status.project.root,
+      scheme: status.project.scheme,
       signingIdentity,
       engineVersion: ENGINE_VERSION,
     }, null, 2)}\n`, { mode: 0o600 });
@@ -622,7 +643,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", forceRestart =
   if (control?.success && !alreadyWatching) {
     await primeEngineWatcher(status.project.root);
   }
-  status = await inspectLiveReloadUnlocked({ project, host });
+  status = await inspectLiveReloadUnlocked({ project, host, scheme });
   return {
     ...status,
     started: Boolean(control?.success),
@@ -705,16 +726,17 @@ async function primeEngineWatcher(projectRoot) {
   }
 }
 
-export async function routeLiveChange({ beforePath, afterPath, project = "", host = "" }) {
+export async function routeLiveChange({ beforePath, afterPath, project = "", host = "", scheme = "" }) {
   return routeLiveChanges({
     beforePaths: [beforePath],
     afterPaths: [afterPath],
     project,
     host,
+    scheme,
   });
 }
 
-export async function routeLiveChanges({ beforePaths = [], afterPaths = [], project = "", host = "", runtime } = {}) {
+export async function routeLiveChanges({ beforePaths = [], afterPaths = [], project = "", host = "", scheme = "", runtime } = {}) {
   if (beforePaths.length === 0 || beforePaths.length !== afterPaths.length) {
     throw new Error("Pass the same nonzero number of --before and --after Swift files.");
   }
@@ -728,12 +750,13 @@ export async function routeLiveChanges({ beforePaths = [], afterPaths = [], proj
     })),
     project,
     host,
+    scheme,
     runtime,
   });
 }
 
 export async function routeLiveEditSet(options = {}) {
-  const { runtime = {}, project = "", host = "" } = options;
+  const { runtime = {}, project = "", host = "", scheme = "" } = options;
   const injectedLifecycle = Boolean(runtime.inspect || runtime.inject || runtime.preflight);
   const recoveryEnabled = runtime.disableRecovery !== true
     && Number(runtime.recoveryAttempt || 0) < 1
@@ -741,7 +764,7 @@ export async function routeLiveEditSet(options = {}) {
   const result = await routeLiveEditSetOnce({ ...options, runtime: { ...runtime, disableRecovery: true } });
   if (!recoveryEnabled || !shouldAttemptProductionRecovery(result)) return result;
 
-  const recovery = await (runtime.recover || defaultRecoverLiveSession)({ project, host });
+  const recovery = await (runtime.recover || defaultRecoverLiveSession)({ project, host, scheme });
   if (!recovery?.ready) {
     return {
       ...result,
@@ -771,7 +794,7 @@ export async function routeLiveEditSet(options = {}) {
   };
 }
 
-async function routeLiveEditSetOnce({ files = [], project = "", host = "", runtime = {} } = {}) {
+async function routeLiveEditSetOnce({ files = [], project = "", host = "", scheme = "", runtime = {} } = {}) {
   const now = runtime.now || (() => Date.now());
   const startedAt = now();
   const requestId = runtime.requestId || randomUUID();
@@ -781,7 +804,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
   const classificationMs = Math.max(0, now() - startedAt);
   const inspect = runtime.inspect || ((options) => inspectLiveReload(options));
   const inject = runtime.inject || ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options }));
-  const live = await inspect({ project, host });
+  const live = await inspect({ project, host, scheme });
 
   if (change.route === "no-change") {
     return routeResult({
@@ -829,7 +852,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
           action: "hot-reload-failed",
           change,
           reasonCode: patchFailureReason(patch),
-          live: await inspect({ project, host }),
+          live: await inspect({ project, host, scheme }),
           patch,
           patches,
           patchBundle: {
@@ -854,7 +877,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
       return routeResult({
         action: "hot-reload",
         change,
-        live: await inspect({ project, host }),
+        live: await inspect({ project, host, scheme }),
         patch,
         patches,
         patchBundle: {
@@ -889,7 +912,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
           action: "hot-reload-failed",
           change,
           reasonCode: patchFailureReason(patch),
-          live: await inspect({ project, host }),
+          live: await inspect({ project, host, scheme }),
           patch,
           patches,
           atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.atomic),
@@ -911,7 +934,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
     return routeResult({
       action: "hot-reload",
       change,
-      live: await inspect({ project, host }),
+      live: await inspect({ project, host, scheme }),
       patch: patches[0],
       patches,
       atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.atomic),
@@ -1018,18 +1041,18 @@ function shouldAttemptProductionRecovery(result) {
   return true;
 }
 
-async function defaultRecoverLiveSession({ project, host }) {
+async function defaultRecoverLiveSession({ project, host, scheme }) {
   try {
-    const restarted = await startLiveReload({ project, host, forceRestart: true });
+    const restarted = await startLiveReload({ project, host, scheme, forceRestart: true });
     if (!restarted?.started) {
       return { ready: false, error: restarted?.error || "The live engine did not restart." };
     }
     const deadline = Date.now() + 8_000;
-    let status = await inspectLiveReload({ project, host });
+    let status = await inspectLiveReload({ project, host, scheme });
     while (Date.now() < deadline) {
       if (status.ready) return { ready: true, status };
       await delay(250);
-      status = await inspectLiveReload({ project, host });
+      status = await inspectLiveReload({ project, host, scheme });
     }
     return { ready: false, error: "The live-enabled app did not reconnect after the live engine restarted." };
   } catch (error) {
@@ -1684,11 +1707,50 @@ function readJSONFile(path) {
 function projectRootFor(projectPath) {
   if (!projectPath) return "";
   const absolute = resolve(projectPath);
-  if (absolute.endsWith("/project.pbxproj")) return dirname(dirname(absolute));
-  if (absolute.endsWith(".xcodeproj") || absolute.endsWith(".xcworkspace")) {
-    return dirname(absolute);
+  if (absolute.endsWith("/project.pbxproj") || absolute.endsWith("/contents.xcworkspacedata")) {
+    return dirname(dirname(absolute));
   }
+  if (absolute.endsWith(".xcodeproj") || absolute.endsWith(".xcworkspace")) return dirname(absolute);
   return dirname(absolute);
+}
+
+function liveProjectDefinitionSource(projectPath) {
+  if (!projectPath || !existsSync(projectPath)) return "";
+  const source = readFileSync(projectPath, "utf8");
+  if (!isWorkspaceProjectPath(projectPath)) return source;
+  const projectSources = workspaceProjectReferences(source, projectPath)
+    .filter((path) => existsSync(path))
+    .map((path) => readFileSync(path, "utf8"));
+  return [source, ...projectSources].join("\n");
+}
+
+function listedLiveSchemes(projectPath) {
+  const result = spawnSync(
+    "xcodebuild",
+    [...xcodeContainerArguments(projectPath), "-list", "-json"],
+    { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+  );
+  if (result.status !== 0) return [];
+  try {
+    const payload = JSON.parse(result.stdout || "{}");
+    return payload.workspace?.schemes || payload.project?.schemes || [];
+  } catch {
+    return [];
+  }
+}
+
+function isWorkspaceProjectPath(projectPath) {
+  const value = resolve(String(projectPath || ""));
+  return value.endsWith("/contents.xcworkspacedata") || value.endsWith(".xcworkspace");
+}
+
+function decodeXMLAttribute(value) {
+  return String(value || "")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 }
 
 async function engineControl(request) {
@@ -1749,18 +1811,75 @@ function resolveSigningIdentity(projectPath) {
   return resolveSigningIdentities(projectPath)[0] || "";
 }
 
-export function xcodeContainerArguments(projectPath) {
+export function xcodeContainerArguments(projectPath, scheme = "") {
   const sourcePath = resolve(String(projectPath || ""));
   const projectContainer = sourcePath.endsWith("/project.pbxproj")
     ? dirname(sourcePath)
     : sourcePath.endsWith("/contents.xcworkspacedata")
       ? dirname(sourcePath)
       : sourcePath;
-  return [projectContainer.endsWith(".xcworkspace") ? "-workspace" : "-project", projectContainer];
+  const argumentsList = [
+    projectContainer.endsWith(".xcworkspace") ? "-workspace" : "-project",
+    projectContainer,
+  ];
+  if (String(scheme || "").trim()) argumentsList.push("-scheme", String(scheme).trim());
+  return argumentsList;
 }
 
-function resolveSigningIdentities(projectPath) {
-  const containerArguments = xcodeContainerArguments(projectPath);
+export function workspaceProjectReferences(workspaceSource, projectPath) {
+  if (!isWorkspaceProjectPath(projectPath)) return [];
+  const workspaceDirectory = dirname(resolve(String(projectPath)));
+  const workspaceRoot = dirname(workspaceDirectory);
+  const references = [];
+  for (const match of String(workspaceSource || "").matchAll(/location\s*=\s*"([^"]+\.xcodeproj)"/g)) {
+    const decoded = decodeXMLAttribute(match[1]);
+    const separator = decoded.indexOf(":");
+    const kind = separator >= 0 ? decoded.slice(0, separator) : "group";
+    const value = separator >= 0 ? decoded.slice(separator + 1) : decoded;
+    let container;
+    if (kind === "absolute") container = resolve(value);
+    else if (kind === "self") container = resolve(workspaceDirectory, value);
+    else container = resolve(workspaceRoot, value);
+    const projectFile = container.endsWith("/project.pbxproj")
+      ? container
+      : join(container, "project.pbxproj");
+    if (!references.includes(projectFile)) references.push(projectFile);
+  }
+  return references;
+}
+
+export function selectLiveScheme(projectPath, requestedScheme = "", availableSchemes = []) {
+  const requested = String(requestedScheme || "").trim();
+  const available = [...new Set((availableSchemes || []).map((value) => String(value).trim()).filter(Boolean))];
+  if (!isWorkspaceProjectPath(projectPath)) {
+    return { scheme: requested, availableSchemes: available, required: false, error: "" };
+  }
+  if (requested) {
+    if (available.length > 0 && !available.includes(requested)) {
+      return {
+        scheme: "",
+        availableSchemes: available,
+        required: true,
+        error: `The workspace does not contain the '${requested}' scheme. Choose one of: ${available.join(", ")}.`,
+      };
+    }
+    return { scheme: requested, availableSchemes: available, required: false, error: "" };
+  }
+  if (available.length === 1) {
+    return { scheme: available[0], availableSchemes: available, required: false, error: "" };
+  }
+  return {
+    scheme: "",
+    availableSchemes: available,
+    required: true,
+    error: available.length > 1
+      ? `This workspace has multiple schemes. Pass --scheme with one of: ${available.join(", ")}.`
+      : "Swift Sim could not discover a shared workspace scheme. Pass --scheme explicitly.",
+  };
+}
+
+function resolveSigningIdentities(projectPath, scheme = "") {
+  const containerArguments = xcodeContainerArguments(projectPath, scheme);
   const settings = spawnSync(
     "xcodebuild",
     [...containerArguments, "-configuration", "Debug", "-showBuildSettings"],
@@ -1948,6 +2067,7 @@ function declarationSurface(source) {
   ]
     .map((match) => compact(match[0]))
     .join("\n");
+  const attributes = swiftAttributeSurface(source, clean);
   const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\s*\((?:[^()\n]|\([^()]*\))*\))?|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
     .map((match) => {
       const captureOffset = match[0].indexOf(match[1]);
@@ -1978,9 +2098,41 @@ function declarationSurface(source) {
     signatures: signatures.join("\n"),
     storedProperties: storedProperties.join("\n"),
     compilerConditions,
+    attributes,
     modifiers,
     unsupported: "",
   };
+}
+
+function swiftAttributeSurface(source, clean) {
+  const attributes = [];
+  for (let index = 0; index < clean.length; index += 1) {
+    if (clean[index] !== "@") continue;
+    const previous = clean[index - 1] || "";
+    if (/[A-Za-z0-9_]/.test(previous)) continue;
+    let end = index + 1;
+    if (!/[A-Za-z_]/.test(clean[end] || "")) continue;
+    while (/[A-Za-z0-9_.]/.test(clean[end] || "")) end += 1;
+    let cursor = end;
+    while (/\s/.test(clean[cursor] || "")) cursor += 1;
+    if (clean[cursor] === "(") {
+      let depth = 0;
+      for (; cursor < clean.length; cursor += 1) {
+        if (clean[cursor] === "(") depth += 1;
+        else if (clean[cursor] === ")") {
+          depth -= 1;
+          if (depth === 0) {
+            cursor += 1;
+            break;
+          }
+        }
+      }
+      if (depth === 0) end = cursor;
+    }
+    attributes.push(compact(source.slice(index, end)));
+    index = Math.max(index, end - 1);
+  }
+  return attributes.join("\n");
 }
 
 function typeDeclarationRanges(source) {

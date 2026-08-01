@@ -533,3 +533,30 @@ extension InstallationStateTests {
         ))
     }
 }
+
+
+extension InstallationStateTests {
+    @MainActor
+    func testConnectionDiagnosticsRejectAChangedSimulatorView() {
+        let mac = PairedMac(
+            token: "token",
+            baseURL: URL(string: "https://mac.example")!
+        )
+        XCTAssertTrue(SessionStore.connectionDiagnosticsAreCurrent(
+            currentMac: mac,
+            expectedMac: mac,
+            currentPairingRevision: 4,
+            expectedPairingRevision: 4,
+            currentSimulatorViewRevision: 8,
+            expectedSimulatorViewRevision: 8
+        ))
+        XCTAssertFalse(SessionStore.connectionDiagnosticsAreCurrent(
+            currentMac: mac,
+            expectedMac: mac,
+            currentPairingRevision: 4,
+            expectedPairingRevision: 4,
+            currentSimulatorViewRevision: 9,
+            expectedSimulatorViewRevision: 8
+        ))
+    }
+}

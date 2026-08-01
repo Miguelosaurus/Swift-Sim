@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 const DEFAULT_LOCK_PATH = join(homedir(), ".swift-sim", "engine", "lifecycle.lock");
-const DEFAULT_WAIT_MS = 15_000;
+const DEFAULT_WAIT_MS = 120_000;
 const OWNERLESS_LOCK_GRACE_MS = 1_000;
 let currentProcessStartedAt = "";
 
