@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import "../src/commandDeadlinePreload.js";
+import "../src/asyncCommandGroupPreload.js";
 import "../src/helperShutdownDeadlinePreload.js";
 import "../src/atomicLockRemovalPreload.js";
 import "../src/lockOwnershipPreload.js";
