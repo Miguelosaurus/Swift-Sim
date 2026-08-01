@@ -30,7 +30,7 @@ test("update remembers an owned helper listener even when HTTP health hangs", as
   const helperPath = join(directory, "mac-helper", "bin", "swift-sim-helper-entry.js");
   mkdirSync(dirname(helperPath), { recursive: true });
   writeFileSync(helperPath, `
-    import { createServer } from 'node:net';
+    const { createServer } = require('node:net');
     createServer(() => {}).listen(${port}, '127.0.0.1', () => console.log('ready'));
   `);
   const child = spawn(process.execPath, [helperPath, "serve"], {
@@ -48,7 +48,7 @@ test("update remembers an owned helper listener even when HTTP health hangs", as
     assert.equal(process.env.SWIFT_SIM_HELPER_WAS_RUNNING, "1");
   } finally {
     child.kill("SIGKILL");
-    await once(child, "exit").catch(() => {});
+    if (child.exitCode === null) await once(child, "exit").catch(() => {});
     restoreEnvironment("SWIFT_SIM_PORT", previousPort);
     restoreEnvironment("SWIFT_SIM_HELPER_WAS_RUNNING", previousFlag);
     rmSync(directory, { recursive: true, force: true });
@@ -121,8 +121,14 @@ async function waitForReady(child) {
   child.stdout.setEncoding("utf8");
   let output = "";
   while (!output.includes("ready")) {
-    const [chunk] = await once(child.stdout, "data");
-    output += chunk;
+    const event = await Promise.race([
+      once(child.stdout, "data").then(([chunk]) => ({ type: "data", chunk })),
+      once(child, "exit").then(([code, signal]) => ({ type: "exit", code, signal })),
+    ]);
+    if (event.type === "exit") {
+      throw new Error(`helper fixture exited before listening (${event.signal || event.code})`);
+    }
+    output += event.chunk;
   }
 }
 
