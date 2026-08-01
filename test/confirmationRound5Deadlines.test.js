@@ -27,8 +27,12 @@ test("synchronous command preload terminates the entire hung process group", () 
         setInterval(() => {}, 1000);
       \`], { encoding: 'utf8' });
       const descendantPID = Number(fs.readFileSync(${JSON.stringify(descendantPath)}, 'utf8'));
-      let descendantAlive = false;
-      try { process.kill(descendantPID, 0); descendantAlive = true; } catch {}
+      const probe = spawnSync('/bin/ps', ['-p', String(descendantPID), '-o', 'stat='], {
+        encoding: 'utf8',
+        timeout: 500,
+      });
+      const state = String(probe.stdout || '').trim();
+      const descendantAlive = Boolean(state) && !state.startsWith('Z');
       console.log(JSON.stringify({
         code: child.error?.code || '',
         signal: child.signal || '',
