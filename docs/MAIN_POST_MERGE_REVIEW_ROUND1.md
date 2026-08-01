@@ -12,4 +12,16 @@ Review scope:
 - release, packaging, benchmark, and test coverage gaps introduced by the combined tree;
 - the bounded delivery-reference startup cleanup residual.
 
-Findings and fixes will be recorded here as the round progresses.
+## Active findings
+
+- Live-engine process identity and detached process-group ownership.
+- Cross-process serialization of global live-engine replacement.
+- Structural Swift attribute arguments and conditional compilation misclassified as live-safe.
+- Workspace signing container selection.
+- Delivery-reference cleanup blocking helper startup.
+- Persisted artifact cleanup path containment.
+- Forwarded pairing-origin trust.
+- Paired-Mac rebuild authority and stale response fencing.
+- Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
+
+The explicit self-removing transformation run applies the large-file fixes and commits only after the complete Node/release check succeeds.
