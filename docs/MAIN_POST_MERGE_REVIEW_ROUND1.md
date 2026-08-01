@@ -24,4 +24,4 @@ Review scope:
 - Paired-Mac rebuild authority and stale response fencing.
 - Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
 
-The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics/classifier transformation runs on an isolated runner with fail-closed source reset and branch-visible diagnostics. Its single stale project-root anchor has been repaired; successful output remains subject to exact-head macOS/iOS and extended benchmark validation.
+The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics/classifier transformation now uses platform-neutral syntax, documentation, and affected-suite checks on the isolated runner; the complete macOS Node suite and iOS tests remain mandatory on the resulting exact head.
