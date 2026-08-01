@@ -55,6 +55,39 @@ test("synchronous command preload terminates the entire hung process group", () 
   }
 });
 
+test("execFileSync operations receive the same hard deadline", () => {
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    process.env.SWIFT_SIM_SYNC_COMMAND_TIMEOUT_MS = '100';
+    await import(${JSON.stringify(commandPreload)});
+    const { execFileSync } = await import('node:child_process');
+    try {
+      execFileSync(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+      process.exit(2);
+    } catch (error) {
+      console.log(JSON.stringify({ code: error?.code || '', signal: error?.signal || '' }));
+    }
+  `], { encoding: "utf8", timeout: 3_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), { code: "ETIMEDOUT", signal: "SIGKILL" });
+});
+
+test("deadline classification preserves service and build semantics", () => {
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { commandDeadline } = await import(${JSON.stringify(commandPreload)});
+    console.log(JSON.stringify({
+      fallback: commandDeadline('/tmp/custom-tool', []),
+      serve: commandDeadline(process.execPath, ['/tmp/swift-sim-helper.js', 'serve']),
+      build: commandDeadline(process.execPath, ['/tmp/swift-sim-helper.js', 'build-device']),
+    }));
+  `], { encoding: "utf8", timeout: 2_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    fallback: 15 * 60_000,
+    serve: 0,
+    build: 60 * 60_000,
+  });
+});
+
 test("synchronous command preload preserves an explicit caller timeout", () => {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
     process.env.SWIFT_SIM_SYNC_COMMAND_TIMEOUT_MS = '50';
