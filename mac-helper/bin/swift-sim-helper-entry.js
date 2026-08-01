@@ -8,12 +8,12 @@ import "../src/runtimeHealthPreload.js";
 import "../src/deviceBuildCapabilityBoundaryPreload.js";
 import "../src/helperHttpBoundaryPreload.js";
 import { helperRunsAsService } from "../src/helperShutdownScope.js";
-import { installRenewalShutdownGuard } from "../src/renewalShutdownPreload.js";
 import { installSwiftSimChildRuntimeBoundary } from "../src/swiftSimChildRuntimeBoundary.js";
 
 if (helperRunsAsService()) {
   await import("../src/helperShutdownDeadlinePreload.js");
+  const { installRenewalShutdownGuard } = await import("../src/renewalShutdownPreload.js");
+  installRenewalShutdownGuard();
 }
 installSwiftSimChildRuntimeBoundary();
-installRenewalShutdownGuard();
 await import("./swift-sim-helper.js");
