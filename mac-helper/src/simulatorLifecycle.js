@@ -16,22 +16,24 @@ import { dirname, join } from "node:path";
 const LOCK_WAIT_MS = 60_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const LEGACY_LOCK_MAX_AGE_MS = 30_000;
-const FRESH_START_BLOCKING_STATES = new Set([
-  "running",
-  "starting",
-  "restarting",
-  "stopping",
-  "failed-restart",
-  "failed-stop",
-]);
 let currentProcessStartedAt;
 
-export async function startSimulatorRuntime({ simulatorUDID, operation, rootPath } = {}) {
+export async function startSimulatorRuntime({ simulatorUDID, operation, recover, rootPath } = {}) {
   const requiredUDID = requiredSimulatorUDID(simulatorUDID);
   return withSimulatorLifecycleLock(requiredUDID, async () => {
     const current = readSimulatorRuntimeState(requiredUDID, { rootPath });
-    if (current && FRESH_START_BLOCKING_STATES.has(current.status)) {
-      throw activeRuntimeError();
+    if (current?.status === "running") throw activeRuntimeError();
+    if (current && current.status !== "stopped") {
+      if (typeof recover !== "function") throw uncertainRuntimeError();
+      try {
+        await recover();
+      } catch (error) {
+        publishRuntimeFailure(requiredUDID, "failed-stop", error, {
+          previousNonce: current.previousNonce || current.nonce,
+          rootPath,
+        });
+        throw error;
+      }
     }
     const operationNonce = randomUUID();
     writeSimulatorRuntimeState(requiredUDID, {
@@ -379,6 +381,12 @@ function requiredOperation(operation) {
 function activeRuntimeError() {
   const error = new Error("A Swift Sim stream is already active for this Simulator.");
   error.code = "SWIFT_SIM_SIMULATOR_RUNTIME_ACTIVE";
+  return error;
+}
+
+function uncertainRuntimeError() {
+  const error = new Error("Swift Sim could not safely recover the previous Simulator lifecycle operation.");
+  error.code = "SWIFT_SIM_SIMULATOR_RECOVERY_REQUIRED";
   return error;
 }
 
