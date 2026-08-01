@@ -17,24 +17,26 @@ let fetchBoundaryInstalled = false;
 
 export async function rememberHelperStateForUpdate() {
   const health = await currentHelperRuntimeHealth();
-  if (health.reachable) process.env.SWIFT_SIM_HELPER_WAS_RUNNING = "1";
+  const ownedListener = health.reachable ? false : ownedHelperListener(helperPort());
+  if (health.reachable || ownedListener) process.env.SWIFT_SIM_HELPER_WAS_RUNNING = "1";
   else delete process.env.SWIFT_SIM_HELPER_WAS_RUNNING;
-  return health;
+  return { ...health, ownedListener };
 }
 
 export async function reconcileHelperRuntime({ startIfStopped = true } = {}) {
   const port = helperPort();
   const health = await currentHelperRuntimeHealth();
+  const restartAfterUpdate = process.env.SWIFT_SIM_HELPER_WAS_RUNNING === "1";
   if (health.ok) {
     return { id: "helper", state: "unchanged", detail: `Mac helper ${health.version} is already running` };
   }
 
   const brew = findCommand("brew");
   if (brew && process.env.SWIFT_SIM_MARKETPLACE_ROOT) {
-    if (!health.reachable && !startIfStopped) {
+    if (!health.reachable && !startIfStopped && !restartAfterUpdate) {
       return { id: "helper", state: "skipped", detail: "Mac helper was not running before the update" };
     }
-    const action = health.reachable ? "restart" : "start";
+    const action = health.reachable || restartAfterUpdate ? "restart" : "start";
     const service = runCapture(brew, ["services", action, "swift-sim"]);
     if (service.status === 0 && await waitForCompatibleHelper()) {
       return {
@@ -49,8 +51,10 @@ export async function reconcileHelperRuntime({ startIfStopped = true } = {}) {
     );
   }
 
-  if (health.reachable) {
-    await stopOwnedStandaloneHelper(port);
+  if (health.reachable || restartAfterUpdate) {
+    await stopOwnedStandaloneHelper(port, {
+      allowMissing: restartAfterUpdate && !health.reachable,
+    });
   } else if (!startIfStopped) {
     return { id: "helper", state: "skipped", detail: "Mac helper is intentionally stopped" };
   }
@@ -145,9 +149,10 @@ function startStandaloneHelper() {
   }
 }
 
-async function stopOwnedStandaloneHelper(port) {
+async function stopOwnedStandaloneHelper(port, { allowMissing = false } = {}) {
   const lsof = existingCommand("/usr/sbin/lsof") || findCommand("lsof");
   if (!lsof) {
+    if (allowMissing) return false;
     throw new Error(
       `Port ${port} is occupied by an incompatible helper, and lsof is unavailable to identify it safely.`
     );
@@ -158,6 +163,7 @@ async function stopOwnedStandaloneHelper(port) {
     .map(Number)
     .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid))];
   if (pids.length === 0) {
+    if (allowMissing) return false;
     throw new Error(`Port ${port} answered as an incompatible helper, but its process could not be identified safely.`);
   }
 
@@ -181,6 +187,22 @@ async function stopOwnedStandaloneHelper(port) {
   if (identities.some(identityMatches)) {
     throw new Error("The outdated Swift Sim helper could not be stopped safely.");
   }
+  return true;
+}
+
+function ownedHelperListener(port) {
+  const lsof = existingCommand("/usr/sbin/lsof") || findCommand("lsof");
+  if (!lsof) return false;
+  const result = runCapture(lsof, ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+  if (result.status !== 0) return false;
+  return String(result.stdout || "")
+    .split(/\s+/)
+    .map(Number)
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
+    .some((pid) => {
+      const command = processCommand(pid);
+      return Boolean(command) && helperCommandLooksOwned(command);
+    });
 }
 
 function signalOwnedIdentity(identity, signal) {
