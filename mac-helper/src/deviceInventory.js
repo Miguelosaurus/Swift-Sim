@@ -7,17 +7,24 @@ import { join } from "node:path";
 const DEFAULT_VERIFICATION_CACHE_MS = 5_000;
 const MAX_VERIFICATION_CACHE_ENTRIES = 64;
 const DEFAULT_DEVICECTL_DEADLINE_MS = 20_000;
+const DEFAULT_VERIFICATION_DEADLINE_MS = 20_000;
 const DEFAULT_FORCE_KILL_DELAY_MS = 1_000;
+const DEVICE_VERIFICATION_TIMEOUT_CODE = "SWIFT_SIM_DEVICE_VERIFICATION_TIMEOUT";
 
 export class DeviceInventoryAdapter {
   constructor({
     run = runDeviceCtl,
     now = () => Date.now(),
     verificationCacheMs = DEFAULT_VERIFICATION_CACHE_MS,
+    verificationDeadlineMs = DEFAULT_VERIFICATION_DEADLINE_MS,
   } = {}) {
     this.run = run;
     this.now = now;
     this.verificationCacheMs = Math.max(0, Number(verificationCacheMs) || 0);
+    this.verificationDeadlineMs = positiveMilliseconds(
+      verificationDeadlineMs,
+      DEFAULT_VERIFICATION_DEADLINE_MS,
+    );
     this.verificationCache = new Map();
   }
 
@@ -58,17 +65,18 @@ export class DeviceInventoryAdapter {
   }
 
   async verifyAppUncached(bundleIdentifier, expected) {
-    const inventory = await this.run(["list", "devices"]);
+    const deadlineAt = Date.now() + this.verificationDeadlineMs;
+    const inventory = await this.runWithinVerificationDeadline(["list", "devices"], deadlineAt);
     const devices = physicalIOSDevices(inventory);
     const results = [];
 
     for (const device of devices) {
       try {
-        const response = await this.run([
+        const response = await this.runWithinVerificationDeadline([
           "device", "info", "apps",
           "--device", device.udid,
           "--bundle-id", bundleIdentifier,
-        ]);
+        ], deadlineAt);
         const app = response?.result?.apps?.[0];
         const matchesVersion = app
           && (!expected.version || app.version === expected.version)
@@ -79,7 +87,8 @@ export class DeviceInventoryAdapter {
           version: app?.version || "",
           build: app?.bundleVersion || "",
         });
-      } catch {
+      } catch (error) {
+        if (error?.code === DEVICE_VERIFICATION_TIMEOUT_CODE) throw error;
         results.push({
           name: device.name,
           state: "unreachable",
@@ -97,6 +106,13 @@ export class DeviceInventoryAdapter {
           ? "not-installed"
           : "unknown";
     return verification(state, results);
+  }
+
+  async runWithinVerificationDeadline(args, deadlineAt) {
+    const remainingMs = Math.floor(deadlineAt - Date.now());
+    if (remainingMs <= 0) throw verificationTimeoutError(this.verificationDeadlineMs);
+    const operation = Promise.resolve().then(() => this.run(args, { timeoutMs: remainingMs }));
+    return promiseWithDeadline(operation, remainingMs, this.verificationDeadlineMs);
   }
 
   pruneVerificationCache(now) {
@@ -209,7 +225,7 @@ function verification(state, devices, detail = "") {
   };
 }
 
-async function runDeviceCtl(args) {
+async function runDeviceCtl(args, { timeoutMs = DEFAULT_DEVICECTL_DEADLINE_MS } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-devicectl-"));
   const outputPath = join(directory, "result.json");
   try {
@@ -218,7 +234,7 @@ async function runDeviceCtl(args) {
       ...args,
       "--json-output", outputPath,
       "--timeout", "15",
-    ]);
+    ], { timeoutMs });
     let payload = null;
     try {
       payload = JSON.parse(readFileSync(outputPath, "utf8"));
@@ -226,12 +242,41 @@ async function runDeviceCtl(args) {
       // The process error below includes the useful command output.
     }
     if (result.code !== 0 || payload?.info?.outcome === "failed") {
-      throw new Error(payload?.info?.error?.localizedDescription || result.stderr || "devicectl failed.");
+      const error = new Error(
+        payload?.info?.error?.localizedDescription || result.stderr || "devicectl failed.",
+      );
+      if (result.timedOut) error.code = DEVICE_VERIFICATION_TIMEOUT_CODE;
+      throw error;
     }
     return payload;
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+function promiseWithDeadline(operation, remainingMs, totalDeadlineMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+    const timer = setTimeout(() => {
+      finish(reject, verificationTimeoutError(totalDeadlineMs));
+    }, Math.max(1, remainingMs));
+    operation.then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error),
+    );
+  });
+}
+
+function verificationTimeoutError(deadlineMs) {
+  const error = new Error(`Physical-device verification exceeded its ${deadlineMs}ms deadline.`);
+  error.code = DEVICE_VERIFICATION_TIMEOUT_CODE;
+  return error;
 }
 
 function signalProcessGroup(child, signal) {
