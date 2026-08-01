@@ -8,6 +8,16 @@ def replace_once(source: str, before: str, after: str, label: str) -> str:
     return source.replace(before, after, 1)
 
 
+def replace_first_after(source: str, marker: str, before: str, after: str, label: str) -> str:
+    marker_index = source.find(marker)
+    if marker_index < 0:
+        raise RuntimeError(f"Missing section marker for {label}")
+    index = source.find(before, marker_index)
+    if index < 0:
+        raise RuntimeError(f"Missing replacement anchor: {label}")
+    return source[:index] + after + source[index + len(before):]
+
+
 live_path = Path("mac-helper/src/liveReload.js")
 live = live_path.read_text()
 live = replace_once(
@@ -21,14 +31,16 @@ async function inspectLiveReloadUnlocked({ project = "", host = "" } = {}) {
 ''',
     "inspect lifecycle wrapper",
 )
-live = replace_once(
+live = replace_first_after(
     live,
+    "async function startLiveReloadUnlocked",
     '  let status = await inspectLiveReload({ project, host });\n',
     '  let status = await inspectLiveReloadUnlocked({ project, host });\n',
     "initial locked start inspection",
 )
-live = replace_once(
+live = replace_first_after(
     live,
+    "async function startLiveReloadUnlocked",
     '  status = await inspectLiveReload({ project, host });\n',
     '  status = await inspectLiveReloadUnlocked({ project, host });\n',
     "final locked start inspection",
