@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  closeSync,
   copyFileSync,
   existsSync,
   mkdtempSync,
@@ -17,6 +18,7 @@ import {
 import { createConnection } from "node:net";
 import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
@@ -189,6 +191,15 @@ export function classifySwiftSource(before, after, paths = {}) {
       LIVE_REASON_CODES.IMPORT_CHANGED,
     );
   }
+  if (beforeSurface.compilerConditions !== afterSurface.compilerConditions) {
+    return result(
+      "rebuild-required",
+      false,
+      "A conditional-compilation or availability condition changed.",
+      paths,
+      LIVE_REASON_CODES.DECLARATION_CHANGED,
+    );
+  }
   if (beforeSurface.modifiers !== afterSurface.modifiers) {
     return result(
       "rebuild-required",
@@ -329,6 +340,10 @@ export async function inspectLiveReload({ project = "", host = "" } = {}) {
 }
 
 export async function ensureLiveEngineInstalled() {
+  return withLiveEngineLifecycleLock(() => ensureLiveEngineInstalledUnlocked());
+}
+
+async function ensureLiveEngineInstalledUnlocked() {
   if (installedEngineMatchesManifest()) {
     return {
       id: "live-engine",
@@ -496,8 +511,12 @@ function resolveFrom(workingDirectory, path) {
   return resolve(workingDirectory || process.cwd(), path);
 }
 
-export async function startLiveReload({ project = "", host = "", forceRestart = false } = {}) {
-  await ensureLiveEngineInstalled();
+export async function startLiveReload(options = {}) {
+  return withLiveEngineLifecycleLock(() => startLiveReloadUnlocked(options));
+}
+
+async function startLiveReloadUnlocked({ project = "", host = "", forceRestart = false } = {}) {
+  await ensureLiveEngineInstalledUnlocked();
   let status = await inspectLiveReload({ project, host });
   if (!status.project.readable) {
     return {
@@ -564,17 +583,23 @@ export async function startLiveReload({ project = "", host = "", forceRestart = 
       truncateSync(ENGINE_LOG, 0);
     }
     const output = openSync(ENGINE_LOG, "a");
-    const child = spawn(ENGINE_EXECUTABLE, [], {
-      detached: true,
-      stdio: ["ignore", output, output],
-      env: {
-        ...process.env,
-        SWIFT_SIM_ENGINE: "1",
-        SWIFT_SIM_ENGINE_SOCKET: ENGINE_SOCKET,
-        SWIFT_SIM_PROJECT_ROOT: status.project.root,
-        SWIFT_SIM_CODESIGN_IDENTITY: signingIdentity,
-      },
-    });
+    let child;
+    try {
+      child = spawn(ENGINE_EXECUTABLE, [], {
+        detached: true,
+        stdio: ["ignore", output, output],
+        env: {
+          ...process.env,
+          SWIFT_SIM_ENGINE: "1",
+          SWIFT_SIM_ENGINE_SOCKET: ENGINE_SOCKET,
+          SWIFT_SIM_PROJECT_ROOT: status.project.root,
+          SWIFT_SIM_CODESIGN_IDENTITY: signingIdentity,
+        },
+      });
+      await waitForChildSpawn(child);
+    } finally {
+      closeSync(output);
+    }
     writeFileSync(ENGINE_PID, `${child.pid}\n`, { mode: 0o600 });
     writeFileSync(ENGINE_SESSION, `${JSON.stringify({
       projectRoot: status.project.root,
@@ -1720,13 +1745,21 @@ function resolveSigningIdentity(projectPath) {
   return resolveSigningIdentities(projectPath)[0] || "";
 }
 
+export function xcodeContainerArguments(projectPath) {
+  const sourcePath = resolve(String(projectPath || ""));
+  const projectContainer = sourcePath.endsWith("/project.pbxproj")
+    ? dirname(sourcePath)
+    : sourcePath.endsWith("/contents.xcworkspacedata")
+      ? dirname(sourcePath)
+      : sourcePath;
+  return [projectContainer.endsWith(".xcworkspace") ? "-workspace" : "-project", projectContainer];
+}
+
 function resolveSigningIdentities(projectPath) {
-  const projectContainer = projectPath.endsWith("/project.pbxproj")
-    ? dirname(projectPath)
-    : projectPath;
+  const containerArguments = xcodeContainerArguments(projectPath);
   const settings = spawnSync(
     "xcodebuild",
-    ["-project", projectContainer, "-configuration", "Debug", "-showBuildSettings"],
+    [...containerArguments, "-configuration", "Debug", "-showBuildSettings"],
     { encoding: "utf8", timeout: 30_000 }
   );
   const output = String(settings.stdout || "");
@@ -1870,6 +1903,16 @@ function validTailnetIPv4(output) {
     : "";
 }
 
+function waitForChildSpawn(child) {
+  if (Number.isInteger(Number(child?.pid)) && Number(child.pid) > 1) {
+    return Promise.resolve();
+  }
+  return new Promise((resolveSpawn, rejectSpawn) => {
+    child.once("spawn", resolveSpawn);
+    child.once("error", rejectSpawn);
+  });
+}
+
 function delay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
@@ -1895,7 +1938,13 @@ function declarationSurface(source) {
   const declarations = [];
   const signatures = [];
   const storedProperties = [];
-  const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
+  const compilerConditions = [
+    ...clean.matchAll(/^\s*#(?:if|elseif|else|endif)\b[^\n]*/gm),
+    ...clean.matchAll(/#(?:available|unavailable)\s*\([^\n)]*\)/g),
+  ]
+    .map((match) => compact(match[0]))
+    .join("\n");
+  const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\s*\((?:[^()\n]|\([^()]*\))*\))?|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
     .map((match) => compact(match[1]))
     .sort()
     .join("\n");
@@ -1921,6 +1970,7 @@ function declarationSurface(source) {
     declarations: declarations.join("\n"),
     signatures: signatures.join("\n"),
     storedProperties: storedProperties.join("\n"),
+    compilerConditions,
     modifiers,
     unsupported: "",
   };
