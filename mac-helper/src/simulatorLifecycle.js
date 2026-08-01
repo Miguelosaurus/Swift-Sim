@@ -48,33 +48,20 @@ export function reserveSimulatorLifecycleClaim(session, { storeID, rootPath } = 
 export async function startSimulatorRuntime(options = {}) {
   const simulatorUDID = requiredUDID(options.simulatorUDID);
   const claim = currentClaim(simulatorUDID, "start");
-  const wrapped = {
+  const authorizeRunningRecovery = claim && typeof options.recover === "function"
+    ? (runtime) => registeredRuntimeOwner(
+        decodeRuntimeState(runtime),
+        claim,
+        { rootPath: options.rootPath },
+      ) === "unowned"
+    : undefined;
+  const stream = restorePublicStream(await base.startSimulatorRuntime({
     ...options,
     operation: wrapProjectionOperation(options.operation, claim, options.rootPath),
-  };
-  try {
-    const stream = restorePublicStream(await base.startSimulatorRuntime(wrapped));
-    if (claim) finalizeClaim(claim, stream, { rootPath: options.rootPath });
-    return stream;
-  } catch (error) {
-    if (error?.code !== "SWIFT_SIM_SIMULATOR_RUNTIME_ACTIVE"
-        || !claim
-        || typeof options.recover !== "function") {
-      throw error;
-    }
-    const runtime = readSimulatorRuntimeState(simulatorUDID, { rootPath: options.rootPath });
-    if (!runtime || runtime.status !== "running" || registeredRuntimeOwner(runtime, claim, { rootPath: options.rootPath }) !== "unowned") {
-      throw error;
-    }
-    await base.stopSimulatorRuntime({
-      session: syntheticRuntimeSession(runtime),
-      operation: options.recover,
-      rootPath: options.rootPath,
-    });
-    const stream = restorePublicStream(await base.startSimulatorRuntime(wrapped));
-    finalizeClaim(claim, stream, { rootPath: options.rootPath });
-    return stream;
-  }
+    authorizeRunningRecovery,
+  }));
+  if (claim) finalizeClaim(claim, stream, { rootPath: options.rootPath });
+  return stream;
 }
 
 export async function restartSimulatorRuntime(options = {}) {
@@ -372,16 +359,6 @@ function runtimeClaimID(value) {
   return separatorIndex >= 0
     ? transport.slice(separatorIndex + RUNTIME_CLAIM_SEPARATOR.length)
     : "";
-}
-
-function syntheticRuntimeSession(runtime) {
-  return {
-    simulatorUDID: runtime.simulatorUDID,
-    stream: {
-      pid: runtime.pid,
-      raw: { swiftSimLifecycleNonce: runtime.nonce },
-    },
-  };
 }
 
 function currentClaim(simulatorUDID, kind) {
