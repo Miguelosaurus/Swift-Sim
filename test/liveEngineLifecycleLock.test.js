@@ -62,3 +62,52 @@ test("an ownerless stale lock remains reclaimable after the claim file updates i
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("an abandoned reclaim claim cannot permanently block a stale lock", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-abandoned-reclaim-"));
+  const lockPath = join(directory, "lifecycle.lock");
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(join(lockPath, "owner.json"), JSON.stringify({
+    pid: 999_998,
+    startedAt: "stale-owner",
+    nonce: "stale-owner",
+  }));
+  writeFileSync(join(lockPath, "reclaim.json"), JSON.stringify({
+    pid: 999_997,
+    startedAt: "stale-claimant",
+    nonce: "stale-claimant",
+  }));
+  try {
+    const result = await withLiveEngineLifecycleLock(async () => "acquired", {
+      lockPath,
+      waitMs: 2_000,
+    });
+    assert.equal(result, "acquired");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an old malformed reclaim claim is quarantined fail-closed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-malformed-reclaim-"));
+  const lockPath = join(directory, "lifecycle.lock");
+  const claimPath = join(lockPath, "reclaim.json");
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(join(lockPath, "owner.json"), JSON.stringify({
+    pid: 999_996,
+    startedAt: "stale-owner",
+    nonce: "stale-owner",
+  }));
+  writeFileSync(claimPath, "{partial");
+  const staleTime = new Date(Date.now() - 5_000);
+  utimesSync(claimPath, staleTime, staleTime);
+  try {
+    const result = await withLiveEngineLifecycleLock(async () => "acquired", {
+      lockPath,
+      waitMs: 2_000,
+    });
+    assert.equal(result, "acquired");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
