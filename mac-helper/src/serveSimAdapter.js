@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const bundledServeSim = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "node_modules", ".bin", "serve-sim");
 const pinnedServeSimPackage = "serve-sim@0.1.44";
+const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+const DEFAULT_KILL_TIMEOUT_MS = 10_000;
+const DEFAULT_FORCE_KILL_DELAY_MS = 1_000;
 
 export class ServeSimError extends Error {}
 
@@ -13,9 +15,15 @@ export class ServeSimAdapter {
   constructor({
     command = process.env.SWIFT_SIM_SERVE_SIM_COMMAND || (existsSync(bundledServeSim) ? bundledServeSim : "npx"),
     packageName = pinnedServeSimPackage,
+    commandTimeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
+    killTimeoutMs = DEFAULT_KILL_TIMEOUT_MS,
+    forceKillDelayMs = DEFAULT_FORCE_KILL_DELAY_MS,
   } = {}) {
     this.command = command;
     this.packageName = packageName;
+    this.commandTimeoutMs = positiveMilliseconds(commandTimeoutMs, DEFAULT_COMMAND_TIMEOUT_MS);
+    this.killTimeoutMs = positiveMilliseconds(killTimeoutMs, DEFAULT_KILL_TIMEOUT_MS);
+    this.forceKillDelayMs = nonnegativeMilliseconds(forceKillDelayMs, DEFAULT_FORCE_KILL_DELAY_MS);
   }
 
   async inspect() {
@@ -63,7 +71,10 @@ export class ServeSimAdapter {
 
   async kill(simulatorUDID) {
     if (!simulatorUDID) throw new ServeSimError("Refusing to run unscoped serve-sim --kill.");
-    return this.run(this.arguments(["--kill", simulatorUDID]), { allowFailure: true });
+    return this.run(this.arguments(["--kill", simulatorUDID]), {
+      allowFailure: true,
+      timeoutMs: this.killTimeoutMs,
+    });
   }
 
   async tap({ simulatorUDID, x, y }) {
@@ -102,22 +113,81 @@ export class ServeSimAdapter {
     return this.command === "npx" ? ["--yes", this.packageName, ...args] : args;
   }
 
-  async run(args, { allowFailure = false } = {}) {
-    const child = spawn(this.command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
+  run(args, {
+    allowFailure = false,
+    timeoutMs = this.commandTimeoutMs,
+  } = {}) {
+    return new Promise((resolve, reject) => {
+      const deadlineMs = positiveMilliseconds(timeoutMs, this.commandTimeoutMs);
+      const child = spawn(this.command, args, {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env,
+      });
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      let timedOut = false;
+      let deadlineTimer;
+      let forceTimer;
+      let settleTimer;
+
+      const clearTimers = () => {
+        clearTimeout(deadlineTimer);
+        clearTimeout(forceTimer);
+        clearTimeout(settleTimer);
+      };
+      const resolveOnce = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        resolve(result);
+      };
+      const rejectOnce = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        reject(error);
+      };
+      const timeoutError = () => new ServeSimError(
+        `serve-sim timed out after ${deadlineMs}ms: ${stderr || stdout}`,
+      );
+
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      child.stderr.on("data", (chunk) => { stderr += chunk; });
+      child.once("error", (error) => {
+        if (timedOut) rejectOnce(timeoutError());
+        else rejectOnce(new ServeSimError(`serve-sim could not start: ${error.message}`));
+      });
+      child.once("close", (code) => {
+        if (timedOut) {
+          rejectOnce(timeoutError());
+          return;
+        }
+        if (code !== 0 && !allowFailure) {
+          rejectOnce(new ServeSimError(`serve-sim failed with exit code ${code}: ${stderr || stdout}`));
+          return;
+        }
+        resolveOnce({ code, stdout, stderr });
+      });
+
+      deadlineTimer = setTimeout(() => {
+        if (settled) return;
+        timedOut = true;
+        signalProcessGroup(child, "SIGTERM");
+        forceTimer = setTimeout(() => {
+          if (settled) return;
+          signalProcessGroup(child, "SIGKILL");
+          settleTimer = setTimeout(() => {
+            child.stdout.destroy();
+            child.stderr.destroy();
+            rejectOnce(timeoutError());
+          }, 100);
+        }, this.forceKillDelayMs);
+      }, deadlineMs);
     });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    const [code] = await once(child, "close");
-    if (code !== 0 && !allowFailure) {
-      throw new ServeSimError(`serve-sim failed with exit code ${code}: ${stderr || stdout}`);
-    }
-    return { code, stdout, stderr };
   }
 }
 
@@ -133,6 +203,30 @@ export function parseServeSimOutput(stdout = "", stderr = "") {
     port: previewUrl ? Number(new URL(previewUrl).port || defaultPort(new URL(previewUrl).protocol)) : undefined,
     pid: findPid(json),
   };
+}
+
+function signalProcessGroup(child, signal) {
+  const pid = Number(child?.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try { child.kill(signal); } catch {}
+  }
+}
+
+function positiveMilliseconds(value, fallback) {
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) && milliseconds > 0
+    ? Math.floor(milliseconds)
+    : fallback;
+}
+
+function nonnegativeMilliseconds(value, fallback) {
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) && milliseconds >= 0
+    ? Math.floor(milliseconds)
+    : fallback;
 }
 
 function parseFirstJson(text) {
