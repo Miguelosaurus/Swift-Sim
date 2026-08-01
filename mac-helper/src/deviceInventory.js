@@ -111,7 +111,12 @@ export class DeviceInventoryAdapter {
   async runWithinVerificationDeadline(args, deadlineAt) {
     const remainingMs = Math.floor(deadlineAt - Date.now());
     if (remainingMs <= 0) throw verificationTimeoutError(this.verificationDeadlineMs);
-    const operation = Promise.resolve().then(() => this.run(args, { timeoutMs: remainingMs }));
+    let operation;
+    try {
+      operation = Promise.resolve(this.run(args, { timeoutMs: remainingMs }));
+    } catch (error) {
+      operation = Promise.reject(error);
+    }
     return promiseWithDeadline(operation, remainingMs, this.verificationDeadlineMs);
   }
 
