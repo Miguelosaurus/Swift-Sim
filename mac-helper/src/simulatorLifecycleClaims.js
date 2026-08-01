@@ -33,10 +33,11 @@ export function updateSimulatorClaim(claim, patch, options = {}) {
 }
 
 export function readSimulatorClaim(simulatorUDID, claimID, options = {}) {
-  const path = join(claimDirectory(simulatorUDID, options), `${requiredClaimID(claimID)}.json`);
   try {
+    const normalizedClaimID = requiredClaimID(claimID);
+    const path = join(claimDirectory(simulatorUDID, options), `${normalizedClaimID}.json`);
     const claim = JSON.parse(readFileSync(path, "utf8"));
-    return validClaim(claim, simulatorUDID, claimID) ? claim : null;
+    return validClaim(claim, simulatorUDID, normalizedClaimID) ? claim : null;
   } catch {
     return null;
   }

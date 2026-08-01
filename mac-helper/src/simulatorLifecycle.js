@@ -19,7 +19,7 @@ export function registerSimulatorSessionStore(storeID, sessions, { readable = tr
   const id = requiredStoreID(storeID);
   sessionRegistries.set(id, {
     readable: Boolean(readable),
-    sessions: Array.isArray(sessions) ? structuredClone(sessions) : [],
+    sessions: Array.isArray(sessions) ? sessions.map(ownershipSessionProjection) : [],
   });
 }
 
@@ -172,6 +172,7 @@ function finalizeClaim(claim, stream, { rootPath } = {}) {
     status: "published",
     updatedAt: new Date().toISOString(),
   }, { rootPath });
+  claim.completed = true;
 }
 
 function markClaimFailed(claim, error, { rootPath } = {}) {
@@ -287,9 +288,23 @@ function syntheticRuntimeSession(runtime) {
 
 function currentClaim(simulatorUDID, kind) {
   const claim = claimContext.getStore();
-  if (claim?.consumed || claim?.simulatorUDID !== simulatorUDID || claim?.kind !== kind) return null;
-  claim.consumed = true;
+  if (claim?.completed || claim?.simulatorUDID !== simulatorUDID || claim?.kind !== kind) return null;
   return claim;
+}
+
+function ownershipSessionProjection(session) {
+  return {
+    id: String(session?.id || ""),
+    simulatorUDID: String(session?.simulatorUDID || ""),
+    stream: {
+      state: String(session?.stream?.state || ""),
+      pid: session?.stream?.pid,
+      raw: {
+        swiftSimLifecycleNonce: String(session?.stream?.raw?.swiftSimLifecycleNonce || ""),
+        swiftSimLifecycleClaimID: String(session?.stream?.raw?.swiftSimLifecycleClaimID || ""),
+      },
+    },
+  };
 }
 
 function sessionNonce(session) {
