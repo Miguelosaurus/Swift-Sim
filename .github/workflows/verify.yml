@@ -33,7 +33,7 @@ jobs:
           python3 scripts/repair_workspace_transform_anchor.py
           python3 scripts/main_post_merge_workspace_fix.py
           python3 scripts/main_post_merge_classifier_fix.py
-          git rm \
+          git rm -f \
             scripts/repair_workspace_transform_anchor.py \
             scripts/main_post_merge_workspace_fix.py \
             scripts/main_post_merge_classifier_fix.py \
