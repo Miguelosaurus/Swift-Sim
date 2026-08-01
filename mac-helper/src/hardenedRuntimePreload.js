@@ -15,9 +15,11 @@ if (script === "swift-sim-helper.js") {
   await import("./runtimeHealthPreload.js");
   await import("./deviceBuildCapabilityBoundaryPreload.js");
   await import("./helperHttpBoundaryPreload.js");
+  const { installArtifactCleanupBoundary } = await import("./artifactCleanupBoundaryPreload.js");
   const { installCompatibleHelperHealthFetchBoundary } = await import("./cliRuntimeBoundary.js");
   const { installLiveEngineOwnershipBoundary } = await import("./liveEngineOwnershipPreload.js");
   const { installSwiftSimChildRuntimeBoundary } = await import("./swiftSimChildRuntimeBoundary.js");
+  installArtifactCleanupBoundary();
   installCompatibleHelperHealthFetchBoundary();
   installLiveEngineOwnershipBoundary();
   installSwiftSimChildRuntimeBoundary();
