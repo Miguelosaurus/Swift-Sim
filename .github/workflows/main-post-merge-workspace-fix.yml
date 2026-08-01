@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: main-post-merge-workspace-fix
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   apply:
@@ -21,14 +21,6 @@ jobs:
         with:
           ref: agent/main-post-merge-review-round-1
           fetch-depth: 0
-      - name: Publish gate start marker
-        run: |
-          git config user.name "swift-sim-review-bot"
-          git config user.email "swift-sim-review-bot@users.noreply.github.com"
-          printf '%s\n' "Workspace transformation gate started from $GITHUB_SHA" > docs/MAIN_POST_MERGE_GATE_RUNNING
-          git add docs/MAIN_POST_MERGE_GATE_RUNNING
-          git commit -m "Begin main post-merge workspace gate"
-          git push origin HEAD:agent/main-post-merge-review-round-1
       - id: guard
         run: |
           if [[ -f scripts/main_post_merge_workspace_fix.py ]]; then
