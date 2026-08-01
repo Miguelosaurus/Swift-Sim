@@ -3,7 +3,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 const sessionRequestStorage = new AsyncLocalStorage();
 
 export function enterSessionRequestContext({ transport = "" } = {}) {
-  sessionRequestStorage.enterWith({ transport: String(transport || "") });
+  const context = { transport: String(transport || "") };
+  sessionRequestStorage.enterWith(context);
+  return context;
 }
 
 export function currentSessionTransportPreference() {
