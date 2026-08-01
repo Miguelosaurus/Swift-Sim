@@ -76,12 +76,19 @@ test("companion links use opaque id and token", () => {
   assert.ok(!links.universalLink.includes("UDID"));
 });
 
-test("pairing links use helper token without session internals", () => {
+test("pairing links carry helper identity without session internals", () => {
   const links = buildPairingLinks({
     token: "pair-token",
+    installationID: "mac-id",
   }, "https://mac.example.ts.net/");
-  assert.equal(links.universalLink, "https://mac.example.ts.net/pair?token=pair-token");
-  assert.equal(links.customScheme, "swift-sim://pair?token=pair-token&base=https%3A%2F%2Fmac.example.ts.net");
+  assert.equal(
+    links.universalLink,
+    "https://mac.example.ts.net/pair?token=pair-token&macID=mac-id&base=https%3A%2F%2Fmac.example.ts.net",
+  );
+  assert.equal(
+    links.customScheme,
+    "swift-sim://pair?token=pair-token&macID=mac-id&base=https%3A%2F%2Fmac.example.ts.net",
+  );
   assert.ok(!links.universalLink.includes("UDID"));
 });
 

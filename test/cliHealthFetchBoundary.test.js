@@ -2,10 +2,27 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { helperHealthURLsFromProcess } from "../mac-helper/src/cliRuntimeBoundary.js";
 
 const moduleURL = pathToFileURL(fileURLToPath(
   new URL("../mac-helper/src/cliRuntimeBoundary.js", import.meta.url)
 )).href;
+
+test("setup-status derives the exact custom helper health endpoint", () => {
+  assert.deepEqual(
+    helperHealthURLsFromProcess([
+      process.execPath,
+      "/tmp/mac-helper/bin/swift-sim-helper.js",
+      "setup-status",
+      "--host", "localhost",
+      "--port=48123",
+    ]),
+    [
+      "http://127.0.0.1:47217/health",
+      "http://localhost:48123/health",
+    ],
+  );
+});
 
 test("CLI health checks reject reachable incompatible helpers", () => {
   const source = `
@@ -15,15 +32,17 @@ test("CLI health checks reject reachable incompatible helpers", () => {
       headers: { "content-type": "application/json" },
     });
     const boundary = await import(${JSON.stringify(moduleURL)});
-    boundary.installCompatibleHelperHealthFetchBoundary();
-    const rejected = await fetch("http://127.0.0.1:47217/health");
+    boundary.installCompatibleHelperHealthFetchBoundary({
+      healthURLs: ["http://localhost:48123/health"],
+    });
+    const rejected = await fetch("http://localhost:48123/health");
     payload = {
       ok: true,
       helper: "swift-sim-helper",
       version: "0.5.0",
       protocol: 1,
     };
-    const accepted = await fetch("http://127.0.0.1:47217/health");
+    const accepted = await fetch("http://localhost:48123/health");
     console.log(JSON.stringify({ rejected: rejected.status, accepted: accepted.status }));
   `;
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", source], {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../src/lockOwnershipPreload.js";
 import "../src/deviceBuildCapabilityBoundaryPreload.js";
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";

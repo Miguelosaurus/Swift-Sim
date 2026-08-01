@@ -1,6 +1,14 @@
+import { enterSessionRequestContext } from "./sessionRequestContext.js";
+
 const DEFAULT_MAX_JSON_BYTES = 64 * 1024;
 
 export async function readJson(req, { maxBytes = DEFAULT_MAX_JSON_BYTES } = {}) {
+  const sessionRequestContext = req.method === "POST"
+      && /^\/api\/sessions\/start(?:\?|$)/.test(String(req.url || ""))
+    ? enterSessionRequestContext({
+        transport: process.env.SWIFT_SIM_TRANSPORT || "auto",
+      })
+    : null;
   const declaredLength = Number(req.headers["content-length"] || 0);
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     throw new Error("Request body is too large.");
@@ -19,7 +27,13 @@ export async function readJson(req, { maxBytes = DEFAULT_MAX_JSON_BYTES } = {}) 
   }
   const body = Buffer.concat(chunks, received).toString("utf8");
   if (!body.trim()) return {};
-  return JSON.parse(body);
+  const parsed = JSON.parse(body);
+  if (sessionRequestContext) {
+    sessionRequestContext.transport = String(
+      parsed?.transport || process.env.SWIFT_SIM_TRANSPORT || "auto",
+    );
+  }
+  return parsed;
 }
 
 export function json(res, status, body) {
