@@ -28,6 +28,11 @@ test("artifact cleanup accepts only the exact private build root", () => {
     buildId: "build-1",
     root: "/tmp/swift-sim",
   }), { code: "SWIFT_SIM_ARTIFACT_CLEANUP_PATH_INVALID" });
+  assert.throws(() => validatedArtifactCleanupRoot(statePath, {
+    id: "job",
+    buildId: "../../victim",
+    root: "/tmp/victim",
+  }), { code: "SWIFT_SIM_ARTIFACT_CLEANUP_PATH_INVALID" });
 });
 
 test("persisted cleanup state cannot recursively delete an unrelated directory", () => {
