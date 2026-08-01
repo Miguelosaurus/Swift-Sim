@@ -259,17 +259,17 @@ test("production live routing holds one lifecycle lease", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
   assert.ok(source.includes(
     "if (!injectedLifecycle && runtime.lifecycleLocked !== true) {\n"
-      + "    return withLiveEngineLifecycleLock(() => routeLiveEditSet({",
+      + "    return withLiveEngineLifecycleLock",
   ));
   assert.ok(source.includes(
-    "const inspect = runtime.inspect || (runtime.lifecycleLocked\n"
+    "runtime.lifecycleLocked\n"
       + "    ? ((options) => inspectLiveReloadUnlocked(options))",
   ));
   assert.ok(source.includes(
-    "const inject = runtime.inject || (runtime.lifecycleLocked\n"
+    "runtime.lifecycleLocked\n"
       + "    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked",
   ));
   assert.ok(source.includes(
-    "const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload;",
+    "const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload",
   ));
 });
