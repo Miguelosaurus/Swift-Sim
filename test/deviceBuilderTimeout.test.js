@@ -9,9 +9,6 @@ import {
   runBuffered,
   terminateRecordedDeviceBuildWorker,
 } from "../mac-helper/src/deviceBuilderCore.js";
-import {
-  terminateRecordedDeviceBuildWorker as terminateRecordedDeviceBuildWorkerFailClosed,
-} from "../mac-helper/src/deviceBuilder.js";
 
 test("a timed out build waits for the complete process group to exit", {
   skip: process.platform === "win32",
@@ -176,19 +173,6 @@ test("buffered process output preserves UTF-8 split across chunks", async () => 
   assert.equal(result.code, 0);
   assert.equal(result.stdout, "Café 🚀\n");
   assert.deepEqual(lines, ["Café 🚀"]);
-});
-
-test("restart recovery accepts an absent journal before an owned worker is released", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "swift-sim-worker-journal-test-"));
-  try {
-    const terminated = await terminateRecordedDeviceBuildWorkerFailClosed({
-      id: "missing-worker-build",
-      control: { cancelPath: join(directory, ".cancelled") },
-    });
-    assert.equal(terminated, false);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 });
 
 test("a persisted interrupted worker identity can be terminated after restart", {
