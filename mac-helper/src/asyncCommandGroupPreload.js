@@ -4,16 +4,12 @@ import { basename } from "node:path";
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
 const originalSpawn = childProcess.spawn;
-const DEFAULT_FORCE_KILL_DELAY_MS = 250;
 const managedCommands = new Set(["tailscale"]);
 let installed = false;
 
-export function installAsyncCommandGroupCleanup({
-  forceKillDelayMs = configuredForceKillDelay(),
-} = {}) {
+export function installAsyncCommandGroupCleanup() {
   if (installed) return;
   installed = true;
-  const forceDelayMs = nonnegativeMilliseconds(forceKillDelayMs, DEFAULT_FORCE_KILL_DELAY_MS);
 
   childProcess.spawn = function guardedAsyncSpawn(command, args, options) {
     const normalized = normalizeInvocation(args, options);
@@ -26,28 +22,16 @@ export function installAsyncCommandGroupCleanup({
       detached: true,
     });
     const originalKill = child.kill.bind(child);
-    let forceTimer = null;
-    let cleanupRequested = false;
 
     child.kill = function killManagedCommand(signal = "SIGTERM") {
-      const normalizedSignal = signal || "SIGTERM";
-      cleanupRequested = true;
-      const signalled = signalProcessGroup(child.pid, normalizedSignal, originalKill);
-      if (normalizedSignal !== "SIGKILL" && !forceTimer) {
-        forceTimer = setTimeout(() => {
-          forceTimer = null;
-          signalProcessGroup(child.pid, "SIGKILL", originalKill);
-        }, forceDelayMs);
-        forceTimer.unref?.();
+      if (signal === 0) {
+        try { return originalKill(0); } catch { return false; }
       }
-      return signalled;
+      // Managed commands are short-lived, read-only Tailscale probes. When a
+      // probe times out, kill the complete process group immediately instead
+      // of arming a delayed signal that could target a recycled PGID.
+      return signalProcessGroup(child.pid, "SIGKILL", originalKill);
     };
-
-    child.once("error", () => {
-      if (cleanupRequested && !forceTimer) {
-        signalProcessGroup(child.pid, "SIGKILL", originalKill);
-      }
-    });
     return child;
   };
   syncBuiltinESMExports();
@@ -80,18 +64,4 @@ function signalProcessGroup(pid, signal, fallbackKill) {
 function normalizeInvocation(args, options) {
   if (Array.isArray(args)) return { args, options: options || {} };
   return { args: [], options: args || {} };
-}
-
-function configuredForceKillDelay() {
-  return nonnegativeMilliseconds(
-    process.env.SWIFT_SIM_ASYNC_FORCE_KILL_DELAY_MS,
-    DEFAULT_FORCE_KILL_DELAY_MS,
-  );
-}
-
-function nonnegativeMilliseconds(value, fallback) {
-  const milliseconds = Number(value);
-  return Number.isFinite(milliseconds) && milliseconds >= 0
-    ? Math.floor(milliseconds)
-    : fallback;
 }
