@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DeviceInventoryAdapter, physicalIOSDevices } from "../mac-helper/src/deviceInventory.js";
+import {
+  DeviceInventoryAdapter,
+  physicalIOSDevices,
+  runCommandWithDeadline,
+} from "../mac-helper/src/deviceInventory.js";
 
 const devicePayload = {
   result: {
@@ -153,4 +157,36 @@ test("verification caches successful results only for the configured window", as
   now += 5_001;
   await adapter.verifyApp("com.example.cached", { version: "1.2", build: "7" });
   assert.equal(calls, 4);
+});
+
+test("device command deadline settles even when the child ignores SIGTERM", async () => {
+  const startedAt = Date.now();
+  const result = await runCommandWithDeadline(process.execPath, [
+    "-e",
+    "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+  ], {
+    timeoutMs: 75,
+    forceKillDelayMs: 50,
+  });
+  assert.equal(result.code, null);
+  assert.equal(result.timedOut, true);
+  assert.match(result.stderr, /exceeded its 75ms deadline/);
+  assert.ok(Date.now() - startedAt < 2_000);
+});
+
+test("device command deadline keeps force-kill cleanup armed after leader exit", async () => {
+  const startedAt = Date.now();
+  const result = await runCommandWithDeadline(process.execPath, [
+    "-e",
+    "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000)",
+  ], {
+    timeoutMs: 75,
+    forceKillDelayMs: 100,
+  });
+  const elapsed = Date.now() - startedAt;
+  assert.equal(result.code, null);
+  assert.equal(result.timedOut, true);
+  assert.match(result.stderr, /exceeded its 75ms deadline/);
+  assert.ok(elapsed >= 150);
+  assert.ok(elapsed < 2_000);
 });
