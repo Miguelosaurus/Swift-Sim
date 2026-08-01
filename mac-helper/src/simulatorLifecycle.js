@@ -12,6 +12,7 @@ import {
 
 export * from "./simulatorLifecycleBase.js";
 
+const RUNTIME_CLAIM_SEPARATOR = "#swift-sim-claim:";
 const claimContext = new AsyncLocalStorage();
 const sessionRegistries = new Map();
 
@@ -51,7 +52,7 @@ export async function startSimulatorRuntime(options = {}) {
     operation: wrapProjectionOperation(options.operation, claim, options.rootPath),
   };
   try {
-    const stream = await base.startSimulatorRuntime(wrapped);
+    const stream = restorePublicStream(await base.startSimulatorRuntime(wrapped));
     if (claim) finalizeClaim(claim, stream, { rootPath: options.rootPath });
     return stream;
   } catch (error) {
@@ -60,7 +61,7 @@ export async function startSimulatorRuntime(options = {}) {
         || typeof options.recover !== "function") {
       throw error;
     }
-    const runtime = base.readSimulatorRuntimeState(simulatorUDID, { rootPath: options.rootPath });
+    const runtime = readSimulatorRuntimeState(simulatorUDID, { rootPath: options.rootPath });
     if (!runtime || runtime.status !== "running" || registeredRuntimeOwner(runtime, claim, { rootPath: options.rootPath }) !== "unowned") {
       throw error;
     }
@@ -69,7 +70,7 @@ export async function startSimulatorRuntime(options = {}) {
       operation: options.recover,
       rootPath: options.rootPath,
     });
-    const stream = await base.startSimulatorRuntime(wrapped);
+    const stream = restorePublicStream(await base.startSimulatorRuntime(wrapped));
     finalizeClaim(claim, stream, { rootPath: options.rootPath });
     return stream;
   }
@@ -92,16 +93,20 @@ export async function restartSimulatorRuntime(options = {}) {
   };
   writeSimulatorClaim(claim, { rootPath: options.rootPath });
   try {
-    const stream = await base.restartSimulatorRuntime({
+    const stream = restorePublicStream(await base.restartSimulatorRuntime({
       ...options,
       operation: wrapProjectionOperation(options.operation, claim, options.rootPath),
-    });
+    }));
     finalizeClaim(claim, stream, { rootPath: options.rootPath });
     return stream;
   } catch (error) {
     markClaimFailed(claim, error, { rootPath: options.rootPath });
     throw error;
   }
+}
+
+export function readSimulatorRuntimeState(simulatorUDID, options = {}) {
+  return decodeRuntimeState(base.readSimulatorRuntimeState(simulatorUDID, options));
 }
 
 export function simulatorSessionRuntimeSnapshot(session, { rootPath } = {}) {
@@ -111,7 +116,7 @@ export function simulatorSessionRuntimeSnapshot(session, { rootPath } = {}) {
   }
   let runtime;
   try {
-    runtime = base.readSimulatorRuntimeState(simulatorUDID, { rootPath });
+    runtime = readSimulatorRuntimeState(simulatorUDID, { rootPath });
   } catch {
     return { disposition: "unreadable", runtime: null, projection: null };
   }
@@ -157,11 +162,23 @@ function wrapProjectionOperation(operation, claim, rootPath) {
   if (typeof operation !== "function") return operation;
   return async () => {
     const stream = await operation();
-    if (claim) updateSimulatorClaim(claim, {
-      projection: publicStreamProjection(stream),
+    if (!claim) return stream;
+    const projection = publicStreamProjection(stream);
+    updateSimulatorClaim(claim, {
+      projection,
       updatedAt: new Date().toISOString(),
     }, { rootPath });
-    return stream;
+    return {
+      ...stream,
+      transport: encodeRuntimeTransport(projection.transport, claim.claimID),
+      raw: {
+        ...(stream?.raw && typeof stream.raw === "object" && !Array.isArray(stream.raw)
+          ? stream.raw
+          : {}),
+        swiftSimLifecycleClaimID: claim.claimID,
+        swiftSimPublicTransport: projection.transport,
+      },
+    };
   };
 }
 
@@ -203,8 +220,7 @@ function startClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
   return Boolean(claim
     && claim.kind === "start"
     && claim.sessionID === session.id
-    && claim.projection
-    && projectionMatchesRuntime(claim.projection, runtime));
+    && claimMatchesRuntime(claim, runtime));
 }
 
 function restartClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
@@ -213,26 +229,30 @@ function restartClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
   return listSimulatorClaims(requiredUDID(session.simulatorUDID), { rootPath })
     .some((claim) => claim.kind === "restart"
       && claim.previousNonce === expectedNonce
-      && claim.projection
-      && projectionMatchesRuntime(claim.projection, runtime));
+      && claimMatchesRuntime(claim, runtime));
 }
 
 function claimProjectionFor(session, runtime, { rootPath } = {}) {
   const claimID = String(session?.stream?.raw?.swiftSimLifecycleClaimID || "").trim();
   if (claimID) {
     const claim = readSimulatorClaim(requiredUDID(session.simulatorUDID), claimID, { rootPath });
-    if (claim?.projection) return structuredClone(claim.projection);
+    if (claim?.projection && claimMatchesRuntime(claim, runtime)) return structuredClone(claim.projection);
   }
   const expectedNonce = sessionNonce(session);
   if (expectedNonce) {
     const claim = listSimulatorClaims(requiredUDID(session.simulatorUDID), { rootPath })
       .find((candidate) => candidate.kind === "restart"
         && candidate.previousNonce === expectedNonce
-        && candidate.projection
-        && projectionMatchesRuntime(candidate.projection, runtime));
-    if (claim) return structuredClone(claim.projection);
+        && claimMatchesRuntime(candidate, runtime));
+    if (claim?.projection) return structuredClone(claim.projection);
   }
   return runtimeProjection(runtime);
+}
+
+function claimMatchesRuntime(claim, runtime) {
+  if (!claim || !runtime) return false;
+  if (runtime.claimID) return runtime.claimID === claim.claimID;
+  return Boolean(claim.projection && projectionMatchesRuntime(claim.projection, runtime));
 }
 
 function projectionMatchesRuntime(projection, runtime) {
@@ -274,6 +294,47 @@ function publicStreamProjection(stream) {
     pid: Number.isInteger(pid) && pid > 0 ? pid : undefined,
     limitations: Array.isArray(stream?.limitations) ? stream.limitations.map(String) : [],
   };
+}
+
+function restorePublicStream(stream) {
+  if (!stream || typeof stream !== "object") return stream;
+  const raw = stream.raw && typeof stream.raw === "object" && !Array.isArray(stream.raw)
+    ? stream.raw
+    : {};
+  const { swiftSimPublicTransport, ...publicRaw } = raw;
+  return {
+    ...stream,
+    transport: String(swiftSimPublicTransport || publicRuntimeTransport(stream.transport) || "serve-sim"),
+    raw: publicRaw,
+  };
+}
+
+function decodeRuntimeState(runtime) {
+  if (!runtime) return null;
+  const taggedTransport = String(runtime.transport || "");
+  return {
+    ...runtime,
+    transport: publicRuntimeTransport(taggedTransport),
+    claimID: runtimeClaimID(taggedTransport),
+  };
+}
+
+function encodeRuntimeTransport(transport, claimID) {
+  return `${publicRuntimeTransport(transport)}${RUNTIME_CLAIM_SEPARATOR}${claimID}`;
+}
+
+function publicRuntimeTransport(value) {
+  const transport = String(value || "");
+  const separatorIndex = transport.lastIndexOf(RUNTIME_CLAIM_SEPARATOR);
+  return separatorIndex >= 0 ? transport.slice(0, separatorIndex) : transport;
+}
+
+function runtimeClaimID(value) {
+  const transport = String(value || "");
+  const separatorIndex = transport.lastIndexOf(RUNTIME_CLAIM_SEPARATOR);
+  return separatorIndex >= 0
+    ? transport.slice(separatorIndex + RUNTIME_CLAIM_SEPARATOR.length)
+    : "";
 }
 
 function syntheticRuntimeSession(runtime) {
