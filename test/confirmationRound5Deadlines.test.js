@@ -71,13 +71,19 @@ test("execFileSync operations receive the same hard deadline", () => {
   assert.deepEqual(JSON.parse(result.stdout.trim()), { code: "ETIMEDOUT", signal: "SIGKILL" });
 });
 
-test("deadline classification preserves service and build semantics", () => {
+test("deadline classification preserves service, build, and interrupt semantics", () => {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
-    const { commandDeadline } = await import(${JSON.stringify(commandPreload)});
+    const {
+      commandDeadline,
+      synchronousCommandUsesProcessGroup,
+    } = await import(${JSON.stringify(commandPreload)});
     console.log(JSON.stringify({
       fallback: commandDeadline('/tmp/custom-tool', []),
       serve: commandDeadline(process.execPath, ['/tmp/swift-sim-helper.js', 'serve']),
       build: commandDeadline(process.execPath, ['/tmp/swift-sim-helper.js', 'build-device']),
+      interactiveGrouped: synchronousCommandUsesProcessGroup({ stdio: 'inherit' }),
+      pipedGrouped: synchronousCommandUsesProcessGroup({ stdio: ['ignore', 'pipe', 'pipe'] }),
+      explicitGrouped: synchronousCommandUsesProcessGroup({ stdio: 'inherit', detached: true }),
     }));
   `], { encoding: "utf8", timeout: 2_000 });
   assert.equal(result.status, 0, result.stderr);
@@ -85,6 +91,9 @@ test("deadline classification preserves service and build semantics", () => {
     fallback: 15 * 60_000,
     serve: 0,
     build: 60 * 60_000,
+    interactiveGrouped: false,
+    pipedGrouped: true,
+    explicitGrouped: true,
   });
 });
 
