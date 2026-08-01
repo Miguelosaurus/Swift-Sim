@@ -65,9 +65,10 @@ function tryAcquire(lockPath) {
     }
     if (error?.code !== "EEXIST") throw error;
     const observedOwner = readOwner(ownerPath);
+    const ownerlessObservation = observedOwner ? null : observeLockDirectory(lockPath);
     if ((observedOwner && !lockOwnerIsAlive(observedOwner))
-        || (!observedOwner && ownerlessLockIsStale(lockPath))) {
-      claimAndQuarantineStaleLock(lockPath, observedOwner);
+        || (!observedOwner && ownerlessObservation && ownerlessObservationIsStale(ownerlessObservation))) {
+      claimAndQuarantineStaleLock(lockPath, observedOwner, ownerlessObservation);
     }
     return null;
   }
@@ -82,7 +83,7 @@ function releaseOwnedLock(lockPath, ownerPath, owner) {
   } catch {}
 }
 
-function claimAndQuarantineStaleLock(lockPath, observedOwner) {
+function claimAndQuarantineStaleLock(lockPath, observedOwner, ownerlessObservation) {
   const claimPath = join(lockPath, "reclaim.json");
   const claim = {
     pid: process.pid,
@@ -101,8 +102,9 @@ function claimAndQuarantineStaleLock(lockPath, observedOwner) {
     const currentOwner = readOwner(join(lockPath, "owner.json"));
     if (observedOwner) {
       if (!sameOwner(currentOwner, observedOwner) || lockOwnerIsAlive(currentOwner)) return;
-    } else if (currentOwner || !ownerlessLockIsStale(lockPath)) {
-      return;
+    } else {
+      const currentObservation = observeLockDirectory(lockPath);
+      if (currentOwner || !sameLockDirectory(currentObservation, ownerlessObservation)) return;
     }
 
     const currentClaim = readOwner(claimPath);
@@ -164,12 +166,28 @@ function lockOwnerIsAlive(owner) {
   return processStartedAt(pid) === owner.startedAt;
 }
 
-function ownerlessLockIsStale(path) {
+function observeLockDirectory(path) {
   try {
-    return Date.now() - statSync(path).mtimeMs >= OWNERLESS_LOCK_GRACE_MS;
+    const stat = statSync(path);
+    return {
+      device: String(stat.dev),
+      inode: String(stat.ino),
+      mtimeMs: stat.mtimeMs,
+    };
   } catch {
-    return false;
+    return null;
   }
+}
+
+function ownerlessObservationIsStale(observation) {
+  return Boolean(observation
+    && Date.now() - Number(observation.mtimeMs) >= OWNERLESS_LOCK_GRACE_MS);
+}
+
+function sameLockDirectory(left, right) {
+  return Boolean(left && right
+    && left.device === right.device
+    && left.inode === right.inode);
 }
 
 function processStartIdentity() {
