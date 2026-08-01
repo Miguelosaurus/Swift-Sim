@@ -24,4 +24,4 @@ Review scope:
 - Paired-Mac rebuild authority and stale response fencing.
 - Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
 
-The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics/classifier transformation now uses platform-neutral syntax, documentation, and affected-suite checks on the isolated runner; the complete macOS Node suite and iOS tests remain mandatory on the resulting exact head. The self-cancel path has been removed and this non-workflow commit retriggers the repaired gate.
+The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics/classifier transformation now runs through an isolated v2 workflow with a distinct concurrency key and platform-neutral syntax/documentation checks; the complete macOS Node suite and iOS tests remain mandatory on the resulting exact head.
