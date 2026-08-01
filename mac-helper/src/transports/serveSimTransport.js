@@ -31,6 +31,7 @@ export class ServeSimTransport {
   async start({ simulatorUDID, port }) {
     return startSimulatorRuntime({
       simulatorUDID,
+      recover: () => this.adapter.kill(simulatorUDID),
       operation: () => this.startUnlocked({ simulatorUDID, port }),
     });
   }
