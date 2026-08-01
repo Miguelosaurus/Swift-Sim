@@ -24,4 +24,4 @@ Review scope:
 - Paired-Mac rebuild authority and stale response fencing.
 - Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
 
-The first self-removing transformation passed the complete Node/release check before committing. The explicit follow-up run closes residual classifier and lifecycle-lock findings before exact-head full validation.
+The first self-removing transformation passed the complete Node/release check before committing. The follow-up transformer now has a branch-visible diagnostic fallback and will either commit validated fixes or record its exact failing anchor.
