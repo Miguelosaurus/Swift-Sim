@@ -85,12 +85,13 @@ export class SessionStore extends BaseSessionStore {
         this.retireSession(session, snapshot.disposition);
         continue;
       }
-      if (session.stream?.state === "starting") {
-        const immediatelyTerminal = ["stopped", "failed"].includes(snapshot.disposition);
-        if (immediatelyTerminal || (startLeaseExpired(session)
-            && ["missing", "superseded"].includes(snapshot.disposition))) {
-          this.retireSession(session, snapshot.disposition);
-        }
+      if (session.stream?.state === "starting"
+          && startLeaseExpired(session)
+          && ["stopped", "failed", "missing", "superseded"].includes(snapshot.disposition)) {
+        // A fresh start may temporarily observe terminal state from the
+        // predecessor runtime, including the native-to-fallback handoff.
+        // Preserve its lease until expiry unless a running claim is adopted.
+        this.retireSession(session, snapshot.disposition);
       }
     }
     this.publishLifecycleRegistry();

@@ -1,6 +1,7 @@
 import "./lockOwnershipPreload.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import * as base from "./simulatorLifecycleBase.js";
 import {
   listSimulatorClaims,
@@ -203,7 +204,13 @@ function markClaimFailed(claim, error, { rootPath } = {}) {
 function registeredRuntimeOwner(runtime, claim, { rootPath } = {}) {
   const registry = sessionRegistries.get(claim.storeID);
   if (!registry?.readable) return "unknown";
-  const owner = registry.sessions.find((session) => {
+  let sessions;
+  try {
+    sessions = readCurrentSessionOwners(claim.storeID);
+  } catch {
+    return "unknown";
+  }
+  const owner = sessions.find((session) => {
     if (!["starting", "running"].includes(session?.stream?.state)) return false;
     const nonce = sessionNonce(session);
     if (nonce && (runtime.nonce === nonce || runtime.previousNonce === nonce)) return true;
@@ -211,6 +218,24 @@ function registeredRuntimeOwner(runtime, claim, { rootPath } = {}) {
     return startClaimOwnsRuntime(session, runtime, { rootPath });
   });
   return owner ? "owned" : "unowned";
+}
+
+function readCurrentSessionOwners(storeID) {
+  const raw = readFileSync(requiredStoreID(storeID), "utf8");
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.sessions)) {
+    throw new Error("the stored Simulator session registry is malformed");
+  }
+  return parsed.sessions.map((session) => {
+    if (!session || typeof session !== "object" || Array.isArray(session)) {
+      throw new Error("the stored Simulator session registry contains an invalid session");
+    }
+    const projection = ownershipSessionProjection(session);
+    if (!projection.id || !projection.simulatorUDID || !projection.stream.state) {
+      throw new Error("the stored Simulator session registry contains an incomplete session");
+    }
+    return projection;
+  });
 }
 
 function startClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
