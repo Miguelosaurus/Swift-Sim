@@ -6,6 +6,8 @@ import { join } from "node:path";
 
 const DEFAULT_VERIFICATION_CACHE_MS = 5_000;
 const MAX_VERIFICATION_CACHE_ENTRIES = 64;
+const DEFAULT_DEVICECTL_DEADLINE_MS = 20_000;
+const DEFAULT_FORCE_KILL_DELAY_MS = 1_000;
 
 export class DeviceInventoryAdapter {
   constructor({
@@ -127,6 +129,70 @@ export function physicalIOSDevices(payload) {
     }));
 }
 
+export function runCommandWithDeadline(command, args, {
+  timeoutMs = DEFAULT_DEVICECTL_DEADLINE_MS,
+  forceKillDelayMs = DEFAULT_FORCE_KILL_DELAY_MS,
+} = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    let deadlineTimer;
+    let forceTimer;
+    let settleTimer;
+
+    const clearTimers = () => {
+      clearTimeout(deadlineTimer);
+      clearTimeout(forceTimer);
+      clearTimeout(settleTimer);
+    };
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      resolve(result);
+    };
+    const timeoutMessage = () => `${command} ${args.join(" ")} exceeded its ${Math.max(1, Number(timeoutMs) || 0)}ms deadline`;
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", (error) => {
+      finish({ code: null, stdout, stderr: error.message, timedOut: false });
+    });
+    child.once("close", (code) => {
+      if (timedOut) return;
+      finish({ code, stdout, stderr, timedOut: false });
+    });
+
+    deadlineTimer = setTimeout(() => {
+      if (settled) return;
+      timedOut = true;
+      signalProcessGroup(child, "SIGTERM");
+      forceTimer = setTimeout(() => {
+        signalProcessGroup(child, "SIGKILL");
+        settleTimer = setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          const detail = timeoutMessage();
+          finish({
+            code: null,
+            stdout,
+            stderr: stderr ? `${stderr.trim()}\n${detail}` : detail,
+            timedOut: true,
+          });
+        }, 100);
+      }, Math.max(0, Number(forceKillDelayMs) || 0));
+    }, Math.max(1, Number(timeoutMs) || DEFAULT_DEVICECTL_DEADLINE_MS));
+  });
+}
+
 function verification(state, devices, detail = "") {
   return {
     state,
@@ -140,7 +206,7 @@ async function runDeviceCtl(args) {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-devicectl-"));
   const outputPath = join(directory, "result.json");
   try {
-    const result = await run("xcrun", [
+    const result = await runCommandWithDeadline("xcrun", [
       "devicectl",
       ...args,
       "--json-output", outputPath,
@@ -161,14 +227,12 @@ async function runDeviceCtl(args) {
   }
 }
 
-function run(command, args) {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => resolve({ code: null, stdout, stderr: error.message }));
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
-  });
+function signalProcessGroup(child, signal) {
+  const pid = Number(child?.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try { child.kill(signal); } catch {}
+  }
 }
