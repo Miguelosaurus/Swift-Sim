@@ -156,3 +156,22 @@ test("attribute-looking text in strings and comments does not change the surface
   assert.equal(result.hotReloadable, true);
   assert.equal(result.reasonCode, LIVE_REASON_CODES.IMPLEMENTATION_ONLY);
 });
+
+
+test("engine-mutating live operations hold the lifecycle lock", () => {
+  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
+  assert.match(
+    source,
+    /export async function registerLiveBuildResult\(options\) \{
+  return withLiveEngineLifecycleLock\(\(\) => registerLiveBuildResultUnlocked\(options\)\);/,
+  );
+  assert.match(
+    source,
+    /export async function injectLiveSource\(sourcePath, runtime = \{\}\) \{[\s\S]*return withLiveEngineLifecycleLock\(\(\) => injectLiveSourceUnlocked\(sourcePath, runtime\)\);/,
+  );
+  assert.match(
+    source,
+    /if \(typeof runtime\.engineControl === "function"\) \{
+    return injectLiveSourceUnlocked\(sourcePath, runtime\);/,
+  );
+});

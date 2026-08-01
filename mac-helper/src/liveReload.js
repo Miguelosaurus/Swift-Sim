@@ -427,7 +427,11 @@ async function ensureLiveEngineInstalledUnlocked() {
   };
 }
 
-export async function registerLiveBuildResult({ resultBundle }) {
+export async function registerLiveBuildResult(options) {
+  return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));
+}
+
+async function registerLiveBuildResultUnlocked({ resultBundle }) {
   const path = resolve(resultBundle || "");
   if (!existsSync(path)) {
     throw new Error("The Xcode result bundle is missing.");
@@ -1165,6 +1169,13 @@ function prepareLivePatch(sourcePath, { beforePath = "", forceInterposition = fa
 }
 
 export async function injectLiveSource(sourcePath, runtime = {}) {
+  if (typeof runtime.engineControl === "function") {
+    return injectLiveSourceUnlocked(sourcePath, runtime);
+  }
+  return withLiveEngineLifecycleLock(() => injectLiveSourceUnlocked(sourcePath, runtime));
+}
+
+async function injectLiveSourceUnlocked(sourcePath, runtime = {}) {
   const source = resolve(sourcePath || "");
   const now = runtime.now || (() => Date.now());
   const control = runtime.engineControl || engineControl;
