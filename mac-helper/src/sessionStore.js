@@ -141,13 +141,14 @@ export class SessionStore {
       && candidate.scheme === scheme
       && candidate.stream.state === "running"
     ));
-    const session = requestedTransports.length === 0
+    const exactSession = requestedTransports.length === 0
       ? candidates[0]
       : requestedTransports
           .map((requestedTransport) => candidates.find((candidate) =>
             (candidate.stream.transport || "serve-sim") === requestedTransport
           ))
           .find(Boolean);
+    const session = exactSession || candidates[0];
     return session ? sessionCopy(session) : undefined;
   }
 
@@ -308,8 +309,7 @@ export class SessionStore {
 function sameSessionTarget(session, input) {
   return session?.project === (input.project || "")
     && session?.scheme === (input.scheme || "")
-    && session?.simulatorUDID === input.simulatorUDID
-    && (session?.stream?.transport || "serve-sim") === (input.transport || "serve-sim");
+    && session?.simulatorUDID === input.simulatorUDID;
 }
 
 function sessionStartIsActive(session) {
