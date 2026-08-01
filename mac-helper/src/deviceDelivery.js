@@ -301,8 +301,8 @@ function deliveryStateRecords(statePath) {
     for (const name of readdirSync(directory)) {
       if (!name.startsWith(prefix) || !name.endsWith(".json")) continue;
       const path = join(directory, name);
-      const state = readDeliveryGenerationState(path, { allowMissing: false });
-      records.push({ path, state });
+      const state = readDeliveryGenerationState(path);
+      if (state) records.push({ path, state });
     }
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
