@@ -20,6 +20,7 @@ let currentProcessStartedAt;
 
 export async function startSimulatorRuntime({ simulatorUDID, operation, rootPath } = {}) {
   return withSimulatorLifecycleLock(simulatorUDID, async () => {
+    readSimulatorRuntimeState(simulatorUDID, { rootPath });
     try {
       const stream = await requiredOperation(operation)();
       return publishRunningRuntime(simulatorUDID, stream, { rootPath });
@@ -35,9 +36,7 @@ export async function restartSimulatorRuntime({ session, operation, rootPath } =
   return withSimulatorLifecycleLock(simulatorUDID, async () => {
     const expectedNonce = sessionRuntimeNonce(session);
     const current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
-    if (expectedNonce && (!current
-        || current.status !== "running"
-        || current.nonce !== expectedNonce)) {
+    if (!runtimeOwnsSession(current, session, expectedNonce)) {
       const error = new Error("This Simulator stream was stopped or replaced before recovery could begin.");
       error.code = "SWIFT_SIM_SIMULATOR_STREAM_SUPERSEDED";
       throw error;
@@ -250,6 +249,17 @@ function tryAcquireLifecycleLock(lockPath) {
 
 function sessionRuntimeNonce(session) {
   return String(session?.stream?.raw?.swiftSimLifecycleNonce || "").trim();
+}
+
+function runtimeOwnsSession(current, session, expectedNonce) {
+  if (!current) return !expectedNonce;
+  if (current.status !== "running") return false;
+  if (expectedNonce) return current.nonce === expectedNonce;
+  const recordedPID = Number(current.pid);
+  const sessionPID = Number(session?.stream?.pid);
+  return !Number.isInteger(recordedPID)
+    || !Number.isInteger(sessionPID)
+    || recordedPID === sessionPID;
 }
 
 function validateRuntimeState(value, simulatorUDID) {
