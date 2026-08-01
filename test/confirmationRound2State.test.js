@@ -9,6 +9,7 @@ import {
   readDeliveryGenerationState,
   removeDeliveryGenerationReference,
 } from "../mac-helper/src/deviceDeliveryState.js";
+import { SessionStore } from "../mac-helper/src/sessionStore.js";
 import {
   resolvedSessionTransport,
   sessionTransportCandidates,
@@ -30,6 +31,24 @@ function readyState(overrides = {}) {
     references: [],
     ...overrides,
   };
+}
+
+function sessionInput(token, transport) {
+  return {
+    token,
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "SIM-1",
+    transport,
+  };
+}
+
+function markRunning(store, session, transport) {
+  session.stream.state = "running";
+  session.stream.transport = transport;
+  session.stream.localUrl = `http://127.0.0.1/${transport}`;
+  store.save(session);
+  return session;
 }
 
 test("manager state publication preserves capability references", () => withTemporaryPath((path) => {
@@ -88,4 +107,55 @@ test("automatic session reuse becomes serve-sim-only when native transport is di
   assert.equal(sessionTransportMatches("native-companion", "auto", { nativeDisabled: true }), false);
   assert.equal(sessionTransportMatches("serve-sim", "auto", { nativeDisabled: true }), true);
   assert.equal(resolvedSessionTransport("auto", { nativeDisabled: true }), "serve-sim");
+});
+
+test("SessionStore reuses an automatic serve-sim fallback instead of starting a duplicate", () => withTemporaryPath((path) => {
+  const store = new SessionStore({ path });
+  const fallback = markRunning(
+    store,
+    store.create(sessionInput("fallback", "serve-sim")),
+    "serve-sim",
+  );
+  const reused = store.findReusable({
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "SIM-1",
+    transport: "auto",
+  });
+  assert.equal(reused.id, fallback.id);
+}));
+
+test("SessionStore prefers native when both automatic transports are running", () => withTemporaryPath((path) => {
+  const store = new SessionStore({ path });
+  markRunning(store, store.create(sessionInput("fallback", "serve-sim")), "serve-sim");
+  const native = markRunning(
+    store,
+    store.create(sessionInput("native", "native-companion")),
+    "native-companion",
+  );
+  const reused = store.findReusable({
+    project: "/tmp/App.xcodeproj",
+    scheme: "App",
+    simulatorUDID: "SIM-1",
+    transport: "auto",
+  });
+  assert.equal(reused.id, native.id);
+}));
+
+test("a failed session record does not retain the duplicate-start lease", () => withTemporaryPath((path) => {
+  const store = new SessionStore({ path });
+  const failed = store.create(sessionInput("first", "serve-sim"));
+  failed.stream.state = "failed";
+  store.save(failed);
+  assert.doesNotThrow(() => store.create(sessionInput("second", "serve-sim")));
+}));
+
+test("helper source persists failed starts and uses shared automatic transport matching", () => {
+  const source = readFileSync(
+    new URL("../mac-helper/bin/swift-sim-helper.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /sessionTransportMatches\(existing\.stream\.transport, transportPreference\)/);
+  assert.match(source, /session\.stream\.state = "failed"/);
+  assert.match(source, /transport: transportPreference/);
 });
