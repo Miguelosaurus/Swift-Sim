@@ -2,7 +2,7 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `8931e8be5c044c7eb6862cbaf3f4cb8c228b7aa1`
+Final code candidate before this ledger commit: `2eed0b004d8740d617314becf21f5018146fed58`
 
 This staging branch reviews the fully synchronized merge of the previous local main work with hardening head `5afa7728bb22d3ff6e54512615d988a9c7a85240`.
 
@@ -11,7 +11,7 @@ This staging branch reviews the fully synchronized merge of the previous local m
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 11 | 11 | 0 |
+| P1 | 12 | 12 | 0 |
 | P2 | 6 | 6 | 0 |
 | P3 | 0 | 0 | 0 |
 
@@ -28,6 +28,7 @@ This staging branch reviews the fully synchronized merge of the previous local m
 9. Registering captured compilation commands could race a concurrent live-engine replacement and publish mappings to the wrong engine generation. Registration now holds the lifecycle lock.
 10. Default production patch injection could race a concurrent engine replacement between queueing and completion polling. Production injection now holds the lifecycle lock; injected test transports retain their isolated path.
 11. A contender that died after creating `reclaim.json` could permanently block all future live-engine lifecycle operations. Dead valid claims and sufficiently old malformed claims are now atomically quarantined, re-verified after rename, and removed only when they are still the exact abandoned file.
+12. Multiline runtime `#available` and `#unavailable` expressions could evade the single-line structural matcher and be sent down the hot-reload lane. Runtime availability conditions now use balanced multiline scanning that preserves the original condition text and fails closed on an unterminated expression.
 
 ## Resolved P2 findings
 
@@ -47,22 +48,22 @@ Focused coverage now includes:
 - ownerless stale-lock reclamation after the claim file changes directory mtime;
 - abandoned valid and malformed reclaim-claim recovery;
 - nested, multiline, string-valued, and declaration-associated Swift attributes;
-- compiler-condition and availability rebuild controls;
+- compiler-condition, multiline `#available`, and multiline `#unavailable` rebuild controls;
 - workspace project-reference parsing, scheme selection, Xcode container arguments, and root resolution;
 - helper startup ordering and persistent cleanup containment;
 - paired-Mac rebuild authority and stale response fences;
 - Simulator, pairing-attempt, and connection-diagnostics revision fences;
 - lifecycle locking for live compilation registration and production patch injection.
 
-## Validation
+## Validation policy
 
-Code head `8931e8be5c044c7eb6862cbaf3f4cb8c228b7aa1` passed GitHub Verify run `30723054919` in full:
+Code head `2eed0b004d8740d617314becf21f5018146fed58` contains the final runtime-availability fix and focused regressions. This connector-authored ledger commit is the exact-head validation and review trigger. Merge readiness requires the resulting head to pass GitHub Verify in full:
 
 - JavaScript syntax, documentation, and complete Node/release test suite;
 - workflow YAML and release-shell syntax;
 - iOS companion tests.
 
-All three inline Codex review threads were answered with fix evidence and resolved. This documentation-only ledger commit is the final exact-head validation and review trigger.
+The remaining multiline-runtime-availability Codex thread must be answered and resolved, followed by one final clean exact-head Codex review.
 
 ## Remaining external release gates
 
