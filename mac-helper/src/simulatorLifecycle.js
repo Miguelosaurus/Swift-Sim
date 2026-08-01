@@ -215,7 +215,8 @@ function registeredRuntimeOwner(runtime, claim, { rootPath } = {}) {
     const nonce = sessionNonce(session);
     if (nonce && (runtime.nonce === nonce || runtime.previousNonce === nonce)) return true;
     if (!nonce && Number(session?.stream?.pid) === Number(runtime?.pid)) return true;
-    return startClaimOwnsRuntime(session, runtime, { rootPath });
+    return startClaimOwnsRuntime(session, runtime, { rootPath })
+      || restartClaimOwnsRuntime(session, runtime, { rootPath });
   });
   return owner ? "owned" : "unowned";
 }
