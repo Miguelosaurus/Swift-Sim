@@ -496,7 +496,7 @@ function resolveFrom(workingDirectory, path) {
   return resolve(workingDirectory || process.cwd(), path);
 }
 
-export async function startLiveReload({ project = "", host = "" } = {}) {
+export async function startLiveReload({ project = "", host = "", forceRestart = false } = {}) {
   await ensureLiveEngineInstalled();
   let status = await inspectLiveReload({ project, host });
   if (!status.project.readable) {
@@ -548,7 +548,8 @@ export async function startLiveReload({ project = "", host = "" } = {}) {
 
   const running = await engineControl({ action: "status" });
   const session = readJSONFile(ENGINE_SESSION);
-  const alreadyWatching = running?.success
+  const alreadyWatching = !forceRestart
+    && running?.success
     && running.data?.watching_directories?.some(
       (path) => resolve(path) === status.project.root
     )
@@ -702,7 +703,46 @@ export async function routeLiveChanges({ beforePaths = [], afterPaths = [], proj
   });
 }
 
-export async function routeLiveEditSet({ files = [], project = "", host = "", runtime = {} } = {}) {
+export async function routeLiveEditSet(options = {}) {
+  const { runtime = {}, project = "", host = "" } = options;
+  const injectedLifecycle = Boolean(runtime.inspect || runtime.inject || runtime.preflight);
+  const recoveryEnabled = runtime.disableRecovery !== true
+    && Number(runtime.recoveryAttempt || 0) < 1
+    && (!injectedLifecycle || typeof runtime.recover === "function");
+  const result = await routeLiveEditSetOnce({ ...options, runtime: { ...runtime, disableRecovery: true } });
+  if (!recoveryEnabled || !shouldAttemptProductionRecovery(result)) return result;
+
+  const recovery = await (runtime.recover || defaultRecoverLiveSession)({ project, host });
+  if (!recovery?.ready) {
+    return {
+      ...result,
+      recovery: {
+        attempted: true,
+        succeeded: false,
+        attemptCount: 1,
+        initialReasonCode: result.reasonCode,
+        error: recovery?.error || "The live session could not be recovered.",
+      },
+    };
+  }
+
+  const retry = await routeLiveEditSetOnce({
+    ...options,
+    runtime: { ...runtime, disableRecovery: true, recoveryAttempt: 1 },
+  });
+  return {
+    ...retry,
+    recovery: {
+      attempted: true,
+      succeeded: retry.action === "hot-reload",
+      attemptCount: 1,
+      initialReasonCode: result.reasonCode,
+      initialRequestId: result.requestId,
+    },
+  };
+}
+
+async function routeLiveEditSetOnce({ files = [], project = "", host = "", runtime = {} } = {}) {
   const now = runtime.now || (() => Date.now());
   const startedAt = now();
   const requestId = runtime.requestId || randomUUID();
@@ -733,7 +773,10 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
         reasonCode: LIVE_REASON_CODES.PATCH_COMPILE_FAILED,
         live,
         patches: [],
-        atomic: hotFiles.length > 1,
+        // A failed bundle was never loaded, but it is not an atomic
+        // application result. Reserve `atomic:true` for a successfully
+        // prepared bundle (or a single-file patch).
+        atomic: hotFiles.length <= 1,
         partialApplication: false,
         requestId,
         timing: {
@@ -742,6 +785,65 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
           totalMs: Math.max(0, now() - startedAt),
         },
         message: preparedPatches.error,
+      });
+    }
+    if (preparedPatches?.bundle) {
+      const patch = await inject(hotFiles[0].after, {
+        beforePath: hotFiles[0].before,
+        preparedPatch: preparedPatches.bundle,
+        sourceLabel: hotFiles.map((file) => file.after).join(","),
+      });
+      const patches = [patch];
+      const missingDynamicReplacement = patch.mode !== "interposition" && hasZeroDynamicReplacements(patch);
+      if (!patch.succeeded || missingDynamicReplacement || hasUnacknowledgedRefresh(patch)) {
+        return routeResult({
+          action: "hot-reload-failed",
+          change,
+          reasonCode: patchFailureReason(patch),
+          live: await inspect({ project, host }),
+          patch,
+          patches,
+          patchBundle: {
+            atomic: true,
+            sourceCount: hotFiles.length,
+            sourcePaths: hotFiles.map((file) => file.after),
+          },
+          atomic: true,
+          partialApplication: false,
+          requestId: patch.requestID || requestId,
+          timing: {
+            classificationMs,
+            compileMs: patch.compileMs || preparedPatches.compileMs || 0,
+            loadAckMs: patch.loadAckMs || 0,
+            refreshAckMs: patch.refreshAckMs || 0,
+            totalMs: Math.max(0, now() - startedAt),
+          },
+          message: patch.error
+            || "The atomic live patch did not complete. Create a new signed update link.",
+        });
+      }
+      return routeResult({
+        action: "hot-reload",
+        change,
+        live: await inspect({ project, host }),
+        patch,
+        patches,
+        patchBundle: {
+          atomic: true,
+          sourceCount: hotFiles.length,
+          sourcePaths: hotFiles.map((file) => file.after),
+        },
+        atomic: true,
+        partialApplication: false,
+        requestId: patch.requestID || requestId,
+        timing: {
+          classificationMs,
+          compileMs: patch.compileMs || preparedPatches.compileMs || 0,
+          loadAckMs: patch.loadAckMs || 0,
+          refreshAckMs: patch.refreshAckMs || 0,
+          totalMs: Math.max(0, now() - startedAt),
+        },
+        message: `${hotFiles.length} replacements applied atomically in ${patch.durationMs || 0} ms without a new build or install.`,
       });
     }
     const patches = [];
@@ -761,7 +863,7 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
           live: await inspect({ project, host }),
           patch,
           patches,
-          atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.preflighted),
+          atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.atomic),
           partialApplication: patches.slice(0, -1).some((candidate) => candidate.succeeded === true),
           requestId: patch.requestID || requestId,
           timing: {
@@ -783,7 +885,7 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
       live: await inspect({ project, host }),
       patch: patches[0],
       patches,
-      atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.preflighted),
+      atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.atomic),
       partialApplication: false,
       requestId: patches.at(-1)?.requestID || requestId,
       timing: {
@@ -811,6 +913,31 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
 
 async function preflightMultiFilePatches({ hotFiles, runtime }) {
   if (hotFiles.length <= 1) return null;
+  const forceInterposition = hotFiles.some((file) => swiftAsyncImplementationChanged(file.before, file.after));
+  const canBundle = !forceInterposition && (!runtime.inject || runtime.compileBundle);
+  if (canBundle) {
+    try {
+      const startedAt = Date.now();
+      const bundle = runtime.compileBundle
+        ? await runtime.compileBundle({ files: hotFiles })
+        : prepareLivePatchBundle(hotFiles.map((file) => ({
+          sourcePath: file.after,
+          beforePath: file.before,
+        })));
+      if (!bundle) throw new Error("The multi-file edit did not produce a replacement bundle.");
+      return {
+        bundle,
+        compileMs: Number(bundle?.compileMs || (Date.now() - startedAt)),
+        preflighted: true,
+        atomic: true,
+      };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        compileMs: 0,
+      };
+    }
+  }
   const preflight = runtime.preflight;
   if (!preflight && runtime.inject) return null;
   const patches = [];
@@ -837,7 +964,51 @@ async function preflightMultiFilePatches({ hotFiles, runtime }) {
       compileMs,
     };
   }
-  return { patches, compileMs, preflighted: true };
+  return { patches, compileMs, preflighted: true, atomic: false };
+}
+
+const RECOVERABLE_ROUTE_FAILURES = new Set([
+  LIVE_REASON_CODES.LIVE_NOT_READY,
+  LIVE_REASON_CODES.PATCH_TIMEOUT,
+  LIVE_REASON_CODES.PATCH_LOAD_FAILED,
+  LIVE_REASON_CODES.REFRESH_NOT_ACKNOWLEDGED,
+]);
+
+function shouldAttemptProductionRecovery(result) {
+  if (!result) return false;
+  if (result.action === "build-device") {
+    return result.change?.hotReloadable === true
+      && result.reasonCode === LIVE_REASON_CODES.LIVE_NOT_READY;
+  }
+  if (result.action !== "hot-reload-failed") return false;
+  if (result.partialApplication === true || result.reasonCode === LIVE_REASON_CODES.PATCH_COMPILE_FAILED) return false;
+  if (!RECOVERABLE_ROUTE_FAILURES.has(result.reasonCode)) return false;
+  const report = result.patch?.report;
+  if (report?.applied === true || report?.applied === 1) return false;
+  if (result.reasonCode === LIVE_REASON_CODES.PATCH_LOAD_FAILED && hasZeroDynamicReplacements(result.patch)) return false;
+  return true;
+}
+
+async function defaultRecoverLiveSession({ project, host }) {
+  try {
+    const restarted = await startLiveReload({ project, host, forceRestart: true });
+    if (!restarted?.started) {
+      return { ready: false, error: restarted?.error || "The live engine did not restart." };
+    }
+    const deadline = Date.now() + 8_000;
+    let status = await inspectLiveReload({ project, host });
+    while (Date.now() < deadline) {
+      if (status.ready) return { ready: true, status };
+      await delay(250);
+      status = await inspectLiveReload({ project, host });
+    }
+    return { ready: false, error: "The live-enabled app did not reconnect after the live engine restarted." };
+  } catch (error) {
+    return {
+      ready: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function hasZeroDynamicReplacements(patch = {}) {
@@ -862,6 +1033,7 @@ function routeResult({
   requestId = "",
   patch,
   patches,
+  patchBundle,
   timing,
   message,
   atomic,
@@ -878,6 +1050,7 @@ function routeResult({
     live,
     ...(patch ? { patch } : {}),
     ...(patches ? { patches } : {}),
+    ...(patchBundle ? { patchBundle } : {}),
     ...(atomic !== undefined ? { atomic } : {}),
     ...(partialApplication !== undefined ? { partialApplication } : {}),
     timing: {
@@ -962,11 +1135,11 @@ export async function injectLiveSource(sourcePath, runtime = {}) {
       : Math.max(0, now() - compileStartedAt);
     if (prepared?.mode) mode = prepared.mode;
     if (generated) {
-      mode = "swift-dynamic-replacement";
+      mode = prepared?.mode || "swift-dynamic-replacement";
       queued = await control({
         action: "inject_dylib",
         path: generated.dylibPath,
-        source,
+        source: runtime.sourceLabel || source,
       });
     } else {
       queued = await control({ action: "inject_source", path: source });
@@ -974,7 +1147,7 @@ export async function injectLiveSource(sourcePath, runtime = {}) {
   } catch (error) {
     return {
       succeeded: false,
-      mode: "swift-dynamic-replacement",
+      mode,
       compileMs,
       loadAckMs,
       refreshAckMs,
@@ -1032,20 +1205,48 @@ export async function injectLiveSource(sourcePath, runtime = {}) {
 }
 
 function compileDynamicReplacement(sourcePath, { beforePath = "" } = {}) {
-  const source = readFileSync(sourcePath, "utf8");
-  const manifest = readJSONFile(LIVE_MANIFEST);
-  const context = manifest?.compilations?.find((item) =>
-    item.sources?.some((candidate) => resolve(candidate) === sourcePath)
-  );
-  if (!context) return null;
-  const replacement = generateDynamicReplacementSource({
-    source,
-    beforeSource: beforePath && existsSync(beforePath) ? readFileSync(beforePath, "utf8") : "",
-    sourcePath,
-    moduleName: context.moduleName,
-  });
-  if (!replacement) return null;
+  return compileDynamicReplacementBundle([{ sourcePath, beforePath }]);
+}
 
+function prepareLivePatchBundle(files) {
+  const startedAt = Date.now();
+  const generated = compileDynamicReplacementBundle(files);
+  if (!generated) throw new Error("The multi-file edit could not be compiled as one dynamic-replacement bundle.");
+  return {
+    mode: "swift-dynamic-replacement-bundle",
+    generated,
+    compileMs: Math.max(0, Date.now() - startedAt),
+  };
+}
+
+function compileDynamicReplacementBundle(files) {
+  const manifest = readJSONFile(LIVE_MANIFEST);
+  const entries = files.map(({ sourcePath, beforePath = "" }) => {
+    const source = readFileSync(sourcePath, "utf8");
+    const context = manifest?.compilations?.find((item) =>
+      item.sources?.some((candidate) => resolve(candidate) === resolve(sourcePath))
+    );
+    if (!context) throw new Error(`No captured compiler context exists for ${basename(sourcePath)}.`);
+    const replacement = generateDynamicReplacementSource({
+      source,
+      beforeSource: beforePath && existsSync(beforePath) ? readFileSync(beforePath, "utf8") : "",
+      sourcePath,
+      moduleName: context.moduleName,
+    });
+    if (!replacement) throw new Error(`No dynamic replacement was generated for ${basename(sourcePath)}.`);
+    return { sourcePath, context, replacement };
+  });
+  if (entries.length === 0) return null;
+  const reference = entries[0].context;
+  const sameContext = entries.every((entry) =>
+    entry.context.moduleName === reference.moduleName
+    && entry.context.workingDirectory === reference.workingDirectory
+    && JSON.stringify(entry.context.compilerArguments || []) === JSON.stringify(reference.compilerArguments || [])
+  );
+  if (!sameContext) {
+    throw new Error("Multi-file replacements must belong to one captured Swift module and compiler context.");
+  }
+  const replacement = entries.map((entry) => entry.replacement).join("\n");
   const identifier = `${Date.now()}-${process.pid}`;
   const patchDirectory = join(LIVE_PATCH_ROOT, identifier);
   const moduleName = `SwiftSimLivePatch_${identifier.replaceAll("-", "_")}`;
@@ -1056,19 +1257,25 @@ function compileDynamicReplacement(sourcePath, { beforePath = "" } = {}) {
   const result = spawnSync("xcrun", [
     "swiftc", "-emit-library", generatedPath,
     "-module-name", moduleName,
-    ...(context.compilerArguments || []),
+    ...(reference.compilerArguments || []),
     "-Xfrontend", "-disable-access-control",
     "-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup",
     "-o", dylibPath,
   ], {
-    cwd: context.workingDirectory || process.cwd(),
+    cwd: reference.workingDirectory || process.cwd(),
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
   });
   if (result.status !== 0 || !existsSync(dylibPath)) {
     throw new Error(cleanCompilerError(result.stderr || result.stdout));
   }
-  return { dylibPath, generatedPath };
+  return {
+    dylibPath,
+    generatedPath,
+    sourcePaths: entries.map((entry) => entry.sourcePath),
+    sourceCount: entries.length,
+    bundle: entries.length > 1,
+  };
 }
 
 function swiftUIBodyChanged(beforePath, afterPath) {
@@ -1105,12 +1312,22 @@ export function generateDynamicReplacementSource({ source, beforeSource = "", so
     ? members.filter((member) => beforeMembers.get(member.key)?.body !== member.body)
     : [];
   const changedAsyncMembers = changedMembers.filter((member) => member.effects?.includes("async"));
-  const supportedMembers = changedMembers.filter((member) => !member.effects?.includes("async"));
+  const changedInitializerMembers = changedMembers.filter((member) => member.kind === "initializer");
+  const changedSubscriptMembers = changedMembers.filter((member) => member.kind === "subscript");
+  const supportedMembers = changedMembers.filter((member) =>
+    !member.effects?.includes("async")
+    && (views.length === 0 || (member.kind !== "initializer" && member.kind !== "subscript"))
+  );
   const changedViews = beforeSource
     ? views
       .map((view) => ({
         ...view,
-        body: inlineAsyncReplacements(view.body, changedAsyncMembers),
+        body: inlineImplementationReplacements(
+          view.body,
+          changedAsyncMembers,
+          changedInitializerMembers,
+          changedSubscriptMembers,
+        ),
       }))
       .filter((view) => beforeViewBodies.get(view.qualifiedName) !== view.body)
     : views;
@@ -1127,9 +1344,16 @@ ${view.availability ? `${view.availability}\n` : ""}extension ${view.qualifiedNa
   const memberReplacements = new Map();
   for (const member of supportedMembers) {
     const target = member.typeName ? `extension ${member.typeName} {` : "";
-    const replacement = member.kind === "function"
-      ? `    @_dynamicReplacement(for: ${member.name}(${member.labels.map((label) => `${label}:`).join("")}))\n    private ${member.isStatic ? "static " : ""}func __swiftSim_${member.name}(${member.parameters})${member.effects ? ` ${member.effects}` : ""}${member.returnType ? ` -> ${member.returnType}` : ""} ${member.body}`
-      : `    @_dynamicReplacement(for: ${member.name})\n    private var __swiftSim_${member.name}: ${member.returnType} ${member.body}`;
+    let replacement;
+    if (member.kind === "function") {
+      replacement = `    @_dynamicReplacement(for: ${member.name}(${member.labels.map((label) => `${label}:`).join("")}))\n    private ${member.isStatic ? "static " : ""}func __swiftSim_${member.name}${member.genericParameters || ""}(${member.parameters})${member.effects ? ` ${member.effects}` : ""}${member.returnType ? ` -> ${member.returnType}` : ""} ${member.body}`;
+    } else if (member.kind === "initializer") {
+      replacement = `    @_dynamicReplacement(for: init(${member.labels.map((label) => `${label}:`).join("")}))\n    private init(${member.parameters})${member.effects ? ` ${member.effects}` : ""} ${member.body}`;
+    } else if (member.kind === "subscript") {
+      replacement = `    @_dynamicReplacement(for: subscript(${member.labels.map((label) => `${label}:`).join("")}))\n    private subscript${member.genericParameters || ""}(${member.parameters}) -> ${member.returnType} ${member.body}`;
+    } else {
+      replacement = `    @_dynamicReplacement(for: ${member.name})\n    private var __swiftSim_${member.name}: ${member.returnType} ${member.body}`;
+    }
     const existing = memberReplacements.get(target) || [];
     existing.push(replacement);
     memberReplacements.set(target, existing);
@@ -1149,6 +1373,34 @@ function inlineAsyncReplacements(body, members) {
   }, body);
 }
 
+function inlineImplementationReplacements(body, asyncMembers, initializerMembers, subscriptMembers) {
+  let current = inlineAsyncReplacements(body, asyncMembers);
+  for (const member of initializerMembers) {
+    const assignment = member.body.match(/\{\s*self\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("(?:\\.|[^"\\])*")\s*\}/s);
+    if (!assignment) continue;
+    const typeName = escapeRegExp(member.typeName);
+    const property = escapeRegExp(assignment[1]);
+    current = current.replace(
+      new RegExp(`\\b${typeName}\\s*\\([^(){}]*\\)\\s*\\.\\s*${property}\\b`, "g"),
+      assignment[2],
+    );
+  }
+  for (const member of subscriptMembers) {
+    const expression = member.body.match(/\{\s*("(?:\\.|[^"\\])*"|[-+]?\d+(?:\.\d+)?)\s*\}/s)?.[1];
+    if (!expression) continue;
+    const typeName = escapeRegExp(member.typeName);
+    current = current.replace(
+      new RegExp(`\\b${typeName}\\s*\\([^(){}]*\\)\\s*\\[[^\\]]+\\]`, "g"),
+      expression,
+    );
+  }
+  return current;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function swiftMemberImplementations(source) {
   if (!source) return [];
   const masked = maskCommentsAndStrings(source);
@@ -1156,24 +1408,66 @@ function swiftMemberImplementations(source) {
   const output = [];
   for (const type of types) {
     const memberSource = masked.slice(type.open + 1, type.close);
-    const functionPattern = /\b(?:(static)\s+)?func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^(){}\n]*)\)\s*((?:(?:async|throws|rethrows)\s+)*)(?:->\s*([^{}\n]+?))?\s*\{/g;
+    const functionPattern = /\b(?:(static)\s+)?func\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<([^>{}\n]*)>)?\s*\(([^(){}\n]*)\)\s*((?:(?:async|throws|rethrows)\s+)*)(?:->\s*([^{}\n]+?))?\s*\{/g;
     for (const match of memberSource.matchAll(functionPattern)) {
       const declarationOffset = type.open + 1 + match.index;
       if (braceDepth(masked, type.open + 1, declarationOffset) !== 0) continue;
       const bodyOpen = declarationOffset + match[0].lastIndexOf("{");
       const bodyClose = matchingBrace(masked, bodyOpen);
       if (bodyClose < 0 || bodyClose > type.close) continue;
-      const parameters = compact(match[3]);
+      const parameters = compact(match[4]);
       output.push({
-        key: `${type.qualifiedName}#function#${match[2]}#${parameters}`,
+        key: `${type.qualifiedName}#function#${match[2]}#${compact(match[3] || "")}#${parameters}`,
         typeName: type.qualifiedName,
         kind: "function",
         name: match[2],
+        genericParameters: match[3] ? `<${compact(match[3])}>` : "",
+        parameters: compact(match[4]),
+        labels: replacementParameterLabels(compact(match[4])),
+        effects: match[5].trim(),
+        returnType: match[6]?.trim() || "",
+        isStatic: Boolean(match[1]),
+        body: source.slice(bodyOpen, bodyClose + 1),
+      });
+    }
+    const initializerPattern = /\binit(?:\?|!)?\s*\(([^(){}\n]*)\)\s*((?:(?:async|throws|rethrows)\s+)*)(?:->\s*([^{}\n]+?))?\s*\{/g;
+    for (const match of memberSource.matchAll(initializerPattern)) {
+      const declarationOffset = type.open + 1 + match.index;
+      if (braceDepth(masked, type.open + 1, declarationOffset) !== 0) continue;
+      const bodyOpen = declarationOffset + match[0].lastIndexOf("{");
+      const bodyClose = matchingBrace(masked, bodyOpen);
+      if (bodyClose < 0 || bodyClose > type.close) continue;
+      const parameters = compact(match[1]);
+      output.push({
+        key: `${type.qualifiedName}#initializer#${parameters}`,
+        typeName: type.qualifiedName,
+        kind: "initializer",
+        name: "init",
         parameters,
         labels: replacementParameterLabels(parameters),
-        effects: match[4].trim(),
-        returnType: match[5]?.trim() || "",
-        isStatic: Boolean(match[1]),
+        effects: match[2].trim(),
+        returnType: match[3]?.trim() || "",
+        body: source.slice(bodyOpen, bodyClose + 1),
+      });
+    }
+    const subscriptPattern = /\bsubscript\s*(?:<([^>{}\n]*)>)?\s*\(([^(){}\n]*)\)\s*->\s*([^{}\n]+?)\s*\{/g;
+    for (const match of memberSource.matchAll(subscriptPattern)) {
+      const declarationOffset = type.open + 1 + match.index;
+      if (braceDepth(masked, type.open + 1, declarationOffset) !== 0) continue;
+      const bodyOpen = declarationOffset + match[0].lastIndexOf("{");
+      const bodyClose = matchingBrace(masked, bodyOpen);
+      if (bodyClose < 0 || bodyClose > type.close) continue;
+      const parameters = compact(match[2]);
+      output.push({
+        key: `${type.qualifiedName}#subscript#${compact(match[1] || "")}#${parameters}`,
+        typeName: type.qualifiedName,
+        kind: "subscript",
+        name: "subscript",
+        genericParameters: match[1] ? `<${compact(match[1])}>` : "",
+        parameters,
+        labels: replacementParameterLabels(parameters),
+        effects: "",
+        returnType: compact(match[3]),
         body: source.slice(bodyOpen, bodyClose + 1),
       });
     }

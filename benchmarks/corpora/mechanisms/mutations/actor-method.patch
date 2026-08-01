@@ -1,7 +1,7 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -39,3 +39,3 @@
+@@ -44,3 +44,3 @@
  actor MechanismCoverageActor {
 -    nonisolated static func value() -> String { "actor-01" }
 +    nonisolated static func value() -> String { "actor-01-edited" }

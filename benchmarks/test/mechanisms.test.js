@@ -13,7 +13,7 @@ const fixtureRoot = join(repositoryRoot, "benchmarks", "fixtures", "sources");
 test("mechanism corpus keeps all implementation forms on the hot lane", () => {
   const loaded = loadCorpus(corpusPath);
   const hot = loaded.corpus.cases.filter((value) => value.expectedLane === "hot-reload");
-  assert.equal(hot.length, 9);
+  assert.equal(hot.length, 14);
   for (const benchmarkCase of hot) {
     const materialized = materializeCase({
       fixtureRoot,
@@ -30,6 +30,10 @@ test("mechanism corpus keeps all implementation forms on the hot lane", () => {
         sourcePath: change.afterPath,
         moduleName: "MechanismApp",
       });
+      if (benchmarkCase.id === "async-parameterized") {
+        assert.equal(generated, "", benchmarkCase.id);
+        continue;
+      }
       assert.match(generated, /@_dynamicReplacement\(for:/, benchmarkCase.id);
       assert.match(generated, new RegExp(`(?:caseID: "${benchmarkCase.id}"|${benchmarkCase.oracle.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`), benchmarkCase.id);
     } finally {

@@ -1,7 +1,7 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -91,3 +91,3 @@
+@@ -136,3 +136,3 @@
          uiView.text = marker
 -        BenchmarkMarker.emit(caseID: "uikit-update-view", value: "uikit-update-01")
 +        BenchmarkMarker.emit(caseID: "uikit-update-view", value: "uikit-update-01-edited")

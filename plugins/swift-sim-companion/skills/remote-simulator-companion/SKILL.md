@@ -285,13 +285,29 @@ For a multi-file edit, repeat `--before` and `--after` in matching order in the 
 Honor the returned `action`:
 
 - `hot-reload`: report the patch only after the correlated engine report confirms a real replacement, root refresh acknowledgment, and nonzero revision. Do not capture or analyze a screenshot for each edit.
-- `hot-reload-failed`: immediately use the Device Build Workflow and return a fresh update link. Do not describe the failed attempt as a partial success.
+- `hot-reload-failed`: the production router may already have made one bounded recovery attempt for a transient live transport error. If it still fails, immediately use the Device Build Workflow and return a fresh update link. Do not describe the failed attempt as a partial success.
 - `build-device`: immediately use the Device Build Workflow and return a fresh update link. Do not ask the user to decide which lane to use.
 - `none`: no runtime action is needed.
 
-The classifier is intentionally conservative. The engine can replace compiled function implementations; it cannot safely reshape live Swift metadata. If a multi-file change includes even one rebuild-required file, rebuild the whole app. Non-Swift file changes always rebuild.
+The classifier is intentionally conservative. It covers implementation bodies,
+generic/parameterized functions, explicit accessors, actor/extension members,
+UIKit callbacks, and async/throws interposition. A simple literal initializer
+or subscript result can be folded into a containing SwiftUI body; arbitrary
+initializer/subscript metadata is not replaced directly. The engine cannot
+safely reshape live Swift metadata. Dynamic-only multi-file edits are sent as
+one signed atomic bundle; edits requiring interposition use a sequential
+fallback and expose `partialApplication` if a later member fails. If a
+multi-file change includes even one rebuild-required file, rebuild the whole
+app. Non-Swift file changes always rebuild.
 
-Hot reload is a speed feature, not a delivery guarantee. If the patch does not appear within a few seconds, the app disconnected, compilation failed, the device locked, the Tailnet route is unavailable, or the agent cannot prove injection success, fall back to `swift-sim build-device`. Preserve the existing bundle identifier and team so app data remains intact.
+Hot reload is a speed feature, not a delivery guarantee. For `LIVE_NOT_READY`,
+`PATCH_TIMEOUT`, `PATCH_LOAD_FAILED`, or an unacknowledged refresh, Swift Sim
+restarts the private live engine, waits for the same Debug app to reconnect, and
+tries once more. Compile failures and partial applications are never retried.
+If the patch still does not appear within a few seconds, the device locked, the
+Tailnet route is unavailable, or the agent cannot prove injection success, fall
+back to `swift-sim build-device`. Preserve the existing bundle identifier and
+team so app data remains intact.
 
 ## Device Build Workflow
 

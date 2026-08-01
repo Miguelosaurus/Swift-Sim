@@ -1,7 +1,7 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -75,3 +75,3 @@
+@@ -80,3 +80,3 @@
  struct MechanismParameterHelper {
 -    static func label(for value: String) -> String { "parameter-01" }
 +    static func label(for value: String, suffix: String) -> String { "parameter-01" }

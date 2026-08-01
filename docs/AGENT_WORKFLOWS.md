@@ -128,19 +128,26 @@ swift-sim route-change \
 
 Repeat `--before` and `--after` in matching order for a multi-file edit. Swift Sim applies all implementation-only files or rebuilds the entire app if any file changes structure.
 
-The live replacement generator covers parameterized and static functions,
-computed properties, actor and extension members, `ViewModifier` bodies, and
-UIKit bridge callbacks when their implementation can be interposed. These are
-still implementation-only edits: adding stored state, changing a signature,
-changing an import, or changing a declaration remains a rebuild boundary.
+The live replacement generator covers parameterized, static, and generic
+functions, explicit accessors, computed properties, actor and extension
+members, `ViewModifier` bodies, and UIKit bridge callbacks when their
+implementation can be interposed. A simple literal result from an initializer
+or subscript call can also be folded into a changed SwiftUI body; arbitrary
+initializer/subscript metadata is not replaced directly and falls back to a
+build. Async/throws implementations use the engine's interposition path. These
+are still implementation-only edits: adding stored state, changing a
+signature, changing an import, or changing a declaration remains a rebuild
+boundary.
 
-For a multi-file implementation edit, Swift Sim preflight-compiles every file
-before loading any replacement. The route may report `atomic: true` for that
-successful preflight, but device loading is sequential; a `partialApplication`
-result is a contaminated session and must be followed by a clean signed build
-or a fresh live session before more edits are attempted.
+For a dynamic-only multi-file implementation edit, Swift Sim compiles every
+replacement into one signed bundle and sends one engine request. The route
+reports `atomic: true` and `patchBundle` metadata only for that path. If an
+async/interposition member is present, Swift Sim keeps a preflighted sequential
+fallback and reports `atomic: false`; a later load failure makes the result
+`partialApplication` and contaminates the session. The benchmark or agent must
+then establish a clean live session before more edits are attempted.
 
-An `action` of `hot-reload` is allowed only when the declaration surface is unchanged, the private live lane completed, and the running app acknowledged the replacement and root refresh. `hot-reload-failed` and `build-device` both mean the agent should immediately produce a normal update link with the existing bundle identity. Non-Swift changes and multi-file edits containing any structural change always rebuild.
+An `action` of `hot-reload` is allowed only when the declaration surface is unchanged, the private live lane completed, and the running app acknowledged the replacement and root refresh. For a transient `LIVE_NOT_READY`, `PATCH_TIMEOUT`, `PATCH_LOAD_FAILED`, or refresh-acknowledgement failure, the production router makes one bounded engine/session recovery attempt and retries once. Compile failures and partial applications are never retried. If recovery does not prove readiness, `hot-reload-failed` or `build-device` means the agent should immediately produce a normal update link with the existing bundle identity. Non-Swift changes and multi-file edits containing any structural change always rebuild.
 
 When the user asks for remote hot reload, the agent performs the one-time project integration: one `SwiftSimLive` package product and one root `.swiftSimLive()` modifier. Do not make the user operate InjectionNext or manually distribute setup code. Swift Sim manages the Debug-only compiler and linker settings during `build-device --configuration Debug`; agents must not scatter observer properties, package calls, or manual flags across the project. They must not enable live loading in Release, TestFlight, or App Store builds.
 

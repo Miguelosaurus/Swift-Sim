@@ -1,6 +1,6 @@
 {
   "name": "swift-sim-companion",
-  "version": "0.5.0+codex.20260722181522",
+  "version": "0.6.0+codex.20260801220000",
   "description": "Hot reload supported SwiftUI edits and build signed iPhone updates from a Mac-hosted Codex session.",
   "author": {
     "name": "Swift Sim",

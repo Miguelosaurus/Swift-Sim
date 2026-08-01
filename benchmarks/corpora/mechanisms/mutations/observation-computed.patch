@@ -1,7 +1,7 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -60,3 +60,3 @@
+@@ -65,3 +65,3 @@
  final class MechanismObservableModel {
 -    var displayValue: String { "observation-01" }
 +    var displayValue: String { "observation-01-edited" }

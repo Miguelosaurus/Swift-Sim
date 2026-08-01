@@ -1,9 +1,8 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -139,3 +139,3 @@
- }
--
-+
--// mechanism-import-slot
-+import MapKit
+@@ -95,3 +95,3 @@
+     var value: String {
+-        get { "accessor-01" }
++        get { "accessor-01-edited" }
+         set { _ = newValue }

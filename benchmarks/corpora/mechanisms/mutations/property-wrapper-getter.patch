@@ -1,7 +1,7 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -70,4 +70,4 @@
+@@ -75,4 +75,4 @@
      }
 -
 +

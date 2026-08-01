@@ -1,7 +1,7 @@
 {
   "name": "swift-sim-companion",
   "displayName": "Swift Sim",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Hot reload supported SwiftUI edits, build signed iPhone apps, and open optional live Simulator sessions through Swift Sim.",
   "author": {
     "name": "Swift Sim"

@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "corpusVersion": "mechanisms-1",
-  "fixtureRevision": "mechanisms-fixture-1",
+  "corpusVersion": "mechanisms-2",
+  "fixtureRevision": "mechanisms-fixture-2",
   "metadata": {
-    "totalCases": 12,
-    "expectedHotReload": 9,
+    "totalCases": 17,
+    "expectedHotReload": 14,
     "expectedRebuild": 3,
     "authoringErrors": 0,
     "multiFileOperations": 0,
-    "smokeHotCases": 9
+    "smokeHotCases": 14
   },
   "cases": [
     {
@@ -25,7 +25,7 @@
       "smoke": true,
       "mutation": "mutations/protocol-default.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -42,7 +42,7 @@
       "smoke": true,
       "mutation": "mutations/actor-method.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -59,7 +59,7 @@
       "smoke": true,
       "mutation": "mutations/extension-view-body.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -76,7 +76,7 @@
       "smoke": true,
       "mutation": "mutations/modifier-body.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -93,7 +93,7 @@
       "smoke": true,
       "mutation": "mutations/observation-computed.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -110,7 +110,7 @@
       "smoke": true,
       "mutation": "mutations/property-wrapper-getter.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -127,7 +127,92 @@
       "smoke": true,
       "mutation": "mutations/parameterized-helper.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
+      }
+    },
+    {
+      "id": "initializer-body",
+      "workload": "MechanismApp",
+      "category": "initializer-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "initializer-body",
+        "value": "initializer-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/initializer-body.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
+      }
+    },
+    {
+      "id": "accessor-getter",
+      "workload": "MechanismApp",
+      "category": "accessor-getter",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "accessor-getter",
+        "value": "accessor-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/accessor-getter.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
+      }
+    },
+    {
+      "id": "subscript-body",
+      "workload": "MechanismApp",
+      "category": "subscript-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "subscript-body",
+        "value": "subscript-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/subscript-body.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
+      }
+    },
+    {
+      "id": "generic-helper",
+      "workload": "MechanismApp",
+      "category": "generic-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "generic-helper",
+        "value": "generic-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/generic-helper.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
+      }
+    },
+    {
+      "id": "async-parameterized",
+      "workload": "MechanismApp",
+      "category": "async-parameterized-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "async-parameterized",
+        "value": "async-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/async-parameterized.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -144,7 +229,7 @@
       "smoke": true,
       "mutation": "mutations/uikit-display-value.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -161,7 +246,7 @@
       "smoke": true,
       "mutation": "mutations/uikit-update-view.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -172,7 +257,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/mechanism-stored-property.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -183,7 +268,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/mechanism-signature.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     },
     {
@@ -194,7 +279,7 @@
       "expectedLane": "build-device",
       "mutation": "mutations/mechanism-import.patch",
       "baselineHashes": {
-        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+        "MechanismApp/MechanismCoverageScreen.swift": "edf1a607298b7bcc0e89974062dbfa03943a55faf0326e55dec69c90e929a883"
       }
     }
   ]

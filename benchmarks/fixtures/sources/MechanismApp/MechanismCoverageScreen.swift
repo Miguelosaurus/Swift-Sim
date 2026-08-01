@@ -18,10 +18,15 @@ struct MechanismCoverageScreen: View {
             BenchmarkMarkerView(caseID: "observation-computed", value: model.displayValue)
             BenchmarkMarkerView(caseID: "property-wrapper-getter", value: wrappedMarker)
             BenchmarkMarkerView(caseID: "parameterized-helper", value: MechanismParameterHelper.label(for: "input"))
+            BenchmarkMarkerView(caseID: "initializer-body", value: MechanismInitializerProbe(value: "input").value)
+            BenchmarkMarkerView(caseID: "accessor-getter", value: MechanismAccessorProbe().value)
+            BenchmarkMarkerView(caseID: "subscript-body", value: MechanismSubscriptProbe()[0])
+            BenchmarkMarkerView(caseID: "generic-helper", value: MechanismGenericProbe.label(7))
             BenchmarkMarkerView(caseID: "uikit-display-value", value: MechanismUIKitProbe.displayValue())
             BenchmarkMarkerView(caseID: "modifier-host", value: "modifier-host")
                 .modifier(MechanismCoverageModifier())
             MechanismUIKitProbe(marker: MechanismUIKitProbe.displayValue())
+            MechanismAsyncProbeView()
         }
     }
 }
@@ -74,6 +79,46 @@ struct MechanismStringWrapper {
 
 struct MechanismParameterHelper {
     static func label(for value: String) -> String { "parameter-01" }
+}
+
+struct MechanismInitializerProbe {
+    let value: String
+
+    init(value: String) {
+        self.value = "initializer-01"
+    }
+}
+
+struct MechanismAccessorProbe {
+    private let storage = "accessor-storage"
+
+    var value: String {
+        get { "accessor-01" }
+        set { _ = newValue }
+    }
+}
+
+struct MechanismSubscriptProbe {
+    subscript(index: Int) -> String { "subscript-01" }
+}
+
+struct MechanismGenericProbe {
+    static func label<T: CustomStringConvertible>(_ value: T) -> String { "generic-01" }
+}
+
+struct MechanismAsyncProbe {
+    static func value(_ input: String) async throws -> String { "async-01" }
+}
+
+struct MechanismAsyncProbeView: View {
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .task {
+                let value = (try? await MechanismAsyncProbe.value("input")) ?? "async-error"
+                BenchmarkMarker.emit(caseID: "async-parameterized", value: value)
+            }
+    }
 }
 
 struct MechanismUIKitProbe: UIViewRepresentable {

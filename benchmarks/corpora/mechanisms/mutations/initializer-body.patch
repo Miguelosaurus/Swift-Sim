@@ -1,9 +1,8 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -139,3 +139,3 @@
- }
--
-+
--// mechanism-import-slot
-+import MapKit
+@@ -87,3 +87,3 @@
+     init(value: String) {
+-        self.value = "initializer-01"
++        self.value = "initializer-01-edited"
+     }

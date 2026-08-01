@@ -89,12 +89,13 @@ The native-surfaces-1 corpus covers 24 native SwiftUI system-surface edits and
 seven rebuild controls. Its API matrix and physical evidence are documented in
 [`docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md`](../docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md).
 
-The supplemental mechanism corpus covers nine generated replacement forms that
-are easy to miss when testing only `View.body`: protocol defaults, actor and
-extension members, `ViewModifier`, Observation, property wrappers,
-parameterized helpers, and UIKit bridge callbacks. It also contains three
-explicit build controls. The scope, physical evidence, and recovery semantics
-are documented in
+The supplemental mechanism corpus covers fourteen generated replacement forms
+that are easy to miss when testing only `View.body`: protocol defaults, actor
+and extension members, `ViewModifier`, Observation, explicit accessors,
+property wrappers, initializer/subscript body folds, generic and parameterized
+helpers, async/throws interposition, and UIKit bridge callbacks. It also
+contains three explicit build controls. The scope, physical evidence, and
+recovery semantics are documented in
 [`docs/HOT_RELOAD_MECHANISM_COVERAGE.md`](../docs/HOT_RELOAD_MECHANISM_COVERAGE.md).
 
 Run its physical lane with the dedicated fixture:

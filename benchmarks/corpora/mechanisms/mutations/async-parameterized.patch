@@ -1,0 +1,8 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -109,3 +109,3 @@
+ struct MechanismAsyncProbe {
+-    static func value(_ input: String) async throws -> String { "async-01" }
++    static func value(_ input: String) async throws -> String { "async-01-edited" }
+ }

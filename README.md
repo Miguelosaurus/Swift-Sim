@@ -153,13 +153,25 @@ zero fallback, timeout, or partial-application records (1,010 ms median,
 1,214 ms p95). See [the native-surface evidence](docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md)
 for the exact scope and build boundaries.
 
-A separate mechanism corpus now covers nine less-obvious replacement shapes—
-protocol defaults, actor and extension members, `ViewModifier`, Observation,
-property-wrapper getters, parameterized helpers, and UIKit bridge callbacks.
-All 9/9 curated hot edits and restores were semantically observed on a physical
-iPhone; three transient patch timeouts were automatically recovered from a
-fresh live session. See [the mechanism evidence](docs/HOT_RELOAD_MECHANISM_COVERAGE.md)
+A separate mechanism corpus now covers fourteen less-obvious replacement
+shapes—protocol defaults, actor and extension members, `ViewModifier`,
+Observation, explicit accessors, property-wrapper getters, initializers,
+subscripts, generic and parameterized helpers, async/throws helpers, and UIKit
+bridge callbacks. All 14/14 curated hot edits and restores were semantically
+observed on a physical iPhone; two transient patch timeouts were automatically
+recovered from fresh live sessions (p50 665 ms, p95 1,713 ms). Initializer and
+subscript edits use a narrow body-local literal fold when their result is
+consumed directly by a replaceable SwiftUI body; arbitrary metadata changes
+still produce a normal build decision. See [the mechanism evidence](docs/HOT_RELOAD_MECHANISM_COVERAGE.md)
 for the exact denominator and the three rebuild controls.
+
+For implementation-only multi-file edits, Swift Sim compiles all dynamic
+replacements into one signed bundle and sends one engine request, so the live
+operation is reported as genuinely atomic. Async/interposed members retain a
+sequential fallback because the runtime itself owns their replacement path.
+Transient transport failures get one bounded session-recovery attempt before
+Swift Sim returns the ordinary signed build link; compile failures and partial
+applications are never retried automatically.
 
 The coding agent adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at the app's root view as a one-time project change. The user does not operate the engine or scatter Swift Sim code through the app. Release builds make the modifier a no-op.
 

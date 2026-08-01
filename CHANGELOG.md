@@ -4,6 +4,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+No unreleased changes.
+
+## 0.6.0 - 2026-08-01
+
 ### Added
 
 - A deterministic 240-case hot-reload benchmark with conservative edit-set routing, schema validation, static safety scoring, semantic case/revision markers, and an injected physical-device runner.
@@ -12,8 +16,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - A focused physical Liquid Glass gate covering 27/27 hot edits and 27/27 baseline restores with zero fallbacks, timeouts, or partial applications (724 ms median, 930 ms p95).
 - A 31-case native SwiftUI system-surface corpus covering menus, presentations, navigation, controls, lists, forms, search, and toolbars, with seven explicit rebuild controls.
 - A clean physical native-surface gate covering 24/24 hot edits and 24/24 baseline restores with zero fallbacks, timeouts, or partial applications (1,010 ms median, 1,214 ms p95), plus lane-aware full core workload commands.
-- A supplemental mechanism corpus and `MechanismApp` fixture covering nine generated replacement forms (including actor, extension, `ViewModifier`, Observation, property-wrapper, parameterized-function, and UIKit callback implementations) plus three explicit rebuild controls.
-- Multi-file live-edit preflight and recovery telemetry: all members compile before loading, partial application is surfaced, and recoverable device/session failures are retried from a clean live session with diagnostic records preserved.
+- A supplemental `mechanisms-2` corpus and `MechanismApp` fixture covering fourteen generated replacement forms, including actor, extension, `ViewModifier`, Observation, explicit accessors, property-wrapper, initializer/subscript body folds, generic and parameterized functions, async/throws interposition, and UIKit callbacks, plus three explicit rebuild controls.
+- True atomic multi-file dynamic replacement bundles: dynamic-only edits compile into one signed dylib and use one engine request; async/interposition edits retain a sequential, partial-application-aware fallback.
+- Production live-session recovery: one bounded restart/reconnect/retry for transient readiness, timeout, load, and refresh-acknowledgement failures, while compile failures and partial applications fall back immediately.
+- Physical mechanism evidence for 14/14 hot edits and restores with two recovered transport diagnostics (665 ms median, 1,713 ms p95).
 
 ## 0.5.0 - 2026-07-22
 

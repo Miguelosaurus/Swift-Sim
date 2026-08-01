@@ -28,10 +28,15 @@ struct MechanismCoverageScreen: View {
             BenchmarkMarkerView(caseID: "observation-computed", value: model.displayValue)
             BenchmarkMarkerView(caseID: "property-wrapper-getter", value: wrappedMarker)
             BenchmarkMarkerView(caseID: "parameterized-helper", value: MechanismParameterHelper.label(for: "input"))
+            BenchmarkMarkerView(caseID: "initializer-body", value: MechanismInitializerProbe(value: "input").value)
+            BenchmarkMarkerView(caseID: "accessor-getter", value: MechanismAccessorProbe().value)
+            BenchmarkMarkerView(caseID: "subscript-body", value: MechanismSubscriptProbe()[0])
+            BenchmarkMarkerView(caseID: "generic-helper", value: MechanismGenericProbe.label(7))
             BenchmarkMarkerView(caseID: "uikit-display-value", value: MechanismUIKitProbe.displayValue())
             BenchmarkMarkerView(caseID: "modifier-host", value: "modifier-host")
                 .modifier(MechanismCoverageModifier())
             MechanismUIKitProbe(marker: MechanismUIKitProbe.displayValue())
+            MechanismAsyncProbeView()
         }
     }
 }
@@ -86,6 +91,46 @@ struct MechanismParameterHelper {
     static func label(for value: String) -> String { "parameter-01" }
 }
 
+struct MechanismInitializerProbe {
+    let value: String
+
+    init(value: String) {
+        self.value = "initializer-01"
+    }
+}
+
+struct MechanismAccessorProbe {
+    private let storage = "accessor-storage"
+
+    var value: String {
+        get { "accessor-01" }
+        set { _ = newValue }
+    }
+}
+
+struct MechanismSubscriptProbe {
+    subscript(index: Int) -> String { "subscript-01" }
+}
+
+struct MechanismGenericProbe {
+    static func label<T: CustomStringConvertible>(_ value: T) -> String { "generic-01" }
+}
+
+struct MechanismAsyncProbe {
+    static func value(_ input: String) async throws -> String { "async-01" }
+}
+
+struct MechanismAsyncProbeView: View {
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .task {
+                let value = (try? await MechanismAsyncProbe.value("input")) ?? "async-error"
+                BenchmarkMarker.emit(caseID: "async-parameterized", value: value)
+            }
+    }
+}
+
 struct MechanismUIKitProbe: UIViewRepresentable {
     var marker: String
 
@@ -114,6 +159,11 @@ const hotDefinitions = [
   ["observation-computed", "observation-computed-property", '"observation-01"', '"observation-01-edited"', "observation-01-edited"],
   ["property-wrapper-getter", "property-wrapper-body", "var wrappedValue: String { storage }", 'var wrappedValue: String { "wrapper-01-edited" }', "wrapper-01-edited"],
   ["parameterized-helper", "parameterized-function", '"parameter-01"', '"parameter-01-edited"', "parameter-01-edited"],
+  ["initializer-body", "initializer-body", 'self.value = "initializer-01"', 'self.value = "initializer-01-edited"', "initializer-01-edited"],
+  ["accessor-getter", "accessor-getter", 'get { "accessor-01" }', 'get { "accessor-01-edited" }', "accessor-01-edited"],
+  ["subscript-body", "subscript-body", 'subscript(index: Int) -> String { "subscript-01" }', 'subscript(index: Int) -> String { "subscript-01-edited" }', "subscript-01-edited"],
+  ["generic-helper", "generic-function", 'static func label<T: CustomStringConvertible>(_ value: T) -> String { "generic-01" }', 'static func label<T: CustomStringConvertible>(_ value: T) -> String { "generic-01-edited" }', "generic-01-edited"],
+  ["async-parameterized", "async-parameterized-function", 'static func value(_ input: String) async throws -> String { "async-01" }', 'static func value(_ input: String) async throws -> String { "async-01-edited" }', "async-01-edited"],
   ["uikit-display-value", "uikit-bridge-configuration", '"uikit-display-01"', '"uikit-display-01-edited"', "uikit-display-01-edited"],
   ["uikit-update-view", "uikit-update-implementation", 'value: "uikit-update-01"', 'value: "uikit-update-01-edited"', "uikit-update-01-edited"],
 ];
@@ -135,8 +185,8 @@ export function generateMechanismCorpus() {
   ];
   const corpus = {
     schemaVersion: 1,
-    corpusVersion: "mechanisms-1",
-    fixtureRevision: "mechanisms-fixture-1",
+    corpusVersion: "mechanisms-2",
+    fixtureRevision: "mechanisms-fixture-2",
     metadata: {
       totalCases: cases.length,
       expectedHotReload: cases.filter((value) => value.expectedLane === "hot-reload").length,

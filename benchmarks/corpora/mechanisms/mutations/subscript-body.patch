@@ -1,8 +1,8 @@
 diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
 --- a/MechanismApp/MechanismCoverageScreen.swift
 +++ b/MechanismApp/MechanismCoverageScreen.swift
-@@ -80,3 +80,3 @@
- struct MechanismParameterHelper {
--    static func label(for value: String) -> String { "parameter-01" }
-+    static func label(for value: String) -> String { "parameter-01-edited" }
+@@ -101,3 +101,3 @@
+ struct MechanismSubscriptProbe {
+-    subscript(index: Int) -> String { "subscript-01" }
++    subscript(index: Int) -> String { "subscript-01-edited" }
  }

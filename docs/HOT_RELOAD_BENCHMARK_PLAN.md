@@ -9,9 +9,9 @@ Implementation checkpoint: Phases 1–3 are complete, and the Phase 4 runner is
 implemented with resumable JSONL, contamination recovery, and explicit retry
 boundaries. The supplemental Liquid Glass physical gate is complete (27/27
 edits and 27/27 restores), the native-system-surface gate is complete (24/24
-edits and 24/24 restores), and the mechanism pass is complete (9/9 generated
-forms and 9/9 restores). Independent one-iteration core lanes have covered all
-120 distinct hot cases on the physical fixture: CatalogApp 50/50, StateApp
+edits and 24/24 restores), and the mechanism pass is complete (14/14 generated
+forms and 14/14 restores). Independent one-iteration core lanes have covered
+all 120 distinct hot cases on the physical fixture: CatalogApp 50/50, StateApp
 40/40, and ArchitectureApp's 30 cases each semantically observed in a clean
 session. The three-seeded stress run, a full bounded-core reliability report,
 and chronological real-app dogfood remain broader gates; no Simulator or static
@@ -538,7 +538,12 @@ Normalized output must include:
     "refreshAckMs": 0,
     "totalMs": 0
   },
-  "patches": []
+  "patches": [],
+  "atomic": true,
+  "patchBundle": {
+    "sourceCount": 2,
+    "sourcePaths": ["<redacted>", "<redacted>"]
+  }
 }
 ```
 
@@ -636,13 +641,17 @@ a later patch fails, emit `partialApplication: true`, contaminate the workload,
 and rebuild baseline. The benchmark must expose this even if the user-facing
 agent immediately falls back to a new app build.
 
-The product follow-up is now implemented: every member of a multi-file
-operation is preflight-compiled before loading any of them. Runtime loading is
-still sequential, so the route exposes `atomic: true` only for a successful
-preflight and reports `partialApplication: true` if a later load fails. The
-runner contaminates the workload, preserves the diagnostic records, and
-rebuilds/relaunches a clean baseline before continuing. This is a recovery
-boundary, not a claim that dylib loading itself is transactional.
+The product follow-up is now implemented: dynamic-only members of a multi-file
+operation are compiled into one signed replacement bundle and sent in one
+engine request. The route reports `atomic: true` with `patchBundle.sourceCount`
+and `patchBundle.sourcePaths`. Async/interposition members retain a sequential
+preflighted fallback with `atomic: false`; if a later load fails,
+`partialApplication: true` contaminates the workload. The runner preserves the
+diagnostic records and rebuilds/relaunches a clean baseline before continuing.
+Production routing makes one bounded recovery attempt for transient live
+transport failures, but never retries compile failures or partial applications.
+This is a recovery boundary, not a claim that an already-loaded dylib can be
+rolled back.
 
 ## Attempt Record
 
@@ -666,6 +675,11 @@ Write append-only JSONL so a crash cannot erase completed evidence:
   "dynamicReplacements": 1,
   "refreshAcknowledged": true,
   "oracleMatched": true,
+  "atomic": true,
+  "patchBundle": {
+    "sourceCount": 2,
+    "sourcePaths": ["<redacted>", "<redacted>"]
+  },
   "partialApplication": false,
   "fallbackRequired": false,
   "timing": {
@@ -840,6 +854,8 @@ At minimum:
 - zero dynamic replacements fails a SwiftUI body case;
 - semantic value mismatch fails an ordinary function case;
 - multi-file partial application contaminates the workload;
+- dynamic-only multi-file edits use one atomic patch bundle;
+- transient live transport failures get at most one production recovery retry;
 - restore failure forces rebuild;
 - resume never trusts old runtime state;
 - percentile and Wilson interval calculations match fixtures;
@@ -939,19 +955,20 @@ coverage claim.
 
 ### Supplemental mechanism corpus
 
-The `mechanisms-1` corpus exercises nine generated replacement shapes that are
-not represented by a simple view-literal edit: protocol default implementations,
-actor and extension members, `ViewModifier.body(content:)`, Observation
-computed properties, property-wrapper getters, parameterized/static helpers,
-and UIKit bridge callbacks. Three structural controls (stored property,
-signature, and import) must select `build-device`.
+The `mechanisms-2` corpus exercises fourteen generated replacement shapes that
+are not represented by a simple view-literal edit: protocol default
+implementations, actor and extension members, `ViewModifier.body(content:)`,
+Observation computed properties, explicit accessors, property-wrapper getters,
+initializer and subscript literal folds, generic and parameterized helpers,
+async/throws interposition, and UIKit bridge callbacks. Three structural
+controls (stored property, signature, and import) must select `build-device`.
 
-Static routing is deterministic at 12/12 cases with zero dangerous false-live
+Static routing is deterministic at 17/17 cases with zero dangerous false-live
 results. On August 1, 2026, a signed physical `MechanismApp` run semantically
-observed all 9/9 hot edits and 9/9 restores. Three initial `PATCH_TIMEOUT`
+observed all 14/14 hot edits and 14/14 restores. Two initial `PATCH_TIMEOUT`
 records were retained as diagnostics; the runner rebuilt/relaunched a clean
-session and recovered all three cases. Headline edit latency was 753.9 ms
-median and 1,112.7 ms p90/p95. The full scope and commands are in
+session and recovered both cases. Headline edit latency was 665.0 ms median,
+1,249.9 ms p90, and 1,712.5 ms p95. The full scope and commands are in
 [`HOT_RELOAD_MECHANISM_COVERAGE.md`](HOT_RELOAD_MECHANISM_COVERAGE.md).
 
 ## Explicitly Deferred

@@ -248,6 +248,43 @@ test("generates labeled replacements for implementation forms outside a View bod
   assert.match(generated, /@_dynamicReplacement\(for: wrappedValue\)/);
 });
 
+test("generates replacements for initializers, accessors, subscripts, and generic helpers", () => {
+  const before = `
+    struct DeclarationProbe {
+      let value: String
+      init(value: String) { self.value = value }
+      var computed: String {
+        get { "accessor-old" }
+        set { _ = newValue }
+      }
+      subscript(index: Int) -> String { "subscript-old" }
+      static func label<T: CustomStringConvertible>(_ value: T) -> String { "generic-old" }
+    }
+  `;
+  const after = before
+    .replace("self.value = value", 'self.value = "initializer-new"')
+    .replace('"accessor-old"', '"accessor-new"')
+    .replace('"subscript-old"', '"subscript-new"')
+    .replace('"generic-old"', '"generic-new"');
+  const generated = generateDynamicReplacementSource({
+    source: after,
+    beforeSource: before,
+    sourcePath: "/tmp/DeclarationProbe.swift",
+    moduleName: "ExampleApp",
+  });
+  assert.match(generated, /@_dynamicReplacement\(for: init\(value:\)\)/);
+  assert.match(generated, /private init\(value: String\)/);
+  assert.match(generated, /@_dynamicReplacement\(for: computed\)/);
+  assert.match(generated, /@_dynamicReplacement\(for: subscript\(index:\)\)/);
+  assert.match(generated, /private subscript\(index: Int\) -> String/);
+  assert.match(generated, /@_dynamicReplacement\(for: label\(_:\)\)/);
+  assert.match(generated, /func __swiftSim_label<T: CustomStringConvertible>\(_ value: T\)/);
+  assert.match(generated, /initializer-new/);
+  assert.match(generated, /accessor-new/);
+  assert.match(generated, /subscript-new/);
+  assert.match(generated, /generic-new/);
+});
+
 test("recognizes a View body implemented in an extension", () => {
   const before = `
     import SwiftUI
@@ -430,7 +467,7 @@ test("preflights every multi-file patch before loading any member", async () => 
     },
   });
   assert.equal(result.action, "hot-reload");
-  assert.equal(result.atomic, true);
+  assert.equal(result.atomic, false);
   assert.equal(result.partialApplication, false);
   assert.equal(preflighted.length, 2);
   assert.equal(loaded.length, 2);
@@ -469,5 +506,183 @@ test("marks a later multi-file load failure as partial application", async () =>
   });
   assert.equal(result.action, "hot-reload-failed");
   assert.equal(result.partialApplication, true);
+  assert.equal(result.atomic, false);
+});
+
+test("bundles dynamic multi-file replacements into one atomic engine request", async () => {
+  let compileCalls = 0;
+  let injectCalls = 0;
+  const result = await routeLiveEditSet({
+    files: [
+      {
+        path: "One.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func one() -> String { "A" }`,
+        afterSource: `func one() -> String { "B" }`,
+      },
+      {
+        path: "Two.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func two() -> String { "A" }`,
+        afterSource: `func two() -> String { "B" }`,
+      },
+    ],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      compileBundle: async ({ files }) => {
+        compileCalls += 1;
+        assert.equal(files.length, 2);
+        return {
+          mode: "swift-dynamic-replacement-bundle",
+          generated: { dylibPath: "/tmp/atomic-patch.dylib", sourceCount: files.length },
+          compileMs: 7,
+        };
+      },
+      inject: async (_sourcePath, options) => {
+        injectCalls += 1;
+        assert.equal(options.preparedPatch.mode, "swift-dynamic-replacement-bundle");
+        return {
+          succeeded: true,
+          mode: "swift-dynamic-replacement-bundle",
+          report: { dynamic_replacements: 2, refresh_acknowledged: true },
+          durationMs: 3,
+          requestID: "atomic-bundle",
+        };
+      },
+    },
+  });
+  assert.equal(result.action, "hot-reload");
   assert.equal(result.atomic, true);
+  assert.equal(result.partialApplication, false);
+  assert.equal(result.patchBundle.atomic, true);
+  assert.equal(result.patchBundle.sourceCount, 2);
+  assert.equal(compileCalls, 1);
+  assert.equal(injectCalls, 1);
+});
+
+test("recovers one transient production patch failure before falling back", async () => {
+  let injectCalls = 0;
+  let recoverCalls = 0;
+  const result = await routeLiveEditSet({
+    files: [{
+      path: "Card.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `struct Card: View { var body: some View { Text("A") } }`,
+      afterSource: `struct Card: View { var body: some View { Text("B") } }`,
+    }],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      inject: async () => {
+        injectCalls += 1;
+        return injectCalls === 1
+          ? { succeeded: false, error: "The live patch timed out." }
+          : { succeeded: true, requestID: "recovered", report: { refresh_acknowledged: true } };
+      },
+      recover: async () => {
+        recoverCalls += 1;
+        return { ready: true };
+      },
+    },
+  });
+  assert.equal(result.action, "hot-reload");
+  assert.equal(result.recovery.attempted, true);
+  assert.equal(result.recovery.succeeded, true);
+  assert.equal(result.recovery.attemptCount, 1);
+  assert.equal(result.recovery.initialReasonCode, LIVE_REASON_CODES.PATCH_TIMEOUT);
+  assert.equal(injectCalls, 2);
+  assert.equal(recoverCalls, 1);
+});
+
+test("does not retry a compile failure or a partial multi-file application", async () => {
+  let compileRecoveryCalls = 0;
+  const compileFailure = await routeLiveEditSet({
+    files: [{
+      path: "Logic.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `func value() -> String { "A" }`,
+      afterSource: `func value() -> String { "B" }`,
+    }],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      inject: async () => ({ succeeded: false, error: "The replacement could not be compiled." }),
+      recover: async () => {
+        compileRecoveryCalls += 1;
+        return { ready: true };
+      },
+    },
+  });
+  assert.equal(compileFailure.action, "hot-reload-failed");
+  assert.equal(compileFailure.reasonCode, LIVE_REASON_CODES.PATCH_COMPILE_FAILED);
+  assert.equal(compileRecoveryCalls, 0);
+
+  let partialRecoveryCalls = 0;
+  let loads = 0;
+  const partialFailure = await routeLiveEditSet({
+    files: [
+      {
+        path: "One.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func one() -> String { "A" }`,
+        afterSource: `func one() -> String { "B" }`,
+      },
+      {
+        path: "Two.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func two() -> String { "A" }`,
+        afterSource: `func two() -> String { "B" }`,
+      },
+    ],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      preflight: async () => ({ mode: "interposition", generated: null, compileMs: 1 }),
+      inject: async () => {
+        loads += 1;
+        return loads === 1
+          ? { succeeded: true, mode: "interposition", report: { refresh_acknowledged: true } }
+          : { succeeded: false, mode: "interposition", error: "The live patch timed out." };
+      },
+      recover: async () => {
+        partialRecoveryCalls += 1;
+        return { ready: true };
+      },
+    },
+  });
+  assert.equal(partialFailure.action, "hot-reload-failed");
+  assert.equal(partialFailure.partialApplication, true);
+  assert.equal(partialRecoveryCalls, 0);
+});
+
+test("recovers a stale live session before returning a build fallback", async () => {
+  let inspectCalls = 0;
+  let recoverCalls = 0;
+  const result = await routeLiveEditSet({
+    files: [{
+      path: "Card.swift",
+      kind: "swift",
+      status: "modified",
+      beforeSource: `struct Card: View { var body: some View { Text("A") } }`,
+      afterSource: `struct Card: View { var body: some View { Text("B") } }`,
+    }],
+    runtime: {
+      inspect: async () => {
+        inspectCalls += 1;
+        return { ready: inspectCalls > 1 };
+      },
+      inject: async () => ({ succeeded: true, requestID: "session-recovered", report: { refresh_acknowledged: true } }),
+      recover: async () => {
+        recoverCalls += 1;
+        return { ready: true };
+      },
+    },
+  });
+  assert.equal(result.action, "hot-reload");
+  assert.equal(result.recovery.succeeded, true);
+  assert.equal(recoverCalls, 1);
+  assert.equal(inspectCalls, 3);
 });

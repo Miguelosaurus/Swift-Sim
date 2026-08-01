@@ -1,0 +1,8 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -105,3 +105,3 @@
+ struct MechanismGenericProbe {
+-    static func label<T: CustomStringConvertible>(_ value: T) -> String { "generic-01" }
++    static func label<T: CustomStringConvertible>(_ value: T) -> String { "generic-01-edited" }
+ }
