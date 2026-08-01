@@ -17,10 +17,12 @@ if (script === "swift-sim-helper.js") {
   await import("./helperHttpBoundaryPreload.js");
   const { installCompatibleHelperHealthFetchBoundary } = await import("./cliRuntimeBoundary.js");
   const { installSwiftSimChildRuntimeBoundary } = await import("./swiftSimChildRuntimeBoundary.js");
-  const { installRenewalShutdownGuard } = await import("./renewalShutdownPreload.js");
   installCompatibleHelperHealthFetchBoundary();
   installSwiftSimChildRuntimeBoundary();
-  installRenewalShutdownGuard();
+  if (helperRunsAsService()) {
+    const { installRenewalShutdownGuard } = await import("./renewalShutdownPreload.js");
+    installRenewalShutdownGuard();
+  }
 } else if (script === "swift-sim-device-gateway.js") {
   await import("./commandDeadlinePreload.js");
   await import("./atomicLockRemovalPreload.js");
