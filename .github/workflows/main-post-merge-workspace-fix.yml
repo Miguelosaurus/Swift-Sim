@@ -42,7 +42,15 @@ jobs:
             python3 scripts/main_post_merge_workspace_fix.py
             python3 scripts/main_post_merge_classifier_fix.py
             npm ci
-            npm run check
+            node scripts/check-js-syntax.js
+            npm run check:docs
+            node --test \
+              test/mainPostMergeIntegration.test.js \
+              test/liveReload.test.js \
+              test/liveEngineLifecycleLock.test.js \
+              test/liveEngineOwnershipPreload.test.js \
+              test/artifactCleanupBoundaryPreload.test.js \
+              test/requestOrigin.test.js
           } > /tmp/main-post-merge-workspace-fix.log 2>&1
           status=$?
           cat /tmp/main-post-merge-workspace-fix.log
