@@ -16,7 +16,7 @@ Review scope:
 
 - Live-engine process identity and detached process-group ownership.
 - Cross-process serialization of global live-engine inspection and replacement.
-- Structural Swift attribute arguments, wrapper association, availability conditions, and conditional compilation misclassified as live-safe.
+- Structural Swift attribute arguments, including deeply nested and multiline wrappers, availability conditions, and conditional compilation misclassified as live-safe.
 - Workspace project discovery, scheme authority, signing selection, and watcher-root resolution.
 - Delivery-reference cleanup blocking helper startup.
 - Persisted artifact cleanup path and build-ID containment.
@@ -24,4 +24,4 @@ Review scope:
 - Paired-Mac rebuild authority and stale response fencing.
 - Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
 
-The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics transformation is fail-closed, self-removing, and adds pure scheme/reference tests plus an iOS stale-view regression. This is an idempotent second trigger after workflow registration.
+The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics/classifier transformation is fail-closed, self-removing, and adds pure scheme/reference tests, balanced-attribute regressions, and an iOS stale-view regression. This is an idempotent trigger after workflow registration.
