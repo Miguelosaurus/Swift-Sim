@@ -138,7 +138,7 @@ function validateDeliveryState(value) {
   }
   for (const field of ["managerPid", "gatewayPid", "tunnelPid"]) {
     const pid = value[field];
-    if (pid !== undefined && pid !== null && (!Number.isInteger(pid) || pid <= 0)) {
+    if (pid !== undefined && pid !== null && (!Number.isInteger(pid) || pid < 0)) {
       throw new Error(`the delivery record has an invalid ${field}`);
     }
   }
