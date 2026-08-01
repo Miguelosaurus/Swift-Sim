@@ -1,3 +1,9 @@
+import {
+  restartSimulatorRuntime,
+  startSimulatorRuntime,
+  stopSimulatorRuntime,
+} from "../simulatorLifecycle.js";
+
 export class NativeCompanionTransport {
   constructor({ adapter }) {
     this.id = "native-companion";
@@ -24,6 +30,34 @@ export class NativeCompanionTransport {
   }
 
   async start({ simulatorUDID, port }) {
+    return startSimulatorRuntime({
+      simulatorUDID,
+      recover: () => this.adapter.kill(simulatorUDID),
+      operation: () => this.startUnlocked({ simulatorUDID, port }),
+    });
+  }
+
+  async restart(session) {
+    return restartSimulatorRuntime({
+      session,
+      operation: async () => {
+        await this.adapter.kill(session.simulatorUDID);
+        return this.startUnlocked({
+          simulatorUDID: session.simulatorUDID,
+          port: session.stream.port,
+        });
+      },
+    });
+  }
+
+  async stop(session) {
+    return stopSimulatorRuntime({
+      session,
+      operation: () => this.adapter.kill(session.simulatorUDID),
+    });
+  }
+
+  async startUnlocked({ simulatorUDID, port }) {
     const info = await this.inspect();
     if (!info.available) throw new Error(info.reason);
     const result = await this.adapter.start({ simulatorUDID, port });
@@ -40,18 +74,6 @@ export class NativeCompanionTransport {
       limitations: [],
       logs: ["native companion uses serve-sim headless H.264 AVCC stream", ...result.logs],
     };
-  }
-
-  async restart(session) {
-    await this.adapter.kill(session.simulatorUDID);
-    return this.start({
-      simulatorUDID: session.simulatorUDID,
-      port: session.stream.port,
-    });
-  }
-
-  async stop(session) {
-    await this.adapter.kill(session.simulatorUDID);
   }
 }
 

@@ -36,6 +36,7 @@ export {
 const LIFECYCLE_LOCK_WAIT_MS = 60_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const LEGACY_LOCK_MAX_AGE_MS = 2 * 60_000;
+const DEFAULT_READINESS_TIMEOUT_MS = 45_000;
 const GENERATION_PREFIX = ".generation-";
 
 export class DeviceDeliveryError extends DeviceDeliveryErrorCore {}
@@ -44,6 +45,10 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
   constructor(options = {}) {
     super(options);
     this.lifecycleLockPath = `${this.statePath}.lifecycle.lock`;
+    this.readinessTimeoutMs = positiveTimeout(
+      options.readinessTimeoutMs,
+      DEFAULT_READINESS_TIMEOUT_MS,
+    );
   }
 
   async ensure({ ttlMinutes = DEFAULT_DEVICE_BUILD_TTL_MINUTES, cancelPath = "", referenceID = "" } = {}) {
@@ -87,54 +92,61 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
         env: process.env,
       });
       child.unref();
+      let launchError = null;
+      let childExited = false;
+      let ready = false;
+      child.once("error", (error) => { launchError = error; });
+      child.once("exit", () => { childExited = true; });
 
-      const deadline = Date.now() + 45_000;
-      while (Date.now() < deadline) {
-        await sleep(250);
-        const state = readDeliveryGenerationState(generationStatePath);
-        if (cancelPath && existsSync(cancelPath)) {
-          if (state?.generation === generation) {
-            const outcome = terminateOwnedDelivery(state);
-            if (outcome.allExited) {
-              removeGenerationFiles({
-                statePath: this.statePath,
-                logPath: this.logPath,
-                recordPath: generationStatePath,
-                state,
-              });
-            } else {
-              persistShutdownOutcome(generationStatePath, state, outcome);
-            }
-          } else {
-            signalProcessGroup(child.pid, "SIGTERM");
-            waitForProcessGroupExit(child.pid, 2_000);
-            if (processGroupIsAlive(child.pid)) {
-              signalProcessGroup(child.pid, "SIGKILL");
-              waitForProcessGroupExit(child.pid, 2_000);
-            }
+      try {
+        const deadline = Date.now() + this.readinessTimeoutMs;
+        while (Date.now() < deadline) {
+          await sleep(Math.min(250, this.readinessTimeoutMs));
+          if (launchError) {
+            throw new DeviceDeliveryError(`Temporary delivery manager could not start: ${launchError.message}`);
           }
-          throw deliveryCancelledError();
+          const state = readDeliveryGenerationState(generationStatePath);
+          if (cancelPath && existsSync(cancelPath)) {
+            throw deliveryCancelledError();
+          }
+          if (!state || state.generation !== generation) {
+            if (childExited) {
+              throw new DeviceDeliveryError(
+                `Temporary delivery manager exited before publishing state. Log: ${generationLogPath}`,
+              );
+            }
+            continue;
+          }
+          if (state.status === "failed") {
+            throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${generationLogPath}`);
+          }
+          if (childExited) {
+            throw new DeviceDeliveryError(
+              `Temporary delivery manager exited before delivery became ready. Log: ${generationLogPath}`,
+            );
+          }
+          if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) {
+            const referenced = addDeliveryGenerationReference(
+              generationStatePath,
+              generation,
+              referenceID,
+            );
+            ready = true;
+            return { ...referenced, reused: false };
+          }
         }
-        if (!state || state.generation !== generation) continue;
-        if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) {
-          const referenced = addDeliveryGenerationReference(
-            generationStatePath,
+        throw new DeviceDeliveryError(`Temporary delivery tunnel did not become ready. Log: ${generationLogPath}`);
+      } finally {
+        if (!ready) {
+          cleanupUnclaimedDeliveryGeneration({
+            childPid: child.pid,
             generation,
-            referenceID,
-          );
-          return { ...referenced, reused: false };
-        }
-        if (state.status === "failed") {
-          throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${generationLogPath}`);
+            generationStatePath,
+            statePath: this.statePath,
+            logPath: this.logPath,
+          });
         }
       }
-
-      const timedOut = readDeliveryGenerationState(generationStatePath);
-      if (timedOut?.generation === generation) {
-        const outcome = terminateOwnedDelivery(timedOut);
-        persistShutdownOutcome(generationStatePath, timedOut, outcome);
-      }
-      throw new DeviceDeliveryError(`Temporary delivery tunnel did not become ready. Log: ${generationLogPath}`);
     } finally {
       release();
     }
@@ -203,7 +215,7 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       const records = deliveryStateRecords(this.statePath);
       let signalled = false;
       const survivors = [];
-      for (const { path, state } of records) {
+      for (const { path } of records) {
         const currentState = readDeliveryGenerationState(path, { allowMissing: false });
         const outcome = terminateOwnedDelivery(currentState);
         signalled = outcome.signalled || signalled;
@@ -249,7 +261,7 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
 
   reapExpiredGenerations() {
     const now = Date.now();
-    for (const { path, state } of deliveryStateRecords(this.statePath)) {
+    for (const { path } of deliveryStateRecords(this.statePath)) {
       const currentState = readDeliveryGenerationState(path, { allowMissing: false });
       const expired = Number.isFinite(Date.parse(currentState.expiresAt || ""))
         && Date.parse(currentState.expiresAt) <= now;
@@ -408,6 +420,56 @@ function terminateOwnedDelivery(state) {
   };
 }
 
+function cleanupUnclaimedDeliveryGeneration({
+  childPid,
+  generation,
+  generationStatePath,
+  statePath,
+  logPath,
+}) {
+  let state = null;
+  try { state = readDeliveryGenerationState(generationStatePath); } catch {}
+  if (state?.generation === generation) {
+    const outcome = terminateOwnedDelivery(state);
+    if (outcome.allExited) {
+      if (state.status !== "failed") {
+        removeGenerationFiles({
+          statePath,
+          logPath,
+          recordPath: generationStatePath,
+          state,
+        });
+      }
+    } else {
+      persistShutdownOutcome(generationStatePath, state, outcome);
+    }
+    return;
+  }
+
+  signalProcessGroup(childPid, "SIGTERM");
+  waitForProcessGroupExit(childPid, 5_000);
+  if (processGroupIsAlive(childPid)) {
+    signalProcessGroup(childPid, "SIGKILL");
+    waitForProcessGroupExit(childPid, 2_000);
+  }
+
+  try { state = readDeliveryGenerationState(generationStatePath); } catch { return; }
+  if (state?.generation !== generation) return;
+  const outcome = terminateOwnedDelivery(state);
+  if (outcome.allExited) {
+    if (state.status !== "failed") {
+      removeGenerationFiles({
+        statePath,
+        logPath,
+        recordPath: generationStatePath,
+        state,
+      });
+    }
+  } else {
+    persistShutdownOutcome(generationStatePath, state, outcome);
+  }
+}
+
 function persistShutdownOutcome(path, state, outcome) {
   if (outcome.allExited) return;
   mutateDeliveryGenerationState(path, state.generation, (current) => ({
@@ -420,7 +482,7 @@ function persistShutdownOutcome(path, state, outcome) {
   }));
 }
 
-function removeGenerationFiles({ statePath, logPath, recordPath, state }) {
+function removeGenerationFiles({ logPath, recordPath, state }) {
   rmSync(recordPath, { force: true });
   if (state.generation) {
     rmSync(deliveryGenerationLogPath(logPath, state.generation), { force: true });
@@ -594,6 +656,11 @@ function writeStateFile(path, state) {
     try { rmSync(temporaryPath, { force: true }); } catch {}
     throw error;
   }
+}
+
+function positiveTimeout(value, fallback) {
+  const timeout = Number(value);
+  return Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : fallback;
 }
 
 function sleep(milliseconds) {

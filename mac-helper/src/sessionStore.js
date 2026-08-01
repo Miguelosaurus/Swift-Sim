@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { currentSessionTransportPreference } from "./sessionRequestContext.js";
+import { simulatorSessionIsReusable } from "./simulatorLifecycle.js";
 import { sessionTransportCandidates } from "./sessionTransportPreference.js";
 
 const LOCK_WAIT_MS = 5_000;
@@ -140,6 +141,7 @@ export class SessionStore {
       && candidate.project === project
       && candidate.scheme === scheme
       && candidate.stream.state === "running"
+      && simulatorSessionIsReusable(candidate)
     ));
     const exactSession = requestedTransports.length === 0
       ? candidates[0]
