@@ -51,25 +51,23 @@ test("a concurrent start for the same Simulator fails closed", () => withPath((p
   assert.equal(new SessionStore({ path }).list().length, 1);
 }));
 
-test("a different transport may start for the same Simulator", () => withPath((path) => {
+test("a different transport cannot create a second stream for the same Simulator target", () => withPath((path) => {
   const first = new SessionStore({ path });
   const second = new SessionStore({ path });
   first.create({ ...input("a", "A"), transport: "serve-sim" });
-  second.create({ ...input("b", "A"), transport: "native-companion" });
-  assert.equal(new SessionStore({ path }).list().length, 2);
+  assert.throws(
+    () => second.create({ ...input("b", "A"), transport: "native-companion" }),
+    { code: "SWIFT_SIM_SESSION_START_IN_PROGRESS" },
+  );
+  assert.equal(new SessionStore({ path }).list().length, 1);
 }));
 
-test("request-local transport selects the matching running session consistently", async () => withPath(async (path) => {
+test("request-local transport still exposes the existing shared stream to switch handling", async () => withPath(async (path) => {
   const store = new SessionStore({ path });
   const serve = markRunning(
     store,
     store.create({ ...input("serve", "A"), transport: "serve-sim" }),
     "serve-sim",
-  );
-  const native = markRunning(
-    store,
-    store.create({ ...input("native", "A"), transport: "native-companion" }),
-    "native-companion",
   );
 
   await enterHTTPTransport("native-companion");
@@ -77,7 +75,7 @@ test("request-local transport selects the matching running session consistently"
     project: "/tmp/App.xcodeproj",
     scheme: "App",
     simulatorUDID: "A",
-  }).id, native.id);
+  }).id, serve.id);
 
   await enterHTTPTransport("serve-sim");
   assert.equal(store.findReusable({

@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { currentSessionTransportPreference } from "./sessionRequestContext.js";
+import { sessionTransportCandidates } from "./sessionTransportPreference.js";
 
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
@@ -130,17 +131,24 @@ export class SessionStore {
 
   findReusable({ project, scheme, simulatorUDID, transport = "" }) {
     this.assertReadableState();
-    const requestedTransport = resolveRequestedTransport(
-      transport || currentSessionTransportPreference() || sessionTransportFromProcess()
-    );
-    const session = [...this.readCurrentState().values()].find((candidate) => (
+    const preference = transport
+      || currentSessionTransportPreference()
+      || sessionTransportFromProcess();
+    const requestedTransports = sessionTransportCandidates(preference);
+    const candidates = [...this.readCurrentState().values()].filter((candidate) => (
       candidate.simulatorUDID === simulatorUDID
       && candidate.project === project
       && candidate.scheme === scheme
       && candidate.stream.state === "running"
-      && (!requestedTransport
-        || (candidate.stream.transport || "serve-sim") === requestedTransport)
     ));
+    const exactSession = requestedTransports.length === 0
+      ? candidates[0]
+      : requestedTransports
+          .map((requestedTransport) => candidates.find((candidate) =>
+            (candidate.stream.transport || "serve-sim") === requestedTransport
+          ))
+          .find(Boolean);
+    const session = exactSession || candidates[0];
     return session ? sessionCopy(session) : undefined;
   }
 
@@ -301,8 +309,7 @@ export class SessionStore {
 function sameSessionTarget(session, input) {
   return session?.project === (input.project || "")
     && session?.scheme === (input.scheme || "")
-    && session?.simulatorUDID === input.simulatorUDID
-    && (session?.stream?.transport || "serve-sim") === (input.transport || "serve-sim");
+    && session?.simulatorUDID === input.simulatorUDID;
 }
 
 function sessionStartIsActive(session) {
@@ -325,16 +332,6 @@ function sessionTransportFromProcess(argv = process.argv) {
     }
   }
   return process.env.SWIFT_SIM_TRANSPORT || "auto";
-}
-
-function resolveRequestedTransport(preference) {
-  if (!preference) return "";
-  if (preference === "auto") {
-    return process.env.SWIFT_SIM_DISABLE_NATIVE_TRANSPORT === "1"
-      ? "serve-sim"
-      : "native-companion";
-  }
-  return String(preference);
 }
 
 function validateStoredSession(value) {

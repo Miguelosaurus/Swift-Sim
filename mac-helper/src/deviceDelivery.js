@@ -20,6 +20,13 @@ import {
   DeviceDeliveryAdapter as DeviceDeliveryAdapterCore,
   DeviceDeliveryError as DeviceDeliveryErrorCore,
 } from "./deviceDeliveryCore.js";
+import {
+  addDeliveryGenerationReference,
+  generationReferences,
+  mutateDeliveryGenerationState,
+  readDeliveryGenerationState,
+  removeDeliveryGenerationReference,
+} from "./deviceDeliveryState.js";
 
 export {
   deviceDeliveryRequestAllowed,
@@ -51,7 +58,11 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
         .filter(({ state }) => deliveryIsReusable(state, ttlMinutes))
         .sort((a, b) => Date.parse(a.state.expiresAt || "") - Date.parse(b.state.expiresAt || ""))[0];
       if (reusableRecord) {
-        const referenced = addGenerationReference(reusableRecord.path, reusableRecord.state, referenceID);
+        const referenced = addDeliveryGenerationReference(
+          reusableRecord.path,
+          reusableRecord.state.generation,
+          referenceID,
+        );
         return { ...referenced, reused: true };
       }
 
@@ -80,7 +91,7 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       const deadline = Date.now() + 45_000;
       while (Date.now() < deadline) {
         await sleep(250);
-        const state = readStateFile(generationStatePath);
+        const state = readDeliveryGenerationState(generationStatePath);
         if (cancelPath && existsSync(cancelPath)) {
           if (state?.generation === generation) {
             const outcome = terminateOwnedDelivery(state);
@@ -106,7 +117,11 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
         }
         if (!state || state.generation !== generation) continue;
         if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) {
-          const referenced = addGenerationReference(generationStatePath, state, referenceID);
+          const referenced = addDeliveryGenerationReference(
+            generationStatePath,
+            generation,
+            referenceID,
+          );
           return { ...referenced, reused: false };
         }
         if (state.status === "failed") {
@@ -114,7 +129,7 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
         }
       }
 
-      const timedOut = readStateFile(generationStatePath);
+      const timedOut = readDeliveryGenerationState(generationStatePath);
       if (timedOut?.generation === generation) {
         const outcome = terminateOwnedDelivery(timedOut);
         persistShutdownOutcome(generationStatePath, timedOut, outcome);
@@ -135,26 +150,27 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       const record = deliveryStateRecords(this.statePath)
         .find(({ state }) => state.generation === generation);
       if (!record) return true;
-      const references = generationReferences(record.state);
+      let currentState = record.state;
+      const references = generationReferences(currentState);
       if (referenceID) {
-        const remaining = references.filter((value) => value !== referenceID);
-        const nextState = { ...record.state, references: remaining, updatedAt: new Date().toISOString() };
-        writeStateFile(record.path, nextState);
-        if (remaining.length > 0) return true;
-        record.state = nextState;
+        currentState = removeDeliveryGenerationReference(record.path, generation, referenceID);
+        if (generationReferences(currentState).length > 0) return true;
       } else if (references.length > 0) {
         return false;
+      } else {
+        currentState = readDeliveryGenerationState(record.path, { allowMissing: false });
+        if (generationReferences(currentState).length > 0) return false;
       }
-      const outcome = terminateOwnedDelivery(record.state);
+      const outcome = terminateOwnedDelivery(currentState);
       if (outcome.allExited) {
         removeGenerationFiles({
           statePath: this.statePath,
           logPath: this.logPath,
           recordPath: record.path,
-          state: record.state,
+          state: currentState,
         });
       } else {
-        persistShutdownOutcome(record.path, record.state, outcome);
+        persistShutdownOutcome(record.path, currentState, outcome);
       }
       return outcome.allExited;
     } finally {
@@ -188,18 +204,19 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
       let signalled = false;
       const survivors = [];
       for (const { path, state } of records) {
-        const outcome = terminateOwnedDelivery(state);
+        const currentState = readDeliveryGenerationState(path, { allowMissing: false });
+        const outcome = terminateOwnedDelivery(currentState);
         signalled = outcome.signalled || signalled;
         if (outcome.allExited) {
           removeGenerationFiles({
             statePath: this.statePath,
             logPath: this.logPath,
             recordPath: path,
-            state,
+            state: currentState,
           });
         } else {
-          survivors.push(state.generation || path);
-          persistShutdownOutcome(path, state, outcome);
+          survivors.push(currentState.generation || path);
+          persistShutdownOutcome(path, currentState, outcome);
         }
       }
 
@@ -233,20 +250,21 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
   reapExpiredGenerations() {
     const now = Date.now();
     for (const { path, state } of deliveryStateRecords(this.statePath)) {
-      const expired = Number.isFinite(Date.parse(state.expiresAt || ""))
-        && Date.parse(state.expiresAt) <= now;
-      const terminal = ["expired", "failed", "stopped", "failed-shutdown"].includes(state.status);
+      const currentState = readDeliveryGenerationState(path, { allowMissing: false });
+      const expired = Number.isFinite(Date.parse(currentState.expiresAt || ""))
+        && Date.parse(currentState.expiresAt) <= now;
+      const terminal = ["expired", "failed", "stopped", "failed-shutdown"].includes(currentState.status);
       if (!expired && !terminal) continue;
-      const outcome = terminateOwnedDelivery(state);
+      const outcome = terminateOwnedDelivery(currentState);
       if (outcome.allExited) {
         removeGenerationFiles({
           statePath: this.statePath,
           logPath: this.logPath,
           recordPath: path,
-          state,
+          state: currentState,
         });
       } else {
-        persistShutdownOutcome(path, state, outcome);
+        persistShutdownOutcome(path, currentState, outcome);
       }
     }
   }
@@ -274,7 +292,7 @@ export function buildCapabilityExpiresAt({
 
 function deliveryStateRecords(statePath) {
   const records = [];
-  const legacy = readStateFile(statePath);
+  const legacy = readDeliveryGenerationState(statePath);
   if (legacy) records.push({ path: statePath, state: legacy });
 
   const directory = dirname(statePath);
@@ -283,37 +301,13 @@ function deliveryStateRecords(statePath) {
     for (const name of readdirSync(directory)) {
       if (!name.startsWith(prefix) || !name.endsWith(".json")) continue;
       const path = join(directory, name);
-      const state = readStateFile(path);
+      const state = readDeliveryGenerationState(path);
       if (state) records.push({ path, state });
     }
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
   return records;
-}
-
-function readStateFile(path) {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-
-function generationReferences(state) {
-  return [...new Set((Array.isArray(state?.references) ? state.references : [])
-    .map((value) => String(value || "").trim())
-    .filter(Boolean))];
-}
-
-function addGenerationReference(path, state, referenceID) {
-  if (!referenceID) return state;
-  const references = generationReferences(state);
-  if (!references.includes(referenceID)) references.push(referenceID);
-  const next = { ...state, references, updatedAt: new Date().toISOString() };
-  writeStateFile(path, next);
-  return next;
 }
 
 function newestFirst(a, b) {
@@ -416,18 +410,18 @@ function terminateOwnedDelivery(state) {
 
 function persistShutdownOutcome(path, state, outcome) {
   if (outcome.allExited) return;
-  writeStateFile(path, {
-    ...state,
+  mutateDeliveryGenerationState(path, state.generation, (current) => ({
+    ...current,
     status: "failed-shutdown",
     publicBaseUrl: "",
     error: "Delivery shutdown could not confirm that every recorded process exited.",
     survivingProcesses: outcome.survivors,
     updatedAt: new Date().toISOString(),
-  });
+  }));
 }
 
 function removeGenerationFiles({ statePath, logPath, recordPath, state }) {
-  if (recordPath !== statePath) rmSync(recordPath, { force: true });
+  rmSync(recordPath, { force: true });
   if (state.generation) {
     rmSync(deliveryGenerationLogPath(logPath, state.generation), { force: true });
   }
@@ -590,8 +584,16 @@ function ownerlessLockIsStale(lockPath) {
 function writeStateFile(path, state) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(temporaryPath, JSON.stringify(state, null, 2), { mode: 0o600 });
-  renameSync(temporaryPath, path);
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(state, null, 2), {
+      mode: 0o600,
+      flag: "wx",
+    });
+    renameSync(temporaryPath, path);
+  } catch (error) {
+    try { rmSync(temporaryPath, { force: true }); } catch {}
+    throw error;
+  }
 }
 
 function sleep(milliseconds) {

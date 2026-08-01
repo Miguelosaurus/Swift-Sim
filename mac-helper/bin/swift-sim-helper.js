@@ -14,6 +14,10 @@ import {
 import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
 import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
 import { SessionStore } from "../src/sessionStore.js";
+import {
+  resolvedSessionTransport,
+  sessionTransportMatches,
+} from "../src/sessionTransportPreference.js";
 import { DeviceBuildStore } from "../src/deviceBuildStore.js";
 import {
   DeviceDeliveryAdapter,
@@ -1156,8 +1160,11 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
     project: input.project || "",
     scheme: input.scheme || "",
     simulatorUDID,
+    transport: transportPreference,
   });
-  if (existing && existing.stream.state === "running" && transportMatches(existing, transportPreference)) {
+  if (existing
+      && existing.stream.state === "running"
+      && sessionTransportMatches(existing.stream.transport, transportPreference)) {
     existing.remoteBaseUrl = input["remote-base-url"] || existing.remoteBaseUrl;
     existing.updatedAt = new Date().toISOString();
     store.save(existing);
@@ -1170,32 +1177,46 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
     simulatorUDID,
     token: randomBytes(24).toString("base64url"),
     remoteBaseUrl: input["remote-base-url"] || "",
-    transport: resolveTransportPreference(transportPreference),
+    transport: resolvedSessionTransport(transportPreference),
   });
   session.logs.push(`starting ${session.stream.transport} transport for ${simulatorUDID}`);
 
   let transport = transportForSession(session);
   let stream;
   try {
-    stream = await transport.start({
-      simulatorUDID,
-      port: input.port ? Number(input.port) : undefined,
-    });
-  } catch (error) {
-    if (transportPreference !== "auto" || session.stream.transport !== "native-companion") {
-      throw error;
+    try {
+      stream = await transport.start({
+        simulatorUDID,
+        port: input.port ? Number(input.port) : undefined,
+      });
+    } catch (error) {
+      if (transportPreference !== "auto" || session.stream.transport !== "native-companion") {
+        throw error;
+      }
+      session.logs.push(`native companion unavailable; using serve-sim fallback: ${error instanceof Error ? error.message : String(error)}`);
+      session.stream.transport = "serve-sim";
+      transport = transportForSession(session);
+      stream = await transport.start({
+        simulatorUDID,
+        port: input.port ? Number(input.port) : undefined,
+      });
     }
-    session.logs.push(`native companion unavailable; using serve-sim fallback: ${error instanceof Error ? error.message : String(error)}`);
-    session.stream.transport = "serve-sim";
-    transport = transportForSession(session);
-    stream = await transport.start({
-      simulatorUDID,
-      port: input.port ? Number(input.port) : undefined,
-    });
+  } catch (error) {
+    session.stream.state = "failed";
+    session.logs.push(`session start failed: ${error instanceof Error ? error.message : String(error)}`);
+    try { store.save(session); } catch {}
+    throw error;
   }
+
   session.stream = publicStream(stream);
   session.logs.push(...(stream.logs || []));
-  store.save(session);
+  try {
+    store.save(session);
+  } catch (error) {
+    try { await transport.stop(session); } catch {}
+    closeInputChannel(session);
+    throw error;
+  }
   return includeCodexMetadata ? codexSession(session) : publicSession(session);
 }
 
@@ -1208,19 +1229,6 @@ async function stopSession(sessionId) {
   session.stream.state = "stopped";
   session.updatedAt = new Date().toISOString();
   store.save(session);
-}
-
-function transportMatches(session, preference) {
-  const resolved = resolveTransportPreference(preference);
-  return (session.stream.transport || "serve-sim") === resolved;
-}
-
-function resolveTransportPreference(preference = "auto") {
-  if (preference === "auto") {
-    return process.env.SWIFT_SIM_DISABLE_NATIVE_TRANSPORT === "1" ? "serve-sim" : "native-companion";
-  }
-  if (transports[preference]) return preference;
-  throw new Error(`Unknown transport: ${preference}`);
 }
 
 function transportForSession(session) {
@@ -1640,13 +1648,12 @@ function ensureBuildNotCancelled(build) {
   throw error;
 }
 
- function required(value, name) {
+function required(value, name) {
   if (!value || typeof value !== "string") {
     throw new Error(`Missing required ${name}.`);
   }
   return value;
 }
-
 
 function buildForCapabilityToken(build, token) {
   if (!token) return null;
