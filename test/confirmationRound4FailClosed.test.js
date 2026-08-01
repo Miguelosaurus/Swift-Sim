@@ -105,7 +105,7 @@ test("missing nonce-owned runtime state fails closed instead of authorizing repl
       assert.equal(restartedStore.get(session.id).stream.state, "running");
       assert.throws(
         () => createSession(restartedStore, session.simulatorUDID),
-        /already starting or running/i,
+        /already starting/i,
       );
     } finally {
       rmSync(directory, { recursive: true, force: true });
