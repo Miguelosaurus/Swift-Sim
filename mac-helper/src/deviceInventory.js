@@ -196,18 +196,17 @@ export function runCommandWithDeadline(command, args, {
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("error", (error) => {
-      if (timedOut) finish(timeoutResult());
-      else finish({ code: null, stdout, stderr: error.message, timedOut: false });
+      if (timedOut) return;
+      finish({ code: null, stdout, stderr: error.message, timedOut: false });
     });
     child.once("close", (code) => {
-      if (timedOut) finish(timeoutResult());
-      else finish({ code, stdout, stderr, timedOut: false });
+      if (timedOut) return;
+      finish({ code, stdout, stderr, timedOut: false });
     });
 
     deadlineTimer = setTimeout(() => {
       if (settled) return;
       timedOut = true;
-      signalProcessGroup(child, "SIGTERM");
       forceTimer = setTimeout(() => {
         if (settled) return;
         signalProcessGroup(child, "SIGKILL");
@@ -217,6 +216,7 @@ export function runCommandWithDeadline(command, args, {
           finish(timeoutResult());
         }, 100);
       }, forceDelayMs);
+      signalProcessGroup(child, "SIGTERM");
     }, deadlineMs);
   });
 }
