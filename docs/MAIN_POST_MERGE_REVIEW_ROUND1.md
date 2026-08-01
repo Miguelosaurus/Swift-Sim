@@ -24,4 +24,4 @@ Review scope:
 - Paired-Mac rebuild authority and stale response fencing.
 - Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
 
-The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics transformation is fail-closed, self-removing, and adds pure scheme/reference tests plus an iOS stale-view regression.
+The earlier self-removing transformations passed the complete Node/release check before committing. The final workspace/diagnostics transformation is fail-closed, self-removing, and adds pure scheme/reference tests plus an iOS stale-view regression. This is an idempotent second trigger after workflow registration.
