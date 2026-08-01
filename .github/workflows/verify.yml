@@ -8,7 +8,7 @@ on:
     types: [published]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: verify-${{ github.workflow }}-${{ github.ref }}
@@ -21,23 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
-          fetch-depth: 0
-      - name: Apply final route lifecycle fix
-        if: ${{ github.head_ref == 'agent/main-post-merge-review-round-1' }}
-        run: |
-          set -euo pipefail
-          if [[ ! -f scripts/final_route_lock_fix.py ]]; then
-            exit 0
-          fi
-          python3 scripts/final_route_lock_fix.py
-          git rm -f scripts/final_route_lock_fix.py
-          git checkout c7090b14c6f1fd12af9c311b1954b79b00c415ac -- .github/workflows/verify.yml
-          git config user.name "swift-sim-review-bot"
-          git config user.email "swift-sim-review-bot@users.noreply.github.com"
-          git add -A
-          git commit -m "Serialize production live routing"
-          git push origin HEAD:agent/main-post-merge-review-round-1
+          persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22

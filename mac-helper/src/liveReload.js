@@ -774,15 +774,29 @@ export async function routeLiveChanges({ beforePaths = [], afterPaths = [], proj
 }
 
 export async function routeLiveEditSet(options = {}) {
-  const { runtime = {}, project = "", host = "", scheme = "" } = options;
-  const injectedLifecycle = Boolean(runtime.inspect || runtime.inject || runtime.preflight);
+  const runtime = options.runtime || {};
+  const injectedLifecycle = Boolean(
+    runtime.inspect || runtime.inject || runtime.preflight || runtime.recover
+  );
+  if (!injectedLifecycle && runtime.lifecycleLocked !== true) {
+    return withLiveEngineLifecycleLock(() => routeLiveEditSet({
+      ...options,
+      runtime: { ...runtime, lifecycleLocked: true },
+    }));
+  }
+  const { project = "", host = "", scheme = "" } = options;
   const recoveryEnabled = runtime.disableRecovery !== true
     && Number(runtime.recoveryAttempt || 0) < 1
     && (!injectedLifecycle || typeof runtime.recover === "function");
   const result = await routeLiveEditSetOnce({ ...options, runtime: { ...runtime, disableRecovery: true } });
   if (!recoveryEnabled || !shouldAttemptProductionRecovery(result)) return result;
 
-  const recovery = await (runtime.recover || defaultRecoverLiveSession)({ project, host, scheme });
+  const recovery = await (runtime.recover || defaultRecoverLiveSession)({
+    project,
+    host,
+    scheme,
+    lifecycleLocked: runtime.lifecycleLocked === true,
+  });
   if (!recovery?.ready) {
     return {
       ...result,
@@ -820,8 +834,12 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", schem
     ? runtime.classify({ files })
     : classifyEditSet({ files });
   const classificationMs = Math.max(0, now() - startedAt);
-  const inspect = runtime.inspect || ((options) => inspectLiveReload(options));
-  const inject = runtime.inject || ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options }));
+  const inspect = runtime.inspect || (runtime.lifecycleLocked
+    ? ((options) => inspectLiveReloadUnlocked(options))
+    : ((options) => inspectLiveReload(options)));
+  const inject = runtime.inject || (runtime.lifecycleLocked
+    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked(sourcePath, { ...runtime, ...options }))
+    : ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options })));
   const live = await inspect({ project, host, scheme });
 
   if (change.route === "no-change") {
@@ -1059,18 +1077,20 @@ function shouldAttemptProductionRecovery(result) {
   return true;
 }
 
-async function defaultRecoverLiveSession({ project, host, scheme }) {
+async function defaultRecoverLiveSession({ project, host, scheme, lifecycleLocked = false }) {
+  const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload;
+  const inspect = lifecycleLocked ? inspectLiveReloadUnlocked : inspectLiveReload;
   try {
-    const restarted = await startLiveReload({ project, host, scheme, forceRestart: true });
+    const restarted = await start({ project, host, scheme, forceRestart: true });
     if (!restarted?.started) {
       return { ready: false, error: restarted?.error || "The live engine did not restart." };
     }
     const deadline = Date.now() + 8_000;
-    let status = await inspectLiveReload({ project, host, scheme });
+    let status = await inspect({ project, host, scheme });
     while (Date.now() < deadline) {
       if (status.ready) return { ready: true, status };
       await delay(250);
-      status = await inspectLiveReload({ project, host, scheme });
+      status = await inspect({ project, host, scheme });
     }
     return { ready: false, error: "The live-enabled app did not reconnect after the live engine restarted." };
   } catch (error) {

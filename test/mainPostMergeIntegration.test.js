@@ -256,3 +256,15 @@ test("device live build uses the complete lifecycle lease", () => {
   assert.doesNotMatch(source, /await startLiveReload\(/);
   assert.doesNotMatch(source, /await registerLiveBuildResult\(/);
 });
+
+
+test("production live routing holds one lifecycle lease", () => {
+  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
+  assert.match(source, /if \(!injectedLifecycle && runtime\.lifecycleLocked !== true\) \{
+    return withLiveEngineLifecycleLock/);
+  assert.match(source, /runtime\.lifecycleLocked
+    \? \(\(options\) => inspectLiveReloadUnlocked\(options\)\)/);
+  assert.match(source, /runtime\.lifecycleLocked
+    \? \(\(sourcePath, options = \{\}\) => injectLiveSourceUnlocked/);
+  assert.match(source, /const start = lifecycleLocked \? startLiveReloadUnlocked : startLiveReload/);
+});
