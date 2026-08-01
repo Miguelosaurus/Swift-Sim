@@ -174,17 +174,19 @@ test("device command deadline settles even when the child ignores SIGTERM", asyn
   assert.ok(Date.now() - startedAt < 2_000);
 });
 
-test("device command deadline settles as soon as SIGTERM closes the child", async () => {
+test("device command deadline keeps force-kill cleanup armed after leader exit", async () => {
   const startedAt = Date.now();
   const result = await runCommandWithDeadline(process.execPath, [
     "-e",
     "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000)",
   ], {
     timeoutMs: 75,
-    forceKillDelayMs: 2_000,
+    forceKillDelayMs: 100,
   });
+  const elapsed = Date.now() - startedAt;
   assert.equal(result.code, null);
   assert.equal(result.timedOut, true);
   assert.match(result.stderr, /exceeded its 75ms deadline/);
-  assert.ok(Date.now() - startedAt < 1_500);
+  assert.ok(elapsed >= 150);
+  assert.ok(elapsed < 2_000);
 });
