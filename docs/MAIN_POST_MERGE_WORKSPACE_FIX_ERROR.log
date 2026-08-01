@@ -1,0 +1,2256 @@
+Traceback (most recent call last):
+  File "/home/runner/work/Swift-Sim/Swift-Sim/scripts/main_post_merge_workspace_fix.py", line 623, in <module>
+    patch_live_reload()
+  File "/home/runner/work/Swift-Sim/Swift-Sim/scripts/main_post_merge_workspace_fix.py", line 305, in patch_live_reload
+    source = replace_once(
+             ^^^^^^^^^^^^^
+  File "/home/runner/work/Swift-Sim/Swift-Sim/scripts/main_post_merge_workspace_fix.py", line 15, in replace_once
+    raise RuntimeError(f"Expected one {label} anchor, found {count}")
+RuntimeError: Expected one workspace project resolution anchor, found 0
+Applied balanced Swift attribute classification.
+
+added 4 packages, and audited 5 packages in 736ms
+
+found 0 vulnerabilities
+
+> swift-sim@0.6.0 check
+> node scripts/check-js-syntax.js && npm run check:docs && npm test
+
+Syntax checked 149 JavaScript files.
+
+> swift-sim@0.6.0 check:docs
+> node scripts/verify-docs.js
+
+Verified relative links in 22 Markdown files.
+
+> swift-sim@0.6.0 test
+> node --test test/*.test.js benchmarks/test/*.test.js
+
+TAP version 13
+# Subtest: loads a valid corpus and rejects unsafe mutation paths
+ok 1 - loads a valid corpus and rejects unsafe mutation paths
+  ---
+  duration_ms: 2.376265
+  type: 'test'
+  ...
+# Subtest: validates a corpus without requiring a schema runtime dependency
+ok 2 - validates a corpus without requiring a schema runtime dependency
+  ---
+  duration_ms: 0.742617
+  type: 'test'
+  ...
+# Subtest: rejects duplicate IDs, invalid hashes, and secret-bearing values
+ok 3 - rejects duplicate IDs, invalid hashes, and secret-bearing values
+  ---
+  duration_ms: 2.972053
+  type: 'test'
+  ...
+# Subtest: the committed core corpus has the prescribed 240-case shape
+ok 4 - the committed core corpus has the prescribed 240-case shape
+  ---
+  duration_ms: 1.862428
+  type: 'test'
+  ...
+# Subtest: smoke hot mutations do not hide explicit semantic markers
+ok 5 - smoke hot mutations do not hide explicit semantic markers
+  ---
+  duration_ms: 1.406057
+  type: 'test'
+  ...
+# Subtest: the Liquid Glass corpus covers the SDK surface and structural boundaries
+ok 6 - the Liquid Glass corpus covers the SDK surface and structural boundaries
+  ---
+  duration_ms: 1.059661
+  type: 'test'
+  ...
+# Subtest: the native surface corpus covers system UI composition and structural boundaries
+ok 7 - the native surface corpus covers system UI composition and structural boundaries
+  ---
+  duration_ms: 0.343403
+  type: 'test'
+  ...
+# Subtest: device runner proves a hot edit and baseline restore through injected adapters
+ok 8 - device runner proves a hot edit and baseline restore through injected adapters
+  ---
+  duration_ms: 58.152167
+  type: 'test'
+  ...
+# Subtest: device runner retries a recoverable transport failure from a fresh session
+ok 9 - device runner retries a recoverable transport failure from a fresh session
+  ---
+  duration_ms: 43.016311
+  type: 'test'
+  ...
+# Subtest: device selection never guesses among trusted devices
+ok 10 - device selection never guesses among trusted devices
+  ---
+  duration_ms: 0.803027
+  type: 'test'
+  ...
+# Subtest: device selection recognizes devicectl deviceProperties names
+ok 11 - device selection recognizes devicectl deviceProperties names
+  ---
+  duration_ms: 0.211366
+  type: 'test'
+  ...
+# Subtest: every Liquid Glass hot case produces a body replacement with its semantic marker
+ok 12 - every Liquid Glass hot case produces a body replacement with its semantic marker
+  ---
+  duration_ms: 270.530086
+  type: 'test'
+  ...
+# Subtest: every Liquid Glass structural case remains a rebuild
+ok 13 - every Liquid Glass structural case remains a rebuild
+  ---
+  duration_ms: 54.734719
+  type: 'test'
+  ...
+# Subtest: body replacements preserve enclosing availability annotations
+ok 14 - body replacements preserve enclosing availability annotations
+  ---
+  duration_ms: 1.25411
+  type: 'test'
+  ...
+# Subtest: mechanism corpus keeps all implementation forms on the hot lane
+ok 15 - mechanism corpus keeps all implementation forms on the hot lane
+  ---
+  duration_ms: 163.423117
+  type: 'test'
+  ...
+# Subtest: mechanism corpus keeps structural boundaries on the build lane
+ok 16 - mechanism corpus keeps structural boundaries on the build lane
+  ---
+  duration_ms: 24.170667
+  type: 'test'
+  ...
+# Subtest: every native surface hot case produces a body replacement with its marker
+ok 17 - every native surface hot case produces a body replacement with its marker
+  ---
+  duration_ms: 215.229474
+  type: 'test'
+  ...
+# Subtest: every native surface structural case remains a rebuild
+ok 18 - every native surface structural case remains a rebuild
+  ---
+  duration_ms: 44.209299
+  type: 'test'
+  ...
+# Subtest: benchmark oracle parses markers and rejects stale revisions
+ok 19 - benchmark oracle parses markers and rejects stale revisions
+  ---
+  duration_ms: 1.584313
+  type: 'test'
+  ...
+# Subtest: benchmark oracle permits baseline refreshes but rejects duplicate target markers
+ok 20 - benchmark oracle permits baseline refreshes but rejects duplicate target markers
+  ---
+  duration_ms: 0.305356
+  type: 'test'
+  ...
+# Subtest: benchmark oracle rejects malformed marker payloads
+ok 21 - benchmark oracle rejects malformed marker payloads
+  ---
+  duration_ms: 0.176643
+  type: 'test'
+  ...
+# Subtest: generates a scoped curated report without a universal claim
+ok 22 - generates a scoped curated report without a universal claim
+  ---
+  duration_ms: 3.658347
+  type: 'test'
+  ...
+# Subtest: report output is deterministic for the same records
+ok 23 - report output is deterministic for the same records
+  ---
+  duration_ms: 8.824282
+  type: 'test'
+  ...
+# Subtest: redacts paths, identifiers, tokens, and source-bearing fields
+ok 24 - redacts paths, identifiers, tokens, and source-bearing fields
+  ---
+  duration_ms: 1.85055
+  type: 'test'
+  ...
+# Subtest: sanitizes process errors
+ok 25 - sanitizes process errors
+  ---
+  duration_ms: 0.188982
+  type: 'test'
+  ...
+# Subtest: runs the committed core corpus with zero dangerous false-live results
+ok 26 - runs the committed core corpus with zero dangerous false-live results
+  ---
+  duration_ms: 1823.202626
+  type: 'test'
+  ...
+# Subtest: uses nearest-rank percentiles deterministically
+ok 27 - uses nearest-rank percentiles deterministically
+  ---
+  duration_ms: 1.672134
+  type: 'test'
+  ...
+# Subtest: computes classifier safety and recall separately
+ok 28 - computes classifier safety and recall separately
+  ---
+  duration_ms: 0.512975
+  type: 'test'
+  ...
+# Subtest: marks only semantically observed revisions as device successes
+ok 29 - marks only semantically observed revisions as device successes
+  ---
+  duration_ms: 0.578252
+  type: 'test'
+  ...
+# Subtest: does not count static classifier records as device attempts
+ok 30 - does not count static classifier records as device attempts
+  ---
+  duration_ms: 0.201271
+  type: 'test'
+  ...
+# Subtest: does not count restore records in the hot-edit denominator
+ok 31 - does not count restore records in the hot-edit denominator
+  ---
+  duration_ms: 0.317854
+  type: 'test'
+  ...
+# Subtest: excludes recovered transport diagnostics from headline denominators
+ok 32 - excludes recovered transport diagnostics from headline denominators
+  ---
+  duration_ms: 0.240258
+  type: 'test'
+  ...
+# Subtest: returns bounded Wilson intervals
+ok 33 - returns bounded Wilson intervals
+  ---
+  duration_ms: 0.282501
+  type: 'test'
+  ...
+# Subtest: keeps authoring errors out of the workflow denominator
+ok 34 - keeps authoring errors out of the workflow denominator
+  ---
+  duration_ms: 8.646206
+  type: 'test'
+  ...
+# Subtest: artifact cleanup accepts only the exact private build root
+ok 35 - artifact cleanup accepts only the exact private build root
+  ---
+  duration_ms: 1.672685
+  type: 'test'
+  ...
+# Subtest: persisted cleanup state cannot recursively delete an unrelated directory
+ok 36 - persisted cleanup state cannot recursively delete an unrelated directory
+  ---
+  duration_ms: 52.717806
+  type: 'test'
+  ...
+# Subtest: valid persisted cleanup removes its private artifact directory and job
+ok 37 - valid persisted cleanup removes its private artifact directory and job
+  ---
+  duration_ms: 41.371993
+  type: 'test'
+  ...
+# Running required project validation in /tmp/swift-sim-validation-test-UL4bwf/AppA: "/opt/hostedtoolcache/node/22.23.1/x64/bin/node" -e "process.exit(0)"
+# Subtest: validation defaults to the requested target repository
+ok 38 - validation defaults to the requested target repository
+  ---
+  duration_ms: 2.397145
+  type: 'test'
+  ...
+# Subtest: a configured directory inside the target repository may contain the Xcode target
+ok 39 - a configured directory inside the target repository may contain the Xcode target
+  ---
+  duration_ms: 1.328992
+  type: 'test'
+  ...
+# Subtest: validation for one project cannot authorize a different project
+ok 40 - validation for one project cannot authorize a different project
+  ---
+  duration_ms: 1.615579
+  type: 'test'
+  ...
+# Subtest: a broad parent containing multiple repositories cannot be a validation root
+ok 41 - a broad parent containing multiple repositories cannot be a validation root
+  ---
+  duration_ms: 2.183196
+  type: 'test'
+  ...
+# Subtest: missing preferences default to explicit validation
+ok 42 - missing preferences default to explicit validation
+  ---
+  duration_ms: 1.255302
+  type: 'test'
+  ...
+# Subtest: an existing malformed preferences file fails closed
+ok 43 - an existing malformed preferences file fails closed
+  ---
+  duration_ms: 1.364896
+  type: 'test'
+  ...
+# Running required project validation in /tmp/swift-sim-validation-test-b2WKSH/AppA: "/opt/hostedtoolcache/node/22.23.1/x64/bin/node" -e "setTimeout(() => {}, 5000)"
+# Subtest: required validation runs asynchronously and succeeds
+ok 44 - required validation runs asynchronously and succeeds
+  ---
+  duration_ms: 41.214654
+  type: 'test'
+  ...
+# Running required project validation in /tmp/swift-sim-validation-test-R0AvDH/AppA: trap 'exit 0' TERM; "/opt/hostedtoolcache/node/22.23.1/x64/bin/node" -e "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)" & echo $! > "/tmp/swift-sim-validation-test-R0AvDH/descendant.pid"; wait
+# Subtest: required validation has a hard timeout
+ok 45 - required validation has a hard timeout
+  ---
+  duration_ms: 127.889082
+  type: 'test'
+  ...
+# Running required project validation in /tmp/swift-sim-validation-test-X1G1rv/AppA: "/opt/hostedtoolcache/node/22.23.1/x64/bin/node" -e "process.on('SIGHUP', () => {}); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)" & echo $! > "/tmp/swift-sim-validation-test-X1G1rv/success-descendant.pid"; exit 0
+# Subtest: cancelling validation kills a TERM-ignoring descendant before rejecting
+ok 46 - cancelling validation kills a TERM-ignoring descendant before rejecting
+  ---
+  duration_ms: 2194.48816
+  type: 'test'
+  ...
+# Subtest: successful validation rejects and terminates surviving descendants
+ok 47 - successful validation rejects and terminates surviving descendants
+  ---
+  duration_ms: 2572.512849
+  type: 'test'
+  ...
+# Subtest: patched createServer intercepts capability routes before the downstream listener
+ok 48 - patched createServer intercepts capability routes before the downstream listener
+  ---
+  duration_ms: 229.29895
+  type: 'test'
+  ...
+# Subtest: capability boundary loads before the legacy helper HTTP boundary
+ok 49 - capability boundary loads before the legacy helper HTTP boundary
+  ---
+  duration_ms: 0.655758
+  type: 'test'
+  ...
+# Subtest: isolated public gateway loads the capability boundary before createServer
+ok 50 - isolated public gateway loads the capability boundary before createServer
+  ---
+  duration_ms: 0.144245
+  type: 'test'
+  ...
+# Subtest: swift-sim exposes the packaged version and install-first help
+ok 51 - swift-sim exposes the packaged version and install-first help
+  ---
+  duration_ms: 69.671788
+  type: 'test'
+  ...
+# Subtest: bundled marketplaces point at one shared Swift Sim plugin
+ok 52 - bundled marketplaces point at one shared Swift Sim plugin
+  ---
+  duration_ms: 0.458414
+  type: 'test'
+  ...
+# Subtest: Codex, Cursor, Claude, and OpenCode use the same packaged skill
+ok 53 - Codex, Cursor, Claude, and OpenCode use the same packaged skill
+  ---
+  duration_ms: 0.467037
+  type: 'test'
+  ...
+# Subtest: Homebrew packages every agent marketplace
+ok 54 - Homebrew packages every agent marketplace
+  ---
+  duration_ms: 0.266918
+  type: 'test'
+  ...
+# Subtest: release versions and public plugin metadata stay synchronized
+ok 55 - release versions and public plugin metadata stay synchronized
+  ---
+  duration_ms: 0.806543
+  type: 'test'
+  ...
+# Subtest: shared skill supports every mobile-capable local agent
+ok 56 - shared skill supports every mobile-capable local agent
+  ---
+  duration_ms: 0.996586
+  type: 'test'
+  ...
+# Subtest: device build handoff opens Swift Sim before the direct install fallback
+ok 57 - device build handoff opens Swift Sim before the direct install fallback
+  ---
+  duration_ms: 0.459175
+  type: 'test'
+  ...
+# Subtest: setup installs the bundled Codex marketplace and plugin
+not ok 58 - setup installs the bundled Codex marketplace and plugin
+  ---
+  duration_ms: 127.833208
+  type: 'test'
+  location: '/home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:101:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Remote hot reload currently requires an Apple silicon Mac.
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:118:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: doctor reports stale Codex and Claude integrations
+ok 59 - doctor reports stale Codex and Claude integrations
+  ---
+  duration_ms: 582.255031
+  type: 'test'
+  ...
+# Subtest: setup installs the bundled Cursor skill
+not ok 60 - setup installs the bundled Cursor skill
+  ---
+  duration_ms: 57.86653
+  type: 'test'
+  location: '/home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:164:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Remote hot reload currently requires an Apple silicon Mac.
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:179:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: setup installs the bundled Claude Code marketplace and plugin
+not ok 61 - setup installs the bundled Claude Code marketplace and plugin
+  ---
+  duration_ms: 188.731646
+  type: 'test'
+  location: '/home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:192:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Remote hot reload currently requires an Apple silicon Mac.
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:209:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: setup installs the bundled OpenCode skill
+not ok 62 - setup installs the bundled OpenCode skill
+  ---
+  duration_ms: 53.950989
+  type: 'test'
+  location: '/home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:220:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Remote hot reload currently requires an Apple silicon Mac.
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/Swift-Sim/Swift-Sim/test/cli.test.js:235:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: setup-status derives the exact custom helper health endpoint
+ok 63 - setup-status derives the exact custom helper health endpoint
+  ---
+  duration_ms: 1.134548
+  type: 'test'
+  ...
+# Subtest: CLI health checks reject reachable incompatible helpers
+ok 64 - CLI health checks reject reachable incompatible helpers
+  ---
+  duration_ms: 52.183347
+  type: 'test'
+  ...
+# Subtest: standalone helper migration only recognizes direct Swift Sim serve processes
+ok 65 - standalone helper migration only recognizes direct Swift Sim serve processes
+  ---
+  duration_ms: 1.479881
+  type: 'test'
+  ...
+# Subtest: only the serving helper is classified for graceful shutdown
+ok 66 - only the serving helper is classified for graceful shutdown
+  ---
+  duration_ms: 0.856759
+  type: 'test'
+  ...
+# Subtest: raw one-shot helper commands preserve default SIGTERM termination
+ok 67 - raw one-shot helper commands preserve default SIGTERM termination
+  ---
+  duration_ms: 59.771498
+  type: 'test'
+  ...
+# Subtest: raw serving helper still installs the hard shutdown deadline
+ok 68 - raw serving helper still installs the hard shutdown deadline
+  ---
+  duration_ms: 50.7219
+  type: 'test'
+  ...
+# Subtest: manager state publication preserves capability references
+ok 69 - manager state publication preserves capability references
+  ---
+  duration_ms: 70.068718
+  type: 'test'
+  ...
+# Subtest: terminal manager publication cannot be resurrected by a stale reference add
+ok 70 - terminal manager publication cannot be resurrected by a stale reference add
+  ---
+  duration_ms: 73.140659
+  type: 'test'
+  ...
+# Subtest: releasing one delivery reference preserves every other live capability
+ok 71 - releasing one delivery reference preserves every other live capability
+  ---
+  duration_ms: 47.131064
+  type: 'test'
+  ...
+# Subtest: malformed delivery state fails closed without being replaced
+ok 72 - malformed delivery state fails closed without being replaced
+  ---
+  duration_ms: 22.68369
+  type: 'test'
+  ...
+# Subtest: automatic session reuse prefers native but accepts a running fallback
+ok 73 - automatic session reuse prefers native but accepts a running fallback
+  ---
+  duration_ms: 0.239008
+  type: 'test'
+  ...
+# Subtest: automatic session reuse becomes serve-sim-only when native transport is disabled
+ok 74 - automatic session reuse becomes serve-sim-only when native transport is disabled
+  ---
+  duration_ms: 0.12237
+  type: 'test'
+  ...
+# Subtest: SessionStore reuses an automatic serve-sim fallback instead of starting a duplicate
+ok 75 - SessionStore reuses an automatic serve-sim fallback instead of starting a duplicate
+  ---
+  duration_ms: 80.45055
+  type: 'test'
+  ...
+# Subtest: an explicit transport mismatch still returns the existing shared stream
+ok 76 - an explicit transport mismatch still returns the existing shared stream
+  ---
+  duration_ms: 87.505403
+  type: 'test'
+  ...
+# Subtest: a failed session record does not retain the duplicate-start lease
+ok 77 - a failed session record does not retain the duplicate-start lease
+  ---
+  duration_ms: 118.767917
+  type: 'test'
+  ...
+# Subtest: helper source persists failed starts and uses shared automatic transport matching
+ok 78 - helper source persists failed starts and uses shared automatic transport matching
+  ---
+  duration_ms: 0.571602
+  type: 'test'
+  ...
+# Subtest: malformed Simulator runtime state is non-reusable and cannot authorize a kill
+ok 79 - malformed Simulator runtime state is non-reusable and cannot authorize a kill
+  ---
+  duration_ms: 35.012467
+  type: 'test'
+  ...
+# Subtest: delivery manager durably publishes each child identity before waiting for readiness
+ok 80 - delivery manager durably publishes each child identity before waiting for readiness
+  ---
+  duration_ms: 0.557784
+  type: 'test'
+  ...
+# Subtest: an upgraded nonce-less session cannot recover after a concurrent stop
+ok 81 - an upgraded nonce-less session cannot recover after a concurrent stop
+  ---
+  duration_ms: 96.595487
+  type: 'test'
+  ...
+# Subtest: Simulator lifecycle operations serialize by UDID
+ok 82 - Simulator lifecycle operations serialize by UDID
+  ---
+  duration_ms: 143.432075
+  type: 'test'
+  ...
+# Subtest: a user stop prevents a blocked stream recovery from resurrecting serve-sim
+ok 83 - a user stop prevents a blocked stream recovery from resurrecting serve-sim
+  ---
+  duration_ms: 102.764685
+  type: 'test'
+  ...
+# Subtest: SessionStore does not reuse a stream while its runtime is stopping
+ok 84 - SessionStore does not reuse a stream while its runtime is stopping
+  ---
+  duration_ms: 149.629623
+  type: 'test'
+  ...
+# Subtest: delivery timeout terminates a detached manager that never publishes state
+ok 85 - delivery timeout terminates a detached manager that never publishes state
+  ---
+  duration_ms: 7566.405089
+  type: 'test'
+  ...
+# Subtest: malformed delivery state is preserved while its unpublished manager is stopped
+ok 86 - malformed delivery state is preserved while its unpublished manager is stopped
+  ---
+  duration_ms: 7315.278567
+  type: 'test'
+  ...
+# Subtest: a second start cannot replace an active Simulator runtime
+ok 87 - a second start cannot replace an active Simulator runtime
+  ---
+  duration_ms: 64.412804
+  type: 'test'
+  ...
+# Subtest: a stale session cannot stop a newer Simulator runtime
+ok 88 - a stale session cannot stop a newer Simulator runtime
+  ---
+  duration_ms: 94.08808
+  type: 'test'
+  ...
+# Subtest: a fresh start cleans up stale non-running lifecycle state before relaunch
+ok 89 - a fresh start cleans up stale non-running lifecycle state before relaunch
+  ---
+  duration_ms: 25.851714
+  type: 'test'
+  ...
+# Subtest: active runtime authorization and recovery share one Simulator lifecycle lock
+ok 90 - active runtime authorization and recovery share one Simulator lifecycle lock
+  ---
+  duration_ms: 95.155406
+  type: 'test'
+  ...
+# Subtest: orphan authorization re-reads the exact session store instead of trusting a stale registry
+ok 91 - orphan authorization re-reads the exact session store instead of trusting a stale registry
+  ---
+  duration_ms: 190.589039
+  type: 'test'
+  ...
+# Subtest: orphan authorization treats a durably claimed restart replacement as owned
+ok 92 - orphan authorization treats a durably claimed restart replacement as owned
+  ---
+  duration_ms: 234.705033
+  type: 'test'
+  ...
+# Subtest: claim-bound runtime cleanup fails closed when ownership evidence is missing
+ok 93 - claim-bound runtime cleanup fails closed when ownership evidence is missing
+  ---
+  duration_ms: 181.724204
+  type: 'test'
+  ...
+# Subtest: a fresh starting session survives terminal state left by its predecessor
+ok 94 - a fresh starting session survives terminal state left by its predecessor
+  ---
+  duration_ms: 112.629367
+  type: 'test'
+  ...
+# Subtest: exact-owner reuse preserves the complete persisted stream after claim cleanup
+ok 95 - exact-owner reuse preserves the complete persisted stream after claim cleanup
+  ---
+  duration_ms: 118.765154
+  type: 'test'
+  ...
+# Subtest: missing nonce-owned runtime state fails closed instead of authorizing replacement
+ok 96 - missing nonce-owned runtime state fails closed instead of authorizing replacement
+  ---
+  duration_ms: 131.555856
+  type: 'test'
+  ...
+# Subtest: a restart replacement remains busy when its private claim evidence disappears
+ok 97 - a restart replacement remains busy when its private claim evidence disappears
+  ---
+  duration_ms: 145.346941
+  type: 'test'
+  ...
+# Subtest: parseable but invalid session state cannot authorize orphan cleanup
+ok 98 - parseable but invalid session state cannot authorize orphan cleanup
+  ---
+  duration_ms: 130.606705
+  type: 'test'
+  ...
+# Subtest: all connected devices share one physical-verification deadline
+ok 99 - all connected devices share one physical-verification deadline
+  ---
+  duration_ms: 120.647331
+  type: 'test'
+  ...
+# Subtest: a nonce-less upgraded session recovers its replacement through the restart claim
+ok 100 - a nonce-less upgraded session recovers its replacement through the restart claim
+  ---
+  duration_ms: 170.979889
+  type: 'test'
+  ...
+# Subtest: a durable start claim recovers a stream when the helper dies before session save
+ok 101 - a durable start claim recovers a stream when the helper dies before session save
+  ---
+  duration_ms: 116.797468
+  type: 'test'
+  ...
+# Subtest: restart handoff is promoted before the old session may stop the replacement
+ok 102 - restart handoff is promoted before the old session may stop the replacement
+  ---
+  duration_ms: 228.48115
+  type: 'test'
+  ...
+# Subtest: a stored running session is retired after the runtime durably stopped
+ok 103 - a stored running session is retired after the runtime durably stopped
+  ---
+  duration_ms: 193.387736
+  type: 'test'
+  ...
+# Subtest: a new durable claim reclaims a legacy running runtime with no owner
+ok 104 - a new durable claim reclaims a legacy running runtime with no owner
+  ---
+  duration_ms: 102.105009
+  type: 'test'
+  ...
+# Subtest: an unreadable session store never authorizes orphan-runtime cleanup
+ok 105 - an unreadable session store never authorizes orphan-runtime cleanup
+  ---
+  duration_ms: 23.612434
+  type: 'test'
+  ...
+# Subtest: claim stream projections contain no session bearer token
+ok 106 - claim stream projections contain no session bearer token
+  ---
+  duration_ms: 82.670902
+  type: 'test'
+  ...
+# Subtest: orphan recovery holds both Simulator and session ownership locks
+ok 107 - orphan recovery holds both Simulator and session ownership locks
+  ---
+  duration_ms: 154.707152
+  type: 'test'
+  ...
+# Subtest: a PID-less stream is recovered through its durable runtime claim identity
+ok 108 - a PID-less stream is recovered through its durable runtime claim identity
+  ---
+  duration_ms: 134.098954
+  type: 'test'
+  ...
+# Subtest: a failed native-style attempt leaves the start claim available to fallback
+ok 109 - a failed native-style attempt leaves the start claim available to fallback
+  ---
+  duration_ms: 148.011134
+  type: 'test'
+  ...
+# Subtest: invalid claim filenames are ignored during enumeration
+ok 110 - invalid claim filenames are ignored during enumeration
+  ---
+  duration_ms: 1.864631
+  type: 'test'
+  ...
+# Subtest: serve-sim process deadline kills a command that ignores SIGTERM
+ok 111 - serve-sim process deadline kills a command that ignores SIGTERM
+  ---
+  duration_ms: 230.274226
+  type: 'test'
+  ...
+# Subtest: serve-sim kill uses its shorter explicit deadline
+ok 112 - serve-sim kill uses its shorter explicit deadline
+  ---
+  duration_ms: 0.7845
+  type: 'test'
+  ...
+# Subtest: serve-sim timeout keeps force-kill cleanup armed after leader exit
+ok 113 - serve-sim timeout keeps force-kill cleanup armed after leader exit
+  ---
+  duration_ms: 276.605699
+  type: 'test'
+  ...
+# Subtest: timed-out Tailscale cleanup kills the complete group immediately
+ok 114 - timed-out Tailscale cleanup kills the complete group immediately
+  ---
+  duration_ms: 171.428894
+  type: 'test'
+  ...
+# Subtest: stale lock deletion cannot remove a replacement owner at the original path
+ok 115 - stale lock deletion cannot remove a replacement owner at the original path
+  ---
+  duration_ms: 370.298415
+  type: 'test'
+  ...
+# Subtest: synchronous command preload terminates the entire hung process group
+ok 116 - synchronous command preload terminates the entire hung process group
+  ---
+  duration_ms: 167.981961
+  type: 'test'
+  ...
+# Subtest: execFileSync operations receive the same hard deadline
+ok 117 - execFileSync operations receive the same hard deadline
+  ---
+  duration_ms: 132.019863
+  type: 'test'
+  ...
+# Subtest: deadline classification preserves service, build, and interrupt semantics
+ok 118 - deadline classification preserves service, build, and interrupt semantics
+  ---
+  duration_ms: 26.74409
+  type: 'test'
+  ...
+# Subtest: synchronous command preload preserves an explicit caller timeout
+ok 119 - synchronous command preload preserves an explicit caller timeout
+  ---
+  duration_ms: 147.258785
+  type: 'test'
+  ...
+# Subtest: helper cleanup can complete after an earlier forced failure exit request
+ok 120 - helper cleanup can complete after an earlier forced failure exit request
+  ---
+  duration_ms: 146.140342
+  type: 'test'
+  ...
+# Subtest: helper shutdown still has a final hard failure deadline
+ok 121 - helper shutdown still has a final hard failure deadline
+  ---
+  duration_ms: 204.43212
+  type: 'test'
+  ...
+# Subtest: update remembers an owned helper listener even when HTTP health hangs
+ok 122 - update remembers an owned helper listener even when HTTP health hangs
+  ---
+  duration_ms: 1278.883624
+  type: 'test'
+  ...
+# Subtest: preserved pre-upgrade state forces Homebrew service restart
+ok 123 - preserved pre-upgrade state forces Homebrew service restart
+  ---
+  duration_ms: 297.525097
+  type: 'test'
+  ...
+# Subtest: gateway and raw-helper production paths install their boundaries before use
+ok 124 - gateway and raw-helper production paths install their boundaries before use
+  ---
+  duration_ms: 0.719583
+  type: 'test'
+  ...
+# Subtest: raw public gateway child installs the claimed-lock guard
+ok 125 - raw public gateway child installs the claimed-lock guard
+  ---
+  duration_ms: 40.33389
+  type: 'test'
+  ...
+# Subtest: raw helper child rejects an incompatible custom health endpoint
+ok 126 - raw helper child rejects an incompatible custom health endpoint
+  ---
+  duration_ms: 92.564704
+  type: 'test'
+  ...
+# Subtest: active root capabilities have a bounded pre-delivery lifetime
+ok 127 - active root capabilities have a bounded pre-delivery lifetime
+  ---
+  duration_ms: 0.962385
+  type: 'test'
+  ...
+# Subtest: failed root capabilities expire after a short diagnostic grace period
+ok 128 - failed root capabilities expire after a short diagnostic grace period
+  ---
+  duration_ms: 0.160189
+  type: 'test'
+  ...
+# Subtest: failed capability grace caps a longer partial-delivery expiry
+ok 129 - failed capability grace caps a longer partial-delivery expiry
+  ---
+  duration_ms: 0.180029
+  type: 'test'
+  ...
+# Subtest: terminal and historical capabilities fail closed without a valid explicit expiry
+ok 130 - terminal and historical capabilities fail closed without a valid explicit expiry
+  ---
+  duration_ms: 0.133539
+  type: 'test'
+  ...
+# Subtest: capability lookup accepts either bearer or query candidates without precedence bugs
+ok 131 - capability lookup accepts either bearer or query candidates without precedence bugs
+  ---
+  duration_ms: 0.294589
+  type: 'test'
+  ...
+# Subtest: bearer projection removes device, developer-team, lifecycle, and raw error details
+ok 132 - bearer projection removes device, developer-team, lifecycle, and raw error details
+  ---
+  duration_ms: 0.894144
+  type: 'test'
+  ...
+# Subtest: expired failed root capability is rejected instead of remaining valid forever
+ok 133 - expired failed root capability is rejected instead of remaining valid forever
+  ---
+  duration_ms: 1.504544
+  type: 'test'
+  ...
+# Subtest: unknown build IDs do not reveal existence to unauthenticated capability callers
+ok 134 - unknown build IDs do not reveal existence to unauthenticated capability callers
+  ---
+  duration_ms: 0.265095
+  type: 'test'
+  ...
+# Subtest: public status is redacted while paired-Mac authorization falls through
+ok 135 - public status is redacted while paired-Mac authorization falls through
+  ---
+  duration_ms: 1.20004
+  type: 'test'
+  ...
+# Subtest: verification is ready-only and obeys the persisted cadence
+ok 136 - verification is ready-only and obeys the persisted cadence
+  ---
+  duration_ms: 0.71047
+  type: 'test'
+  ...
+# Subtest: validated bearer replaces a stale query token before artifact dispatch
+ok 137 - validated bearer replaces a stale query token before artifact dispatch
+  ---
+  duration_ms: 0.330222
+  type: 'test'
+  ...
+# Subtest: paired-Mac query authorization replaces an unrelated bearer for downstream routes
+ok 138 - paired-Mac query authorization replaces an unrelated bearer for downstream routes
+  ---
+  duration_ms: 0.26834
+  type: 'test'
+  ...
+# Subtest: device build links default to two hours
+ok 139 - device build links default to two hours
+  ---
+  duration_ms: 0.619715
+  type: 'test'
+  ...
+# Subtest: device build TTL remains within the supported range
+ok 140 - device build TTL remains within the supported range
+  ---
+  duration_ms: 0.118116
+  type: 'test'
+  ...
+# Subtest: device build expiry is calculated from link readiness time
+ok 141 - device build expiry is calculated from link readiness time
+  ---
+  duration_ms: 0.251305
+  type: 'test'
+  ...
+# Subtest: device builds group under one stable app identity
+ok 142 - device builds group under one stable app identity
+  ---
+  duration_ms: 83.980285
+  type: 'test'
+  ...
+# Subtest: build numbers advance for repeated Swift Sim builds of the same app
+ok 143 - build numbers advance for repeated Swift Sim builds of the same app
+  ---
+  duration_ms: 74.379485
+  type: 'test'
+  ...
+# Subtest: a higher project build number remains authoritative
+ok 144 - a higher project build number remains authoritative
+  ---
+  duration_ms: 51.541396
+  type: 'test'
+  ...
+# Subtest: same bundle signed by another team remains a different app
+ok 145 - same bundle signed by another team remains a different app
+  ---
+  duration_ms: 79.189951
+  type: 'test'
+  ...
+# Subtest: failed builds without a resolved app identity do not create duplicate catalog rows
+ok 146 - failed builds without a resolved app identity do not create duplicate catalog rows
+  ---
+  duration_ms: 61.927548
+  type: 'test'
+  ...
+# Subtest: Swift Sim QA builds are archived while real project builds remain visible
+ok 147 - Swift Sim QA builds are archived while real project builds remain visible
+  ---
+  duration_ms: 88.577481
+  type: 'test'
+  ...
+# Subtest: device build logs stay bounded to the user-visible diagnostic tail
+ok 148 - device build logs stay bounded to the user-visible diagnostic tail
+  ---
+  duration_ms: 54.309766
+  type: 'test'
+  ...
+# Subtest: queued builds preserve TTL without starting the install-link clock
+ok 149 - queued builds preserve TTL without starting the install-link clock
+  ---
+  duration_ms: 35.8018
+  type: 'test'
+  ...
+# Subtest: archive hides an app without deleting its build history
+ok 150 - archive hides an app without deleting its build history
+  ---
+  duration_ms: 81.261465
+  type: 'test'
+  ...
+# Subtest: install requests and verification persist without exposing a device id
+ok 151 - install requests and verification persist without exposing a device id
+  ---
+  duration_ms: 79.724388
+  type: 'test'
+  ...
+# Subtest: an inconclusive check preserves a known install request
+ok 152 - an inconclusive check preserves a known install request
+  ---
+  duration_ms: 69.874215
+  type: 'test'
+  ...
+# Subtest: a stale builder save cannot erase requested installation state
+ok 153 - a stale builder save cannot erase requested installation state
+  ---
+  duration_ms: 64.521792
+  type: 'test'
+  ...
+# Subtest: a stale builder save cannot erase verified installation state
+ok 154 - a stale builder save cannot erase verified installation state
+  ---
+  duration_ms: 64.018165
+  type: 'test'
+  ...
+# Subtest: a newer different-version observation supersedes stale verified state
+ok 155 - a newer different-version observation supersedes stale verified state
+  ---
+  duration_ms: 78.065108
+  type: 'test'
+  ...
+# Subtest: a different installed version remains actionable
+ok 156 - a different installed version remains actionable
+  ---
+  duration_ms: 64.236576
+  type: 'test'
+  ...
+# Subtest: staging renewal does not mutate the active link
+ok 157 - staging renewal does not mutate the active link
+  ---
+  duration_ms: 63.804753
+  type: 'test'
+  ...
+# Subtest: concurrent renewals join the same lease
+ok 158 - concurrent renewals join the same lease
+  ---
+  duration_ms: 61.402829
+  type: 'test'
+  ...
+# Subtest: a renewed token is committed only after delivery becomes ready
+ok 159 - a renewed token is committed only after delivery becomes ready
+  ---
+  duration_ms: 63.295227
+  type: 'test'
+  ...
+# Subtest: a failed renewal waiter preserves the previous link and shared lease
+ok 160 - a failed renewal waiter preserves the previous link and shared lease
+  ---
+  duration_ms: 74.769723
+  type: 'test'
+  ...
+# Subtest: one failed renewal waiter cannot cancel another successful waiter
+ok 161 - one failed renewal waiter cannot cancel another successful waiter
+  ---
+  duration_ms: 88.456402
+  type: 'test'
+  ...
+# Subtest: an abandoned renewal lease rolls back on restart
+ok 162 - an abandoned renewal lease rolls back on restart
+  ---
+  duration_ms: 75.39825
+  type: 'test'
+  ...
+# Subtest: clean read operations do not rewrite persistent build state
+ok 163 - clean read operations do not rewrite persistent build state
+  ---
+  duration_ms: 69.428671
+  type: 'test'
+  ...
+# Subtest: reading an expired build retains its token for a truthful expired response
+ok 164 - reading an expired build retains its token for a truthful expired response
+  ---
+  duration_ms: 63.66236
+  type: 'test'
+  ...
+# Subtest: a stale writer cannot resurrect a deleted build
+ok 165 - a stale writer cannot resurrect a deleted build
+  ---
+  duration_ms: 71.629349
+  type: 'test'
+  ...
+# Subtest: artifact cleanup is durable and removed after successful deletion
+ok 166 - artifact cleanup is durable and removed after successful deletion
+  ---
+  duration_ms: 70.220597
+  type: 'test'
+  ...
+# Subtest: active build artifacts are not removed until the worker deadline has passed
+ok 167 - active build artifacts are not removed until the worker deadline has passed
+  ---
+  duration_ms: 70.310551
+  type: 'test'
+  ...
+# Subtest: failed build artifacts retain the worker cleanup fence
+ok 168 - failed build artifacts retain the worker cleanup fence
+  ---
+  duration_ms: 65.978179
+  type: 'test'
+  ...
+# Subtest: a lock owned by a reused pid is reclaimed using process start time
+ok 169 - a lock owned by a reused pid is reclaimed using process start time
+  ---
+  duration_ms: 34.686206
+  type: 'test'
+  ...
+# Subtest: queued builds do not spend install-link TTL before delivery
+ok 170 - queued builds do not spend install-link TTL before delivery
+  ---
+  duration_ms: 35.750252
+  type: 'test'
+  ...
+# Subtest: deleting a validating build persists cancellation and delayed cleanup
+ok 171 - deleting a validating build persists cancellation and delayed cleanup
+  ---
+  duration_ms: 57.481245
+  type: 'test'
+  ...
+# Subtest: a renewal commits when delivery timestamps are generated after the lease
+ok 172 - a renewal commits when delivery timestamps are generated after the lease
+  ---
+  duration_ms: 72.344814
+  type: 'test'
+  ...
+# Subtest: a failed renewal waiter cannot change the configured link TTL
+ok 173 - a failed renewal waiter cannot change the configured link TTL
+  ---
+  duration_ms: 74.590536
+  type: 'test'
+  ...
+# Subtest: an old PID-only build lock is reclaimed after its migration grace
+ok 174 - an old PID-only build lock is reclaimed after its migration grace
+  ---
+  duration_ms: 52.62459
+  type: 'test'
+  ...
+# Subtest: renewal retains the previous bearer capability until its own expiry
+ok 175 - renewal retains the previous bearer capability until its own expiry
+  ---
+  duration_ms: 73.09233
+  type: 'test'
+  ...
+# Subtest: all unexpired capability generations remain valid beyond sixteen renewals
+ok 176 - all unexpired capability generations remain valid beyond sixteen renewals
+  ---
+  duration_ms: 501.451367
+  type: 'test'
+  ...
+# Subtest: app deletion durably queues every delivery reference across restart
+ok 177 - app deletion durably queues every delivery reference across restart
+  ---
+  duration_ms: 91.737979
+  type: 'test'
+  ...
+# Subtest: an early not-installed observation retains the install verification deadline
+ok 178 - an early not-installed observation retains the install verification deadline
+  ---
+  duration_ms: 68.646248
+  type: 'test'
+  ...
+# Subtest: transient unknown observation preserves a negative active install state
+ok 179 - transient unknown observation preserves a negative active install state
+  ---
+  duration_ms: 81.470851
+  type: 'test'
+  ...
+# Subtest: a phone rebuild clones the private recipe and preserves update identity
+ok 180 - a phone rebuild clones the private recipe and preserves update identity
+  ---
+  duration_ms: 80.138164
+  type: 'test'
+  ...
+# Subtest: phone rebuild lookup deduplicates retries and active requests
+ok 181 - phone rebuild lookup deduplicates retries and active requests
+  ---
+  duration_ms: 101.560575
+  type: 'test'
+  ...
+# Subtest: only a successful build with a complete private recipe can be reused
+ok 182 - only a successful build with a complete private recipe can be reused
+  ---
+  duration_ms: 65.371495
+  type: 'test'
+  ...
+# Subtest: device build links use opaque id and token
+ok 183 - device build links use opaque id and token
+  ---
+  duration_ms: 0.924089
+  type: 'test'
+  ...
+# Subtest: device build manifest points at authenticated IPA artifact
+ok 184 - device build manifest points at authenticated IPA artifact
+  ---
+  duration_ms: 0.282671
+  type: 'test'
+  ...
+# Subtest: public device build hides artifact paths
+ok 185 - public device build hides artifact paths
+  ---
+  duration_ms: 0.285236
+  type: 'test'
+  ...
+# Subtest: live device builds prefer an available physical iPhone for first-time provisioning
+ok 186 - live device builds prefer an available physical iPhone for first-time provisioning
+  ---
+  duration_ms: 0.157265
+  type: 'test'
+  ...
+# Subtest: phone-triggered rebuilds fail closed when update identity changes
+ok 187 - phone-triggered rebuilds fail closed when update identity changes
+  ---
+  duration_ms: 0.415991
+  type: 'test'
+  ...
+# Subtest: recovery accepts an absent journal because the owned worker was never released
+ok 188 - recovery accepts an absent journal because the owned worker was never released
+  ---
+  duration_ms: 1.100822
+  type: 'test'
+  ...
+# Subtest: recovery still fails closed for an existing incomplete journal
+ok 189 - recovery still fails closed for an existing incomplete journal
+  ---
+  duration_ms: 13.417933
+  type: 'test'
+  ...
+# Subtest: a reused worker pid is cleared by start identity before command inspection
+ok 190 - a reused worker pid is cleared by start identity before command inspection
+  ---
+  duration_ms: 9.261494
+  type: 'test'
+  ...
+# Subtest: a timed out build waits for the complete process group to exit
+ok 191 - a timed out build waits for the complete process group to exit
+  ---
+  duration_ms: 2161.663622
+  type: 'test'
+  ...
+# Subtest: a cancellation marker terminates the complete process group
+ok 192 - a cancellation marker terminates the complete process group
+  ---
+  duration_ms: 2169.802308
+  type: 'test'
+  ...
+# Subtest: an output callback failure terminates the detached process group
+ok 193 - an output callback failure terminates the detached process group
+  ---
+  duration_ms: 74.126829
+  type: 'test'
+  ...
+# Subtest: multi-target settings select the scheme application instead of an extension
+ok 194 - multi-target settings select the scheme application instead of an extension
+  ---
+  duration_ms: 0.633205
+  type: 'test'
+  ...
+# Subtest: a differently named multi-app scheme selects its host application
+ok 195 - a differently named multi-app scheme selects its host application
+  ---
+  duration_ms: 0.253669
+  type: 'test'
+  ...
+# Subtest: buffered process output preserves UTF-8 split across chunks
+ok 196 - buffered process output preserves UTF-8 split across chunks
+  ---
+  duration_ms: 50.823795
+  type: 'test'
+  ...
+# Subtest: a persisted interrupted worker identity can be terminated after restart
+ok 197 - a persisted interrupted worker identity can be terminated after restart
+  ---
+  duration_ms: 68.549903
+  type: 'test'
+  ...
+# Subtest: a successful buffered command rejects surviving descendants
+ok 198 - a successful buffered command rejects surviving descendants
+  ---
+  duration_ms: 2587.637554
+  type: 'test'
+  ...
+# Subtest: quick tunnel URL parser ignores terminal formatting
+ok 199 - quick tunnel URL parser ignores terminal formatting
+  ---
+  duration_ms: 0.934044
+  type: 'test'
+  ...
+# Subtest: public delivery gateway exposes only token-scoped install routes
+ok 200 - public delivery gateway exposes only token-scoped install routes
+  ---
+  duration_ms: 0.347989
+  type: 'test'
+  ...
+# Subtest: delivery uses the isolated bearer-only gateway entrypoint
+ok 201 - delivery uses the isolated bearer-only gateway entrypoint
+  ---
+  duration_ms: 0.290243
+  type: 'test'
+  ...
+# Subtest: delivery generations keep independent state files
+ok 202 - delivery generations keep independent state files
+  ---
+  duration_ms: 7.173121
+  type: 'test'
+  ...
+# Subtest: stop preserves an ownership record for an alive unverified process
+ok 203 - stop preserves an ownership record for an alive unverified process
+  ---
+  duration_ms: 106.492342
+  type: 'test'
+  ...
+# Subtest: reaping a confirmed-dead generation removes its state and log
+ok 204 - reaping a confirmed-dead generation removes its state and log
+  ---
+  duration_ms: 0.739833
+  type: 'test'
+  ...
+# Subtest: legacy delivery pids remain recorded instead of being treated as exited
+ok 205 - legacy delivery pids remain recorded instead of being treated as exited
+  ---
+  duration_ms: 67.540255
+  type: 'test'
+  ...
+# Subtest: build capability expiry never inherits the full reusable tunnel lifetime
+ok 206 - build capability expiry never inherits the full reusable tunnel lifetime
+  ---
+  duration_ms: 0.378255
+  type: 'test'
+  ...
+# Subtest: delivery cancellation is honored before a generation is launched
+ok 207 - delivery cancellation is honored before a generation is launched
+  ---
+  duration_ms: 1.113641
+  type: 'test'
+  ...
+# Subtest: an old PID-only delivery lock is reclaimed after its migration grace
+ok 208 - an old PID-only delivery lock is reclaimed after its migration grace
+  ---
+  duration_ms: 91.487817
+  type: 'test'
+  ...
+# Subtest: releasing one reference cannot stop a generation still used by another capability
+ok 209 - releasing one reference cannot stop a generation still used by another capability
+  ---
+  duration_ms: 50.414207
+  type: 'test'
+  ...
+# Subtest: physical device parsing excludes simulators and private device names
+ok 210 - physical device parsing excludes simulators and private device names
+  ---
+  duration_ms: 1.148554
+  type: 'test'
+  ...
+# Subtest: verification reports the installed version without returning the UDID or personal name
+ok 211 - verification reports the installed version without returning the UDID or personal name
+  ---
+  duration_ms: 0.894966
+  type: 'test'
+  ...
+# Subtest: verification does not confirm a different installed version
+ok 212 - verification does not confirm a different installed version
+  ---
+  duration_ms: 0.25451
+  type: 'test'
+  ...
+# Subtest: identical in-flight verification is coalesced
+ok 213 - identical in-flight verification is coalesced
+  ---
+  duration_ms: 0.995976
+  type: 'test'
+  ...
+# Subtest: verification cache never evicts in-flight work under unique-key saturation
+ok 214 - verification cache never evicts in-flight work under unique-key saturation
+  ---
+  duration_ms: 4.573293
+  type: 'test'
+  ...
+# Subtest: failed verification is not cached
+ok 215 - failed verification is not cached
+  ---
+  duration_ms: 0.345235
+  type: 'test'
+  ...
+# Subtest: verification cache evicts settled entries before rejecting new work
+ok 216 - verification cache evicts settled entries before rejecting new work
+  ---
+  duration_ms: 2.243306
+  type: 'test'
+  ...
+# Subtest: verification caches successful results only for the configured window
+ok 217 - verification caches successful results only for the configured window
+  ---
+  duration_ms: 0.493487
+  type: 'test'
+  ...
+# Subtest: device command deadline settles even when the child ignores SIGTERM
+ok 218 - device command deadline settles even when the child ignores SIGTERM
+  ---
+  duration_ms: 228.738517
+  type: 'test'
+  ...
+# Subtest: device command deadline keeps force-kill cleanup armed after leader exit
+ok 219 - device command deadline keeps force-kill cleanup armed after leader exit
+  ---
+  duration_ms: 278.766006
+  type: 'test'
+  ...
+# Subtest: verification gate enforces a cross-process-style persisted cadence
+ok 220 - verification gate enforces a cross-process-style persisted cadence
+  ---
+  duration_ms: 28.511896
+  type: 'test'
+  ...
+# Subtest: a live cross-process verification claim prevents duplicate work
+ok 221 - a live cross-process verification claim prevents duplicate work
+  ---
+  duration_ms: 21.73802
+  type: 'test'
+  ...
+# Subtest: state renames fsync the source before atomic publication
+ok 222 - state renames fsync the source before atomic publication
+  ---
+  duration_ms: 31.327317
+  type: 'test'
+  ...
+# Subtest: gateway health URL matching is limited to loopback health requests
+ok 223 - gateway health URL matching is limited to loopback health requests
+  ---
+  duration_ms: 0.655909
+  type: 'test'
+  ...
+# Subtest: quick tunnel health requires the exact spawned gateway nonce
+ok 224 - quick tunnel health requires the exact spawned gateway nonce
+  ---
+  duration_ms: 16.158917
+  type: 'test'
+  ...
+# Subtest: NODE_OPTIONS hardens a raw swift-sim-device-gateway.js child
+ok 225 - NODE_OPTIONS hardens a raw swift-sim-device-gateway.js child
+  ---
+  duration_ms: 77.175911
+  type: 'test'
+  ...
+# Subtest: NODE_OPTIONS hardens a raw swift-sim-helper.js child
+ok 226 - NODE_OPTIONS hardens a raw swift-sim-helper.js child
+  ---
+  duration_ms: 96.245305
+  type: 'test'
+  ...
+# Subtest: pairing fallback rejects arbitrary query tokens
+ok 227 - pairing fallback rejects arbitrary query tokens
+  ---
+  duration_ms: 0.806894
+  type: 'test'
+  ...
+# Subtest: pairing fallback preserves helper identity and proxy-authorized HTTPS origin
+ok 228 - pairing fallback preserves helper identity and proxy-authorized HTTPS origin
+  ---
+  duration_ms: 0.581798
+  type: 'test'
+  ...
+# Subtest: pairing fallback rejects a base origin on another host
+ok 229 - pairing fallback rejects a base origin on another host
+  ---
+  duration_ms: 0.281701
+  type: 'test'
+  ...
+# Subtest: legacy pairing links honor a trusted forwarded HTTPS protocol
+ok 230 - legacy pairing links honor a trusted forwarded HTTPS protocol
+  ---
+  duration_ms: 0.153168
+  type: 'test'
+  ...
+# Subtest: pairing fallback ignores forwarded origin headers from a remote peer
+ok 231 - pairing fallback ignores forwarded origin headers from a remote peer
+  ---
+  duration_ms: 0.245486
+  type: 'test'
+  ...
+# Subtest: ready public capabilities with missing expiry fail closed
+ok 232 - ready public capabilities with missing expiry fail closed
+  ---
+  duration_ms: 0.456371
+  type: 'test'
+  ...
+# Subtest: public capability logs are allowlisted while paired-Mac logs pass through
+ok 233 - public capability logs are allowlisted while paired-Mac logs pass through
+  ---
+  duration_ms: 0.714145
+  type: 'test'
+  ...
+# Subtest: delivery reference cleanup retries due jobs and skips future jobs
+ok 234 - delivery reference cleanup retries due jobs and skips future jobs
+  ---
+  duration_ms: 0.698061
+  type: 'test'
+  ...
+# Subtest: orphan delivery references are released without touching live capabilities
+ok 235 - orphan delivery references are released without touching live capabilities
+  ---
+  duration_ms: 0.555899
+  type: 'test'
+  ...
+# Subtest: token-bearing JSON responses disable referrers and MIME sniffing
+ok 236 - token-bearing JSON responses disable referrers and MIME sniffing
+  ---
+  duration_ms: 0.645813
+  type: 'test'
+  ...
+# Subtest: main-helper capability errors do not expose internal details
+ok 237 - main-helper capability errors do not expose internal details
+  ---
+  duration_ms: 0.290213
+  type: 'test'
+  ...
+# Subtest: readJson preserves UTF-8 characters split across chunks
+ok 238 - readJson preserves UTF-8 characters split across chunks
+  ---
+  duration_ms: 3.081297
+  type: 'test'
+  ...
+# Subtest: artifact streaming keeps an opened file readable after unlink
+ok 239 - artifact streaming keeps an opened file readable after unlink
+  ---
+  duration_ms: 22.009625
+  type: 'test'
+  ...
+# Subtest: live engine lifecycle operations are serialized within one process
+ok 240 - live engine lifecycle operations are serialized within one process
+  ---
+  duration_ms: 131.939786
+  type: 'test'
+  ...
+# Subtest: a stale lock is quarantined before replacement ownership
+ok 241 - a stale lock is quarantined before replacement ownership
+  ---
+  duration_ms: 26.744629
+  type: 'test'
+  ...
+# Subtest: live engine records require the exact process start identity
+ok 242 - live engine records require the exact process start identity
+  ---
+  duration_ms: 0.747706
+  type: 'test'
+  ...
+# Subtest: the live engine boundary kills the exact detached process group
+ok 243 - the live engine boundary kills the exact detached process group
+  ---
+  duration_ms: 191.087993
+  type: 'test'
+  ...
+# Subtest: a stale live engine record cannot authorize a reused PID
+ok 244 - a stale live engine record cannot authorize a reused PID
+  ---
+  duration_ms: 46.075974
+  type: 'test'
+  ...
+# Subtest: routes SwiftUI body edits through hot reload
+ok 245 - routes SwiftUI body edits through hot reload
+  ---
+  duration_ms: 2.368143
+  type: 'test'
+  ...
+# Subtest: routes function implementation edits through hot reload
+ok 246 - routes function implementation edits through hot reload
+  ---
+  duration_ms: 0.218486
+  type: 'test'
+  ...
+# Subtest: routes non-body implementation edits with a before-source compile context
+ok 247 - routes non-body implementation edits with a before-source compile context
+  ---
+  duration_ms: 1.225738
+  type: 'test'
+  ...
+# Subtest: requires a rebuild when stored state changes
+ok 248 - requires a rebuild when stored state changes
+  ---
+  duration_ms: 0.17422
+  type: 'test'
+  ...
+# Subtest: requires a rebuild when a function signature changes
+ok 249 - requires a rebuild when a function signature changes
+  ---
+  duration_ms: 0.230133
+  type: 'test'
+  ...
+# Subtest: requires a rebuild when imports change
+ok 250 - requires a rebuild when imports change
+  ---
+  duration_ms: 0.164726
+  type: 'test'
+  ...
+# Subtest: requires a rebuild when only a stored-property initializer changes
+ok 251 - requires a rebuild when only a stored-property initializer changes
+  ---
+  duration_ms: 0.209994
+  type: 'test'
+  ...
+# Subtest: canonical edit sets fail closed for non-Swift and file lifecycle changes
+ok 252 - canonical edit sets fail closed for non-Swift and file lifecycle changes
+  ---
+  duration_ms: 0.122573
+  type: 'test'
+  ...
+# Subtest: canonical edit sets identify mixed edits as one rebuild operation
+ok 253 - canonical edit sets identify mixed edits as one rebuild operation
+  ---
+  duration_ms: 0.346597
+  type: 'test'
+  ...
+# Subtest: ignores declaration words inside comments and strings
+ok 254 - ignores declaration words inside comments and strings
+  ---
+  duration_ms: 0.325476
+  type: 'test'
+  ...
+# Subtest: classifies multiple implementation-only files as one hot reload
+ok 255 - classifies multiple implementation-only files as one hot reload
+  ---
+  duration_ms: 0.783809
+  type: 'test'
+  ...
+# Subtest: makes a multi-file edit rebuild when any file changes structure
+ok 256 - makes a multi-file edit rebuild when any file changes structure
+  ---
+  duration_ms: 0.485995
+  type: 'test'
+  ...
+# Subtest: generates a private-source dynamic replacement for SwiftUI bodies
+ok 257 - generates a private-source dynamic replacement for SwiftUI bodies
+  ---
+  duration_ms: 1.340731
+  type: 'test'
+  ...
+# Subtest: does not generate a SwiftUI replacement for non-view source
+ok 258 - does not generate a SwiftUI replacement for non-view source
+  ---
+  duration_ms: 0.085548
+  type: 'test'
+  ...
+# Subtest: generates qualified replacements for nested SwiftUI views
+ok 259 - generates qualified replacements for nested SwiftUI views
+  ---
+  duration_ms: 0.342601
+  type: 'test'
+  ...
+# Subtest: generates replacements for changed helper functions and computed views
+ok 260 - generates replacements for changed helper functions and computed views
+  ---
+  duration_ms: 1.280791
+  type: 'test'
+  ...
+# Subtest: generates labeled replacements for implementation forms outside a View body
+ok 261 - generates labeled replacements for implementation forms outside a View body
+  ---
+  duration_ms: 0.866563
+  type: 'test'
+  ...
+# Subtest: generates replacements for initializers, accessors, subscripts, and generic helpers
+ok 262 - generates replacements for initializers, accessors, subscripts, and generic helpers
+  ---
+  duration_ms: 0.711452
+  type: 'test'
+  ...
+# Subtest: recognizes a View body implemented in an extension
+ok 263 - recognizes a View body implemented in an extension
+  ---
+  duration_ms: 0.313678
+  type: 'test'
+  ...
+# Subtest: inlines a simple async edit into the SwiftUI body replacement
+ok 264 - inlines a simple async edit into the SwiftUI body replacement
+  ---
+  duration_ms: 0.554227
+  type: 'test'
+  ...
+# Subtest: canonical routing returns stable phase timings through injected engine seams
+ok 265 - canonical routing returns stable phase timings through injected engine seams
+  ---
+  duration_ms: 0.386626
+  type: 'test'
+  ...
+# Subtest: live injection reports compile, load, and refresh phases through injected seams
+ok 266 - live injection reports compile, load, and refresh phases through injected seams
+  ---
+  duration_ms: 0.491974
+  type: 'test'
+  ...
+# Subtest: a successful engine response with zero dynamic replacements is not a live success
+ok 267 - a successful engine response with zero dynamic replacements is not a live success
+  ---
+  duration_ms: 0.396421
+  type: 'test'
+  ...
+# Subtest: interposition may report zero dynamic replacements
+ok 268 - interposition may report zero dynamic replacements
+  ---
+  duration_ms: 0.275782
+  type: 'test'
+  ...
+# Subtest: a patch without the root refresh acknowledgement fails closed
+ok 269 - a patch without the root refresh acknowledgement fails closed
+  ---
+  duration_ms: 0.258255
+  type: 'test'
+  ...
+# Subtest: preflights every multi-file patch before loading any member
+ok 270 - preflights every multi-file patch before loading any member
+  ---
+  duration_ms: 0.345276
+  type: 'test'
+  ...
+# Subtest: marks a later multi-file load failure as partial application
+ok 271 - marks a later multi-file load failure as partial application
+  ---
+  duration_ms: 0.377383
+  type: 'test'
+  ...
+# Subtest: bundles dynamic multi-file replacements into one atomic engine request
+ok 272 - bundles dynamic multi-file replacements into one atomic engine request
+  ---
+  duration_ms: 0.416762
+  type: 'test'
+  ...
+# Subtest: recovers one transient production patch failure before falling back
+ok 273 - recovers one transient production patch failure before falling back
+  ---
+  duration_ms: 0.51623
+  type: 'test'
+  ...
+# Subtest: does not retry a compile failure or a partial multi-file application
+ok 274 - does not retry a compile failure or a partial multi-file application
+  ---
+  duration_ms: 0.463111
+  type: 'test'
+  ...
+# Subtest: recovers a stale live session before returning a build fallback
+ok 275 - recovers a stale live session before returning a build fallback
+  ---
+  duration_ms: 0.31504
+  type: 'test'
+  ...
+# Subtest: lock guard refuses to delete another live owner's directory
+ok 276 - lock guard refuses to delete another live owner's directory
+  ---
+  duration_ms: 48.370202
+  type: 'test'
+  ...
+# Subtest: lock guard permits deletion of a stale owner's directory
+ok 277 - lock guard permits deletion of a stale owner's directory
+  ---
+  duration_ms: 68.645946
+  type: 'test'
+  ...
+# Subtest: a live reclaim claim blocks a competing owner write
+ok 278 - a live reclaim claim blocks a competing owner write
+  ---
+  duration_ms: 48.283357
+  type: 'test'
+  ...
+# Subtest: a live reclaim claim blocks competing stale-lock deletion
+ok 279 - a live reclaim claim blocks competing stale-lock deletion
+  ---
+  duration_ms: 53.787554
+  type: 'test'
+  ...
+# Subtest: stale renewal cancellation markers self-heal without clearing build cancellation
+ok 280 - stale renewal cancellation markers self-heal without clearing build cancellation
+  ---
+  duration_ms: 30.694537
+  type: 'test'
+  ...
+# Subtest: a process-scoped renewal marker from a reused pid self-heals
+ok 281 - a process-scoped renewal marker from a reused pid self-heals
+  ---
+  duration_ms: 39.28964
+  type: 'test'
+  ...
+# Subtest: worker journals are atomically published without temporary residue
+ok 282 - worker journals are atomically published without temporary residue
+  ---
+  duration_ms: 32.001011
+  type: 'test'
+  ...
+# Subtest: attribute argument changes require a rebuild
+ok 283 - attribute argument changes require a rebuild
+  ---
+  duration_ms: 3.356758
+  type: 'test'
+  ...
+# Subtest: availability attribute arguments require a rebuild
+ok 284 - availability attribute arguments require a rebuild
+  ---
+  duration_ms: 0.290644
+  type: 'test'
+  ...
+# Subtest: conditional compilation changes require a rebuild
+ok 285 - conditional compilation changes require a rebuild
+  ---
+  duration_ms: 0.253828
+  type: 'test'
+  ...
+# Subtest: runtime availability changes require a rebuild
+ok 286 - runtime availability changes require a rebuild
+  ---
+  duration_ms: 0.148431
+  type: 'test'
+  ...
+# Subtest: delivery reference cleanup no longer blocks helper startup
+ok 287 - delivery reference cleanup no longer blocks helper startup
+  ---
+  duration_ms: 0.305045
+  type: 'test'
+  ...
+# Subtest: live reload selects project and workspace containers correctly
+ok 288 - live reload selects project and workspace containers correctly
+  ---
+  duration_ms: 0.532194
+  type: 'test'
+  ...
+# Subtest: string-valued property-wrapper arguments require a rebuild
+ok 289 - string-valued property-wrapper arguments require a rebuild
+  ---
+  duration_ms: 0.233278
+  type: 'test'
+  ...
+# Subtest: property wrappers remain associated with their declarations
+ok 290 - property wrappers remain associated with their declarations
+  ---
+  duration_ms: 0.205907
+  type: 'test'
+  ...
+# Subtest: live engine inspection is serialized with replacement
+ok 291 - live engine inspection is serialized with replacement
+  ---
+  duration_ms: 0.325045
+  type: 'test'
+  ...
+# Subtest: deeply nested attribute arguments require a rebuild
+ok 292 - deeply nested attribute arguments require a rebuild
+  ---
+  duration_ms: 0.382861
+  type: 'test'
+  ...
+# Subtest: multiline attribute arguments require a rebuild
+ok 293 - multiline attribute arguments require a rebuild
+  ---
+  duration_ms: 0.289752
+  type: 'test'
+  ...
+# Subtest: attribute-looking text in strings and comments does not change the surface
+ok 294 - attribute-looking text in strings and comments does not change the surface
+  ---
+  duration_ms: 0.122232
+  type: 'test'
+  ...
+# Subtest: owned workers wait for the durable journal handshake
+ok 295 - owned workers wait for the durable journal handshake
+  ---
+  duration_ms: 169.030527
+  type: 'test'
+  ...
+# Subtest: owned workers never start when the journal handshake is absent
+ok 296 - owned workers never start when the journal handshake is absent
+  ---
+  duration_ms: 131.924994
+  type: 'test'
+  ...
+# Subtest: pairing token rotation preserves the helper installation identity
+ok 297 - pairing token rotation preserves the helper installation identity
+  ---
+  duration_ms: 49.75599
+  type: 'test'
+  ...
+# Subtest: legacy pairing state is migrated to a persistent installation identity
+ok 298 - legacy pairing state is migrated to a persistent installation identity
+  ---
+  duration_ms: 32.185802
+  type: 'test'
+  ...
+# Subtest: malformed pairing state fails closed without rotating identity
+ok 299 - malformed pairing state fails closed without rotating identity
+  ---
+  duration_ms: 8.424748
+  type: 'test'
+  ...
+# Subtest: pairing tokens use a length-safe constant-time comparison
+ok 300 - pairing tokens use a length-safe constant-time comparison
+  ---
+  duration_ms: 41.54175
+  type: 'test'
+  ...
+# Subtest: concurrent first-use pairing readers converge on one credential
+ok 301 - concurrent first-use pairing readers converge on one credential
+  ---
+  duration_ms: 105.089444
+  type: 'test'
+  ...
+# Subtest: pairing links carry stable identity and preserve the external base URL
+ok 302 - pairing links carry stable identity and preserve the external base URL
+  ---
+  duration_ms: 0.446106
+  type: 'test'
+  ...
+# Subtest: public build logs expose only canonical helper status messages
+ok 303 - public build logs expose only canonical helper status messages
+  ---
+  duration_ms: 1.28669
+  type: 'test'
+  ...
+# Subtest: public build logs collapse arbitrary output and bound the requested history
+ok 304 - public build logs collapse arbitrary output and bound the requested history
+  ---
+  duration_ms: 0.149102
+  type: 'test'
+  ...
+# Subtest: CLI installs child-only hardening before loading the implementation
+ok 305 - CLI installs child-only hardening before loading the implementation
+  ---
+  duration_ms: 0.721817
+  type: 'test'
+  ...
+# Subtest: helper entrypoint composes child hardening after owned-worker supervision
+ok 306 - helper entrypoint composes child hardening after owned-worker supervision
+  ---
+  duration_ms: 0.143705
+  type: 'test'
+  ...
+# Subtest: release check syntax-validates the complete JavaScript tree
+ok 307 - release check syntax-validates the complete JavaScript tree
+  ---
+  duration_ms: 0.136244
+  type: 'test'
+  ...
+# Subtest: renewal shutdown cancellation is process scoped and owner journaled
+ok 308 - renewal shutdown cancellation is process scoped and owner journaled
+  ---
+  duration_ms: 39.060132
+  type: 'test'
+  ...
+# Subtest: a foreign helper renewal marker does not cancel this helper
+ok 309 - a foreign helper renewal marker does not cancel this helper
+  ---
+  duration_ms: 40.628152
+  type: 'test'
+  ...
+# Subtest: shutdown sweep cancels every persisted renewal independently of task-map keys
+ok 310 - shutdown sweep cancels every persisted renewal independently of task-map keys
+  ---
+  duration_ms: 0.826293
+  type: 'test'
+  ...
+# Subtest: Tailscale reverse-proxy requests preserve their external HTTPS origin
+ok 311 - Tailscale reverse-proxy requests preserve their external HTTPS origin
+  ---
+  duration_ms: 0.765863
+  type: 'test'
+  ...
+# Subtest: forwarded protocol is authoritative for a loopback proxy
+ok 312 - forwarded protocol is authoritative for a loopback proxy
+  ---
+  duration_ms: 0.179348
+  type: 'test'
+  ...
+# Subtest: a direct network peer cannot override the pairing protocol
+ok 313 - a direct network peer cannot override the pairing protocol
+  ---
+  duration_ms: 0.150675
+  type: 'test'
+  ...
+# Subtest: local helper requests stay HTTP
+ok 314 - local helper requests stay HTTP
+  ---
+  duration_ms: 0.143284
+  type: 'test'
+  ...
+# Subtest: runtime health identifies the exact helper version and protocol
+ok 315 - runtime health identifies the exact helper version and protocol
+  ---
+  duration_ms: 1.073552
+  type: 'test'
+  ...
+# Subtest: runtime inspection distinguishes reachable incompatible listeners
+ok 316 - runtime inspection distinguishes reachable incompatible listeners
+  ---
+  duration_ms: 20.481916
+  type: 'test'
+  ...
+# Subtest: runtime health preload intercepts health before the downstream listener
+ok 317 - runtime health preload intercepts health before the downstream listener
+  ---
+  duration_ms: 27.500928
+  type: 'test'
+  ...
+# Subtest: runtime preload option preserves existing Node options and is idempotent
+ok 318 - runtime preload option preserves existing Node options and is idempotent
+  ---
+  duration_ms: 0.738021
+  type: 'test'
+  ...
+# Subtest: upgrade replaces stale Swift Sim preload paths without removing unrelated imports
+ok 319 - upgrade replaces stale Swift Sim preload paths without removing unrelated imports
+  ---
+  duration_ms: 0.230554
+  type: 'test'
+  ...
+# Subtest: keyboard text becomes USB HID events without invoking a CLI
+ok 320 - keyboard text becomes USB HID events without invoking a CLI
+  ---
+  duration_ms: 1.26732
+  type: 'test'
+  ...
+# Subtest: parseServeSimOutput reads JSON URL without depending on exact key
+ok 321 - parseServeSimOutput reads JSON URL without depending on exact key
+  ---
+  duration_ms: 0.397553
+  type: 'test'
+  ...
+# Subtest: parseServeSimOutput prefers stream URL when serve-sim separates page and stream
+ok 322 - parseServeSimOutput prefers stream URL when serve-sim separates page and stream
+  ---
+  duration_ms: 0.198936
+  type: 'test'
+  ...
+# Subtest: parseServeSimOutput falls back to human-readable URL
+ok 323 - parseServeSimOutput falls back to human-readable URL
+  ---
+  duration_ms: 0.135713
+  type: 'test'
+  ...
+# Subtest: ServeSimAdapter sends gesture JSON through the current serve-sim command
+ok 324 - ServeSimAdapter sends gesture JSON through the current serve-sim command
+  ---
+  duration_ms: 0.302702
+  type: 'test'
+  ...
+# Subtest: companion links use opaque id and token
+ok 325 - companion links use opaque id and token
+  ---
+  duration_ms: 0.208221
+  type: 'test'
+  ...
+# Subtest: pairing links carry helper identity without session internals
+ok 326 - pairing links carry helper identity without session internals
+  ---
+  duration_ms: 0.145176
+  type: 'test'
+  ...
+# Subtest: public session omits local simulator internals
+ok 327 - public session omits local simulator internals
+  ---
+  duration_ms: 0.549059
+  type: 'test'
+  ...
+# Subtest: public sessions use a stable recent-project identity
+ok 328 - public sessions use a stable recent-project identity
+  ---
+  duration_ms: 0.353217
+  type: 'test'
+  ...
+# Subtest: codex session includes local preview URL for nested browser verification
+ok 329 - codex session includes local preview URL for nested browser verification
+  ---
+  duration_ms: 0.397594
+  type: 'test'
+  ...
+# Subtest: codex session prefers the dedicated MJPEG preview for native sessions
+ok 330 - codex session prefers the dedicated MJPEG preview for native sessions
+  ---
+  duration_ms: 0.177725
+  type: 'test'
+  ...
+# Subtest: native companion wraps serve-sim AVCC without changing its adapter contract
+ok 331 - native companion wraps serve-sim AVCC without changing its adapter contract
+  ---
+  duration_ms: 37.286857
+  type: 'test'
+  ...
+# Subtest: native companion rejects serve-sim versions without AVCC
+ok 332 - native companion rejects serve-sim versions without AVCC
+  ---
+  duration_ms: 27.13463
+  type: 'test'
+  ...
+# Subtest: simulator profile resolver serves the CoreSimulator framebuffer mask
+ok 333 - simulator profile resolver serves the CoreSimulator framebuffer mask
+  ---
+  duration_ms: 1.245738
+  type: 'test'
+  ...
+# Subtest: SessionStore persists sessions for CLI/server handoff
+ok 334 - SessionStore persists sessions for CLI/server handoff
+  ---
+  duration_ms: 85.373421
+  type: 'test'
+  ...
+# Subtest: PairingStore persists and rotates helper tokens
+ok 335 - PairingStore persists and rotates helper tokens
+  ---
+  duration_ms: 291.538361
+  type: 'test'
+  ...
+# Subtest: stale store instances preserve independently created sessions
+ok 336 - stale store instances preserve independently created sessions
+  ---
+  duration_ms: 131.147915
+  type: 'test'
+  ...
+# Subtest: a concurrent start for the same Simulator fails closed
+ok 337 - a concurrent start for the same Simulator fails closed
+  ---
+  duration_ms: 70.424955
+  type: 'test'
+  ...
+# Subtest: a different transport cannot create a second stream for the same Simulator target
+ok 338 - a different transport cannot create a second stream for the same Simulator target
+  ---
+  duration_ms: 71.105549
+  type: 'test'
+  ...
+# Subtest: request-local transport still exposes the existing shared stream to switch handling
+ok 339 - request-local transport still exposes the existing shared stream to switch handling
+  ---
+  duration_ms: 73.516927
+  type: 'test'
+  ...
+# Subtest: stale saves merge appended logs instead of erasing newer work
+ok 340 - stale saves merge appended logs instead of erasing newer work
+  ---
+  duration_ms: 115.989791
+  type: 'test'
+  ...
+# Subtest: stale log-only saves do not restore an obsolete stream
+ok 341 - stale log-only saves do not restore an obsolete stream
+  ---
+  duration_ms: 100.785939
+  type: 'test'
+  ...
+# Subtest: malformed JSON fails closed instead of being replaced with an empty library
+ok 342 - malformed JSON fails closed instead of being replaced with an empty library
+  ---
+  duration_ms: 1.07923
+  type: 'test'
+  ...
+# Subtest: parseable malformed nested state is preserved and rejected
+ok 343 - parseable malformed nested state is preserved and rejected
+  ---
+  duration_ms: 51.727721
+  type: 'test'
+  ...
+# Subtest: loading an existing session file repairs legacy broad permissions
+ok 344 - loading an existing session file repairs legacy broad permissions
+  ---
+  duration_ms: 53.053949
+  type: 'test'
+  ...
+# Subtest: session tokens are persisted in a private file
+ok 345 - session tokens are persisted in a private file
+  ---
+  duration_ms: 49.770922
+  type: 'test'
+  ...
+# Subtest: newer visible selection timestamps create a fresh authority epoch
+ok 346 - newer visible selection timestamps create a fresh authority epoch
+  ---
+  duration_ms: 0.942105
+  type: 'test'
+  ...
+# Subtest: explicit reopen ordering is independent of the old stream stop wall clock
+ok 347 - explicit reopen ordering is independent of the old stream stop wall clock
+  ---
+  duration_ms: 0.267699
+  type: 'test'
+  ...
+# Subtest: metadata refresh timestamps are adopted without replacing the visible epoch
+ok 348 - metadata refresh timestamps are adopted without replacing the visible epoch
+  ---
+  duration_ms: 0.248371
+  type: 'test'
+  ...
+# Subtest: only the authoritative request generation may close selection
+ok 349 - only the authoritative request generation may close selection
+  ---
+  duration_ms: 0.166348
+  type: 'test'
+  ...
+# Subtest: child boundary targets only raw Swift Sim Node runtimes
+ok 350 - child boundary targets only raw Swift Sim Node runtimes
+  ---
+  duration_ms: 0.702639
+  type: 'test'
+  ...
+# Subtest: child options replace stale Swift Sim imports without mutating unrelated children
+ok 351 - child options replace stale Swift Sim imports without mutating unrelated children
+  ---
+  duration_ms: 0.540867
+  type: 'test'
+  ...
+# Subtest: spawnSync replaces a deleted old preload before raw helper startup
+ok 352 - spawnSync replaces a deleted old preload before raw helper startup
+  ---
+  duration_ms: 57.454199
+  type: 'test'
+  ...
+# Subtest: pairing fails closed when app and userspace Tailscale identify different Macs
+ok 353 - pairing fails closed when app and userspace Tailscale identify different Macs
+  ---
+  duration_ms: 0.737631
+  type: 'test'
+  ...
+# Subtest: duplicate CLI views of the same Tailscale backend are not a conflict
+ok 354 - duplicate CLI views of the same Tailscale backend are not a conflict
+  ---
+  duration_ms: 0.122833
+  type: 'test'
+  ...
+# Subtest: an explicit Tailscale mode resolves an intentional multi-backend setup
+ok 355 - an explicit Tailscale mode resolves an intentional multi-backend setup
+  ---
+  duration_ms: 0.117085
+  type: 'test'
+  ...
+1..355
+# tests 355
+# suites 0
+# pass 351
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 17966.3583
