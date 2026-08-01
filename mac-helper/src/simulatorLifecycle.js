@@ -16,16 +16,43 @@ import { dirname, join } from "node:path";
 const LOCK_WAIT_MS = 60_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const LEGACY_LOCK_MAX_AGE_MS = 30_000;
+const FRESH_START_BLOCKING_STATES = new Set([
+  "running",
+  "starting",
+  "restarting",
+  "stopping",
+  "failed-restart",
+  "failed-stop",
+]);
 let currentProcessStartedAt;
 
 export async function startSimulatorRuntime({ simulatorUDID, operation, rootPath } = {}) {
-  return withSimulatorLifecycleLock(simulatorUDID, async () => {
-    readSimulatorRuntimeState(simulatorUDID, { rootPath });
+  const requiredUDID = requiredSimulatorUDID(simulatorUDID);
+  return withSimulatorLifecycleLock(requiredUDID, async () => {
+    const current = readSimulatorRuntimeState(requiredUDID, { rootPath });
+    if (current && FRESH_START_BLOCKING_STATES.has(current.status)) {
+      throw activeRuntimeError();
+    }
+    const operationNonce = randomUUID();
+    writeSimulatorRuntimeState(requiredUDID, {
+      simulatorUDID: requiredUDID,
+      nonce: operationNonce,
+      status: "starting",
+      previousNonce: current?.nonce || "",
+      updatedAt: new Date().toISOString(),
+    }, { rootPath });
     try {
       const stream = await requiredOperation(operation)();
-      return publishRunningRuntime(simulatorUDID, stream, { rootPath });
+      return publishRunningRuntime(requiredUDID, stream, {
+        nonce: operationNonce,
+        rootPath,
+      });
     } catch (error) {
-      publishRuntimeFailure(simulatorUDID, "failed-start", error, { rootPath });
+      publishRuntimeFailure(requiredUDID, "failed-start", error, {
+        nonce: operationNonce,
+        previousNonce: current?.nonce || "",
+        rootPath,
+      });
       throw error;
     }
   }, { rootPath });
@@ -36,16 +63,29 @@ export async function restartSimulatorRuntime({ session, operation, rootPath } =
   return withSimulatorLifecycleLock(simulatorUDID, async () => {
     const expectedNonce = sessionRuntimeNonce(session);
     const current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
-    if (!runtimeOwnsSession(current, session, expectedNonce)) {
-      const error = new Error("This Simulator stream was stopped or replaced before recovery could begin.");
-      error.code = "SWIFT_SIM_SIMULATOR_STREAM_SUPERSEDED";
-      throw error;
+    if (!runningRuntimeOwnsSession(current, session, expectedNonce)) {
+      throw supersededRuntimeError();
     }
+    const operationNonce = randomUUID();
+    writeSimulatorRuntimeState(simulatorUDID, {
+      simulatorUDID,
+      nonce: operationNonce,
+      status: "restarting",
+      previousNonce: current?.nonce || expectedNonce,
+      updatedAt: new Date().toISOString(),
+    }, { rootPath });
     try {
       const stream = await requiredOperation(operation)();
-      return publishRunningRuntime(simulatorUDID, stream, { rootPath });
+      return publishRunningRuntime(simulatorUDID, stream, {
+        nonce: operationNonce,
+        rootPath,
+      });
     } catch (error) {
-      publishRuntimeFailure(simulatorUDID, "failed-restart", error, { rootPath });
+      publishRuntimeFailure(simulatorUDID, "failed-restart", error, {
+        nonce: operationNonce,
+        previousNonce: current?.nonce || expectedNonce,
+        rootPath,
+      });
       throw error;
     }
   }, { rootPath });
@@ -54,12 +94,20 @@ export async function restartSimulatorRuntime({ session, operation, rootPath } =
 export async function stopSimulatorRuntime({ session, operation, rootPath } = {}) {
   const simulatorUDID = requiredSimulatorUDID(session?.simulatorUDID);
   return withSimulatorLifecycleLock(simulatorUDID, async () => {
+    const expectedNonce = sessionRuntimeNonce(session);
     const current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
+    if (!runtimeMayBeStoppedBySession(current, session, expectedNonce)) {
+      throw supersededRuntimeError();
+    }
+    const previousNonce = current?.status === "running"
+      ? current.nonce
+      : current?.previousNonce || expectedNonce;
+    const operationNonce = randomUUID();
     writeSimulatorRuntimeState(simulatorUDID, {
       simulatorUDID,
-      nonce: randomUUID(),
+      nonce: operationNonce,
       status: "stopping",
-      previousNonce: sessionRuntimeNonce(session) || current?.nonce || "",
+      previousNonce,
       updatedAt: new Date().toISOString(),
     }, { rootPath });
     try {
@@ -68,11 +116,16 @@ export async function stopSimulatorRuntime({ session, operation, rootPath } = {}
         simulatorUDID,
         nonce: randomUUID(),
         status: "stopped",
+        previousNonce,
         updatedAt: new Date().toISOString(),
       }, { rootPath });
       return result;
     } catch (error) {
-      publishRuntimeFailure(simulatorUDID, "failed-stop", error, { rootPath });
+      publishRuntimeFailure(simulatorUDID, "failed-stop", error, {
+        nonce: operationNonce,
+        previousNonce,
+        rootPath,
+      });
       throw error;
     }
   }, { rootPath });
@@ -84,13 +137,7 @@ export function simulatorSessionIsReusable(session, { rootPath } = {}) {
   const expectedNonce = sessionRuntimeNonce(session);
   const current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
   if (!current) return !expectedNonce;
-  if (current.status !== "running") return false;
-  if (expectedNonce) return current.nonce === expectedNonce;
-  const recordedPID = Number(current.pid);
-  const sessionPID = Number(session?.stream?.pid);
-  return !Number.isInteger(recordedPID)
-    || !Number.isInteger(sessionPID)
-    || recordedPID === sessionPID;
+  return runningRuntimeOwnsSession(current, session, expectedNonce);
 }
 
 export async function withSimulatorLifecycleLock(simulatorUDID, operation, {
@@ -146,8 +193,7 @@ export function simulatorRuntimeStatePath(simulatorUDID, { rootPath } = {}) {
   return join(root, `${key}.json`);
 }
 
-function publishRunningRuntime(simulatorUDID, stream, { rootPath } = {}) {
-  const nonce = randomUUID();
+function publishRunningRuntime(simulatorUDID, stream, { nonce = randomUUID(), rootPath } = {}) {
   const next = {
     simulatorUDID,
     nonce,
@@ -168,11 +214,16 @@ function publishRunningRuntime(simulatorUDID, stream, { rootPath } = {}) {
   };
 }
 
-function publishRuntimeFailure(simulatorUDID, status, error, { rootPath } = {}) {
+function publishRuntimeFailure(simulatorUDID, status, error, {
+  nonce = randomUUID(),
+  previousNonce = "",
+  rootPath,
+} = {}) {
   writeSimulatorRuntimeState(simulatorUDID, {
     simulatorUDID,
-    nonce: randomUUID(),
+    nonce,
     status,
+    previousNonce,
     error: error instanceof Error ? error.message : String(error),
     updatedAt: new Date().toISOString(),
   }, { rootPath });
@@ -251,15 +302,33 @@ function sessionRuntimeNonce(session) {
   return String(session?.stream?.raw?.swiftSimLifecycleNonce || "").trim();
 }
 
-function runtimeOwnsSession(current, session, expectedNonce) {
-  if (!current) return !expectedNonce;
-  if (current.status !== "running") return false;
+function runningRuntimeOwnsSession(current, session, expectedNonce) {
+  if (!current || current.status !== "running") return false;
   if (expectedNonce) return current.nonce === expectedNonce;
-  const recordedPID = Number(current.pid);
+  return legacyRuntimePIDMatchesSession(current, session);
+}
+
+function runtimeMayBeStoppedBySession(current, session, expectedNonce) {
+  if (!current) return !expectedNonce;
+  if (current.status === "running") {
+    return runningRuntimeOwnsSession(current, session, expectedNonce);
+  }
+  if (["restarting", "failed-restart", "stopping", "failed-stop"].includes(current.status)) {
+    if (expectedNonce) return current.previousNonce === expectedNonce;
+    return legacyRuntimePIDMatchesSession(current, session);
+  }
+  if (current.status === "failed-start") return !expectedNonce;
+  return false;
+}
+
+function legacyRuntimePIDMatchesSession(current, session) {
+  const recordedPID = Number(current?.pid);
   const sessionPID = Number(session?.stream?.pid);
-  return !Number.isInteger(recordedPID)
-    || !Number.isInteger(sessionPID)
-    || recordedPID === sessionPID;
+  return Number.isInteger(recordedPID)
+    && recordedPID > 0
+    && Number.isInteger(sessionPID)
+    && sessionPID > 0
+    && recordedPID === sessionPID;
 }
 
 function validateRuntimeState(value, simulatorUDID) {
@@ -300,6 +369,18 @@ function requiredSimulatorUDID(value) {
 function requiredOperation(operation) {
   if (typeof operation !== "function") throw new Error("A Simulator lifecycle operation is required.");
   return operation;
+}
+
+function activeRuntimeError() {
+  const error = new Error("A Swift Sim stream is already active for this Simulator.");
+  error.code = "SWIFT_SIM_SIMULATOR_RUNTIME_ACTIVE";
+  return error;
+}
+
+function supersededRuntimeError() {
+  const error = new Error("This Simulator stream was stopped or replaced before the operation could begin.");
+  error.code = "SWIFT_SIM_SIMULATOR_STREAM_SUPERSEDED";
+  return error;
 }
 
 function lockOwnerIsAlive(owner) {
