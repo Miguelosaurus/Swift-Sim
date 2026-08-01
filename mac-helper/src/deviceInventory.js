@@ -138,6 +138,8 @@ export function runCommandWithDeadline(command, args, {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    const deadlineMs = positiveMilliseconds(timeoutMs, DEFAULT_DEVICECTL_DEADLINE_MS);
+    const forceDelayMs = nonnegativeMilliseconds(forceKillDelayMs, DEFAULT_FORCE_KILL_DELAY_MS);
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -157,18 +159,28 @@ export function runCommandWithDeadline(command, args, {
       clearTimers();
       resolve(result);
     };
-    const timeoutMessage = () => `${command} ${args.join(" ")} exceeded its ${Math.max(1, Number(timeoutMs) || 0)}ms deadline`;
+    const timeoutMessage = () => `${command} ${args.join(" ")} exceeded its ${deadlineMs}ms deadline`;
+    const timeoutResult = () => {
+      const detail = timeoutMessage();
+      return {
+        code: null,
+        stdout,
+        stderr: stderr ? `${stderr.trim()}\n${detail}` : detail,
+        timedOut: true,
+      };
+    };
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("error", (error) => {
-      finish({ code: null, stdout, stderr: error.message, timedOut: false });
+      if (timedOut) finish(timeoutResult());
+      else finish({ code: null, stdout, stderr: error.message, timedOut: false });
     });
     child.once("close", (code) => {
-      if (timedOut) return;
-      finish({ code, stdout, stderr, timedOut: false });
+      if (timedOut) finish(timeoutResult());
+      else finish({ code, stdout, stderr, timedOut: false });
     });
 
     deadlineTimer = setTimeout(() => {
@@ -176,20 +188,15 @@ export function runCommandWithDeadline(command, args, {
       timedOut = true;
       signalProcessGroup(child, "SIGTERM");
       forceTimer = setTimeout(() => {
+        if (settled) return;
         signalProcessGroup(child, "SIGKILL");
         settleTimer = setTimeout(() => {
           child.stdout.destroy();
           child.stderr.destroy();
-          const detail = timeoutMessage();
-          finish({
-            code: null,
-            stdout,
-            stderr: stderr ? `${stderr.trim()}\n${detail}` : detail,
-            timedOut: true,
-          });
+          finish(timeoutResult());
         }, 100);
-      }, Math.max(0, Number(forceKillDelayMs) || 0));
-    }, Math.max(1, Number(timeoutMs) || DEFAULT_DEVICECTL_DEADLINE_MS));
+      }, forceDelayMs);
+    }, deadlineMs);
   });
 }
 
@@ -235,4 +242,18 @@ function signalProcessGroup(child, signal) {
   } catch {
     try { child.kill(signal); } catch {}
   }
+}
+
+function positiveMilliseconds(value, fallback) {
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) && milliseconds > 0
+    ? Math.floor(milliseconds)
+    : fallback;
+}
+
+function nonnegativeMilliseconds(value, fallback) {
+  const milliseconds = Number(value);
+  return Number.isFinite(milliseconds) && milliseconds >= 0
+    ? Math.floor(milliseconds)
+    : fallback;
 }
