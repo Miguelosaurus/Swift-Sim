@@ -24,6 +24,7 @@ if (script === "swift-sim-helper.js") {
   await import("./runtimeHealthPreload.js");
 } else if (script === "swift-sim-device-delivery.js") {
   await import("./commandDeadlinePreload.js");
+  await import("./atomicLockRemovalPreload.js");
   const { installGatewayHealthFetchBoundary } = await import("./gatewayHealthFetchBoundary.js");
   installGatewayHealthFetchBoundary();
 }
