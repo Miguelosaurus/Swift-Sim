@@ -2,7 +2,7 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `c06ed3d771cfbd77f4b7770938dad4c4f84ec796`
+Final code candidate before this ledger commit: `706dfd089ccc94e1f4d7ac96fe8e0a27c0aca271`
 
 This staging branch reviews the fully synchronized merge of the previous local main work with hardening head `5afa7728bb22d3ff6e54512615d988a9c7a85240`.
 
@@ -11,7 +11,7 @@ This staging branch reviews the fully synchronized merge of the previous local m
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 14 | 14 | 0 |
+| P1 | 15 | 15 | 0 |
 | P2 | 7 | 7 | 0 |
 | P3 | 0 | 0 | 0 |
 
@@ -31,6 +31,7 @@ This staging branch reviews the fully synchronized merge of the previous local m
 12. Multiline runtime `#available` and `#unavailable` expressions could evade the single-line structural matcher and be sent down the hot-reload lane. Runtime availability conditions now use balanced multiline scanning that preserves the original condition text and fails closed on an unterminated expression.
 13. A creator suspended between lock-directory creation and owner publication could later recursively delete a replacement owner's lock. Failed-creator cleanup is now tied to the exact observed device/inode and uses atomic quarantine before removal.
 14. A workspace build setting with `EXPANDED_CODE_SIGN_IDENTITY` returned one 40-character hash as an iterable string, causing one-character signing probes. Expanded identities now remain a one-element candidate array.
+15. Production live routing inspected readiness, compiled, injected, acknowledged, and recovered under separate engine leases, allowing a replacement generation between phases. The complete production route now holds one lifecycle lease and uses unlocked engine primitives only inside that lease.
 
 ## Resolved P2 findings
 
@@ -55,16 +56,22 @@ Focused coverage now includes:
 - compiler-condition, multiline `#available`, and multiline `#unavailable` rebuild controls;
 - workspace project-reference parsing, scheme selection, Xcode container arguments, root resolution, and expanded signing identity normalization;
 - complete live start → build → registration lifecycle-lease ordering;
+- one-lease production inspect → compile → inject → acknowledge → recovery routing;
 - helper startup ordering and persistent cleanup containment;
 - paired-Mac rebuild authority and stale response fences;
-- Simulator, pairing-attempt, and connection-diagnostics revision fences;
-- lifecycle locking for production patch injection.
+- Simulator, pairing-attempt, and connection-diagnostics revision fences.
 
 ## Validation policy
 
-Code head `c06ed3d771cfbd77f4b7770938dad4c4f84ec796` passed the complete Node/release, workflow-YAML, and shell-syntax gates in the transformation run. Its iOS stage was canceled only when the clean candidate push superseded that temporary run.
+Code head `706dfd089ccc94e1f4d7ac96fe8e0a27c0aca271` contains the complete production route lease and focused regression. This connector-authored ledger commit is the final exact-head validation and review trigger.
 
-This connector-authored ledger commit is the exact-head validation and review trigger. Merge readiness requires the resulting head to pass GitHub Verify in full, including iOS companion tests. All remaining Codex threads must then be answered and resolved, followed by one clean exact-head Codex review.
+Merge readiness requires the resulting head to pass GitHub Verify in full:
+
+- JavaScript syntax, documentation, and complete Node/release test suite;
+- workflow YAML and release-shell syntax;
+- iOS companion tests.
+
+All outstanding Codex threads must then be answered and resolved, followed by one clean exact-head Codex review.
 
 ## Remaining external release gates
 
