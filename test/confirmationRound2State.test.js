@@ -125,21 +125,21 @@ test("SessionStore reuses an automatic serve-sim fallback instead of starting a 
   assert.equal(reused.id, fallback.id);
 }));
 
-test("SessionStore prefers native when both automatic transports are running", () => withTemporaryPath((path) => {
+test("an explicit transport mismatch still returns the existing shared stream", () => withTemporaryPath((path) => {
   const store = new SessionStore({ path });
-  markRunning(store, store.create(sessionInput("fallback", "serve-sim")), "serve-sim");
-  const native = markRunning(
+  const fallback = markRunning(
     store,
-    store.create(sessionInput("native", "native-companion")),
-    "native-companion",
+    store.create(sessionInput("fallback", "serve-sim")),
+    "serve-sim",
   );
   const reused = store.findReusable({
     project: "/tmp/App.xcodeproj",
     scheme: "App",
     simulatorUDID: "SIM-1",
-    transport: "auto",
+    transport: "native-companion",
   });
-  assert.equal(reused.id, native.id);
+  assert.equal(reused.id, fallback.id);
+  assert.equal(reused.stream.transport, "serve-sim");
 }));
 
 test("a failed session record does not retain the duplicate-start lease", () => withTemporaryPath((path) => {
