@@ -32,6 +32,8 @@ if (script === "swift-sim-helper.js") {
   await import("./atomicLockRemovalPreload.js");
   await import("./lockOwnershipPreload.js");
   await import("./runtimeHealthPreload.js");
+  const { installArtifactCleanupBoundary } = await import("./artifactCleanupBoundaryPreload.js");
+  installArtifactCleanupBoundary();
 } else if (script === "swift-sim-device-delivery.js") {
   await import("./commandDeadlinePreload.js");
   await import("./atomicLockRemovalPreload.js");
