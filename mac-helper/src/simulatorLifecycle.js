@@ -1,7 +1,15 @@
 import "./lockOwnershipPreload.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import * as base from "./simulatorLifecycleBase.js";
 import {
   listSimulatorClaims,
@@ -14,8 +22,12 @@ import {
 export * from "./simulatorLifecycleBase.js";
 
 const RUNTIME_CLAIM_SEPARATOR = "#swift-sim-claim:";
+const SESSION_LOCK_WAIT_MS = 5_000;
+const OWNERLESS_LOCK_GRACE_MS = 250;
+const LEGACY_LOCK_MAX_AGE_MS = 30_000;
 const claimContext = new AsyncLocalStorage();
 const sessionRegistries = new Map();
+let currentProcessStartedAt;
 
 export function registerSimulatorSessionStore(storeID, sessions, { readable = true } = {}) {
   const id = requiredStoreID(storeID);
@@ -49,11 +61,11 @@ export async function startSimulatorRuntime(options = {}) {
   const simulatorUDID = requiredUDID(options.simulatorUDID);
   const claim = currentClaim(simulatorUDID, "start");
   const authorizeRunningRecovery = claim && typeof options.recover === "function"
-    ? (runtime) => registeredRuntimeOwner(
+    ? (runtime) => acquireRunningRecoveryLease(
         decodeRuntimeState(runtime),
         claim,
         { rootPath: options.rootPath },
-      ) === "unowned"
+      )
     : undefined;
   const stream = restorePublicStream(await base.startSimulatorRuntime({
     ...options,
@@ -191,6 +203,22 @@ function markClaimFailed(claim, error, { rootPath } = {}) {
     error: error instanceof Error ? error.message : String(error),
     updatedAt: new Date().toISOString(),
   }, { rootPath });
+}
+
+function acquireRunningRecoveryLease(runtime, claim, { rootPath } = {}) {
+  const registry = sessionRegistries.get(claim.storeID);
+  if (!registry?.readable) return null;
+  let release = null;
+  try {
+    release = acquireSessionStateLock(claim.storeID);
+    if (registeredRuntimeOwner(runtime, claim, { rootPath }) === "unowned") {
+      return release;
+    }
+  } catch {
+    // Any lock, read, parse, or identity failure must fail closed.
+  }
+  releaseLock(release);
+  return null;
 }
 
 function registeredRuntimeOwner(runtime, claim, { rootPath } = {}) {
@@ -384,6 +412,105 @@ function ownershipSessionProjection(session) {
       },
     },
   };
+}
+
+function acquireSessionStateLock(storeID) {
+  const path = requiredStoreID(storeID);
+  const lockPath = `${path}.lock`;
+  const ownerPath = join(lockPath, "owner.json");
+  const owner = {
+    pid: process.pid,
+    startedAt: processStartIdentity(),
+    nonce: randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  const deadline = Date.now() + SESSION_LOCK_WAIT_MS;
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+
+  while (true) {
+    let created = false;
+    try {
+      mkdirSync(lockPath, { mode: 0o700 });
+      created = true;
+      writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
+      return () => {
+        try {
+          const current = JSON.parse(readFileSync(ownerPath, "utf8"));
+          if (current.pid === owner.pid && current.nonce === owner.nonce) {
+            rmSync(lockPath, { recursive: true, force: true });
+          }
+        } catch {}
+      };
+    } catch (error) {
+      if (created) {
+        rmSync(lockPath, { recursive: true, force: true });
+        throw error;
+      }
+      if (error?.code !== "EEXIST") throw error;
+      let existingOwner;
+      try { existingOwner = JSON.parse(readFileSync(ownerPath, "utf8")); } catch {}
+      if ((existingOwner && !sessionLockOwnerIsAlive(existingOwner))
+          || (!existingOwner && ownerlessSessionLockIsStale(lockPath))) {
+        rmSync(lockPath, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error("Timed out waiting for the Swift Sim session-state lock.");
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+}
+
+function releaseLock(release) {
+  try { release?.(); } catch {}
+}
+
+function sessionLockOwnerIsAlive(owner) {
+  if (!processIsAlive(owner?.pid)) return false;
+  if (!owner?.startedAt) {
+    const createdAt = Date.parse(owner?.createdAt || "");
+    return Number.isFinite(createdAt) && Date.now() - createdAt < LEGACY_LOCK_MAX_AGE_MS;
+  }
+  return processStartedAt(owner.pid) === owner.startedAt;
+}
+
+function ownerlessSessionLockIsStale(path) {
+  try {
+    return Date.now() - statSync(path).mtimeMs >= OWNERLESS_LOCK_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function processStartIdentity() {
+  currentProcessStartedAt ||= requiredProcessStartedAt(process.pid);
+  return currentProcessStartedAt;
+}
+
+function requiredProcessStartedAt(pid) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const startedAt = processStartedAt(pid);
+    if (startedAt) return startedAt;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+  throw new Error("Unable to establish a process start identity for the Simulator ownership lock.");
+}
+
+function processStartedAt(pid) {
+  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+  return result.status === 0 ? String(result.stdout || "").trim() : "";
+}
+
+function processIsAlive(pid) {
+  const value = Number(pid);
+  if (!Number.isInteger(value) || value <= 0) return false;
+  try {
+    process.kill(value, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sessionClaimID(session) {
