@@ -172,6 +172,53 @@ test("orphan authorization treats a durably claimed restart replacement as owned
   });
 });
 
+test("claim-bound runtime cleanup fails closed when ownership evidence is missing", async () => {
+  const directory = temporaryDirectory("swift-sim-round4-missing-claim-");
+  await withRuntimeRoots(directory, async () => {
+    try {
+      const path = join(directory, "sessions.json");
+      const simulatorUDID = "SIM-R4-MISSING-CLAIM";
+      const store = new SessionStore({ path });
+      const session = store.create(sessionInput(simulatorUDID, "ClaimOwner"));
+      const original = await startSimulatorRuntime({
+        simulatorUDID,
+        recover: async () => {},
+        operation: async () => stream(47301, 9431),
+      });
+      const originalRuntime = readSimulatorRuntimeState(simulatorUDID);
+      assert.equal(original.raw.swiftSimLifecycleNonce, originalRuntime.nonce);
+
+      // Simulate loss or corruption of the private claim evidence while the
+      // durable session still identifies an active start for this Simulator.
+      rmSync(join(directory, "claims"), { recursive: true, force: true });
+      const competitorStore = new BaseSessionStore({ path });
+      const competitor = competitorStore.create(sessionInput(simulatorUDID, "ClaimCompetitor"));
+      competitor.stream.raw = {
+        ...(competitor.stream.raw || {}),
+        swiftSimLifecycleClaimID: randomUUID(),
+      };
+      competitorStore.save(competitor);
+      reserveSimulatorLifecycleClaim(competitor, { storeID: path });
+
+      let recoveries = 0;
+      await assert.rejects(
+        startSimulatorRuntime({
+          simulatorUDID,
+          recover: async () => { recoveries += 1; },
+          operation: async () => stream(47302, 9432),
+        }),
+        (error) => error?.code === "SWIFT_SIM_SIMULATOR_RUNTIME_ACTIVE",
+      );
+
+      assert.equal(recoveries, 0);
+      assert.equal(readSimulatorRuntimeState(simulatorUDID).nonce, originalRuntime.nonce);
+      assert.equal(store.get(session.id).stream.state, "starting");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 test("a fresh starting session survives terminal state left by its predecessor", async () => {
   const directory = temporaryDirectory("swift-sim-round4-fresh-start-");
   await withRuntimeRoots(directory, async () => {
