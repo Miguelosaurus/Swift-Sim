@@ -67,3 +67,33 @@ test("live reload selects project and workspace containers correctly", () => {
     ["-workspace", "/tmp/App.xcworkspace"],
   );
 });
+
+
+test("string-valued property-wrapper arguments require a rebuild", () => {
+  const before = `struct Model {
+  @State(initialValue: "before") var value: String
+}`;
+  const after = before.replace('"before"', '"after"');
+  assert.equal(classifySwiftSource(before, after).hotReloadable, false);
+});
+
+test("property wrappers remain associated with their declarations", () => {
+  const before = `struct Model {
+  @State var first: Int = 0
+  @Binding var second: Int
+}`;
+  const after = `struct Model {
+  @Binding var first: Int = 0
+  @State var second: Int
+}`;
+  assert.equal(classifySwiftSource(before, after).hotReloadable, false);
+});
+
+test("live engine inspection is serialized with replacement", () => {
+  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
+  assert.match(
+    source,
+    /export async function inspectLiveReload\(options = \{\}\) \{\n  return withLiveEngineLifecycleLock/,
+  );
+  assert.match(source, /let status = await inspectLiveReloadUnlocked/);
+});

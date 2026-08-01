@@ -246,7 +246,11 @@ export function classifySwiftSource(before, after, paths = {}) {
   );
 }
 
-export async function inspectLiveReload({ project = "", host = "" } = {}) {
+export async function inspectLiveReload(options = {}) {
+  return withLiveEngineLifecycleLock(() => inspectLiveReloadUnlocked(options));
+}
+
+async function inspectLiveReloadUnlocked({ project = "", host = "" } = {}) {
   const requestedProjectPath = project ? resolve(project) : "";
   const projectPath = requestedProjectPath && existsSync(requestedProjectPath)
     && statSync(requestedProjectPath).isDirectory()
@@ -517,7 +521,7 @@ export async function startLiveReload(options = {}) {
 
 async function startLiveReloadUnlocked({ project = "", host = "", forceRestart = false } = {}) {
   await ensureLiveEngineInstalledUnlocked();
-  let status = await inspectLiveReload({ project, host });
+  let status = await inspectLiveReloadUnlocked({ project, host });
   if (!status.project.readable) {
     return {
       ...status,
@@ -618,7 +622,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", forceRestart =
   if (control?.success && !alreadyWatching) {
     await primeEngineWatcher(status.project.root);
   }
-  status = await inspectLiveReload({ project, host });
+  status = await inspectLiveReloadUnlocked({ project, host });
   return {
     ...status,
     started: Boolean(control?.success),
@@ -1945,8 +1949,11 @@ function declarationSurface(source) {
     .map((match) => compact(match[0]))
     .join("\n");
   const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\s*\((?:[^()\n]|\([^()]*\))*\))?|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
-    .map((match) => compact(match[1]))
-    .sort()
+    .map((match) => {
+      const captureOffset = match[0].indexOf(match[1]);
+      const start = match.index + captureOffset;
+      return compact(source.slice(start, start + match[1].length));
+    })
     .join("\n");
   const declarationPattern = /\b(actor|associatedtype|case|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b/gm;
   const typeRanges = typeDeclarationRanges(clean);

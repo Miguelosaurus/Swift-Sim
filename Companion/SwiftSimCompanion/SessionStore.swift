@@ -102,6 +102,7 @@ final class SessionStore: ObservableObject {
         }
 
         pairingAttemptRevision &+= 1
+        connectionChecksRevision &+= 1
         let attemptRevision = pairingAttemptRevision
         isPairingMac = true
         pairingErrorMessage = nil
