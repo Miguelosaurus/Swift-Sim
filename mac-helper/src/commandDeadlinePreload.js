@@ -12,14 +12,24 @@ export function installCommandDeadlinePreload() {
   childProcess.spawnSync = function boundedSpawnSync(command, args, options) {
     const normalized = normalizeInvocation(args, options);
     const timeout = commandDeadline(command, normalized.args, normalized.options);
-    return originalSpawnSync.call(
+    const addsDeadline = timeout > 0 && !hasExplicitTimeout(normalized.options);
+    const result = originalSpawnSync.call(
       this,
       command,
       normalized.args,
-      timeout > 0 && !hasExplicitTimeout(normalized.options)
-        ? { ...normalized.options, timeout, killSignal: normalized.options.killSignal || "SIGKILL" }
+      addsDeadline
+        ? {
+            ...normalized.options,
+            detached: normalized.options.detached ?? true,
+            timeout,
+            killSignal: normalized.options.killSignal || "SIGKILL",
+          }
         : normalized.options,
     );
+    if (addsDeadline && result?.error?.code === "ETIMEDOUT" && normalized.options.detached !== false) {
+      terminateProcessGroup(result.pid);
+    }
+    return result;
   };
   syncBuiltinESMExports();
 }
@@ -45,6 +55,25 @@ export function commandDeadline(command, args = [], options = {}) {
 }
 
 installCommandDeadlinePreload();
+
+function terminateProcessGroup(pid) {
+  const numericPID = Number(pid);
+  if (!Number.isInteger(numericPID) || numericPID <= 0) return;
+  try { process.kill(-numericPID, "SIGKILL"); } catch {}
+  const deadline = Date.now() + 1_000;
+  while (processGroupIsAlive(numericPID) && Date.now() < deadline) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
+}
+
+function processGroupIsAlive(pid) {
+  try {
+    process.kill(-Number(pid), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function normalizeInvocation(args, options) {
   if (Array.isArray(args)) return { args, options: options || {} };
