@@ -131,8 +131,8 @@ export function simulatorSessionRuntimeSnapshot(session, { rootPath } = {}) {
   if (runtime.status === "running" && expectedNonce && runtime.nonce === expectedNonce) {
     return { disposition: "owned-running", runtime, projection: claimProjectionFor(session, runtime, { rootPath }) };
   }
-  if (runtime.status === "running" && expectedNonce
-      && (runtime.previousNonce === expectedNonce
+  if (runtime.status === "running"
+      && ((expectedNonce && runtime.previousNonce === expectedNonce)
         || restartClaimOwnsRuntime(session, runtime, { rootPath }))) {
     return { disposition: "handoff-running", runtime, projection: claimProjectionFor(session, runtime, { rootPath }) };
   }
@@ -225,10 +225,11 @@ function startClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
 
 function restartClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
   const expectedNonce = sessionNonce(session);
-  if (!expectedNonce) return false;
+  const sessionID = restartClaimSessionID(session, expectedNonce);
   return listSimulatorClaims(requiredUDID(session.simulatorUDID), { rootPath })
     .some((claim) => claim.kind === "restart"
-      && claim.previousNonce === expectedNonce
+      && claim.sessionID === sessionID
+      && (!expectedNonce || claim.previousNonce === expectedNonce)
       && claimMatchesRuntime(claim, runtime));
 }
 
@@ -239,13 +240,13 @@ function claimProjectionFor(session, runtime, { rootPath } = {}) {
     if (claim?.projection && claimMatchesRuntime(claim, runtime)) return structuredClone(claim.projection);
   }
   const expectedNonce = sessionNonce(session);
-  if (expectedNonce) {
-    const claim = listSimulatorClaims(requiredUDID(session.simulatorUDID), { rootPath })
-      .find((candidate) => candidate.kind === "restart"
-        && candidate.previousNonce === expectedNonce
-        && claimMatchesRuntime(candidate, runtime));
-    if (claim?.projection) return structuredClone(claim.projection);
-  }
+  const sessionID = restartClaimSessionID(session, expectedNonce);
+  const claim = listSimulatorClaims(requiredUDID(session.simulatorUDID), { rootPath })
+    .find((candidate) => candidate.kind === "restart"
+      && candidate.sessionID === sessionID
+      && (!expectedNonce || candidate.previousNonce === expectedNonce)
+      && claimMatchesRuntime(candidate, runtime));
+  if (claim?.projection) return structuredClone(claim.projection);
   return runtimeProjection(runtime);
 }
 
@@ -351,6 +352,10 @@ function currentClaim(simulatorUDID, kind) {
   const claim = claimContext.getStore();
   if (claim?.completed || claim?.simulatorUDID !== simulatorUDID || claim?.kind !== kind) return null;
   return claim;
+}
+
+function restartClaimSessionID(session, expectedNonce) {
+  return requiredSessionID(session?.id || `legacy:${expectedNonce}`);
 }
 
 function ownershipSessionProjection(session) {
