@@ -1,11 +1,14 @@
 import { basename } from "node:path";
+import { helperRunsAsService } from "./helperShutdownScope.js";
 
 const script = basename(String(process.argv[1] || ""));
 
 if (script === "swift-sim-helper.js") {
   await import("./commandDeadlinePreload.js");
   await import("./asyncCommandGroupPreload.js");
-  await import("./helperShutdownDeadlinePreload.js");
+  if (helperRunsAsService()) {
+    await import("./helperShutdownDeadlinePreload.js");
+  }
   await import("./atomicLockRemovalPreload.js");
   await import("./lockOwnershipPreload.js");
   await import("./ownedWorkerPreload.js");
