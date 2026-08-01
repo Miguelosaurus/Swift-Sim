@@ -12,21 +12,22 @@ export function installCommandDeadlinePreload() {
   childProcess.spawnSync = function boundedSpawnSync(command, args, options) {
     const normalized = normalizeInvocation(args, options);
     const timeout = commandDeadline(command, normalized.args, normalized.options);
-    const addsDeadline = timeout > 0 && !hasExplicitTimeout(normalized.options);
+    const timed = timeout > 0;
+    const processGrouped = timed && normalized.options.detached !== false;
     const result = originalSpawnSync.call(
       this,
       command,
       normalized.args,
-      addsDeadline
+      timed
         ? {
             ...normalized.options,
-            detached: normalized.options.detached ?? true,
+            detached: processGrouped,
             timeout,
             killSignal: normalized.options.killSignal || "SIGKILL",
           }
         : normalized.options,
     );
-    if (addsDeadline && result?.error?.code === "ETIMEDOUT" && normalized.options.detached !== false) {
+    if (processGrouped && result?.error?.code === "ETIMEDOUT") {
       terminateProcessGroup(result.pid);
     }
     return result;
