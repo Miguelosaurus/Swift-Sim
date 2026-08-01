@@ -2309,6 +2309,7 @@ function maskCommentsAndStrings(source) {
   let output = "";
   let mode = "code";
   let escaped = false;
+  let blockCommentDepth = 0;
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
     const next = source[index + 1];
@@ -2320,10 +2321,15 @@ function maskCommentsAndStrings(source) {
       continue;
     }
     if (mode === "block-comment") {
-      if (char === "*" && next === "/") {
+      if (char === "/" && next === "*") {
         output += "  ";
         index += 1;
-        mode = "code";
+        blockCommentDepth += 1;
+      } else if (char === "*" && next === "/") {
+        output += "  ";
+        index += 1;
+        blockCommentDepth -= 1;
+        if (blockCommentDepth === 0) mode = "code";
       } else output += char === "\n" ? "\n" : " ";
       continue;
     }
@@ -2342,6 +2348,7 @@ function maskCommentsAndStrings(source) {
       output += "  ";
       index += 1;
       mode = "block-comment";
+      blockCommentDepth = 1;
     } else if (char === "\"") {
       output += " ";
       mode = "string";

@@ -273,3 +273,15 @@ test("production live routing holds one lifecycle lease", () => {
     "const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload",
   ));
 });
+
+
+test("nested block comments cannot truncate runtime availability scanning", () => {
+  const before = `func value() -> Int {
+  if #available(/* outer /* inner */ ) still outer */ iOS 18, *) { return 1 }
+  return 0
+}`;
+  const after = before.replace("iOS 18", "iOS 19");
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, false);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+});
