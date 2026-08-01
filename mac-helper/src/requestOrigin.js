@@ -1,5 +1,7 @@
 export function externalRequestBase(req, url) {
-  const forwarded = firstHeaderValue(req.headers["x-forwarded-proto"]);
+  const forwarded = forwardedHeadersAreTrusted(req)
+    ? firstHeaderValue(req.headers["x-forwarded-proto"])
+    : "";
   const scheme = forwarded === "http" || forwarded === "https"
     ? forwarded
     : isLoopbackHost(url.hostname)
@@ -11,6 +13,13 @@ export function externalRequestBase(req, url) {
 function firstHeaderValue(value) {
   const text = Array.isArray(value) ? value[0] : value;
   return String(text || "").split(",")[0].trim().toLowerCase();
+}
+
+function forwardedHeadersAreTrusted(req) {
+  const address = String(req?.socket?.remoteAddress || "").toLowerCase();
+  return address === "::1"
+    || /^127(?:\.\d{1,3}){3}$/.test(address)
+    || /^::ffff:127(?:\.\d{1,3}){3}$/.test(address);
 }
 
 function isLoopbackHost(hostname) {
