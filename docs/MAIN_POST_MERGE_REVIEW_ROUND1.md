@@ -16,7 +16,7 @@ Review scope:
 
 - Live-engine process identity and detached process-group ownership.
 - Cross-process serialization of global live-engine replacement.
-- Structural Swift attribute arguments and conditional compilation misclassified as live-safe.
+- Structural Swift attribute arguments, availability conditions, and conditional compilation misclassified as live-safe.
 - Workspace signing container selection.
 - Delivery-reference cleanup blocking helper startup.
 - Persisted artifact cleanup path containment.
@@ -24,4 +24,4 @@ Review scope:
 - Paired-Mac rebuild authority and stale response fencing.
 - Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
 
-The explicit self-removing transformation run applies the large-file fixes and commits only after the complete Node/release check succeeds.
+The explicit self-removing Python transformation run applies the large-file fixes and commits only after the complete Node/release check succeeds.
