@@ -141,7 +141,7 @@ export function simulatorSessionRuntimeSnapshot(session, { rootPath } = {}) {
   }
   if (runtime.status === "running"
       && runtime.claimID
-      && runtime.claimID === sessionClaimID(session)) {
+      && ["starting", "running"].includes(session?.stream?.state)) {
     return { disposition: "busy", runtime, projection: null };
   }
   if (runtime.status === "running") return { disposition: "superseded", runtime, projection: null };
@@ -253,15 +253,60 @@ function readCurrentSessionOwners(storeID) {
     throw new Error("the stored Simulator session registry is malformed");
   }
   return parsed.sessions.map((session) => {
-    if (!session || typeof session !== "object" || Array.isArray(session)) {
-      throw new Error("the stored Simulator session registry contains an invalid session");
-    }
-    const projection = ownershipSessionProjection(session);
-    if (!projection.id || !projection.simulatorUDID || !projection.stream.state) {
-      throw new Error("the stored Simulator session registry contains an incomplete session");
-    }
-    return projection;
+    validateStoredSessionForOwnership(session);
+    return ownershipSessionProjection(session);
   });
+}
+
+function validateStoredSessionForOwnership(value) {
+  if (!isPlainObject(value)) throw new Error("a stored session is not an object");
+  requireStoredString(value, "id", { nonempty: true });
+  requireStoredString(value, "token", { nonempty: true });
+  for (const field of [
+    "project",
+    "scheme",
+    "simulatorUDID",
+    "remoteBaseUrl",
+    "createdAt",
+    "updatedAt",
+    "orientation",
+  ]) {
+    requireStoredString(value, field, { optional: true });
+  }
+  if (value.revision !== undefined
+      && (!Number.isFinite(value.revision) || value.revision < 0)) {
+    throw new Error("a stored session has an invalid revision");
+  }
+  if (!Array.isArray(value.logs) || !value.logs.every((line) => typeof line === "string")) {
+    throw new Error("a stored session has invalid logs");
+  }
+  if (!isPlainObject(value.build)) throw new Error("a stored session has an invalid build record");
+  if (!isPlainObject(value.stream)) throw new Error("a stored session has an invalid stream record");
+  for (const field of ["state", "transport", "quality", "localUrl", "previewUrl", "wsUrl"]) {
+    requireStoredString(value.stream, field, { optional: true });
+  }
+  for (const field of ["port", "pid"]) {
+    const candidate = value.stream[field];
+    if (candidate !== undefined && candidate !== null && !Number.isFinite(candidate)) {
+      throw new Error(`a stored session stream has an invalid ${field}`);
+    }
+  }
+  if (value.stream.raw !== undefined && !isPlainObject(value.stream.raw)) {
+    throw new Error("a stored session stream has invalid raw metadata");
+  }
+  if (value.stream.limitations !== undefined
+      && (!Array.isArray(value.stream.limitations)
+        || !value.stream.limitations.every((item) => typeof item === "string"))) {
+    throw new Error("a stored session stream has invalid limitations");
+  }
+}
+
+function requireStoredString(value, field, { optional = false, nonempty = false } = {}) {
+  const candidate = value[field];
+  if (candidate === undefined && optional) return;
+  if (typeof candidate !== "string" || (nonempty && candidate.length === 0)) {
+    throw new Error(`a stored session has an invalid ${field}`);
+  }
 }
 
 function startClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
@@ -519,6 +564,13 @@ function sessionClaimID(session) {
 
 function sessionNonce(session) {
   return String(session?.stream?.raw?.swiftSimLifecycleNonce || "").trim();
+}
+
+function isPlainObject(value) {
+  return Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
 }
 
 function requiredUDID(value) {
