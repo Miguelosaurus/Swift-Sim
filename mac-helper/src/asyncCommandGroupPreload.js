@@ -38,12 +38,7 @@ export function installAsyncCommandGroupCleanup() {
 }
 
 export function managedAsyncCommand(command) {
-  const explicit = String(process.env.SWIFT_SIM_ASYNC_GROUP_COMMANDS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return managedCommands.has(basename(String(command || "")))
-    || explicit.includes(basename(String(command || "")));
+  return managedCommands.has(basename(String(command || "")));
 }
 
 installAsyncCommandGroupCleanup();
