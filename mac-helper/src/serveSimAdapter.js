@@ -158,14 +158,11 @@ export class ServeSimAdapter {
       child.stdout.on("data", (chunk) => { stdout += chunk; });
       child.stderr.on("data", (chunk) => { stderr += chunk; });
       child.once("error", (error) => {
-        if (timedOut) rejectOnce(timeoutError());
-        else rejectOnce(new ServeSimError(`serve-sim could not start: ${error.message}`));
+        if (timedOut) return;
+        rejectOnce(new ServeSimError(`serve-sim could not start: ${error.message}`));
       });
       child.once("close", (code) => {
-        if (timedOut) {
-          rejectOnce(timeoutError());
-          return;
-        }
+        if (timedOut) return;
         if (code !== 0 && !allowFailure) {
           rejectOnce(new ServeSimError(`serve-sim failed with exit code ${code}: ${stderr || stdout}`));
           return;
@@ -176,7 +173,6 @@ export class ServeSimAdapter {
       deadlineTimer = setTimeout(() => {
         if (settled) return;
         timedOut = true;
-        signalProcessGroup(child, "SIGTERM");
         forceTimer = setTimeout(() => {
           if (settled) return;
           signalProcessGroup(child, "SIGKILL");
@@ -186,6 +182,7 @@ export class ServeSimAdapter {
             rejectOnce(timeoutError());
           }, 100);
         }, this.forceKillDelayMs);
+        signalProcessGroup(child, "SIGTERM");
       }, deadlineMs);
     });
   }
