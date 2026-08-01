@@ -88,6 +88,40 @@ test("does not count restore records in the hot-edit denominator", () => {
   assert.equal(summary.confirmedHotEdits, 1);
 });
 
+test("excludes recovered transport diagnostics from headline denominators", () => {
+  const summary = deviceSummary([
+    {
+      deviceAttempt: true,
+      diagnosticOnly: true,
+      expectedLane: "hot-reload",
+      validity: "valid",
+      operation: "edit",
+      terminalState: "hot-reload-failed",
+      errorCode: "PATCH_TIMEOUT",
+    },
+    {
+      deviceAttempt: true,
+      recoveryAttempt: true,
+      expectedLane: "hot-reload",
+      validity: "valid",
+      operation: "edit",
+      terminalState: "semantically-observed",
+      applied: true,
+      refreshAcknowledged: true,
+      oracleMatched: true,
+      priorRevision: 1,
+      revision: 2,
+      timing: { totalMs: 400 },
+    },
+  ]);
+  assert.equal(summary.attemptedValidHotEdits, 1);
+  assert.equal(summary.confirmedHotEdits, 1);
+  assert.equal(summary.diagnosticRecordCount, 1);
+  assert.equal(summary.recoveryAttemptCount, 1);
+  assert.equal(summary.recoveredAttemptCount, 1);
+  assert.equal(summary.unrecoveredAttemptCount, 0);
+});
+
 test("returns bounded Wilson intervals", () => {
   const interval = wilsonInterval(5, 10);
   assert.equal(interval.proportion, 0.5);

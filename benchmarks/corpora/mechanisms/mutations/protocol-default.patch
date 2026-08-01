@@ -1,0 +1,8 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -35,3 +35,3 @@
+ extension MechanismCoverageProtocol {
+-    func protocolValue() -> String { "protocol-01" }
++    func protocolValue() -> String { "protocol-01-edited" }
+ }

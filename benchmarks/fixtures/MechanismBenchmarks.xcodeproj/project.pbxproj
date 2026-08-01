@@ -1,0 +1,83 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		M00000000000000000000001 /* SwiftSimLive in Frameworks */ = {isa = PBXBuildFile; productRef = M00000000000000000000011 /* SwiftSimLive */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		M00000000000000000000101 /* MechanismApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MechanismApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		M00000000000000000000201 /* sources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = sources;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		M00000000000000000000301 /* Mechanism Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (M00000000000000000000001 /* SwiftSimLive in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		M00000000000000000000401 = {isa = PBXGroup; children = (M00000000000000000000201 /* sources */, M00000000000000000000403 /* Products */); sourceTree = "<group>"; };
+		M00000000000000000000403 /* Products */ = {isa = PBXGroup; children = (M00000000000000000000101 /* MechanismApp.app */); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		M00000000000000000000501 /* MechanismApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = M00000000000000000000901 /* build configuration list for MechanismApp */;
+			buildPhases = (M00000000000000000000601 /* Mechanism Sources */, M00000000000000000000301 /* Mechanism Frameworks */, M00000000000000000000701 /* Mechanism Resources */);
+			buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (M00000000000000000000201 /* sources */);
+			name = MechanismApp; packageProductDependencies = (M00000000000000000000011 /* SwiftSimLive */); productName = MechanismApp; productReference = M00000000000000000000101 /* MechanismApp.app */; productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		M00000000000000000000801 /* Project object */ = {
+			isa = PBXProject;
+			attributes = { BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 2600; LastUpgradeCheck = 2600; TargetAttributes = { M00000000000000000000501 = { CreatedOnToolsVersion = 26.0; }; }; };
+			buildConfigurationList = M00000000000000000000900 /* Project configuration list */;
+			developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = M00000000000000000000401; minimizedProjectReferenceProxies = 1; packageReferences = (M00000000000000000000021 /* XCLocalSwiftPackageReference "Swift-Sim" */); preferredProjectObjectVersion = 77; productRefGroup = M00000000000000000000403; projectDirPath = ""; projectRoot = "";
+			targets = (M00000000000000000000501 /* MechanismApp */);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		M00000000000000000000701 /* Mechanism Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		M00000000000000000000601 /* Mechanism Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		M00000000000000000000A00 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CODE_SIGN_STYLE = Automatic; DEBUG_INFORMATION_FORMAT = dwarf; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		M00000000000000000000A01 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CODE_SIGN_STYLE = Automatic; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+		M00000000000000000000B01 /* Mechanism Debug */ = {isa = XCBuildConfiguration; buildSettings = { BUNDLE_LOADER = ""; CURRENT_PROJECT_VERSION = 1; INFOPLIST_KEY_CFBundleDisplayName = "Swift Sim Mechanism Benchmark"; PRODUCT_BUNDLE_IDENTIFIER = com.swiftSim.benchmark.mechanism; PRODUCT_NAME = MechanismApp; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) MECHANISM_APP"; }; name = Debug; };
+		M00000000000000000000B02 /* Mechanism Release */ = {isa = XCBuildConfiguration; buildSettings = { CURRENT_PROJECT_VERSION = 1; INFOPLIST_KEY_CFBundleDisplayName = "Swift Sim Mechanism Benchmark"; PRODUCT_BUNDLE_IDENTIFIER = com.swiftSim.benchmark.mechanism; PRODUCT_NAME = MechanismApp; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) MECHANISM_APP"; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		M00000000000000000000900 /* Project configuration list */ = {isa = XCConfigurationList; buildConfigurations = (M00000000000000000000A00 /* Debug */, M00000000000000000000A01 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		M00000000000000000000901 /* build configuration list for MechanismApp */ = {isa = XCConfigurationList; buildConfigurations = (M00000000000000000000B01 /* Mechanism Debug */, M00000000000000000000B02 /* Mechanism Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		M00000000000000000000021 /* XCLocalSwiftPackageReference "Swift-Sim" */ = {isa = XCLocalSwiftPackageReference; relativePath = ../..; };
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		M00000000000000000000011 /* SwiftSimLive */ = {isa = XCSwiftPackageProductDependency; package = M00000000000000000000021 /* XCLocalSwiftPackageReference "Swift-Sim" */; productName = SwiftSimLive; };
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = M00000000000000000000801 /* Project object */;
+}

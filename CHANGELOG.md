@@ -12,6 +12,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - A focused physical Liquid Glass gate covering 27/27 hot edits and 27/27 baseline restores with zero fallbacks, timeouts, or partial applications (724 ms median, 930 ms p95).
 - A 31-case native SwiftUI system-surface corpus covering menus, presentations, navigation, controls, lists, forms, search, and toolbars, with seven explicit rebuild controls.
 - A clean physical native-surface gate covering 24/24 hot edits and 24/24 baseline restores with zero fallbacks, timeouts, or partial applications (1,010 ms median, 1,214 ms p95), plus lane-aware full core workload commands.
+- A supplemental mechanism corpus and `MechanismApp` fixture covering nine generated replacement forms (including actor, extension, `ViewModifier`, Observation, property-wrapper, parameterized-function, and UIKit callback implementations) plus three explicit rebuild controls.
+- Multi-file live-edit preflight and recovery telemetry: all members compile before loading, partial application is surfaced, and recoverable device/session failures are retried from a clean live session with diagnostic records preserved.
 
 ## 0.5.0 - 2026-07-22
 

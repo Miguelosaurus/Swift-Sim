@@ -1,0 +1,8 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -53,3 +53,3 @@
+         content.overlay(
+-            BenchmarkMarkerView(caseID: "modifier-body", value: "modifier-01")
++            BenchmarkMarkerView(caseID: "modifier-body", value: "modifier-01-edited")
+         )

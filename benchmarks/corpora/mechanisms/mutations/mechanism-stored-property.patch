@@ -1,0 +1,10 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -8,4 +8,4 @@
+     @MechanismStringWrapper private var wrappedMarker = "wrapper-01"
+-    private let storedMechanismTitle = "Mechanisms"
++    private let storedMechanismTitle = "Updated mechanisms"
+-
++
+     var body: some View {

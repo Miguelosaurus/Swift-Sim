@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "mechanisms-1",
+  "fixtureRevision": "mechanisms-fixture-1",
+  "metadata": {
+    "totalCases": 12,
+    "expectedHotReload": 9,
+    "expectedRebuild": 3,
+    "authoringErrors": 0,
+    "multiFileOperations": 0,
+    "smokeHotCases": 9
+  },
+  "cases": [
+    {
+      "id": "protocol-default",
+      "workload": "MechanismApp",
+      "category": "protocol-default-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "protocol-default",
+        "value": "protocol-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/protocol-default.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "actor-method",
+      "workload": "MechanismApp",
+      "category": "actor-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "actor-method",
+        "value": "actor-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/actor-method.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "extension-view-body",
+      "workload": "MechanismApp",
+      "category": "extension-view-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "extension-view-body",
+        "value": "extension-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/extension-view-body.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "modifier-body",
+      "workload": "MechanismApp",
+      "category": "view-modifier-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "modifier-body",
+        "value": "modifier-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/modifier-body.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "observation-computed",
+      "workload": "MechanismApp",
+      "category": "observation-computed-property",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "observation-computed",
+        "value": "observation-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/observation-computed.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "property-wrapper-getter",
+      "workload": "MechanismApp",
+      "category": "property-wrapper-body",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "property-wrapper-getter",
+        "value": "wrapper-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/property-wrapper-getter.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "parameterized-helper",
+      "workload": "MechanismApp",
+      "category": "parameterized-function",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "parameterized-helper",
+        "value": "parameter-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/parameterized-helper.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "uikit-display-value",
+      "workload": "MechanismApp",
+      "category": "uikit-bridge-configuration",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "uikit-display-value",
+        "value": "uikit-display-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/uikit-display-value.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "uikit-update-view",
+      "workload": "MechanismApp",
+      "category": "uikit-update-implementation",
+      "validity": "valid",
+      "expectedLane": "hot-reload",
+      "confirmationPolicy": "interposed-function",
+      "oracle": {
+        "case": "uikit-update-view",
+        "value": "uikit-update-01-edited"
+      },
+      "smoke": true,
+      "mutation": "mutations/uikit-update-view.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "mechanism-stored-property",
+      "workload": "MechanismApp",
+      "category": "stored-property",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/mechanism-stored-property.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "mechanism-signature",
+      "workload": "MechanismApp",
+      "category": "signature-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/mechanism-signature.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    },
+    {
+      "id": "mechanism-import",
+      "workload": "MechanismApp",
+      "category": "import-change",
+      "validity": "valid",
+      "expectedLane": "build-device",
+      "mutation": "mutations/mechanism-import.patch",
+      "baselineHashes": {
+        "MechanismApp/MechanismCoverageScreen.swift": "b431849f96b827c1f3a2ee2d89bea272d77c4d4ea2db9be62cbbd4e01b3b262a"
+      }
+    }
+  ]
+}

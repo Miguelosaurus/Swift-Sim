@@ -214,6 +214,60 @@ test("generates replacements for changed helper functions and computed views", (
   assert.match(generated, /private func __swiftSim_helper\(\) -> String \{ "new" \}/);
 });
 
+test("generates labeled replacements for implementation forms outside a View body", () => {
+  const before = `
+    import SwiftUI
+    struct Modifier: ViewModifier {
+      func body(content: Content) -> some View { content.overlay(Text("old")) }
+    }
+    actor Worker {
+      func value() -> String { "old" }
+    }
+    extension Worker {
+      static func label(for value: String) -> String { value }
+    }
+    struct Wrapper<Value> {
+      var wrappedValue: Value { fatalError() }
+    }
+  `;
+  const after = before
+    .replace('Text("old")', 'Text("new")')
+    .replace('func value() -> String { "old" }', 'func value() -> String { "new" }')
+    .replace('static func label(for value: String) -> String { value }', 'static func label(for value: String) -> String { value + "!" }')
+    .replace('var wrappedValue: Value { fatalError() }', 'var wrappedValue: Value { fatalError("changed") }');
+  const generated = generateDynamicReplacementSource({
+    source: after,
+    beforeSource: before,
+    sourcePath: "/tmp/Mechanisms.swift",
+    moduleName: "ExampleApp",
+  });
+  assert.match(generated, /@_dynamicReplacement\(for: body\(content:\)\)/);
+  assert.match(generated, /@_dynamicReplacement\(for: value\(\)\)/);
+  assert.match(generated, /@_dynamicReplacement\(for: label\(for:\)\)/);
+  assert.match(generated, /static func __swiftSim_label\(for value: String\)/);
+  assert.match(generated, /@_dynamicReplacement\(for: wrappedValue\)/);
+});
+
+test("recognizes a View body implemented in an extension", () => {
+  const before = `
+    import SwiftUI
+    struct ExtendedScreen: View {}
+    extension ExtendedScreen {
+      var body: some View { Text("old") }
+    }
+  `;
+  const after = before.replace('Text("old")', 'Text("new")');
+  const generated = generateDynamicReplacementSource({
+    source: after,
+    beforeSource: before,
+    sourcePath: "/tmp/ExtendedScreen.swift",
+    moduleName: "ExampleApp",
+  });
+  assert.match(generated, /extension ExtendedScreen/);
+  assert.match(generated, /@_dynamicReplacement\(for: body\)/);
+  assert.match(generated, /Text\("new"\)/);
+});
+
 test("inlines a simple async edit into the SwiftUI body replacement", () => {
   const before = `
     import SwiftUI
@@ -341,4 +395,79 @@ test("a patch without the root refresh acknowledgement fails closed", async () =
   });
   assert.equal(result.action, "hot-reload-failed");
   assert.equal(result.reasonCode, LIVE_REASON_CODES.REFRESH_NOT_ACKNOWLEDGED);
+});
+
+test("preflights every multi-file patch before loading any member", async () => {
+  const loaded = [];
+  const preflighted = [];
+  const result = await routeLiveEditSet({
+    files: [
+      {
+        path: "One.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func one() -> String { "A" }`,
+        afterSource: `func one() -> String { "B" }`,
+      },
+      {
+        path: "Two.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func two() -> String { "A" }`,
+        afterSource: `func two() -> String { "B" }`,
+      },
+    ],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      preflight: async ({ sourcePath }) => {
+        preflighted.push(sourcePath);
+        return { mode: "interposition", generated: null, compileMs: 4 };
+      },
+      inject: async (_sourcePath, options) => {
+        loaded.push(options.preparedPatch);
+        return { succeeded: true, mode: "interposition", report: { refresh_acknowledged: true }, durationMs: 1 };
+      },
+    },
+  });
+  assert.equal(result.action, "hot-reload");
+  assert.equal(result.atomic, true);
+  assert.equal(result.partialApplication, false);
+  assert.equal(preflighted.length, 2);
+  assert.equal(loaded.length, 2);
+  assert.ok(loaded.every((value) => value?.mode === "interposition"));
+});
+
+test("marks a later multi-file load failure as partial application", async () => {
+  let loads = 0;
+  const result = await routeLiveEditSet({
+    files: [
+      {
+        path: "One.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func one() -> String { "A" }`,
+        afterSource: `func one() -> String { "B" }`,
+      },
+      {
+        path: "Two.swift",
+        kind: "swift",
+        status: "modified",
+        beforeSource: `func two() -> String { "A" }`,
+        afterSource: `func two() -> String { "B" }`,
+      },
+    ],
+    runtime: {
+      inspect: async () => ({ ready: true }),
+      preflight: async () => ({ mode: "interposition", generated: null, compileMs: 1 }),
+      inject: async () => {
+        loads += 1;
+        return loads === 1
+          ? { succeeded: true, mode: "interposition", report: { refresh_acknowledged: true }, durationMs: 1 }
+          : { succeeded: false, mode: "interposition", error: "The live patch timed out." };
+      },
+    },
+  });
+  assert.equal(result.action, "hot-reload-failed");
+  assert.equal(result.partialApplication, true);
+  assert.equal(result.atomic, true);
 });

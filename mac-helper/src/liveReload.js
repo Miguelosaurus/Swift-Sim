@@ -519,16 +519,26 @@ export async function startLiveReload({ project = "", host = "" } = {}) {
 
   const tailnet = discoverTailnet();
   if (tailnet.socket) ensurePrivateTailnetForward(tailnet);
-  const signingIdentity = resolveSigningIdentity(status.project.path);
-  if (!signingIdentity) {
+  const signingIdentities = resolveSigningIdentities(status.project.path);
+  if (signingIdentities.length === 0) {
     return {
       ...status,
       started: false,
       error: "No matching Apple Development signing identity was found.",
     };
   }
-  const signing = verifySigningIdentity(signingIdentity);
-  if (!signing.ready) {
+  let signingIdentity = "";
+  let signing = { ready: false, error: "" };
+  for (const candidate of signingIdentities) {
+    const result = verifySigningIdentity(candidate);
+    if (result.ready) {
+      signingIdentity = candidate;
+      signing = result;
+      break;
+    }
+    signing = result;
+  }
+  if (!signingIdentity) {
     return {
       ...status,
       started: false,
@@ -714,11 +724,32 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
     });
   }
   if (change.hotReloadable && live.ready) {
+    const hotFiles = change.changes.filter((item) => item.route === "hot-reload");
+    const preparedPatches = await preflightMultiFilePatches({ hotFiles, runtime });
+    if (preparedPatches?.error) {
+      return routeResult({
+        action: "hot-reload-failed",
+        change,
+        reasonCode: LIVE_REASON_CODES.PATCH_COMPILE_FAILED,
+        live,
+        patches: [],
+        atomic: hotFiles.length > 1,
+        partialApplication: false,
+        requestId,
+        timing: {
+          classificationMs,
+          compileMs: preparedPatches.compileMs,
+          totalMs: Math.max(0, now() - startedAt),
+        },
+        message: preparedPatches.error,
+      });
+    }
     const patches = [];
-    for (const file of change.changes.filter((item) => item.route === "hot-reload")) {
+    for (const [index, file] of hotFiles.entries()) {
       const patch = await inject(file.after, {
         beforePath: file.before,
         forceInterposition: swiftAsyncImplementationChanged(file.before, file.after),
+        preparedPatch: preparedPatches?.patches?.[index],
       });
       patches.push(patch);
       const missingDynamicReplacement = patch.mode !== "interposition" && hasZeroDynamicReplacements(patch);
@@ -730,6 +761,8 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
           live: await inspect({ project, host }),
           patch,
           patches,
+          atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.preflighted),
+          partialApplication: patches.slice(0, -1).some((candidate) => candidate.succeeded === true),
           requestId: patch.requestID || requestId,
           timing: {
             classificationMs,
@@ -750,6 +783,8 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
       live: await inspect({ project, host }),
       patch: patches[0],
       patches,
+      atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.preflighted),
+      partialApplication: false,
       requestId: patches.at(-1)?.requestID || requestId,
       timing: {
         classificationMs,
@@ -774,6 +809,37 @@ export async function routeLiveEditSet({ files = [], project = "", host = "", ru
   });
 }
 
+async function preflightMultiFilePatches({ hotFiles, runtime }) {
+  if (hotFiles.length <= 1) return null;
+  const preflight = runtime.preflight;
+  if (!preflight && runtime.inject) return null;
+  const patches = [];
+  let compileMs = 0;
+  try {
+    for (const file of hotFiles) {
+      const startedAt = Date.now();
+      const prepared = preflight
+        ? await preflight({
+          sourcePath: file.after,
+          beforePath: file.before,
+          forceInterposition: swiftAsyncImplementationChanged(file.before, file.after),
+        })
+        : prepareLivePatch(file.after, {
+          beforePath: file.before,
+          forceInterposition: swiftAsyncImplementationChanged(file.before, file.after),
+        });
+      patches.push(prepared);
+      compileMs += Number(prepared?.compileMs || (Date.now() - startedAt));
+    }
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      compileMs,
+    };
+  }
+  return { patches, compileMs, preflighted: true };
+}
+
 function hasZeroDynamicReplacements(patch = {}) {
   const report = patch.report;
   if (!report || typeof report !== "object") return false;
@@ -788,7 +854,19 @@ function hasUnacknowledgedRefresh(patch = {}) {
   return acknowledged !== undefined && acknowledged !== true;
 }
 
-function routeResult({ action, change, live, reasonCode, requestId = "", patch, patches, timing, message }) {
+function routeResult({
+  action,
+  change,
+  live,
+  reasonCode,
+  requestId = "",
+  patch,
+  patches,
+  timing,
+  message,
+  atomic,
+  partialApplication,
+}) {
   return {
     schemaVersion: ROUTING_SCHEMA_VERSION,
     classifierVersion: CLASSIFIER_VERSION,
@@ -800,6 +878,8 @@ function routeResult({ action, change, live, reasonCode, requestId = "", patch, 
     live,
     ...(patch ? { patch } : {}),
     ...(patches ? { patches } : {}),
+    ...(atomic !== undefined ? { atomic } : {}),
+    ...(partialApplication !== undefined ? { partialApplication } : {}),
     timing: {
       classificationMs: timing?.classificationMs || 0,
       compileMs: timing?.compileMs || 0,
@@ -847,6 +927,18 @@ function verifySigningIdentity(identity) {
   }
 }
 
+function prepareLivePatch(sourcePath, { beforePath = "", forceInterposition = false } = {}) {
+  const startedAt = Date.now();
+  const generated = forceInterposition
+    ? null
+    : compileDynamicReplacement(sourcePath, { beforePath });
+  return {
+    mode: generated ? "swift-dynamic-replacement" : "interposition",
+    generated,
+    compileMs: Math.max(0, Date.now() - startedAt),
+  };
+}
+
 export async function injectLiveSource(sourcePath, runtime = {}) {
   const source = resolve(sourcePath || "");
   const now = runtime.now || (() => Date.now());
@@ -860,11 +952,15 @@ export async function injectLiveSource(sourcePath, runtime = {}) {
   let loadAckMs = 0;
   let refreshAckMs = 0;
   try {
+    const prepared = runtime.preparedPatch;
     const compileStartedAt = now();
-    const generated = runtime.forceInterposition
-      ? null
-      : compile(source, { beforePath: runtime.beforePath });
-    compileMs = Math.max(0, now() - compileStartedAt);
+    const generated = prepared === undefined
+      ? (runtime.forceInterposition ? null : compile(source, { beforePath: runtime.beforePath }))
+      : prepared?.generated || null;
+    compileMs = prepared?.compileMs !== undefined
+      ? Number(prepared.compileMs) || 0
+      : Math.max(0, now() - compileStartedAt);
+    if (prepared?.mode) mode = prepared.mode;
     if (generated) {
       mode = "swift-dynamic-replacement";
       queued = await control({
@@ -1032,7 +1128,7 @@ ${view.availability ? `${view.availability}\n` : ""}extension ${view.qualifiedNa
   for (const member of supportedMembers) {
     const target = member.typeName ? `extension ${member.typeName} {` : "";
     const replacement = member.kind === "function"
-      ? `    @_dynamicReplacement(for: ${member.name}())\n    private func __swiftSim_${member.name}()${member.effects ? ` ${member.effects}` : ""} -> ${member.returnType} ${member.body}`
+      ? `    @_dynamicReplacement(for: ${member.name}(${member.labels.map((label) => `${label}:`).join("")}))\n    private ${member.isStatic ? "static " : ""}func __swiftSim_${member.name}(${member.parameters})${member.effects ? ` ${member.effects}` : ""}${member.returnType ? ` -> ${member.returnType}` : ""} ${member.body}`
       : `    @_dynamicReplacement(for: ${member.name})\n    private var __swiftSim_${member.name}: ${member.returnType} ${member.body}`;
     const existing = memberReplacements.get(target) || [];
     existing.push(replacement);
@@ -1046,6 +1142,7 @@ ${view.availability ? `${view.availability}\n` : ""}extension ${view.qualifiedNa
 
 function inlineAsyncReplacements(body, members) {
   return members.reduce((current, member) => {
+    if (member.parameters) return current;
     const expression = member.body.slice(1, -1).trim();
     if (!expression || /[{};]/.test(expression)) return current;
     return current.replace(new RegExp(`\\bawait\\s+${member.name}\\(\\)`, "g"), expression);
@@ -1059,24 +1156,28 @@ function swiftMemberImplementations(source) {
   const output = [];
   for (const type of types) {
     const memberSource = masked.slice(type.open + 1, type.close);
-    const functionPattern = /\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*((?:(?:async|throws)\s+)*)->\s*([^{}\n]+?)\s*\{/g;
+    const functionPattern = /\b(?:(static)\s+)?func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^(){}\n]*)\)\s*((?:(?:async|throws|rethrows)\s+)*)(?:->\s*([^{}\n]+?))?\s*\{/g;
     for (const match of memberSource.matchAll(functionPattern)) {
       const declarationOffset = type.open + 1 + match.index;
       if (braceDepth(masked, type.open + 1, declarationOffset) !== 0) continue;
       const bodyOpen = declarationOffset + match[0].lastIndexOf("{");
       const bodyClose = matchingBrace(masked, bodyOpen);
       if (bodyClose < 0 || bodyClose > type.close) continue;
+      const parameters = compact(match[3]);
       output.push({
-        key: `${type.qualifiedName}#function#${match[1]}`,
+        key: `${type.qualifiedName}#function#${match[2]}#${parameters}`,
         typeName: type.qualifiedName,
         kind: "function",
-        name: match[1],
-        effects: match[2].trim(),
-        returnType: match[3].trim(),
+        name: match[2],
+        parameters,
+        labels: replacementParameterLabels(parameters),
+        effects: match[4].trim(),
+        returnType: match[5]?.trim() || "",
+        isStatic: Boolean(match[1]),
         body: source.slice(bodyOpen, bodyClose + 1),
       });
     }
-    const propertyPattern = /\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(some\s+(?:SwiftUI\.)?View)\s*\{/g;
+    const propertyPattern = /\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^{}\n]+?)\s*\{/g;
     for (const match of memberSource.matchAll(propertyPattern)) {
       const declarationOffset = type.open + 1 + match.index;
       if (match[1] === "body" || braceDepth(masked, type.open + 1, declarationOffset) !== 0) continue;
@@ -1097,7 +1198,7 @@ function swiftMemberImplementations(source) {
 }
 
 function swiftTypeDeclarations(masked) {
-  const declaration = /\b(?:struct|class|enum)\s+([A-Za-z_][A-Za-z0-9_]*)[^{}\n]*\{/g;
+  const declaration = /\b(?:actor|class|enum|extension|struct)\s+([A-Za-z_][A-Za-z0-9_.]*)[^{}\n]*\{/g;
   const candidates = [];
   for (const match of masked.matchAll(declaration)) {
     const open = match.index + match[0].lastIndexOf("{");
@@ -1116,16 +1217,58 @@ function swiftTypeDeclarations(masked) {
   return candidates;
 }
 
+function replacementParameterLabels(parameters) {
+  if (!parameters) return [];
+  return splitTopLevel(parameters, ",").map((parameter) => {
+    const colon = topLevelIndex(parameter, ":");
+    if (colon < 0) return "_";
+    const head = compact(parameter.slice(0, colon));
+    const labels = head.split(/\s+/).filter(Boolean);
+    if (labels.length === 0 || labels[0] === "_") return "_";
+    return labels[0];
+  });
+}
+
+function splitTopLevel(value, separator) {
+  const parts = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if ("([{<".includes(character)) depth += 1;
+    else if (")]}>".includes(character)) depth = Math.max(0, depth - 1);
+    else if (character === separator && depth === 0) {
+      parts.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+function topLevelIndex(value, target) {
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if ("([{<".includes(character)) depth += 1;
+    else if (")]}>".includes(character)) depth = Math.max(0, depth - 1);
+    else if (character === target && depth === 0) return index;
+  }
+  return -1;
+}
+
 function swiftUIViewBodies(source) {
   const masked = maskCommentsAndStrings(source);
   const candidates = [];
-  const declaration = /\b(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)[^{}\n]*:\s*[^{}\n]*\bView\b[^{}]*\{/g;
+  const declaration = /\b(struct|class|extension)\s+([A-Za-z_][A-Za-z0-9_.]*)[^{}\n]*\{/g;
   for (const match of masked.matchAll(declaration)) {
+    if (match[1] !== "extension" && !/\bView\b/.test(match[0])) continue;
     const open = match.index + match[0].lastIndexOf("{");
     const close = matchingBrace(masked, open);
     if (close < 0) continue;
     candidates.push({
-      name: match[1],
+      name: match[2],
+      kind: match[1],
       open,
       close,
       availability: declarationAvailability(source, match.index),
@@ -1280,6 +1423,10 @@ async function stopLiveEngine() {
 }
 
 function resolveSigningIdentity(projectPath) {
+  return resolveSigningIdentities(projectPath)[0] || "";
+}
+
+function resolveSigningIdentities(projectPath) {
   const projectContainer = projectPath.endsWith("/project.pbxproj")
     ? dirname(projectPath)
     : projectPath;
@@ -1302,10 +1449,14 @@ function resolveSigningIdentity(projectPath) {
   )];
   const development = matches.filter((match) => /Apple Development/.test(match[2]));
   const available = new Set(development.map((match) => match[1]));
-  return provisioningIdentityForTeam(team, available)
-    || development.find((match) => team && match[2].includes(`(${team})`))?.[1]
-    || development[0]?.[1]
-    || "";
+  const preferredHash = provisioningIdentityForTeam(team, available);
+  const preferred = development.find((match) => match[1] === preferredHash)?.[2] || "";
+  const teamMatch = development.find((match) => team && match[2].includes(`(${team})`))?.[2] || "";
+  return [...new Set([
+    preferred,
+    teamMatch,
+    ...development.map((match) => match[1]),
+  ].filter(Boolean))];
 }
 
 function provisioningIdentityForTeam(team, available) {

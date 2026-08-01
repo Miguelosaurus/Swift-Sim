@@ -23,6 +23,8 @@ struct BenchmarkRootView: View {
         }
         #elseif STATE_APP
         StateScreen()
+        #elseif MECHANISM_APP
+        MechanismCoverageScreen()
         #else
         ArchitectureScreen()
         #endif

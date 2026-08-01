@@ -1,0 +1,8 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -46,3 +46,3 @@
+     var body: some View {
+-        BenchmarkMarkerView(caseID: "extension-view-body", value: "extension-01")
++        BenchmarkMarkerView(caseID: "extension-view-body", value: "extension-01-edited")
+     }

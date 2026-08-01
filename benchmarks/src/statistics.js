@@ -43,14 +43,15 @@ export function classifierSummary(records) {
     "build-device": { "hot-reload": 0, "build-device": 0, none: 0 },
     none: { "hot-reload": 0, "build-device": 0, none: 0 },
   };
-  for (const record of records) {
+  const effectiveRecords = records.filter((record) => record.diagnosticOnly !== true);
+  for (const record of effectiveRecords) {
     const expected = record.expectedLane;
     const predicted = record.predictedLane || record.action || "none";
     if (!matrix[expected]) matrix[expected] = { "hot-reload": 0, "build-device": 0, none: 0 };
     if (!Object.hasOwn(matrix[expected], predicted)) matrix[expected][predicted] = 0;
     matrix[expected][predicted] += 1;
   }
-  const validRecords = records.filter((record) => record.validity !== "authoring-error");
+  const validRecords = effectiveRecords.filter((record) => record.validity !== "authoring-error");
   const validMatrix = confusionMatrix(validRecords);
   const hotPredictions = validRecords.filter((record) => (record.predictedLane || record.action) === "hot-reload").length;
   const safeHotPredictions = validRecords.filter((record) =>
@@ -63,11 +64,12 @@ export function classifierSummary(records) {
     && (record.predictedLane || record.action) === "hot-reload"
   ).length;
   return {
-    total: records.length,
+    total: effectiveRecords.length,
     matrix,
     validTotal: validRecords.length,
     validMatrix,
-    authoringErrorCount: records.length - validRecords.length,
+    authoringErrorCount: effectiveRecords.length - validRecords.length,
+    diagnosticRecordCount: records.length - effectiveRecords.length,
     dangerousFalseLive,
     safePrecision: hotPredictions === 0 ? null : safeHotPredictions / hotPredictions,
     eligibleRoutingRecall: expectedHot === 0 ? null : safeHotPredictions / expectedHot,
@@ -105,17 +107,21 @@ export function deviceSummary(records) {
   // not physical-device attempts. Keep them out of device reliability and
   // latency denominators unless the runner explicitly marks the record.
   const deviceRecords = records.filter((record) => record.deviceAttempt === true);
+  const effectiveDeviceRecords = deviceRecords.filter((record) => record.diagnosticOnly !== true);
   const validHot = deviceRecords.filter((record) =>
     record.operation !== "restore"
+      && record.diagnosticOnly !== true
       && record.validity !== "authoring-error"
       && record.expectedLane === "hot-reload"
   );
   const confirmed = validHot.filter(isSemanticallyConfirmed);
   const fallback = validHot.filter((record) => record.terminalState === "hot-reload-failed");
   const timeouts = validHot.filter((record) => record.errorCode === "PATCH_TIMEOUT");
-  const restores = deviceRecords.filter((record) => record.operation === "restore");
+  const restores = effectiveDeviceRecords.filter((record) => record.operation === "restore");
   const restoreFailures = restores.filter((record) => record.terminalState !== "restored");
-  const partialApplications = deviceRecords.filter((record) => record.partialApplication === true);
+  const partialApplications = effectiveDeviceRecords.filter((record) => record.partialApplication === true);
+  const recoveryAttempts = effectiveDeviceRecords.filter((record) => record.recoveryAttempt === true && record.operation !== "restore");
+  const recoveredAttempts = recoveryAttempts.filter(isSemanticallyConfirmed);
   return {
     attemptedValidHotEdits: validHot.length,
     confirmedHotEdits: confirmed.length,
@@ -126,6 +132,10 @@ export function deviceSummary(records) {
     restoreCount: restores.length,
     restoreFailureCount: restoreFailures.length,
     partialApplicationCount: partialApplications.length,
+    diagnosticRecordCount: deviceRecords.length - effectiveDeviceRecords.length,
+    recoveryAttemptCount: recoveryAttempts.length,
+    recoveredAttemptCount: recoveredAttempts.length,
+    unrecoveredAttemptCount: recoveryAttempts.length - recoveredAttempts.length,
     latency: latencySummary(confirmed.map((record) => record.timing?.totalMs)),
     byCategory: summarizeGroups(validHot, (record) => record.category),
     byWorkload: summarizeGroups(validHot, (record) => record.workload),
@@ -133,7 +143,7 @@ export function deviceSummary(records) {
 }
 
 export function workflowSummary(records) {
-  const valid = records.filter((record) => record.validity !== "authoring-error");
+  const valid = records.filter((record) => record.diagnosticOnly !== true && record.validity !== "authoring-error");
   const confirmed = valid.filter((record) => record.confirmedNoBuild === true);
   return {
     validEdits: valid.length,

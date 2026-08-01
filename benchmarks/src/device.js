@@ -41,7 +41,11 @@ export async function runDeviceBenchmark({
   mkdirSync(output, { recursive: true });
   const attemptsPath = join(output, "attempts.jsonl");
   const previous = existsSync(attemptsPath) ? readAttempts(attemptsPath) : [];
-  const completed = new Set(previous.filter((attempt) => attempt.terminalState).map((attempt) => attempt.attemptId));
+  const completed = new Set(previous
+    .filter((attempt) => attempt.terminalState
+      && attempt.operation !== "restore"
+      && attempt.diagnosticOnly !== true)
+    .map((attempt) => attempt.attemptId));
   const selected = selectCases(loaded.corpus.cases, {
     workload: workload || workloadForScheme(loaded.corpus.cases, scheme),
     caseID,
@@ -53,7 +57,11 @@ export async function runDeviceBenchmark({
   const environment = await (adapters.doctor || defaultDoctor)();
   assertDoctorReady(environment);
   const selectedDevice = await (adapters.selectDevice || defaultSelectDevice)({ device });
-  const deviceAddress = selectedDevice.identifier || selectedDevice.udid || selectedDevice.dnsName || device;
+  // CoreDevice exposes a stable identifier in inventory JSON, but recent
+  // devicectl releases reject that opaque value for process/install commands
+  // while accepting the paired device name. Prefer the exact trusted name and
+  // retain identifier/UDID fallbacks for older Xcode versions and test seams.
+  const deviceAddress = selectedDevice.name || selectedDevice.identifier || selectedDevice.udid || selectedDevice.dnsName || device;
   let workspace;
   let session;
   try {
@@ -70,6 +78,14 @@ export async function runDeviceBenchmark({
       adapters,
     }));
     const attempts = [...previous];
+    const appendRecords = (records) => {
+      const values = Array.isArray(records) ? records : [records];
+      attempts.push(...values);
+      for (const record of values) {
+        appendFileSync(attemptsPath, `${JSON.stringify(sanitizeValue(record))}\n`, { mode: 0o600 });
+      }
+      return values;
+    };
     for (let iteration = 1; iteration <= Number(iterations); iteration += 1) {
       for (const benchmarkCase of seededOrder(selected, Number(seed) + iteration - 1)) {
         const attemptId = `${benchmarkCase.id}:device:${iteration}`;
@@ -89,12 +105,61 @@ export async function runDeviceBenchmark({
           adapters,
           runId,
         });
-        const records = Array.isArray(caseResult) ? caseResult : [caseResult];
-        attempts.push(...records);
-        for (const record of records) appendFileSync(attemptsPath, `${JSON.stringify(sanitizeValue(record))}\n`, { mode: 0o600 });
-        const attempt = records[0];
+        let records = Array.isArray(caseResult) ? caseResult : [caseResult];
+        let attempt = records[0];
         if (attempt.dangerousFalseLive) {
           throw new Error(`Dangerous false-live result for ${benchmarkCase.id}; device run stopped.`);
+        }
+        if (shouldRecoverHotAttempt(records)) {
+          for (const record of records) {
+            record.diagnosticOnly = true;
+            record.recoveryOfAttemptId = attempt.attemptId;
+          }
+          appendRecords(records);
+          resetDisposableFixture({ baselineRoot: workspace.baselineRoot, fixtureRoot: runtimeFixtureRoot });
+          session?.close?.();
+          try {
+            ({ session, oracle } = await establishLiveDeviceSession({
+              project: runtimeProject,
+              scheme,
+              device: deviceAddress,
+              runId,
+              buildSettings,
+              adapters,
+            }));
+          } catch (error) {
+            const recoveryFailure = recoveryFailureRecord({
+              benchmarkCase,
+              attemptId,
+              iteration,
+              runId,
+              error,
+            });
+            appendRecords(recoveryFailure);
+            throw error;
+          }
+          const recoveryResult = await runCase({
+            benchmarkCase,
+            attemptId: `${attemptId}:recovery-1`,
+            iteration,
+            fixtureRoot: runtimeFixtureRoot,
+            corpusRoot: loaded.corpusRoot,
+            project: runtimeProject,
+            scheme,
+            session,
+            oracle,
+            adapters,
+            runId,
+            recoveryAttempt: true,
+            recoveryOfAttemptId: attemptId,
+          });
+          records = appendRecords(recoveryResult);
+          attempt = records[0];
+          if (attempt.dangerousFalseLive) {
+            throw new Error(`Dangerous false-live result for ${benchmarkCase.id}; recovery stopped.`);
+          }
+        } else {
+          appendRecords(records);
         }
         if (benchmarkCase.expectedLane === "hot-reload" && attempt.terminalState !== "semantically-observed") {
           resetDisposableFixture({ baselineRoot: workspace.baselineRoot, fixtureRoot: runtimeFixtureRoot });
@@ -188,7 +253,7 @@ async function ensureLiveSessionConnected({ project, session, oracle, adapters, 
   await waitForMarker(session, oracle, { caseID: "baseline" });
 }
 
-async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpusRoot, project, scheme, session, oracle, adapters, runId }) {
+async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpusRoot, project, scheme, session, oracle, adapters, runId, recoveryAttempt = false, recoveryOfAttemptId = "" }) {
   const startedAt = performance.now();
   let materialized;
   const base = {
@@ -203,6 +268,8 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
     validity: benchmarkCase.validity,
     expectedLane: benchmarkCase.expectedLane,
     operation: "edit",
+    recoveryAttempt,
+    ...(recoveryOfAttemptId ? { recoveryOfAttemptId } : {}),
     terminalState: "failed",
     applied: false,
     refreshAcknowledged: false,
@@ -229,6 +296,8 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
       requestId: route.requestId || "",
       ...(route.patch?.error ? { error: sanitizeError(new Error(route.patch.error)) } : {}),
       ...(route.patch?.report ? { patchReport: sanitizeValue(route.patch.report) } : {}),
+      ...(route.atomic !== undefined ? { atomic: route.atomic } : {}),
+      ...(route.partialApplication !== undefined ? { partialApplication: route.partialApplication } : {}),
       timing: { ...(route.timing || {}), totalMs: elapsedMs(startedAt) },
       applied: route.action === "hot-reload",
     };
@@ -262,6 +331,8 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
       validity: benchmarkCase.validity,
       expectedLane: benchmarkCase.expectedLane,
       operation: "restore",
+      recoveryAttempt,
+      ...(recoveryOfAttemptId ? { recoveryOfAttemptId } : {}),
       terminalState: "restoring",
       timing: {},
     };
@@ -442,6 +513,47 @@ function routeLane(route) {
   if (route.action === "hot-reload") return "hot-reload";
   if (route.action === "build-device") return "build-device";
   return "none";
+}
+
+function shouldRecoverHotAttempt(records) {
+  const attempt = records.find((record) => record.operation !== "restore") || records[0];
+  if (!attempt || attempt.expectedLane !== "hot-reload" || attempt.diagnosticOnly === true) return false;
+  if (attempt.terminalState === "semantically-observed" && attempt.restoreFailure !== true) return false;
+  if (attempt.partialApplication === true || attempt.restoreFailure === true) return true;
+  return new Set([
+    "LIVE_NOT_READY",
+    "PATCH_TIMEOUT",
+    "REFRESH_NOT_ACKNOWLEDGED",
+    "PATCH_LOAD_FAILED",
+    "DEVICE_RUN_FAILED",
+  ]).has(attempt.errorCode);
+}
+
+function recoveryFailureRecord({ benchmarkCase, attemptId, iteration, runId, error }) {
+  return {
+    schemaVersion: 1,
+    deviceAttempt: true,
+    runId,
+    attemptId: `${attemptId}:recovery-1`,
+    recoveryAttempt: true,
+    recoveryOfAttemptId: attemptId,
+    caseId: benchmarkCase.id,
+    iteration,
+    workload: benchmarkCase.workload,
+    category: benchmarkCase.category,
+    validity: benchmarkCase.validity,
+    expectedLane: benchmarkCase.expectedLane,
+    predictedLane: "hot-reload",
+    operation: "edit",
+    terminalState: "hot-reload-failed",
+    applied: false,
+    refreshAcknowledged: false,
+    oracleMatched: false,
+    confirmedNoBuild: false,
+    errorCode: error?.code || "LIVE_NOT_READY",
+    error: sanitizeError(error),
+    timing: { totalMs: 0 },
+  };
 }
 
 async function defaultDoctor() {

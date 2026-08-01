@@ -1,0 +1,9 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -94,3 +94,3 @@
+ }
+-
++
+-// mechanism-import-slot
++import MapKit

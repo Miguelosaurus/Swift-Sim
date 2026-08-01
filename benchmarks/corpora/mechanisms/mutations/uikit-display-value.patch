@@ -1,0 +1,12 @@
+diff --git a/MechanismApp/MechanismCoverageScreen.swift b/MechanismApp/MechanismCoverageScreen.swift
+--- a/MechanismApp/MechanismCoverageScreen.swift
++++ b/MechanismApp/MechanismCoverageScreen.swift
+@@ -80,5 +80,5 @@
+     var marker: String
+-
++
+-    static func displayValue() -> String { "uikit-display-01" }
++    static func displayValue() -> String { "uikit-display-01-edited" }
+-
++
+     func makeUIView(context: Context) -> UILabel {

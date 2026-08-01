@@ -153,6 +153,14 @@ zero fallback, timeout, or partial-application records (1,010 ms median,
 1,214 ms p95). See [the native-surface evidence](docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md)
 for the exact scope and build boundaries.
 
+A separate mechanism corpus now covers nine less-obvious replacement shapes—
+protocol defaults, actor and extension members, `ViewModifier`, Observation,
+property-wrapper getters, parameterized helpers, and UIKit bridge callbacks.
+All 9/9 curated hot edits and restores were semantically observed on a physical
+iPhone; three transient patch timeouts were automatically recovered from a
+fresh live session. See [the mechanism evidence](docs/HOT_RELOAD_MECHANISM_COVERAGE.md)
+for the exact denominator and the three rebuild controls.
+
 The coding agent adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at the app's root view as a one-time project change. The user does not operate the engine or scatter Swift Sim code through the app. Release builds make the modifier a no-op.
 
 The coding-agent integration runs `swift-sim route-change` to choose the safe path:

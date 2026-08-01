@@ -15,6 +15,8 @@ npm run benchmark:validate:liquid-glass
 npm run benchmark:static:liquid-glass
 npm run benchmark:validate:native-surfaces
 npm run benchmark:static:native-surfaces
+npm run benchmark:validate:mechanisms
+npm run benchmark:static:mechanisms -- --repeat 3
 npm run benchmark:report -- --run /tmp/swift-sim-static
 ```
 
@@ -86,3 +88,27 @@ documented in
 The native-surfaces-1 corpus covers 24 native SwiftUI system-surface edits and
 seven rebuild controls. Its API matrix and physical evidence are documented in
 [`docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md`](../docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md).
+
+The supplemental mechanism corpus covers nine generated replacement forms that
+are easy to miss when testing only `View.body`: protocol defaults, actor and
+extension members, `ViewModifier`, Observation, property wrappers,
+parameterized helpers, and UIKit bridge callbacks. It also contains three
+explicit build controls. The scope, physical evidence, and recovery semantics
+are documented in
+[`docs/HOT_RELOAD_MECHANISM_COVERAGE.md`](../docs/HOT_RELOAD_MECHANISM_COVERAGE.md).
+
+Run its physical lane with the dedicated fixture:
+
+```sh
+npm run benchmark:device -- \
+  --corpus benchmarks/corpora/mechanisms/corpus.json \
+  --project benchmarks/fixtures/MechanismBenchmarks.xcodeproj \
+  --scheme MechanismApp \
+  --device "<exact trusted iPhone name>" \
+  --build-setting DEVELOPMENT_TEAM=<team supplied at run time> \
+  --lane hot-reload --iterations 1
+```
+
+The device runner persists diagnostic timeout records, restarts from a clean
+live session, and retries recoverable transport failures once. Recovery records
+are visible in `summary.json`; they are not silently counted as direct passes.
