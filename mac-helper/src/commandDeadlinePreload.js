@@ -27,9 +27,7 @@ export function installCommandDeadlinePreload() {
           }
         : normalized.options,
     );
-    if (processGrouped && result?.error?.code === "ETIMEDOUT") {
-      terminateProcessGroup(result.pid);
-    }
+    if (processGrouped && result?.error) terminateProcessGroup(result.pid);
     return result;
   };
   syncBuiltinESMExports();
