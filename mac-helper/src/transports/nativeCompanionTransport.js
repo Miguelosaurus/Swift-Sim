@@ -1,8 +1,15 @@
+import {
+  restartSimulatorRuntime,
+  startSimulatorRuntime,
+  stopSimulatorRuntime,
+} from "../simulatorLifecycle.js";
+
 export class NativeCompanionTransport {
-  constructor({ adapter }) {
+  constructor({ adapter, runtimeRootPath } = {}) {
     this.id = "native-companion";
     this.label = "Native H.264 companion transport";
     this.adapter = adapter;
+    this.runtimeRootPath = runtimeRootPath;
   }
 
   async inspect() {
@@ -24,6 +31,37 @@ export class NativeCompanionTransport {
   }
 
   async start({ simulatorUDID, port }) {
+    return startSimulatorRuntime({
+      simulatorUDID,
+      recover: () => this.adapter.kill(simulatorUDID),
+      operation: () => this.startUnlocked({ simulatorUDID, port }),
+      rootPath: this.runtimeRootPath,
+    });
+  }
+
+  async restart(session) {
+    return restartSimulatorRuntime({
+      session,
+      operation: async () => {
+        await this.adapter.kill(session.simulatorUDID);
+        return this.startUnlocked({
+          simulatorUDID: session.simulatorUDID,
+          port: session.stream.port,
+        });
+      },
+      rootPath: this.runtimeRootPath,
+    });
+  }
+
+  async stop(session) {
+    return stopSimulatorRuntime({
+      session,
+      operation: () => this.adapter.kill(session.simulatorUDID),
+      rootPath: this.runtimeRootPath,
+    });
+  }
+
+  async startUnlocked({ simulatorUDID, port }) {
     const info = await this.inspect();
     if (!info.available) throw new Error(info.reason);
     const result = await this.adapter.start({ simulatorUDID, port });
@@ -40,18 +78,6 @@ export class NativeCompanionTransport {
       limitations: [],
       logs: ["native companion uses serve-sim headless H.264 AVCC stream", ...result.logs],
     };
-  }
-
-  async restart(session) {
-    await this.adapter.kill(session.simulatorUDID);
-    return this.start({
-      simulatorUDID: session.simulatorUDID,
-      port: session.stream.port,
-    });
-  }
-
-  async stop(session) {
-    await this.adapter.kill(session.simulatorUDID);
   }
 }
 

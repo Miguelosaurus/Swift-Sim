@@ -2,4 +2,4 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec node "$ROOT/mac-helper/bin/swift-sim.js" build-device "$@"
+exec node "$ROOT/mac-helper/bin/swift-sim-entry.js" build-device "$@"

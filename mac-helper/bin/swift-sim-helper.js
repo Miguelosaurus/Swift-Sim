@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
@@ -14,13 +14,17 @@ import {
 import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
 import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
 import { SessionStore } from "../src/sessionStore.js";
+import {
+  resolvedSessionTransport,
+  sessionTransportMatches,
+} from "../src/sessionTransportPreference.js";
 import { DeviceBuildStore } from "../src/deviceBuildStore.js";
 import {
   DeviceDeliveryAdapter,
+  buildCapabilityExpiresAt,
   deviceDeliveryRequestAllowed,
 } from "../src/deviceDelivery.js";
 import {
-  deviceBuildExpiryDate,
   normalizeDeviceBuildTTLMinutes,
 } from "../src/deviceBuildDefaults.js";
 import { PairingStore } from "../src/pairingStore.js";
@@ -32,7 +36,9 @@ import {
   deviceBuildLinks,
   publicDeviceApp,
   publicDeviceBuild,
+  requestDeviceBuildCancellation,
   runDeviceBuild,
+  terminateRecordedDeviceBuildWorker,
 } from "../src/deviceBuilder.js";
 import {
   badRequest,
@@ -48,6 +54,7 @@ import {
   tailscaleBackendsConflict,
 } from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
+import { serveFile } from "../src/fileServer.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -59,6 +66,9 @@ const pairingStore = new PairingStore();
 const simulatorProfiles = new SimulatorProfileResolver();
 const deviceInventory = new DeviceInventoryAdapter();
 const adapter = new ServeSimAdapter();
+const activeDeviceBuildTasks = new Map();
+let deliveryReferenceCleanupRunning = false;
+
 const transports = {
   "serve-sim": new ServeSimTransport({ adapter }),
   "native-companion": new NativeCompanionTransport({ adapter }),
@@ -156,7 +166,7 @@ async function main() {
       options: commonDeviceBuildOptions(),
     });
     const build = await createDeviceBuild(values);
-    await runDeviceBuildAndPrepareDelivery(build);
+    await runCLIDeviceBuild(build);
     console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
     return;
   }
@@ -197,6 +207,7 @@ async function main() {
     const appID = required(values["app-id"], "app-id");
     const deleted = deviceBuildStore.deleteApp(appID, { deleteArtifacts: !values["keep-artifacts"] });
     if (!deleted) throw new Error("Unknown app id.");
+    await drainDeliveryReferenceCleanupJobs();
     console.log(JSON.stringify({ deleted: true, appId: appID }, null, 2));
     return;
   }
@@ -276,6 +287,9 @@ function commonDeviceBuildOptions() {
 }
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
+  await recoverInterruptedDeviceBuilds();
+  await drainDeliveryReferenceCleanupJobs();
+  const activeSockets = new Set();
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
@@ -416,13 +430,14 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           }
 
           const build = deviceBuildStore.createRebuild(source, { appID, idempotencyKey });
-          runDeviceBuildAndPrepareDelivery(build).catch(() => {});
+          startManagedDeviceBuild(build);
           return json(res, 202, publicDeviceBuild(build));
         }
         if (req.method === "DELETE" && !action) {
           const deleted = deviceBuildStore.deleteApp(appID, {
             deleteArtifacts: url.searchParams.get("keepArtifacts") !== "true",
           });
+          if (deleted) void drainDeliveryReferenceCleanupJobs();
           return deleted ? json(res, 200, { deleted: true, appId: appID }) : notFound(res, "Unknown app.");
         }
       }
@@ -445,7 +460,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           "allow-provisioning-updates": Boolean(body.allowProvisioningUpdates),
           "replace-app-data": Boolean(body.replaceAppData),
         });
-        runDeviceBuildAndPrepareDelivery(build).catch(() => {});
+        startManagedDeviceBuild(build);
         return json(res, 202, publicDeviceBuild(build));
       }
 
@@ -464,18 +479,21 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           remoteBaseUrl: build.remoteBaseUrl,
           delivery: build.delivery ? { ...build.delivery } : null,
         };
-        const renewedBuild = deviceBuildStore.renewInstallLink(build.id);
-        try {
-          await prepareDeviceDelivery(renewedBuild, { markBuildFailed: false });
-        } catch (error) {
-          renewedBuild.expiresAt = previousDelivery.expiresAt;
-          renewedBuild.remoteBaseUrl = previousDelivery.remoteBaseUrl;
-          renewedBuild.delivery = previousDelivery.delivery;
+        const renewedBuild = deviceBuildStore.renewInstallLink(build.id, { ttlMinutes: build.installTTLMinutes });
+        const renewalKey = `renewal:${build.id}:${renewedBuild.pendingRenewal?.id || "unknown"}`;
+        await trackDeviceBuildTask(renewalKey, renewedBuild, (async () => {
+          try {
+            await prepareDeviceDelivery(renewedBuild, { markBuildFailed: false });
+          } catch (error) {
+            renewedBuild.expiresAt = previousDelivery.expiresAt;
+            renewedBuild.remoteBaseUrl = previousDelivery.remoteBaseUrl;
+            renewedBuild.delivery = previousDelivery.delivery;
+            deviceBuildStore.save(renewedBuild);
+            throw error;
+          }
+          renewedBuild.logs.push("A new install link was generated from the saved app.");
           deviceBuildStore.save(renewedBuild);
-          throw error;
-        }
-        renewedBuild.logs.push("A new install link was generated from the saved app.");
-        deviceBuildStore.save(renewedBuild);
+        })());
         return json(res, 200, publicDeviceBuild(renewedBuild));
       }
 
@@ -484,30 +502,39 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         const [, buildId, action] = deviceBuildMatch;
         const build = deviceBuildStore.get(buildId);
         if (!build) return notFound(res, "Unknown device build.");
-        const buildTokenMatches = tokenMatches(build, url.searchParams.get("token"));
+        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
         const pairedMacTokenMatches = !deviceBuildsOnly && pairingTokenMatches(req, url);
-        if (!buildTokenMatches && !pairedMacTokenMatches) {
-          return unauthorized(res);
+        if (!capabilityBuild && !pairedMacTokenMatches) return unauthorized(res);
+        const responseBuild = pairedMacTokenMatches ? build : capabilityBuild;
+        if (!pairedMacTokenMatches && deviceBuildExpired(responseBuild)) {
+          return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
         }
         if (req.method === "GET" && !action) {
-          return json(res, 200, publicDeviceBuild(build));
+          return json(res, 200, publicDeviceBuild(responseBuild));
         }
         if (req.method === "GET" && action === "logs") {
           return json(res, 200, { buildId, logs: build.logs.slice(-300) });
         }
         if (req.method === "GET" && action === "links") {
-          build.remoteBaseUrl = build.remoteBaseUrl || `${url.protocol}//${url.host}`;
-          deviceBuildStore.save(build);
-          return json(res, 200, deviceBuildLinks(build, build.remoteBaseUrl));
+          const remoteBaseUrl = responseBuild.remoteBaseUrl || `${url.protocol}//${url.host}`;
+          if (pairedMacTokenMatches && !build.remoteBaseUrl) {
+            build.remoteBaseUrl = remoteBaseUrl;
+            deviceBuildStore.save(build);
+          }
+          return json(res, 200, deviceBuildLinks(responseBuild, remoteBaseUrl));
         }
         if (req.method === "POST" && action === "install-request") {
           const requestedBuild = deviceBuildStore.markInstallRequested(buildId);
-          return json(res, 200, publicDeviceBuild(requestedBuild));
+          return json(res, 200, publicDeviceBuild(
+            pairedMacTokenMatches ? requestedBuild : projectCapability(requestedBuild, responseBuild)
+          ));
         }
         if (req.method === "POST" && action === "verify") {
           const verification = await verifyDeviceBuild(build);
           const verifiedBuild = deviceBuildStore.saveVerification(buildId, verification);
-          return json(res, 200, publicDeviceBuild(verifiedBuild));
+          return json(res, 200, publicDeviceBuild(
+            pairedMacTokenMatches ? verifiedBuild : projectCapability(verifiedBuild, responseBuild)
+          ));
         }
       }
 
@@ -516,22 +543,22 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         const [, buildId, artifact] = deviceArtifactMatch;
         const build = deviceBuildStore.get(buildId);
         if (!build) return notFound(res, "Unknown device build.");
-        if (!tokenMatches(build, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        if (deviceBuildExpired(build)) {
+        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
+        if (!capabilityBuild) return unauthorized(res);
+        if (deviceBuildExpired(capabilityBuild)) {
           return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
         }
         if (build.state !== "ready") {
           return badRequest(res, 409, "Device build is not ready yet.");
         }
-        const remoteBaseUrl = build.remoteBaseUrl || `${url.protocol}//${url.host}`;
+        const remoteBaseUrl = capabilityBuild.remoteBaseUrl || `${url.protocol}//${url.host}`;
         if (artifact === "manifest") {
-          return text(res, 200, buildManifest(build, remoteBaseUrl), "text/xml; charset=utf-8");
+          return text(res, 200, buildManifest(capabilityBuild, remoteBaseUrl), "text/xml; charset=utf-8");
         }
         return serveFile(res, build.artifacts.ipaPath, {
           contentType: "application/octet-stream",
           filename: `${build.app.name || build.scheme || "App"}.ipa`,
+          notFound,
         });
       }
 
@@ -677,20 +704,18 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       }
 
       const deviceWebMatch = url.pathname.match(/^\/d\/([^/]+)$/);
-      if (deviceWebMatch) {
+      if (deviceWebMatch && req.method === "GET") {
         const build = deviceBuildStore.get(deviceWebMatch[1]);
         if (!build) return notFound(res, "Unknown device build.");
-        if (!tokenMatches(build, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        if (deviceBuildExpired(build)) {
+        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
+        if (!capabilityBuild) return unauthorized(res);
+        if (deviceBuildExpired(capabilityBuild)) {
           return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
         }
-        if (!build.remoteBaseUrl) {
-          build.remoteBaseUrl = `${url.protocol}//${url.host}`;
-          deviceBuildStore.save(build);
-        }
-        return text(res, 200, deviceBuildFallbackHtml(build), "text/html; charset=utf-8", {
+        const responseBuild = capabilityBuild.remoteBaseUrl
+          ? capabilityBuild
+          : { ...capabilityBuild, remoteBaseUrl: `${url.protocol}//${url.host}` };
+        return text(res, 200, deviceBuildFallbackHtml(responseBuild), "text/html; charset=utf-8", {
           "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
           "referrer-policy": "no-referrer",
           "x-content-type-options": "nosniff",
@@ -708,6 +733,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           token,
           base,
           macName: pairing.macName,
+          installationID: pairing.installationID,
         }), "text/html; charset=utf-8", {
           "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
           "referrer-policy": "no-referrer",
@@ -720,6 +746,10 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       const status = error instanceof ServeSimError ? 502 : 400;
       return badRequest(res, status, error instanceof Error ? error.message : String(error));
     }
+  });
+  server.on("connection", (socket) => {
+    activeSockets.add(socket);
+    socket.once("close", () => activeSockets.delete(socket));
   });
 
   await new Promise((resolve, reject) => {
@@ -736,25 +766,62 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     });
   });
 
+  const scheduleReconciliation = () => {
+    void reconcileRequestedDeviceBuilds().catch((error) => {
+      console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  };
   let reconciliationTimer;
+  let deliveryCleanupTimer;
   if (!deviceBuildsOnly) {
-    void reconcileRequestedDeviceBuilds();
-    reconciliationTimer = setInterval(() => {
-      void reconcileRequestedDeviceBuilds();
-    }, 15_000);
+    scheduleReconciliation();
+    reconciliationTimer = setInterval(scheduleReconciliation, 15_000);
   }
+  deliveryCleanupTimer = setInterval(() => {
+    void drainDeliveryReferenceCleanupJobs();
+  }, 30_000);
+  deliveryCleanupTimer.unref?.();
 
   const keepAlive = setInterval(() => {}, 60 * 60 * 1000);
-  process.once("SIGTERM", () => {
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     if (reconciliationTimer) clearInterval(reconciliationTimer);
+    if (deliveryCleanupTimer) clearInterval(deliveryCleanupTimer);
     clearInterval(keepAlive);
-    server.close(() => process.exit(0));
-  });
-  process.once("SIGINT", () => {
-    if (reconciliationTimer) clearInterval(reconciliationTimer);
-    clearInterval(keepAlive);
-    server.close(() => process.exit(0));
-  });
+    for (const { build } of activeDeviceBuildTasks.values()) {
+      requestDeviceBuildCancellation(build, "Swift Sim helper is shutting down.");
+    }
+    server.closeIdleConnections?.();
+    let serverClosed = false;
+    let sessionsStopped = false;
+    const maybeExit = () => {
+      if (serverClosed && sessionsStopped) process.exit(0);
+    };
+    server.close(() => {
+      serverClosed = true;
+      maybeExit();
+    });
+    const sessions = typeof store.list === "function" ? store.list() : [];
+    const buildTasks = [...activeDeviceBuildTasks.values()].map(({ promise }) => promise);
+    void Promise.allSettled([
+      ...sessions.map((session) => stopSession(session.id)),
+      ...buildTasks,
+    ]).finally(() => {
+      sessionsStopped = true;
+      maybeExit();
+    });
+    const closeTimer = setTimeout(() => {
+      for (const socket of activeSockets) socket.destroy();
+      server.closeAllConnections?.();
+    }, 1_000);
+    closeTimer.unref?.();
+    const forceTimer = setTimeout(() => process.exit(1), 8_000);
+    forceTimer.unref?.();
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
   await new Promise(() => {});
 }
 
@@ -766,18 +833,34 @@ async function reconcileRequestedDeviceBuilds() {
   try {
     const requested = deviceBuildStore.list().filter((build) =>
       build.state === "ready"
-      && build.installation?.state === "requested"
+      && installationVerificationIsActive(build.installation)
       && build.app?.bundleIdentifier
     );
     for (const build of requested) {
-      const verification = await verifyDeviceBuild(build);
-      if (verification.state === "verified") {
+      try {
+        const verification = await verifyDeviceBuild(build);
         deviceBuildStore.saveVerification(build.id, verification);
+      } catch (error) {
+        deviceBuildStore.saveVerification(build.id, {
+          state: "unknown",
+          verifiedAt: new Date().toISOString(),
+          devices: [],
+          detail: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   } finally {
     deviceReconciliationRunning = false;
   }
+}
+
+function installationVerificationIsActive(installation = {}) {
+  const state = installation.state || "unknown";
+  if (!["requested", "not-installed", "different-version"].includes(state)) return false;
+  const deadline = Date.parse(installation.verificationDeadlineAt || "");
+  if (Number.isFinite(deadline)) return deadline > Date.now();
+  const requestedAt = Date.parse(installation.requestedAt || "");
+  return Number.isFinite(requestedAt) && requestedAt + 15 * 60 * 1000 > Date.now();
 }
 
 function verifyDeviceBuild(build) {
@@ -1178,8 +1261,11 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
     project: input.project || "",
     scheme: input.scheme || "",
     simulatorUDID,
+    transport: transportPreference,
   });
-  if (existing && existing.stream.state === "running" && transportMatches(existing, transportPreference)) {
+  if (existing
+      && existing.stream.state === "running"
+      && sessionTransportMatches(existing.stream.transport, transportPreference)) {
     existing.remoteBaseUrl = input["remote-base-url"] || existing.remoteBaseUrl;
     existing.updatedAt = new Date().toISOString();
     store.save(existing);
@@ -1192,32 +1278,46 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
     simulatorUDID,
     token: randomBytes(24).toString("base64url"),
     remoteBaseUrl: input["remote-base-url"] || "",
-    transport: resolveTransportPreference(transportPreference),
+    transport: resolvedSessionTransport(transportPreference),
   });
   session.logs.push(`starting ${session.stream.transport} transport for ${simulatorUDID}`);
 
   let transport = transportForSession(session);
   let stream;
   try {
-    stream = await transport.start({
-      simulatorUDID,
-      port: input.port ? Number(input.port) : undefined,
-    });
-  } catch (error) {
-    if (transportPreference !== "auto" || session.stream.transport !== "native-companion") {
-      throw error;
+    try {
+      stream = await transport.start({
+        simulatorUDID,
+        port: input.port ? Number(input.port) : undefined,
+      });
+    } catch (error) {
+      if (transportPreference !== "auto" || session.stream.transport !== "native-companion") {
+        throw error;
+      }
+      session.logs.push(`native companion unavailable; using serve-sim fallback: ${error instanceof Error ? error.message : String(error)}`);
+      session.stream.transport = "serve-sim";
+      transport = transportForSession(session);
+      stream = await transport.start({
+        simulatorUDID,
+        port: input.port ? Number(input.port) : undefined,
+      });
     }
-    session.logs.push(`native companion unavailable; using serve-sim fallback: ${error instanceof Error ? error.message : String(error)}`);
-    session.stream.transport = "serve-sim";
-    transport = transportForSession(session);
-    stream = await transport.start({
-      simulatorUDID,
-      port: input.port ? Number(input.port) : undefined,
-    });
+  } catch (error) {
+    session.stream.state = "failed";
+    session.logs.push(`session start failed: ${error instanceof Error ? error.message : String(error)}`);
+    try { store.save(session); } catch {}
+    throw error;
   }
+
   session.stream = publicStream(stream);
   session.logs.push(...(stream.logs || []));
-  store.save(session);
+  try {
+    store.save(session);
+  } catch (error) {
+    try { await transport.stop(session); } catch {}
+    closeInputChannel(session);
+    throw error;
+  }
   return includeCodexMetadata ? codexSession(session) : publicSession(session);
 }
 
@@ -1230,19 +1330,6 @@ async function stopSession(sessionId) {
   session.stream.state = "stopped";
   session.updatedAt = new Date().toISOString();
   store.save(session);
-}
-
-function transportMatches(session, preference) {
-  const resolved = resolveTransportPreference(preference);
-  return (session.stream.transport || "serve-sim") === resolved;
-}
-
-function resolveTransportPreference(preference = "auto") {
-  if (preference === "auto") {
-    return process.env.SWIFT_SIM_DISABLE_NATIVE_TRANSPORT === "1" ? "serve-sim" : "native-companion";
-  }
-  if (transports[preference]) return preference;
-  throw new Error(`Unknown transport: ${preference}`);
 }
 
 function transportForSession(session) {
@@ -1599,68 +1686,67 @@ async function createDeviceBuild(values) {
 }
 
 async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
+  let startedGeneration = "";
+  let deliveryReferenceID = "";
   try {
-    const ttlMinutes = normalizeDeviceBuildTTLMinutes(build.ttlMinutes);
-    build.ttlMinutes = ttlMinutes;
+    ensureBuildNotCancelled(build);
+    const ttlMinutes = normalizeDeviceBuildTTLMinutes(build.installTTLMinutes);
     if (build.remoteBaseUrl || build.delivery?.mode === "custom") {
-      build.expiresAt = deviceBuildExpiryDate(ttlMinutes);
+      build.expiresAt = buildCapabilityExpiresAt({ ttlMinutes });
       build.delivery = {
         mode: "custom",
         provider: "user-configured",
         expiresAt: build.expiresAt,
       };
+      build.state = "ready";
+      ensureBuildNotCancelled(build);
       deviceBuildStore.save(build);
       return build;
     }
 
-    const delivery = await deviceDelivery.ensure({ ttlMinutes });
+    deliveryReferenceID = build.pendingRenewal?.id
+      ? `renewal:${build.pendingRenewal.id}`
+      : build.delivery?.referenceID || `build:${build.id}`;
+    const delivery = await deviceDelivery.ensure({
+      ttlMinutes,
+      cancelPath: build.control?.cancelPath || "",
+      referenceID: deliveryReferenceID,
+    });
+    startedGeneration = delivery.generation || "";
+    ensureBuildNotCancelled(build);
+    build.expiresAt = buildCapabilityExpiresAt({
+      ttlMinutes,
+      deliveryExpiresAt: delivery.expiresAt,
+    });
     build.remoteBaseUrl = delivery.publicBaseUrl;
-    build.expiresAt = delivery.expiresAt;
     build.delivery = {
       mode: "quick-tunnel",
       provider: delivery.provider,
       expiresAt: delivery.expiresAt,
+      generation: delivery.generation || "",
+      referenceID: deliveryReferenceID,
     };
+    build.state = "ready";
     build.logs.push("Temporary HTTPS install link is ready. Tailscale is not required.");
     deviceBuildStore.save(build);
     return build;
   } catch (error) {
+    if (startedGeneration && deliveryReferenceID) {
+      try { deviceDelivery.stopGeneration(startedGeneration, { referenceID: deliveryReferenceID }); } catch {}
+    }
+    if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
     if (markBuildFailed) build.state = "failed";
     build.logs.push(error instanceof Error ? error.message : String(error));
-    deviceBuildStore.save(build);
+    try { deviceBuildStore.save(build); } catch {}
     throw error;
   }
 }
 
-async function runDeviceBuildAndPrepareDelivery(build) {
-  await runDeviceBuild(build, {
-    save: (next) => deviceBuildStore.save(next),
-    nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
-  });
-  build.state = "delivering";
-  build.logs.push("Creating temporary install link.");
-  deviceBuildStore.save(build);
-  await prepareDeviceDelivery(build);
-  build.state = "ready";
-  build.logs.push("Install link is ready.");
-  deviceBuildStore.save(build);
-  return build;
-}
-
-function serveFile(res, path, { contentType, filename }) {
-  if (!path || !existsSync(path)) {
-    return notFound(res, "Artifact is unavailable.");
-  }
-  const stat = statSync(path);
-  res.writeHead(200, {
-    "content-type": contentType,
-    "content-length": stat.size,
-    "content-disposition": `attachment; filename="${String(filename || "download").replaceAll("\"", "")}"`,
-    "cache-control": "private, no-store",
-    "referrer-policy": "no-referrer",
-    "x-content-type-options": "nosniff",
-  });
-  createReadStream(path).pipe(res);
+function ensureBuildNotCancelled(build) {
+  if (!build.control?.cancelPath || !existsSync(build.control.cancelPath)) return;
+  const error = new Error("Device build was cancelled while delivery was starting.");
+  error.code = "SWIFT_SIM_BUILD_CANCELLED";
+  throw error;
 }
 
 function required(value, name) {
@@ -1668,6 +1754,129 @@ function required(value, name) {
     throw new Error(`Missing required ${name}.`);
   }
   return value;
+}
+
+function buildForCapabilityToken(build, token) {
+  if (!token) return null;
+  if (secretsMatch(build.token, token)) return build;
+  const capability = (Array.isArray(build.capabilities) ? build.capabilities : [])
+    .find((candidate) => secretsMatch(candidate?.token, token));
+  return capability ? projectCapability(build, capability) : null;
+}
+
+function projectCapability(build, capability) {
+  return {
+    ...build,
+    token: capability.token,
+    expiresAt: capability.expiresAt,
+    remoteBaseUrl: capability.remoteBaseUrl || "",
+    delivery: capability.delivery ? structuredClone(capability.delivery) : null,
+    installTTLMinutes: capability.installTTLMinutes || build.installTTLMinutes,
+  };
+}
+
+function secretsMatch(expectedValue, actualValue) {
+  if (!expectedValue || !actualValue) return false;
+  const expected = Buffer.from(String(expectedValue));
+  const actual = Buffer.from(String(actualValue));
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+async function drainDeliveryReferenceCleanupJobs() {
+  if (deliveryReferenceCleanupRunning) return;
+  deliveryReferenceCleanupRunning = true;
+  try {
+    for (const job of deviceBuildStore.listDeliveryReferenceCleanupJobs()) {
+      const dueAt = Date.parse(job.nextAttemptAt || job.createdAt || "");
+      if (Number.isFinite(dueAt) && dueAt > Date.now()) continue;
+      try {
+        const released = deviceDelivery.stopGeneration(job.generation, { referenceID: job.referenceID });
+        if (!released) throw new Error("Delivery generation is still referenced or could not be stopped.");
+        deviceBuildStore.completeDeliveryReferenceCleanupJob(job.id);
+      } catch (error) {
+        deviceBuildStore.failDeliveryReferenceCleanupJob(job.id, error);
+      }
+    }
+  } finally {
+    deliveryReferenceCleanupRunning = false;
+  }
+}
+
+async function runCLIDeviceBuild(build) {
+  const interrupt = () => requestDeviceBuildCancellation(build, "Swift Sim device build was interrupted.");
+  process.once("SIGTERM", interrupt);
+  process.once("SIGINT", interrupt);
+  try {
+    await runDeviceBuild(build, {
+      save: (next) => deviceBuildStore.save(next),
+      nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
+    });
+    build.state = "delivering";
+    build.logs.push("Creating temporary install link.");
+    deviceBuildStore.save(build);
+    await prepareDeviceDelivery(build);
+    build.logs.push("Install link is ready.");
+    deviceBuildStore.save(build);
+  } finally {
+    process.off("SIGTERM", interrupt);
+    process.off("SIGINT", interrupt);
+  }
+}
+
+function trackDeviceBuildTask(key, build, operation) {
+  const promise = Promise.resolve(operation).finally(() => {
+    activeDeviceBuildTasks.delete(key);
+  });
+  activeDeviceBuildTasks.set(key, { build, promise });
+  return promise;
+}
+
+function startManagedDeviceBuild(build) {
+  const operation = runDeviceBuild(build, {
+    save: (next) => deviceBuildStore.save(next),
+    nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
+  })
+    .then(() => {
+      build.state = "delivering";
+      build.logs.push("Creating temporary install link.");
+      deviceBuildStore.save(build);
+      return prepareDeviceDelivery(build).then((readyBuild) => {
+        readyBuild.logs.push("Install link is ready.");
+        deviceBuildStore.save(readyBuild);
+        return readyBuild;
+      });
+    })
+    .catch((error) => {
+      if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") {
+        build.state = "failed";
+        build.logs = Array.isArray(build.logs) ? build.logs : [];
+        build.logs.push("Build was interrupted before completion.");
+        try { deviceBuildStore.save(build); } catch {}
+      }
+    });
+  return trackDeviceBuildTask(`build:${build.id}`, build, operation);
+}
+
+async function recoverInterruptedDeviceBuilds() {
+  const activeStates = new Set(["validating", "preparing", "archiving", "building", "exporting", "delivering"]);
+  for (const build of deviceBuildStore.list().filter((candidate) => activeStates.has(candidate.state))) {
+    requestDeviceBuildCancellation(build, "Recovering an interrupted Swift Sim helper run.");
+    const terminated = await terminateRecordedDeviceBuildWorker(build);
+    for (const delivery of deviceDelivery.statuses()) {
+      for (const referenceID of delivery.references || []) {
+        if (referenceID === `build:${build.id}`
+            || referenceID === `renewal:${build.pendingRenewal?.id || ""}`) {
+          try { deviceDelivery.stopGeneration(delivery.generation, { referenceID }); } catch {}
+        }
+      }
+    }
+    build.state = "failed";
+    build.logs = Array.isArray(build.logs) ? build.logs : [];
+    build.logs.push(terminated
+      ? "A previous helper run ended during this build. Start a new build to continue."
+      : "A previous helper run ended during this build, and its worker could not be safely confirmed stopped.");
+    try { deviceBuildStore.save(build); } catch {}
+  }
 }
 
 function ensureToken(session, token) {
@@ -1681,10 +1890,7 @@ function pairingTokenMatches(req, url) {
 }
 
 function tokenMatches(session, token) {
-  if (!token || !session.token) return false;
-  const expected = Buffer.from(String(session.token));
-  const actual = Buffer.from(String(token));
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  return secretsMatch(session?.token, token);
 }
 
 function deviceBuildExpired(build) {
@@ -1731,8 +1937,8 @@ function sessionFallbackHtml(session) {
 </html>`;
 }
 
-function pairingFallbackHtml({ token, base, macName }) {
-  const customScheme = buildPairingLinks({ token, macName }, base).customScheme;
+function pairingFallbackHtml({ token, base, macName, installationID }) {
+  const customScheme = buildPairingLinks({ token, macName, installationID }, base).customScheme;
   const customSchemeScript = JSON.stringify(customScheme);
   return `<!doctype html>
 <html>

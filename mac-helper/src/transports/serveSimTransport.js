@@ -1,3 +1,9 @@
+import {
+  restartSimulatorRuntime,
+  startSimulatorRuntime,
+  stopSimulatorRuntime,
+} from "../simulatorLifecycle.js";
+
 export class ServeSimTransport {
   constructor({ adapter }) {
     this.id = "serve-sim";
@@ -23,6 +29,34 @@ export class ServeSimTransport {
   }
 
   async start({ simulatorUDID, port }) {
+    return startSimulatorRuntime({
+      simulatorUDID,
+      recover: () => this.adapter.kill(simulatorUDID),
+      operation: () => this.startUnlocked({ simulatorUDID, port }),
+    });
+  }
+
+  async restart(session) {
+    return restartSimulatorRuntime({
+      session,
+      operation: async () => {
+        await this.adapter.kill(session.simulatorUDID);
+        return this.startUnlocked({
+          simulatorUDID: session.simulatorUDID,
+          port: session.stream.port,
+        });
+      },
+    });
+  }
+
+  async stop(session) {
+    return stopSimulatorRuntime({
+      session,
+      operation: () => this.adapter.kill(session.simulatorUDID),
+    });
+  }
+
+  async startUnlocked({ simulatorUDID, port }) {
     const result = await this.adapter.start({ simulatorUDID, port });
     return {
       state: "running",
@@ -39,17 +73,5 @@ export class ServeSimTransport {
       ],
       logs: result.logs,
     };
-  }
-
-  async restart(session) {
-    await this.adapter.kill(session.simulatorUDID);
-    return this.start({
-      simulatorUDID: session.simulatorUDID,
-      port: session.stream.port,
-    });
-  }
-
-  async stop(session) {
-    await this.adapter.kill(session.simulatorUDID);
   }
 }

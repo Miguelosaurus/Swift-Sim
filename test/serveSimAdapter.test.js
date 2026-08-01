@@ -76,15 +76,19 @@ test("companion links use opaque id and token", () => {
   assert.ok(!links.universalLink.includes("UDID"));
 });
 
-test("pairing links use helper token without session internals", () => {
+test("pairing links carry helper identity without session internals", () => {
   const links = buildPairingLinks({
     token: "pair-token",
     macName: "Example Mac",
+    installationID: "mac-id",
   }, "https://mac.example.ts.net/");
-  assert.equal(links.universalLink, "https://mac.example.ts.net/pair?token=pair-token");
+  assert.equal(
+    links.universalLink,
+    "https://mac.example.ts.net/pair?token=pair-token&macID=mac-id&base=https%3A%2F%2Fmac.example.ts.net",
+  );
   assert.equal(
     links.customScheme,
-    "swift-sim://pair?token=pair-token&base=https%3A%2F%2Fmac.example.ts.net&name=Example%20Mac"
+    "swift-sim://pair?token=pair-token&macID=mac-id&base=https%3A%2F%2Fmac.example.ts.net&name=Example%20Mac",
   );
   assert.ok(!links.universalLink.includes("UDID"));
 });
@@ -189,6 +193,7 @@ test("codex session prefers the dedicated MJPEG preview for native sessions", ()
 });
 
 test("native companion wraps serve-sim AVCC without changing its adapter contract", async () => {
+  const runtimeRootPath = mkdtempSync(join(tmpdir(), "swift-sim-native-runtime-"));
   const adapter = {
     async inspect() {
       return { version: "0.1.41" };
@@ -204,26 +209,36 @@ test("native companion wraps serve-sim AVCC without changing its adapter contrac
       };
     },
   };
-  const transport = new NativeCompanionTransport({ adapter });
-  const stream = await transport.start({ simulatorUDID: "SIM-1" });
-  assert.equal(stream.localUrl, "http://127.0.0.1:3100/stream.avcc");
-  assert.equal(stream.previewUrl, "http://127.0.0.1:3100/stream.mjpeg");
-  assert.equal(stream.transport, "native-companion");
-  assert.equal(stream.quality, "native-h264");
+  try {
+    const transport = new NativeCompanionTransport({ adapter, runtimeRootPath });
+    const stream = await transport.start({ simulatorUDID: "SIM-NATIVE-START" });
+    assert.equal(stream.localUrl, "http://127.0.0.1:3100/stream.avcc");
+    assert.equal(stream.previewUrl, "http://127.0.0.1:3100/stream.mjpeg");
+    assert.equal(stream.transport, "native-companion");
+    assert.equal(stream.quality, "native-h264");
+  } finally {
+    rmSync(runtimeRootPath, { recursive: true, force: true });
+  }
 });
 
 test("native companion rejects serve-sim versions without AVCC", async () => {
+  const runtimeRootPath = mkdtempSync(join(tmpdir(), "swift-sim-native-runtime-"));
   const transport = new NativeCompanionTransport({
+    runtimeRootPath,
     adapter: {
       async inspect() {
         return { version: "0.1.40" };
       },
     },
   });
-  await assert.rejects(
-    transport.start({ simulatorUDID: "SIM-1" }),
-    /upgrade to 0\.1\.41 or newer/,
-  );
+  try {
+    await assert.rejects(
+      transport.start({ simulatorUDID: "SIM-NATIVE-UNAVAILABLE" }),
+      /upgrade to 0\.1\.41 or newer/,
+    );
+  } finally {
+    rmSync(runtimeRootPath, { recursive: true, force: true });
+  }
 });
 
 test("simulator profile resolver serves the CoreSimulator framebuffer mask", () => {

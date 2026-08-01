@@ -14,12 +14,12 @@
     "url": "https://github.com/Miguelosaurus/Swift-Sim/issues"
   },
   "bin": {
-    "swift-sim": "./mac-helper/bin/swift-sim.js",
-    "swift-sim-helper": "./mac-helper/bin/swift-sim-helper.js"
+    "swift-sim": "./mac-helper/bin/swift-sim-entry.js",
+    "swift-sim-helper": "./mac-helper/bin/swift-sim-helper-entry.js"
   },
   "scripts": {
-    "start": "node mac-helper/bin/swift-sim.js serve",
-    "check": "node --check mac-helper/bin/swift-sim.js && node --check mac-helper/bin/swift-sim-helper.js && node --check mac-helper/bin/swift-sim-device-delivery.js && npm run check:docs && npm test",
+    "start": "node mac-helper/bin/swift-sim-entry.js serve",
+    "check": "node scripts/check-js-syntax.js && npm run check:docs && npm test",
     "check:docs": "node scripts/verify-docs.js",
     "test": "node --test test/*.test.js benchmarks/test/*.test.js",
     "test:benchmarks": "node --test benchmarks/test/*.test.js",

@@ -55,12 +55,13 @@ export function buildCompanionLinks(session, remoteBaseUrl = "") {
 export function buildPairingLinks(pairing, remoteBaseUrl = "") {
   const base = normalizeBaseUrl(remoteBaseUrl);
   const name = pairing.macName ? `&name=${encodeURIComponent(pairing.macName)}` : "";
+  const macID = encodeURIComponent(pairing.installationID || "");
   const universalLink = base
-    ? `${base}/pair?token=${encodeURIComponent(pairing.token)}`
+    ? `${base}/pair?token=${encodeURIComponent(pairing.token)}&macID=${macID}&base=${encodeURIComponent(base)}`
     : "";
   return {
     universalLink,
-    customScheme: `swift-sim://pair?token=${encodeURIComponent(pairing.token)}${base ? `&base=${encodeURIComponent(base)}` : ""}${name}`,
+    customScheme: `swift-sim://pair?token=${encodeURIComponent(pairing.token)}&macID=${macID}${base ? `&base=${encodeURIComponent(base)}` : ""}${name}`,
   };
 }
 
