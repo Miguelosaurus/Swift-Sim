@@ -58,11 +58,17 @@ export function commandDeadline(command, args = [], options = {}) {
   return DEFAULT_FALLBACK_DEADLINE_MS;
 }
 
+export function synchronousCommandUsesProcessGroup(options = {}) {
+  if (options.detached === true) return true;
+  if (options.detached === false) return false;
+  return !inheritsStdio(options.stdio);
+}
+
 installCommandDeadlinePreload();
 
 function boundedCommandOptions(options, timeout) {
   if (!(timeout > 0)) return { options, processGrouped: false };
-  const processGrouped = options.detached !== false;
+  const processGrouped = synchronousCommandUsesProcessGroup(options);
   return {
     processGrouped,
     options: {
@@ -72,6 +78,12 @@ function boundedCommandOptions(options, timeout) {
       killSignal: options.killSignal || "SIGKILL",
     },
   };
+}
+
+function inheritsStdio(stdio) {
+  if (stdio === "inherit") return true;
+  if (!Array.isArray(stdio)) return false;
+  return stdio.some((entry, index) => entry === "inherit" || entry === index);
 }
 
 function terminateProcessGroup(pid) {
