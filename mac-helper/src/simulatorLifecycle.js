@@ -140,6 +140,11 @@ export function simulatorSessionRuntimeSnapshot(session, { rootPath } = {}) {
   if (runtime.status === "running" && startClaimOwnsRuntime(session, runtime, { rootPath })) {
     return { disposition: "claimed-running", runtime, projection: claimProjectionFor(session, runtime, { rootPath }) };
   }
+  if (runtime.status === "running"
+      && runtime.claimID
+      && runtime.claimID === sessionClaimID(session)) {
+    return { disposition: "busy", runtime, projection: null };
+  }
   if (runtime.status === "running") return { disposition: "superseded", runtime, projection: null };
   if (runtime.status === "stopped") return { disposition: "stopped", runtime, projection: null };
   if (String(runtime.status).startsWith("failed-")) return { disposition: "failed", runtime, projection: null };
@@ -245,7 +250,7 @@ function readCurrentSessionOwners(storeID) {
 }
 
 function startClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
-  const claimID = String(session?.stream?.raw?.swiftSimLifecycleClaimID || "").trim();
+  const claimID = sessionClaimID(session);
   if (!claimID) return false;
   const claim = readSimulatorClaim(requiredUDID(session.simulatorUDID), claimID, { rootPath });
   return Boolean(claim
@@ -402,6 +407,10 @@ function ownershipSessionProjection(session) {
       },
     },
   };
+}
+
+function sessionClaimID(session) {
+  return String(session?.stream?.raw?.swiftSimLifecycleClaimID || "").trim();
 }
 
 function sessionNonce(session) {
