@@ -69,13 +69,19 @@ export class SessionStore extends BaseSessionStore {
       if (scheme !== null && session.scheme !== scheme) continue;
       const snapshot = safeRuntimeSnapshot(session);
       if (!snapshot || ["busy", "unreadable"].includes(snapshot.disposition)) continue;
+      if (session.stream?.state === "running" && snapshot.disposition === "owned-running") {
+        // The durable session already contains the complete stream projection.
+        // Runtime state intentionally contains only a minimal public projection,
+        // so re-promoting an exact owner would erase its URLs and controls.
+        continue;
+      }
       if (["starting", "running"].includes(session.stream?.state)
-          && ["owned-running", "handoff-running", "claimed-running"].includes(snapshot.disposition)) {
+          && ["handoff-running", "claimed-running"].includes(snapshot.disposition)) {
         if (snapshot.projection) this.promoteSession(session, snapshot);
         continue;
       }
       if (session.stream?.state === "running"
-          && ["stopped", "failed", "missing", "superseded"].includes(snapshot.disposition)) {
+          && ["stopped", "failed", "superseded"].includes(snapshot.disposition)) {
         this.retireSession(session, snapshot.disposition);
         continue;
       }
