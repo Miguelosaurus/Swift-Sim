@@ -15,13 +15,13 @@ Review scope:
 ## Active findings
 
 - Live-engine process identity and detached process-group ownership.
-- Cross-process serialization of global live-engine replacement.
-- Structural Swift attribute arguments, availability conditions, and conditional compilation misclassified as live-safe.
+- Cross-process serialization of global live-engine inspection and replacement.
+- Structural Swift attribute arguments, wrapper association, availability conditions, and conditional compilation misclassified as live-safe.
 - Workspace signing container selection.
 - Delivery-reference cleanup blocking helper startup.
-- Persisted artifact cleanup path containment.
+- Persisted artifact cleanup path and build-ID containment.
 - Forwarded pairing-origin trust.
 - Paired-Mac rebuild authority and stale response fencing.
 - Simulator, pairing-attempt, and connection-diagnostic stale response fencing.
 
-The explicit self-removing Python transformation run applies the large-file fixes and commits only after the complete Node/release check succeeds.
+The first self-removing transformation passed the complete Node/release check before committing. The explicit follow-up run closes residual classifier and lifecycle-lock findings before exact-head full validation.
