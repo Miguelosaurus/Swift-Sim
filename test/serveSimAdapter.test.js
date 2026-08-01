@@ -208,7 +208,7 @@ test("native companion wraps serve-sim AVCC without changing its adapter contrac
     },
   };
   const transport = new NativeCompanionTransport({ adapter });
-  const stream = await transport.start({ simulatorUDID: "SIM-1" });
+  const stream = await transport.start({ simulatorUDID: "SIM-NATIVE-START" });
   assert.equal(stream.localUrl, "http://127.0.0.1:3100/stream.avcc");
   assert.equal(stream.previewUrl, "http://127.0.0.1:3100/stream.mjpeg");
   assert.equal(stream.transport, "native-companion");
@@ -224,7 +224,7 @@ test("native companion rejects serve-sim versions without AVCC", async () => {
     },
   });
   await assert.rejects(
-    transport.start({ simulatorUDID: "SIM-1" }),
+    transport.start({ simulatorUDID: "SIM-NATIVE-UNAVAILABLE" }),
     /upgrade to 0\.1\.41 or newer/,
   );
 });
