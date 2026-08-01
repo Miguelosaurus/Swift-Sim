@@ -2,7 +2,7 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `2eed0b004d8740d617314becf21f5018146fed58`
+Final code candidate before this ledger commit: `c06ed3d771cfbd77f4b7770938dad4c4f84ec796`
 
 This staging branch reviews the fully synchronized merge of the previous local main work with hardening head `5afa7728bb22d3ff6e54512615d988a9c7a85240`.
 
@@ -11,8 +11,8 @@ This staging branch reviews the fully synchronized merge of the previous local m
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 12 | 12 | 0 |
-| P2 | 6 | 6 | 0 |
+| P1 | 14 | 14 | 0 |
+| P2 | 7 | 7 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## Resolved P1 findings
@@ -29,15 +29,18 @@ This staging branch reviews the fully synchronized merge of the previous local m
 10. Default production patch injection could race a concurrent engine replacement between queueing and completion polling. Production injection now holds the lifecycle lock; injected test transports retain their isolated path.
 11. A contender that died after creating `reclaim.json` could permanently block all future live-engine lifecycle operations. Dead valid claims and sufficiently old malformed claims are now atomically quarantined, re-verified after rename, and removed only when they are still the exact abandoned file.
 12. Multiline runtime `#available` and `#unavailable` expressions could evade the single-line structural matcher and be sent down the hot-reload lane. Runtime availability conditions now use balanced multiline scanning that preserves the original condition text and fails closed on an unterminated expression.
+13. A creator suspended between lock-directory creation and owner publication could later recursively delete a replacement owner's lock. Failed-creator cleanup is now tied to the exact observed device/inode and uses atomic quarantine before removal.
+14. A workspace build setting with `EXPANDED_CODE_SIGN_IDENTITY` returned one 40-character hash as an iterable string, causing one-character signing probes. Expanded identities now remain a one-element candidate array.
 
 ## Resolved P2 findings
 
 1. Durable delivery-reference cleanup ran synchronously before the helper began listening, so a valid backlog could delay availability for minutes. Startup now listens first and drains the durable queue asynchronously.
 2. Build Current Code accepted success and failure responses after the paired Mac changed. Both paths are fenced by pairing revision and exact Mac identity.
 3. Simulator status and log requests could mutate shared UI state after the user opened, reopened, or closed a different session. Success and failure paths now require the exact simulator-view revision and session.
-4. Concurrent pairing attempts could complete out of order and let an older request replace a newer Mac. Pairing attempts now have their own generation fence.
+4. Concurrent pairing attempts could complete out of order and let an older request replace the newer Mac. Pairing attempts now have their own generation fence.
 5. Connection diagnostics could rename or mark a replacement Mac online, or overwrite a changed Simulator view, using stale responses. Diagnostics now snapshot and validate both pairing and view revisions.
 6. An ownerless stale lifecycle lock became young again when its reclaim claim updated the directory mtime. Reclamation now preserves the pre-claim stale observation and verifies the same directory by device/inode identity.
+7. The matching live start, Xcode build, and compilation registration were separately locked, allowing another project to replace the engine generation during compilation. The complete live-enabled build workflow now holds one lifecycle lease from start through registration and packaging.
 
 ## Regression coverage
 
@@ -47,23 +50,21 @@ Focused coverage now includes:
 - cross-process lifecycle serialization and stale-owner reclamation;
 - ownerless stale-lock reclamation after the claim file changes directory mtime;
 - abandoned valid and malformed reclaim-claim recovery;
+- replacement-lock preservation and exact ownerless-directory cleanup;
 - nested, multiline, string-valued, and declaration-associated Swift attributes;
 - compiler-condition, multiline `#available`, and multiline `#unavailable` rebuild controls;
-- workspace project-reference parsing, scheme selection, Xcode container arguments, and root resolution;
+- workspace project-reference parsing, scheme selection, Xcode container arguments, root resolution, and expanded signing identity normalization;
+- complete live start → build → registration lifecycle-lease ordering;
 - helper startup ordering and persistent cleanup containment;
 - paired-Mac rebuild authority and stale response fences;
 - Simulator, pairing-attempt, and connection-diagnostics revision fences;
-- lifecycle locking for live compilation registration and production patch injection.
+- lifecycle locking for production patch injection.
 
 ## Validation policy
 
-Code head `2eed0b004d8740d617314becf21f5018146fed58` contains the final runtime-availability fix and focused regressions. This connector-authored ledger commit is the exact-head validation and review trigger. Merge readiness requires the resulting head to pass GitHub Verify in full:
+Code head `c06ed3d771cfbd77f4b7770938dad4c4f84ec796` passed the complete Node/release, workflow-YAML, and shell-syntax gates in the transformation run. Its iOS stage was canceled only when the clean candidate push superseded that temporary run.
 
-- JavaScript syntax, documentation, and complete Node/release test suite;
-- workflow YAML and release-shell syntax;
-- iOS companion tests.
-
-The remaining multiline-runtime-availability Codex thread must be answered and resolved, followed by one final clean exact-head Codex review.
+This connector-authored ledger commit is the exact-head validation and review trigger. Merge readiness requires the resulting head to pass GitHub Verify in full, including iOS companion tests. All remaining Codex threads must then be answered and resolved, followed by one clean exact-head Codex review.
 
 ## Remaining external release gates
 
