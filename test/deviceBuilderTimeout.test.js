@@ -178,16 +178,14 @@ test("buffered process output preserves UTF-8 split across chunks", async () => 
   assert.deepEqual(lines, ["Café 🚀"]);
 });
 
-test("restart recovery rejects an active build without a durable worker journal", async () => {
+test("restart recovery accepts an absent journal before an owned worker is released", async () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-worker-journal-test-"));
   try {
-    await assert.rejects(
-      terminateRecordedDeviceBuildWorkerFailClosed({
-        id: "missing-worker-build",
-        control: { cancelPath: join(directory, ".cancelled") },
-      }),
-      (error) => error?.code === "SWIFT_SIM_UNSAFE_BUILD_RECOVERY"
-    );
+    const terminated = await terminateRecordedDeviceBuildWorkerFailClosed({
+      id: "missing-worker-build",
+      control: { cancelPath: join(directory, ".cancelled") },
+    });
+    assert.equal(terminated, false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
