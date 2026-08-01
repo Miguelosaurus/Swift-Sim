@@ -174,7 +174,6 @@ test("engine-mutating live operations hold the lifecycle lock", () => {
   ));
 });
 
-
 test("multiline runtime availability changes require a rebuild", () => {
   const before = `func value() -> Int {
   if #available(
@@ -202,7 +201,6 @@ test("multiline runtime unavailability changes require a rebuild", () => {
   assert.equal(result.hotReloadable, false);
   assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
 });
-
 
 test("expanded signing identity remains one candidate", () => {
   const identity = "A".repeat(40);
@@ -257,14 +255,21 @@ test("device live build uses the complete lifecycle lease", () => {
   assert.doesNotMatch(source, /await registerLiveBuildResult\(/);
 });
 
-
 test("production live routing holds one lifecycle lease", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
-  assert.match(source, /if \(!injectedLifecycle && runtime\.lifecycleLocked !== true\) \{
-    return withLiveEngineLifecycleLock/);
-  assert.match(source, /runtime\.lifecycleLocked
-    \? \(\(options\) => inspectLiveReloadUnlocked\(options\)\)/);
-  assert.match(source, /runtime\.lifecycleLocked
-    \? \(\(sourcePath, options = \{\}\) => injectLiveSourceUnlocked/);
-  assert.match(source, /const start = lifecycleLocked \? startLiveReloadUnlocked : startLiveReload/);
+  assert.ok(source.includes(
+    "if (!injectedLifecycle && runtime.lifecycleLocked !== true) {\n"
+      + "    return withLiveEngineLifecycleLock(() => routeLiveEditSet({",
+  ));
+  assert.ok(source.includes(
+    "const inspect = runtime.inspect || (runtime.lifecycleLocked\n"
+      + "    ? ((options) => inspectLiveReloadUnlocked(options))",
+  ));
+  assert.ok(source.includes(
+    "const inject = runtime.inject || (runtime.lifecycleLocked\n"
+      + "    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked",
+  ));
+  assert.ok(source.includes(
+    "const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload;",
+  ));
 });
