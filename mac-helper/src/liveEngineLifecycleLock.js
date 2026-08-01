@@ -65,9 +65,9 @@ function tryAcquire(lockPath) {
     }
     if (error?.code !== "EEXIST") throw error;
     const observedOwner = readOwner(ownerPath);
-    const ownerlessObservation = observedOwner ? null : observeLockDirectory(lockPath);
+    const ownerlessObservation = observedOwner ? null : observePath(lockPath);
     if ((observedOwner && !lockOwnerIsAlive(observedOwner))
-        || (!observedOwner && ownerlessObservation && ownerlessObservationIsStale(ownerlessObservation))) {
+        || (!observedOwner && ownerlessObservation && observationIsStale(ownerlessObservation))) {
       claimAndQuarantineStaleLock(lockPath, observedOwner, ownerlessObservation);
     }
     return null;
@@ -94,7 +94,11 @@ function claimAndQuarantineStaleLock(lockPath, observedOwner, ownerlessObservati
   try {
     writeFileSync(claimPath, JSON.stringify(claim), { mode: 0o600, flag: "wx" });
   } catch (error) {
-    if (error?.code === "EEXIST" || error?.code === "ENOENT") return;
+    if (error?.code === "EEXIST") {
+      quarantineAbandonedReclaimClaim(claimPath);
+      return;
+    }
+    if (error?.code === "ENOENT") return;
     throw error;
   }
 
@@ -103,8 +107,8 @@ function claimAndQuarantineStaleLock(lockPath, observedOwner, ownerlessObservati
     if (observedOwner) {
       if (!sameOwner(currentOwner, observedOwner) || lockOwnerIsAlive(currentOwner)) return;
     } else {
-      const currentObservation = observeLockDirectory(lockPath);
-      if (currentOwner || !sameLockDirectory(currentObservation, ownerlessObservation)) return;
+      const currentObservation = observePath(lockPath);
+      if (currentOwner || !samePath(currentObservation, ownerlessObservation)) return;
     }
 
     const currentClaim = readOwner(claimPath);
@@ -139,6 +143,37 @@ function claimAndQuarantineStaleLock(lockPath, observedOwner, ownerlessObservati
   }
 }
 
+function quarantineAbandonedReclaimClaim(claimPath) {
+  const observedClaim = readOwner(claimPath);
+  const observedPath = observePath(claimPath);
+  if (!observedPath) return false;
+  if (observedClaim) {
+    if (lockOwnerIsAlive(observedClaim)) return false;
+  } else if (!observationIsStale(observedPath)) {
+    return false;
+  }
+
+  const quarantinePath = `${claimPath}.stale.${process.pid}.${randomUUID()}`;
+  try {
+    renameSync(claimPath, quarantinePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+
+  const quarantinedClaim = readOwner(quarantinePath);
+  const quarantinedPath = observePath(quarantinePath);
+  const sameAbandonedClaim = observedClaim
+    ? sameOwner(quarantinedClaim, observedClaim) && !lockOwnerIsAlive(quarantinedClaim)
+    : !quarantinedClaim && samePath(quarantinedPath, observedPath);
+  if (!sameAbandonedClaim) {
+    try { renameSync(quarantinePath, claimPath); } catch {}
+    return false;
+  }
+  try { rmSync(quarantinePath, { force: true }); } catch {}
+  return true;
+}
+
 function readOwner(path) {
   try {
     const value = JSON.parse(readFileSync(path, "utf8"));
@@ -166,7 +201,7 @@ function lockOwnerIsAlive(owner) {
   return processStartedAt(pid) === owner.startedAt;
 }
 
-function observeLockDirectory(path) {
+function observePath(path) {
   try {
     const stat = statSync(path);
     return {
@@ -179,12 +214,12 @@ function observeLockDirectory(path) {
   }
 }
 
-function ownerlessObservationIsStale(observation) {
+function observationIsStale(observation) {
   return Boolean(observation
     && Date.now() - Number(observation.mtimeMs) >= OWNERLESS_LOCK_GRACE_MS);
 }
 
-function sameLockDirectory(left, right) {
+function samePath(left, right) {
   return Boolean(left && right
     && left.device === right.device
     && left.inode === right.inode);
