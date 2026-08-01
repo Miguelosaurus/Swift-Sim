@@ -117,6 +117,14 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
             }
             continue;
           }
+          if (state.status === "failed") {
+            throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${generationLogPath}`);
+          }
+          if (childExited) {
+            throw new DeviceDeliveryError(
+              `Temporary delivery manager exited before delivery became ready. Log: ${generationLogPath}`,
+            );
+          }
           if (state.status === "ready" && state.publicBaseUrl && deliveryProcessesAreOwned(state)) {
             const referenced = addDeliveryGenerationReference(
               generationStatePath,
@@ -125,9 +133,6 @@ export class DeviceDeliveryAdapter extends DeviceDeliveryAdapterCore {
             );
             ready = true;
             return { ...referenced, reused: false };
-          }
-          if (state.status === "failed") {
-            throw new DeviceDeliveryError(state.error || `Temporary delivery tunnel failed. Log: ${generationLogPath}`);
           }
         }
         throw new DeviceDeliveryError(`Temporary delivery tunnel did not become ready. Log: ${generationLogPath}`);
@@ -452,12 +457,14 @@ function cleanupUnclaimedDeliveryGeneration({
   if (state?.generation !== generation) return;
   const outcome = terminateOwnedDelivery(state);
   if (outcome.allExited) {
-    removeGenerationFiles({
-      statePath,
-      logPath,
-      recordPath: generationStatePath,
-      state,
-    });
+    if (state.status !== "failed") {
+      removeGenerationFiles({
+        statePath,
+        logPath,
+        recordPath: generationStatePath,
+        state,
+      });
+    }
   } else {
     persistShutdownOutcome(generationStatePath, state, outcome);
   }
@@ -475,7 +482,7 @@ function persistShutdownOutcome(path, state, outcome) {
   }));
 }
 
-function removeGenerationFiles({ statePath, logPath, recordPath, state }) {
+function removeGenerationFiles({ logPath, recordPath, state }) {
   rmSync(recordPath, { force: true });
   if (state.generation) {
     rmSync(deliveryGenerationLogPath(logPath, state.generation), { force: true });
