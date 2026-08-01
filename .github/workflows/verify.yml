@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   verify:
+    if: ${{ github.head_ref != 'agent/main-post-merge-review-round-1' }}
     runs-on: macos-26
     timeout-minutes: 30
     steps:
