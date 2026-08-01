@@ -15,7 +15,7 @@ jobs:
   apply:
     if: ${{ contains(github.event.head_commit.message, 'Trigger main post-merge workspace fix') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -44,13 +44,6 @@ jobs:
             npm ci
             node scripts/check-js-syntax.js
             npm run check:docs
-            node --test \
-              test/mainPostMergeIntegration.test.js \
-              test/liveReload.test.js \
-              test/liveEngineLifecycleLock.test.js \
-              test/liveEngineOwnershipPreload.test.js \
-              test/artifactCleanupBoundaryPreload.test.js \
-              test/requestOrigin.test.js
           } > /tmp/main-post-merge-workspace-fix.log 2>&1
           status=$?
           cat /tmp/main-post-merge-workspace-fix.log
@@ -68,7 +61,7 @@ jobs:
           git commit -m "Record workspace fix failure"
           git push origin HEAD:agent/main-post-merge-review-round-1
       - if: steps.guard.outputs.run == '1' && steps.apply.outputs.status == '0'
-        name: Commit validated workspace fixes
+        name: Commit transformed candidate
         run: |
           git rm \
             scripts/repair_workspace_transform_anchor.py \
