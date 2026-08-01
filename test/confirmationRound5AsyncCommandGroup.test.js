@@ -13,7 +13,7 @@ import { join, resolve } from "node:path";
 
 const preload = resolve("mac-helper/src/asyncCommandGroupPreload.js");
 
-test("timed-out Tailscale cleanup kills descendants after the leader exits", () => {
+test("timed-out Tailscale cleanup kills the complete group immediately", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-round5-async-group-"));
   const tailscale = join(directory, "tailscale");
   const descendantPath = join(directory, "descendant.pid");
@@ -33,7 +33,6 @@ test("timed-out Tailscale cleanup kills descendants after the leader exits", () 
 
   try {
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
-      process.env.SWIFT_SIM_ASYNC_FORCE_KILL_DELAY_MS = '75';
       await import(${JSON.stringify(preload)});
       const { spawn, spawnSync } = await import('node:child_process');
       const fs = await import('node:fs');
@@ -43,18 +42,24 @@ test("timed-out Tailscale cleanup kills descendants after the leader exits", () 
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
       }
       if (!fs.existsSync(${JSON.stringify(readyPath)})) process.exit(2);
+      const startedAt = Date.now();
       child.kill('SIGTERM');
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       const descendantPID = Number(fs.readFileSync(${JSON.stringify(descendantPath)}, 'utf8'));
       const probe = spawnSync('/bin/ps', ['-p', String(descendantPID), '-o', 'stat='], {
         encoding: 'utf8',
         timeout: 500,
       });
       const state = String(probe.stdout || '').trim();
-      console.log(JSON.stringify({ executing: Boolean(state) && !state.startsWith('Z') }));
+      console.log(JSON.stringify({
+        executing: Boolean(state) && !state.startsWith('Z'),
+        elapsed: Date.now() - startedAt,
+      }));
     `], { encoding: "utf8", timeout: 3_000 });
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout.trim()), { executing: false });
+    const output = JSON.parse(result.stdout.trim());
+    assert.equal(output.executing, false);
+    assert.ok(output.elapsed < 500, `group cleanup took ${output.elapsed}ms`);
   } finally {
     try {
       const pid = Number(readFileSync(descendantPath, "utf8"));
