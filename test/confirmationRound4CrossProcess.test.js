@@ -116,6 +116,62 @@ test("orphan authorization re-reads the exact session store instead of trusting 
   });
 });
 
+test("orphan authorization treats a durably claimed restart replacement as owned", async () => {
+  const directory = temporaryDirectory("swift-sim-round4-restart-owner-");
+  await withRuntimeRoots(directory, async () => {
+    try {
+      const path = join(directory, "sessions.json");
+      const simulatorUDID = "SIM-R4-RESTART-OWNER";
+      let starts = 0;
+      let kills = 0;
+      const adapter = {
+        async start() {
+          starts += 1;
+          return stream(47200 + starts, 9420 + starts);
+        },
+        async kill() { kills += 1; },
+      };
+      const transport = new ServeSimTransport({ adapter });
+      const store = new SessionStore({ path });
+      const session = store.create(sessionInput(simulatorUDID, "RestartOwner"));
+      session.stream = await transport.start({ simulatorUDID });
+      store.save(session);
+      const previousNonce = session.stream.raw.swiftSimLifecycleNonce;
+
+      const replacement = await transport.restart(session);
+      const replacementRuntime = readSimulatorRuntimeState(simulatorUDID);
+      assert.notEqual(replacementRuntime.nonce, previousNonce);
+      assert.equal(replacement.raw.swiftSimLifecycleNonce, replacementRuntime.nonce);
+      assert.equal(kills, 1);
+
+      const competitorStore = new BaseSessionStore({ path });
+      const competitor = competitorStore.create(sessionInput(simulatorUDID, "Competitor"));
+      competitor.stream.raw = {
+        ...(competitor.stream.raw || {}),
+        swiftSimLifecycleClaimID: randomUUID(),
+      };
+      competitorStore.save(competitor);
+      reserveSimulatorLifecycleClaim(competitor, { storeID: path });
+
+      let recoveries = 0;
+      await assert.rejects(
+        startSimulatorRuntime({
+          simulatorUDID,
+          recover: async () => { recoveries += 1; },
+          operation: async () => stream(47299, 9499),
+        }),
+        (error) => error?.code === "SWIFT_SIM_SIMULATOR_RUNTIME_ACTIVE",
+      );
+
+      assert.equal(recoveries, 0);
+      assert.equal(kills, 1);
+      assert.equal(readSimulatorRuntimeState(simulatorUDID).nonce, replacementRuntime.nonce);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 test("a fresh starting session survives terminal state left by its predecessor", async () => {
   const directory = temporaryDirectory("swift-sim-round4-fresh-start-");
   await withRuntimeRoots(directory, async () => {
