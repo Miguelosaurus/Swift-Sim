@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -35,6 +35,23 @@ test("a stale lock is quarantined before replacement ownership", async () => {
     startedAt: "stale",
     nonce: "stale",
   }));
+  try {
+    const result = await withLiveEngineLifecycleLock(async () => "acquired", {
+      lockPath,
+      waitMs: 2_000,
+    });
+    assert.equal(result, "acquired");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an ownerless stale lock remains reclaimable after the claim file updates its mtime", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-ownerless-lock-"));
+  const lockPath = join(directory, "lifecycle.lock");
+  mkdirSync(lockPath, { recursive: true });
+  const staleTime = new Date(Date.now() - 5_000);
+  utimesSync(lockPath, staleTime, staleTime);
   try {
     const result = await withLiveEngineLifecycleLock(async () => "acquired", {
       lockPath,
