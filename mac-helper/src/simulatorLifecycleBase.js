@@ -18,11 +18,21 @@ const OWNERLESS_LOCK_GRACE_MS = 250;
 const LEGACY_LOCK_MAX_AGE_MS = 30_000;
 let currentProcessStartedAt;
 
-export async function startSimulatorRuntime({ simulatorUDID, operation, recover, rootPath } = {}) {
+export async function startSimulatorRuntime({
+  simulatorUDID,
+  operation,
+  recover,
+  authorizeRunningRecovery,
+  rootPath,
+} = {}) {
   const requiredUDID = requiredSimulatorUDID(simulatorUDID);
   return withSimulatorLifecycleLock(requiredUDID, async () => {
     const current = readSimulatorRuntimeState(requiredUDID, { rootPath });
-    if (current?.status === "running") throw activeRuntimeError();
+    if (current?.status === "running") {
+      const authorized = typeof authorizeRunningRecovery === "function"
+        && await authorizeRunningRecovery(current) === true;
+      if (!authorized) throw activeRuntimeError();
+    }
     if (current && current.status !== "stopped") {
       if (typeof recover !== "function") throw uncertainRuntimeError();
       try {
