@@ -7,10 +7,10 @@ import { Readable } from "node:stream";
 import { readJson } from "../mac-helper/src/http.js";
 import { SessionStore } from "../mac-helper/src/sessionStore.js";
 
-function withPath(run) {
+async function withPath(run) {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-session-store-"));
   const path = join(directory, "sessions.json");
-  try { return run(path, directory); } finally { rmSync(directory, { recursive: true, force: true }); }
+  try { return await run(path, directory); } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 const input = (token, simulatorUDID) => ({ token, project: "/tmp/App.xcodeproj", scheme: "App", simulatorUDID });
