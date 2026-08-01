@@ -1,456 +1,315 @@
 import "./lockOwnershipPreload.js";
-import { createHash, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import * as base from "./simulatorLifecycleBase.js";
 import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+  listSimulatorClaims,
+  readSimulatorClaim,
+  removeSimulatorClaim,
+  updateSimulatorClaim,
+  writeSimulatorClaim,
+} from "./simulatorLifecycleClaims.js";
 
-const LOCK_WAIT_MS = 60_000;
-const OWNERLESS_LOCK_GRACE_MS = 250;
-const LEGACY_LOCK_MAX_AGE_MS = 30_000;
-let currentProcessStartedAt;
+export * from "./simulatorLifecycleBase.js";
 
-export async function startSimulatorRuntime({ simulatorUDID, operation, recover, rootPath } = {}) {
-  const requiredUDID = requiredSimulatorUDID(simulatorUDID);
-  return withSimulatorLifecycleLock(requiredUDID, async () => {
-    const current = readSimulatorRuntimeState(requiredUDID, { rootPath });
-    if (current?.status === "running") throw activeRuntimeError();
-    if (current && current.status !== "stopped") {
-      if (typeof recover !== "function") throw uncertainRuntimeError();
-      try {
-        await recover();
-      } catch (error) {
-        publishRuntimeFailure(requiredUDID, "failed-stop", error, {
-          previousNonce: current.previousNonce || current.nonce,
-          rootPath,
-        });
-        throw error;
-      }
-    }
-    const operationNonce = randomUUID();
-    writeSimulatorRuntimeState(requiredUDID, {
-      simulatorUDID: requiredUDID,
-      nonce: operationNonce,
-      status: "starting",
-      previousNonce: current?.nonce || "",
-      updatedAt: new Date().toISOString(),
-    }, { rootPath });
-    try {
-      const stream = await requiredOperation(operation)();
-      return publishRunningRuntime(requiredUDID, stream, {
-        nonce: operationNonce,
-        rootPath,
-      });
-    } catch (error) {
-      publishRuntimeFailure(requiredUDID, "failed-start", error, {
-        nonce: operationNonce,
-        previousNonce: current?.nonce || "",
-        rootPath,
-      });
-      throw error;
-    }
-  }, { rootPath });
+const claimContext = new AsyncLocalStorage();
+const sessionRegistries = new Map();
+
+export function registerSimulatorSessionStore(storeID, sessions, { readable = true } = {}) {
+  const id = requiredStoreID(storeID);
+  sessionRegistries.set(id, {
+    readable: Boolean(readable),
+    sessions: Array.isArray(sessions) ? structuredClone(sessions) : [],
+  });
 }
 
-export async function restartSimulatorRuntime({ session, operation, rootPath } = {}) {
-  const simulatorUDID = requiredSimulatorUDID(session?.simulatorUDID);
-  return withSimulatorLifecycleLock(simulatorUDID, async () => {
-    const expectedNonce = sessionRuntimeNonce(session);
-    const current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
-    if (!runningRuntimeOwnsSession(current, session, expectedNonce)) {
-      throw supersededRuntimeError();
-    }
-    const operationNonce = randomUUID();
-    writeSimulatorRuntimeState(simulatorUDID, {
-      simulatorUDID,
-      nonce: operationNonce,
-      status: "restarting",
-      previousNonce: current?.nonce || expectedNonce,
-      updatedAt: new Date().toISOString(),
-    }, { rootPath });
-    try {
-      const stream = await requiredOperation(operation)();
-      return publishRunningRuntime(simulatorUDID, stream, {
-        nonce: operationNonce,
-        rootPath,
-      });
-    } catch (error) {
-      publishRuntimeFailure(simulatorUDID, "failed-restart", error, {
-        nonce: operationNonce,
-        previousNonce: current?.nonce || expectedNonce,
-        rootPath,
-      });
-      throw error;
-    }
-  }, { rootPath });
-}
-
-export async function stopSimulatorRuntime({ session, operation, rootPath } = {}) {
-  const simulatorUDID = requiredSimulatorUDID(session?.simulatorUDID);
-  return withSimulatorLifecycleLock(simulatorUDID, async () => {
-    const expectedNonce = sessionRuntimeNonce(session);
-    const current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
-    if (!runtimeMayBeStoppedBySession(current, session, expectedNonce)) {
-      throw supersededRuntimeError();
-    }
-    const previousNonce = current?.status === "running"
-      ? current.nonce
-      : current?.previousNonce || expectedNonce;
-    const operationNonce = randomUUID();
-    writeSimulatorRuntimeState(simulatorUDID, {
-      simulatorUDID,
-      nonce: operationNonce,
-      status: "stopping",
-      previousNonce,
-      updatedAt: new Date().toISOString(),
-    }, { rootPath });
-    try {
-      const result = await requiredOperation(operation)();
-      writeSimulatorRuntimeState(simulatorUDID, {
-        simulatorUDID,
-        nonce: randomUUID(),
-        status: "stopped",
-        previousNonce,
-        updatedAt: new Date().toISOString(),
-      }, { rootPath });
-      return result;
-    } catch (error) {
-      publishRuntimeFailure(simulatorUDID, "failed-stop", error, {
-        nonce: operationNonce,
-        previousNonce,
-        rootPath,
-      });
-      throw error;
-    }
-  }, { rootPath });
-}
-
-export function simulatorSessionIsReusable(session, { rootPath } = {}) {
-  const simulatorUDID = requiredSimulatorUDID(session?.simulatorUDID);
-  if (simulatorLifecycleIsActive(simulatorUDID, { rootPath })) return false;
-  const expectedNonce = sessionRuntimeNonce(session);
-  let current;
-  try {
-    current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
-  } catch {
-    return false;
-  }
-  if (!current) return !expectedNonce;
-  return runningRuntimeOwnsSession(current, session, expectedNonce);
-}
-
-export async function withSimulatorLifecycleLock(simulatorUDID, operation, {
-  rootPath,
-  waitMs = LOCK_WAIT_MS,
-} = {}) {
-  const statePath = simulatorRuntimeStatePath(simulatorUDID, { rootPath });
-  const lockPath = `${statePath}.lock`;
-  const release = await acquireLifecycleLock(lockPath, waitMs);
-  try {
-    return await requiredOperation(operation)();
-  } finally {
-    release();
-  }
-}
-
-export function simulatorLifecycleIsActive(simulatorUDID, { rootPath } = {}) {
-  const lockPath = `${simulatorRuntimeStatePath(simulatorUDID, { rootPath })}.lock`;
-  if (!existsSync(lockPath)) return false;
-  const ownerPath = join(lockPath, "owner.json");
-  let owner;
-  try { owner = JSON.parse(readFileSync(ownerPath, "utf8")); } catch {}
-  if (owner && lockOwnerIsAlive(owner)) return true;
-  if (!owner && !ownerlessLockIsStale(lockPath)) return true;
-  try { rmSync(lockPath, { recursive: true, force: true }); } catch {}
-  return existsSync(lockPath);
-}
-
-export function readSimulatorRuntimeState(simulatorUDID, { rootPath } = {}) {
-  const path = simulatorRuntimeStatePath(simulatorUDID, { rootPath });
-  let raw;
-  try {
-    raw = readFileSync(path, "utf8");
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw runtimeStateError(path, error);
-  }
-  try {
-    const state = JSON.parse(raw);
-    validateRuntimeState(state, requiredSimulatorUDID(simulatorUDID));
-    return state;
-  } catch (error) {
-    throw runtimeStateError(path, error);
-  }
-}
-
-export function simulatorRuntimeStatePath(simulatorUDID, { rootPath } = {}) {
-  const value = requiredSimulatorUDID(simulatorUDID);
-  const root = rootPath
-    || process.env.SWIFT_SIM_SIMULATOR_RUNTIME_ROOT
-    || join(homedir(), ".swift-sim", "simulator-runtime");
-  const key = createHash("sha256").update(value).digest("hex");
-  return join(root, `${key}.json`);
-}
-
-function publishRunningRuntime(simulatorUDID, stream, { nonce = randomUUID(), rootPath } = {}) {
-  const next = {
+export function reserveSimulatorLifecycleClaim(session, { storeID, rootPath } = {}) {
+  const simulatorUDID = requiredUDID(session?.simulatorUDID);
+  const sessionID = requiredSessionID(session?.id);
+  const claimID = String(session?.stream?.raw?.swiftSimLifecycleClaimID || "").trim();
+  if (!claimID) throw new Error("A durable Simulator lifecycle claim id is required.");
+  const claim = {
+    version: 1,
+    claimID,
+    sessionID,
     simulatorUDID,
-    nonce,
-    status: "running",
-    pid: normalizedPID(stream?.pid),
-    transport: String(stream?.transport || ""),
+    storeID: requiredStoreID(storeID),
+    kind: "start",
+    createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  writeSimulatorRuntimeState(simulatorUDID, next, { rootPath });
-  return {
-    ...stream,
-    raw: {
-      ...(stream?.raw && typeof stream.raw === "object" && !Array.isArray(stream.raw)
-        ? stream.raw
-        : {}),
-      swiftSimLifecycleNonce: nonce,
-    },
+  writeSimulatorClaim(claim, { rootPath });
+  claimContext.enterWith(claim);
+  return claim;
+}
+
+export async function startSimulatorRuntime(options = {}) {
+  const simulatorUDID = requiredUDID(options.simulatorUDID);
+  const claim = currentClaim(simulatorUDID, "start");
+  const wrapped = {
+    ...options,
+    operation: wrapProjectionOperation(options.operation, claim, options.rootPath),
+  };
+  try {
+    const stream = await base.startSimulatorRuntime(wrapped);
+    if (claim) finalizeClaim(claim, stream, { rootPath: options.rootPath });
+    return stream;
+  } catch (error) {
+    if (error?.code !== "SWIFT_SIM_SIMULATOR_RUNTIME_ACTIVE"
+        || !claim
+        || typeof options.recover !== "function") {
+      throw error;
+    }
+    const runtime = base.readSimulatorRuntimeState(simulatorUDID, { rootPath: options.rootPath });
+    if (!runtime || runtime.status !== "running" || registeredRuntimeOwner(runtime, claim, { rootPath: options.rootPath }) !== "unowned") {
+      throw error;
+    }
+    await base.stopSimulatorRuntime({
+      session: syntheticRuntimeSession(runtime),
+      operation: options.recover,
+      rootPath: options.rootPath,
+    });
+    const stream = await base.startSimulatorRuntime(wrapped);
+    finalizeClaim(claim, stream, { rootPath: options.rootPath });
+    return stream;
+  }
+}
+
+export async function restartSimulatorRuntime(options = {}) {
+  const session = options.session;
+  const simulatorUDID = requiredUDID(session?.simulatorUDID);
+  const previousNonce = sessionNonce(session);
+  const claim = {
+    version: 1,
+    claimID: randomUUID(),
+    sessionID: requiredSessionID(session?.id || `legacy:${previousNonce}`),
+    simulatorUDID,
+    storeID: "restart",
+    kind: "restart",
+    previousNonce,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  writeSimulatorClaim(claim, { rootPath: options.rootPath });
+  try {
+    const stream = await base.restartSimulatorRuntime({
+      ...options,
+      operation: wrapProjectionOperation(options.operation, claim, options.rootPath),
+    });
+    finalizeClaim(claim, stream, { rootPath: options.rootPath });
+    return stream;
+  } catch (error) {
+    markClaimFailed(claim, error, { rootPath: options.rootPath });
+    throw error;
+  }
+}
+
+export function simulatorSessionRuntimeSnapshot(session, { rootPath } = {}) {
+  const simulatorUDID = requiredUDID(session?.simulatorUDID);
+  if (base.simulatorLifecycleIsActive(simulatorUDID, { rootPath })) {
+    return { disposition: "busy", runtime: null, projection: null };
+  }
+  let runtime;
+  try {
+    runtime = base.readSimulatorRuntimeState(simulatorUDID, { rootPath });
+  } catch {
+    return { disposition: "unreadable", runtime: null, projection: null };
+  }
+  const expectedNonce = sessionNonce(session);
+  if (!runtime) {
+    return {
+      disposition: !expectedNonce && session?.stream?.state === "running" ? "legacy-running" : "missing",
+      runtime: null,
+      projection: null,
+    };
+  }
+  if (runtime.status === "running" && expectedNonce && runtime.nonce === expectedNonce) {
+    return { disposition: "owned-running", runtime, projection: claimProjectionFor(session, runtime, { rootPath }) };
+  }
+  if (runtime.status === "running" && expectedNonce
+      && (runtime.previousNonce === expectedNonce
+        || restartClaimOwnsRuntime(session, runtime, { rootPath }))) {
+    return { disposition: "handoff-running", runtime, projection: claimProjectionFor(session, runtime, { rootPath }) };
+  }
+  if (runtime.status === "running" && startClaimOwnsRuntime(session, runtime, { rootPath })) {
+    return { disposition: "claimed-running", runtime, projection: claimProjectionFor(session, runtime, { rootPath }) };
+  }
+  if (runtime.status === "running") return { disposition: "superseded", runtime, projection: null };
+  if (runtime.status === "stopped") return { disposition: "stopped", runtime, projection: null };
+  if (String(runtime.status).startsWith("failed-")) return { disposition: "failed", runtime, projection: null };
+  return { disposition: "busy", runtime, projection: null };
+}
+
+export function simulatorSessionIsReusable(session, options = {}) {
+  return ["owned-running", "handoff-running", "claimed-running", "legacy-running"]
+    .includes(simulatorSessionRuntimeSnapshot(session, options).disposition);
+}
+
+export function cleanupSimulatorLifecycleClaims(session, { rootPath } = {}) {
+  const simulatorUDID = requiredUDID(session?.simulatorUDID);
+  const sessionID = requiredSessionID(session?.id);
+  for (const claim of listSimulatorClaims(simulatorUDID, { rootPath })) {
+    if (claim.sessionID === sessionID) removeSimulatorClaim(claim, { rootPath });
+  }
+}
+
+function wrapProjectionOperation(operation, claim, rootPath) {
+  if (typeof operation !== "function") return operation;
+  return async () => {
+    const stream = await operation();
+    if (claim) updateSimulatorClaim(claim, {
+      projection: publicStreamProjection(stream),
+      updatedAt: new Date().toISOString(),
+    }, { rootPath });
+    return stream;
   };
 }
 
-function publishRuntimeFailure(simulatorUDID, status, error, {
-  nonce = randomUUID(),
-  previousNonce = "",
-  rootPath,
-} = {}) {
-  writeSimulatorRuntimeState(simulatorUDID, {
-    simulatorUDID,
-    nonce,
-    status,
-    previousNonce,
+function finalizeClaim(claim, stream, { rootPath } = {}) {
+  updateSimulatorClaim(claim, {
+    runtimeNonce: String(stream?.raw?.swiftSimLifecycleNonce || ""),
+    projection: publicStreamProjection(stream),
+    status: "published",
+    updatedAt: new Date().toISOString(),
+  }, { rootPath });
+}
+
+function markClaimFailed(claim, error, { rootPath } = {}) {
+  updateSimulatorClaim(claim, {
+    status: "failed",
     error: error instanceof Error ? error.message : String(error),
     updatedAt: new Date().toISOString(),
   }, { rootPath });
 }
 
-function writeSimulatorRuntimeState(simulatorUDID, state, { rootPath } = {}) {
-  const path = simulatorRuntimeStatePath(simulatorUDID, { rootPath });
-  validateRuntimeState(state, requiredSimulatorUDID(simulatorUDID));
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporaryPath, JSON.stringify(state, null, 2), {
-      mode: 0o600,
-      flag: "wx",
-    });
-    renameSync(temporaryPath, path);
-  } catch (error) {
-    try { rmSync(temporaryPath, { force: true }); } catch {}
-    throw error;
-  }
+function registeredRuntimeOwner(runtime, claim, { rootPath } = {}) {
+  const registry = sessionRegistries.get(claim.storeID);
+  if (!registry?.readable) return "unknown";
+  const owner = registry.sessions.find((session) => {
+    if (!["starting", "running"].includes(session?.stream?.state)) return false;
+    const nonce = sessionNonce(session);
+    if (nonce && (runtime.nonce === nonce || runtime.previousNonce === nonce)) return true;
+    if (!nonce && Number(session?.stream?.pid) === Number(runtime?.pid)) return true;
+    return startClaimOwnsRuntime(session, runtime, { rootPath });
+  });
+  return owner ? "owned" : "unowned";
 }
 
-async function acquireLifecycleLock(lockPath, waitMs) {
-  const deadline = Date.now() + Math.max(0, Number(waitMs) || 0);
-  while (true) {
-    const release = tryAcquireLifecycleLock(lockPath);
-    if (release) return release;
-    if (Date.now() >= deadline) {
-      const error = new Error("Timed out waiting for the Swift Sim Simulator lifecycle lock.");
-      error.code = "SWIFT_SIM_SIMULATOR_LIFECYCLE_BUSY";
-      throw error;
-    }
-    await sleep(25);
-  }
+function startClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
+  const claimID = String(session?.stream?.raw?.swiftSimLifecycleClaimID || "").trim();
+  if (!claimID) return false;
+  const claim = readSimulatorClaim(requiredUDID(session.simulatorUDID), claimID, { rootPath });
+  return Boolean(claim
+    && claim.kind === "start"
+    && claim.sessionID === session.id
+    && claim.projection
+    && projectionMatchesRuntime(claim.projection, runtime));
 }
 
-function tryAcquireLifecycleLock(lockPath) {
-  mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
-  const ownerPath = join(lockPath, "owner.json");
-  const owner = {
-    pid: process.pid,
-    startedAt: processStartIdentity(),
-    nonce: randomUUID(),
-    createdAt: new Date().toISOString(),
+function restartClaimOwnsRuntime(session, runtime, { rootPath } = {}) {
+  const expectedNonce = sessionNonce(session);
+  if (!expectedNonce) return false;
+  return listSimulatorClaims(requiredUDID(session.simulatorUDID), { rootPath })
+    .some((claim) => claim.kind === "restart"
+      && claim.previousNonce === expectedNonce
+      && claim.projection
+      && projectionMatchesRuntime(claim.projection, runtime));
+}
+
+function claimProjectionFor(session, runtime, { rootPath } = {}) {
+  const claimID = String(session?.stream?.raw?.swiftSimLifecycleClaimID || "").trim();
+  if (claimID) {
+    const claim = readSimulatorClaim(requiredUDID(session.simulatorUDID), claimID, { rootPath });
+    if (claim?.projection) return structuredClone(claim.projection);
+  }
+  const expectedNonce = sessionNonce(session);
+  if (expectedNonce) {
+    const claim = listSimulatorClaims(requiredUDID(session.simulatorUDID), { rootPath })
+      .find((candidate) => candidate.kind === "restart"
+        && candidate.previousNonce === expectedNonce
+        && candidate.projection
+        && projectionMatchesRuntime(candidate.projection, runtime));
+    if (claim) return structuredClone(claim.projection);
+  }
+  return runtimeProjection(runtime);
+}
+
+function projectionMatchesRuntime(projection, runtime) {
+  const projectedPID = Number(projection?.pid);
+  const runtimePID = Number(runtime?.pid);
+  if (!Number.isInteger(projectedPID) || projectedPID <= 0) return false;
+  if (!Number.isInteger(runtimePID) || runtimePID <= 0) return false;
+  return projectedPID === runtimePID
+    && (!runtime?.transport || projection.transport === runtime.transport);
+}
+
+function runtimeProjection(runtime) {
+  if (!runtime || runtime.status !== "running") return null;
+  const pid = Number(runtime.pid);
+  return {
+    state: "running",
+    transport: String(runtime.transport || "serve-sim"),
+    quality: "fallback",
+    localUrl: "",
+    previewUrl: "",
+    wsUrl: "",
+    port: undefined,
+    pid: Number.isInteger(pid) && pid > 0 ? pid : undefined,
+    limitations: [],
   };
-  let created = false;
-  try {
-    mkdirSync(lockPath, { mode: 0o700 });
-    created = true;
-    writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
-    return () => {
-      try {
-        const current = JSON.parse(readFileSync(ownerPath, "utf8"));
-        if (current.pid === owner.pid && current.nonce === owner.nonce) {
-          rmSync(lockPath, { recursive: true, force: true });
-        }
-      } catch {}
-    };
-  } catch (error) {
-    if (created) {
-      rmSync(lockPath, { recursive: true, force: true });
-      throw error;
-    }
-    if (error?.code !== "EEXIST") throw error;
-    let current;
-    try { current = JSON.parse(readFileSync(ownerPath, "utf8")); } catch {}
-    if ((current && !lockOwnerIsAlive(current))
-        || (!current && ownerlessLockIsStale(lockPath))) {
-      rmSync(lockPath, { recursive: true, force: true });
-    }
-    return null;
-  }
 }
 
-function sessionRuntimeNonce(session) {
+function publicStreamProjection(stream) {
+  const port = Number(stream?.port);
+  const pid = Number(stream?.pid);
+  return {
+    state: "running",
+    transport: String(stream?.transport || "serve-sim"),
+    quality: String(stream?.quality || "fallback"),
+    localUrl: String(stream?.localUrl || ""),
+    previewUrl: String(stream?.previewUrl || stream?.localUrl || ""),
+    wsUrl: String(stream?.wsUrl || ""),
+    port: Number.isFinite(port) ? port : undefined,
+    pid: Number.isInteger(pid) && pid > 0 ? pid : undefined,
+    limitations: Array.isArray(stream?.limitations) ? stream.limitations.map(String) : [],
+  };
+}
+
+function syntheticRuntimeSession(runtime) {
+  return {
+    simulatorUDID: runtime.simulatorUDID,
+    stream: {
+      pid: runtime.pid,
+      raw: { swiftSimLifecycleNonce: runtime.nonce },
+    },
+  };
+}
+
+function currentClaim(simulatorUDID, kind) {
+  const claim = claimContext.getStore();
+  if (claim?.consumed || claim?.simulatorUDID !== simulatorUDID || claim?.kind !== kind) return null;
+  claim.consumed = true;
+  return claim;
+}
+
+function sessionNonce(session) {
   return String(session?.stream?.raw?.swiftSimLifecycleNonce || "").trim();
 }
 
-function runningRuntimeOwnsSession(current, session, expectedNonce) {
-  if (!current || current.status !== "running") return false;
-  if (expectedNonce) return current.nonce === expectedNonce;
-  return legacyRuntimePIDMatchesSession(current, session);
+function requiredUDID(value) {
+  const result = String(value || "").trim();
+  if (!result) throw new Error("A Simulator UDID is required.");
+  return result;
 }
 
-function runtimeMayBeStoppedBySession(current, session, expectedNonce) {
-  if (!current) return !expectedNonce;
-  if (current.status === "running") {
-    return runningRuntimeOwnsSession(current, session, expectedNonce);
-  }
-  if (["restarting", "failed-restart", "stopping", "failed-stop"].includes(current.status)) {
-    if (expectedNonce) return current.previousNonce === expectedNonce;
-    return legacyRuntimePIDMatchesSession(current, session);
-  }
-  if (current.status === "failed-start") return !expectedNonce;
-  return false;
+function requiredSessionID(value) {
+  const result = String(value || "").trim();
+  if (!result) throw new Error("A Simulator session id is required.");
+  return result;
 }
 
-function legacyRuntimePIDMatchesSession(current, session) {
-  const recordedPID = Number(current?.pid);
-  const sessionPID = Number(session?.stream?.pid);
-  return Number.isInteger(recordedPID)
-    && recordedPID > 0
-    && Number.isInteger(sessionPID)
-    && sessionPID > 0
-    && recordedPID === sessionPID;
-}
-
-function validateRuntimeState(value, simulatorUDID) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("the Simulator runtime record is not an object");
-  }
-  if (value.simulatorUDID !== simulatorUDID) {
-    throw new Error("the Simulator runtime identity changed");
-  }
-  if (typeof value.nonce !== "string" || !value.nonce) {
-    throw new Error("the Simulator runtime record has no nonce");
-  }
-  if (typeof value.status !== "string" || !value.status) {
-    throw new Error("the Simulator runtime record has no status");
-  }
-  if (value.pid !== undefined && value.pid !== null
-      && (!Number.isInteger(value.pid) || value.pid <= 0)) {
-    throw new Error("the Simulator runtime record has an invalid pid");
-  }
-  for (const field of ["transport", "updatedAt", "previousNonce", "error"]) {
-    if (value[field] !== undefined && typeof value[field] !== "string") {
-      throw new Error(`the Simulator runtime record has an invalid ${field}`);
-    }
-  }
-}
-
-function normalizedPID(value) {
-  const pid = Number(value);
-  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-}
-
-function requiredSimulatorUDID(value) {
-  const simulatorUDID = String(value || "").trim();
-  if (!simulatorUDID) throw new Error("A Simulator UDID is required.");
-  return simulatorUDID;
-}
-
-function requiredOperation(operation) {
-  if (typeof operation !== "function") throw new Error("A Simulator lifecycle operation is required.");
-  return operation;
-}
-
-function activeRuntimeError() {
-  const error = new Error("A Swift Sim stream is already active for this Simulator.");
-  error.code = "SWIFT_SIM_SIMULATOR_RUNTIME_ACTIVE";
-  return error;
-}
-
-function uncertainRuntimeError() {
-  const error = new Error("Swift Sim could not safely recover the previous Simulator lifecycle operation.");
-  error.code = "SWIFT_SIM_SIMULATOR_RECOVERY_REQUIRED";
-  return error;
-}
-
-function supersededRuntimeError() {
-  const error = new Error("This Simulator stream was stopped or replaced before the operation could begin.");
-  error.code = "SWIFT_SIM_SIMULATOR_STREAM_SUPERSEDED";
-  return error;
-}
-
-function lockOwnerIsAlive(owner) {
-  if (!processIsAlive(owner?.pid)) return false;
-  if (!owner?.startedAt) {
-    const createdAt = Date.parse(owner?.createdAt || "");
-    return Number.isFinite(createdAt) && Date.now() - createdAt < LEGACY_LOCK_MAX_AGE_MS;
-  }
-  return processStartedAt(owner.pid) === owner.startedAt;
-}
-
-function processStartIdentity() {
-  currentProcessStartedAt ||= requiredProcessStartedAt(process.pid);
-  return currentProcessStartedAt;
-}
-
-function requiredProcessStartedAt(pid) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const startedAt = processStartedAt(pid);
-    if (startedAt) return startedAt;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-  }
-  throw new Error("Unable to establish a process start identity for the Simulator lifecycle lock.");
-}
-
-function processStartedAt(pid) {
-  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
-  return result.status === 0 ? String(result.stdout || "").trim() : "";
-}
-
-function processIsAlive(pid) {
-  const value = Number(pid);
-  if (!Number.isInteger(value) || value <= 0) return false;
-  try {
-    process.kill(value, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function ownerlessLockIsStale(path) {
-  try {
-    return Date.now() - statSync(path).mtimeMs >= OWNERLESS_LOCK_GRACE_MS;
-  } catch {
-    return false;
-  }
-}
-
-function runtimeStateError(path, error) {
-  const wrapped = new Error(
-    `Swift Sim Simulator runtime state at ${path} could not be read safely: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  wrapped.code = "SWIFT_SIM_SIMULATOR_RUNTIME_STATE_INVALID";
-  return wrapped;
-}
-
-function sleep(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function requiredStoreID(value) {
+  const result = String(value || "").trim();
+  if (!result) throw new Error("A Simulator session store id is required.");
+  return result;
 }
