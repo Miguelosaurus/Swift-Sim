@@ -5,7 +5,6 @@ import {
   appendFileSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -13,6 +12,7 @@ import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { parseQuickTunnelUrl } from "../src/deviceDelivery.js";
 import { normalizeDeviceBuildTTLMinutes } from "../src/deviceBuildDefaults.js";
+import { publishDeliveryGenerationState } from "../src/deviceDeliveryState.js";
 
 const MAX_LOG_BYTES = 2 * 1024 * 1024;
 const RETAIN_LOG_BYTES = 1024 * 1024;
@@ -44,6 +44,7 @@ const managerIdentity = processIdentity(process.pid, [process.argv[1], "--genera
 let gatewayIdentity = null;
 let tunnelIdentity = null;
 let finished = false;
+let readyPublished = false;
 let expiryTimer;
 
 mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
@@ -80,7 +81,8 @@ try {
     combinedOutput = `${combinedOutput}${value}`.slice(-40_000);
     publicBaseUrl = publicBaseUrl || parseQuickTunnelUrl(combinedOutput);
     connected = connected || combinedOutput.includes("Registered tunnel connection");
-    if (publicBaseUrl && connected) {
+    if (!readyPublished && publicBaseUrl && connected) {
+      readyPublished = true;
       writeState({ status: "ready", provider: "cloudflare-quick-tunnel", publicBaseUrl });
     }
   };
@@ -199,7 +201,7 @@ function processGroupIsAlive(pid) {
 }
 
 function writeState(extra) {
-  const state = {
+  return publishDeliveryGenerationState(statePath, {
     generation,
     createdAt,
     expiresAt,
@@ -211,10 +213,7 @@ function writeState(extra) {
     tunnelIdentity,
     localBaseUrl,
     ...extra,
-  };
-  const temporaryPath = `${statePath}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, JSON.stringify(state, null, 2), { mode: 0o600 });
-  renameSync(temporaryPath, statePath);
+  });
 }
 
 function processIdentity(pid, commandFragments) {
