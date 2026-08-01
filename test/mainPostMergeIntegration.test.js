@@ -171,3 +171,32 @@ test("engine-mutating live operations hold the lifecycle lock", () => {
       + "}",
   ));
 });
+
+
+test("multiline runtime availability changes require a rebuild", () => {
+  const before = `func value() -> Int {
+  if #available(
+    iOS 18,
+    *
+  ) { return 1 }
+  return 0
+}`;
+  const after = before.replace("iOS 18", "iOS 19");
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, false);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+});
+
+test("multiline runtime unavailability changes require a rebuild", () => {
+  const before = `func value() -> Int {
+  if #unavailable(
+    iOS 18,
+    *
+  ) { return 0 }
+  return 1
+}`;
+  const after = before.replace("iOS 18", "iOS 19");
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, false);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+});

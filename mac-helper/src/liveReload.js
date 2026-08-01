@@ -2073,11 +2073,10 @@ function declarationSurface(source) {
   const signatures = [];
   const storedProperties = [];
   const compilerConditions = [
-    ...clean.matchAll(/^\s*#(?:if|elseif|else|endif)\b[^\n]*/gm),
-    ...clean.matchAll(/#(?:available|unavailable)\s*\([^\n)]*\)/g),
-  ]
-    .map((match) => compact(match[0]))
-    .join("\n");
+    ...[...clean.matchAll(/^\s*#(?:if|elseif|else|endif)\b[^\n]*/gm)]
+      .map((match) => compact(match[0])),
+    ...swiftRuntimeAvailabilitySurface(source, clean),
+  ].join("\n");
   const attributes = swiftAttributeSurface(source, clean);
   const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\s*\((?:[^()\n]|\([^()]*\))*\))?|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
     .map((match) => {
@@ -2144,6 +2143,36 @@ function swiftAttributeSurface(source, clean) {
     index = Math.max(index, end - 1);
   }
   return attributes.join("\n");
+}
+
+function swiftRuntimeAvailabilitySurface(source, clean) {
+  const conditions = [];
+  const tokens = ["#available", "#unavailable"];
+  for (let index = 0; index < clean.length; index += 1) {
+    const token = tokens.find((candidate) => clean.startsWith(candidate, index));
+    if (!token) continue;
+    const previous = clean[index - 1] || "";
+    const next = clean[index + token.length] || "";
+    if (/[A-Za-z0-9_]/.test(previous) || /[A-Za-z0-9_]/.test(next)) continue;
+    let cursor = index + token.length;
+    while (/\s/.test(clean[cursor] || "")) cursor += 1;
+    if (clean[cursor] !== "(") continue;
+    let depth = 0;
+    let end = clean.length;
+    for (; cursor < clean.length; cursor += 1) {
+      if (clean[cursor] === "(") depth += 1;
+      else if (clean[cursor] === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          end = cursor + 1;
+          break;
+        }
+      }
+    }
+    conditions.push(compact(source.slice(index, end)));
+    index = Math.max(index, end - 1);
+  }
+  return conditions;
 }
 
 function typeDeclarationRanges(source) {
