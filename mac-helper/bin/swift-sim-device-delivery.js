@@ -62,6 +62,7 @@ try {
     env: { ...process.env, SWIFT_SIM_PUBLIC_GATEWAY: "1" },
   });
   gatewayIdentity = processIdentity(gateway.pid, [helperPath, "--port", String(gatewayPort)]);
+  writeState({ status: "starting", provider: "cloudflare-quick-tunnel", publicBaseUrl: "" });
   pipeLogs(gateway, "gateway");
   await waitForHealth(localBaseUrl, 10_000);
 
@@ -71,6 +72,7 @@ try {
     stdio: ["pipe", "pipe", "pipe"],
   });
   tunnelIdentity = processIdentity(tunnel.pid, tunnelSpec.identityFragments);
+  writeState({ status: "starting", provider: "cloudflare-quick-tunnel", publicBaseUrl: "" });
   let combinedOutput = "";
   let publicBaseUrl = "";
   let connected = false;
