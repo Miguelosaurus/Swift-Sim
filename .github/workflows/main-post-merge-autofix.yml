@@ -36,7 +36,9 @@ jobs:
       - if: steps.guard.outputs.run == '1'
         run: node scripts/main-post-merge-autofix.mjs
       - if: steps.guard.outputs.run == '1'
-        run: git rm scripts/main-post-merge-autofix.mjs .github/workflows/main-post-merge-autofix.yml
+        run: node scripts/main-post-merge-workspace-autofix.mjs
+      - if: steps.guard.outputs.run == '1'
+        run: git rm scripts/main-post-merge-autofix.mjs scripts/main-post-merge-workspace-autofix.mjs .github/workflows/main-post-merge-autofix.yml
       - if: steps.guard.outputs.run == '1'
         run: npm ci
       - if: steps.guard.outputs.run == '1'
