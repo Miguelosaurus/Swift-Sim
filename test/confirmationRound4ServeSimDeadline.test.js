@@ -39,12 +39,13 @@ test("serve-sim kill uses its shorter explicit deadline", async () => {
   }]);
 });
 
-test("serve-sim timeout rejects even when command failure is otherwise allowed", async () => {
+test("serve-sim timeout keeps force-kill cleanup armed after leader exit", async () => {
   const adapter = new ServeSimAdapter({
     command: process.execPath,
     commandTimeoutMs: 75,
-    forceKillDelayMs: 25,
+    forceKillDelayMs: 100,
   });
+  const startedAt = Date.now();
   await assert.rejects(
     adapter.run([
       "-e",
@@ -52,4 +53,7 @@ test("serve-sim timeout rejects even when command failure is otherwise allowed",
     ], { allowFailure: true, timeoutMs: 75 }),
     /timed out after 75ms/,
   );
+  const elapsed = Date.now() - startedAt;
+  assert.ok(elapsed >= 150);
+  assert.ok(elapsed < 2_000);
 });
