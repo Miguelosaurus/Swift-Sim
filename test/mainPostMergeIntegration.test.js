@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   classifySwiftSource,
+  expandedSigningIdentities,
   LIVE_REASON_CODES,
   selectLiveScheme,
+  withLiveBuildSession,
   workspaceProjectReferences,
   xcodeContainerArguments,
 } from "../mac-helper/src/liveReload.js";
@@ -199,4 +201,58 @@ test("multiline runtime unavailability changes require a rebuild", () => {
   const result = classifySwiftSource(before, after);
   assert.equal(result.hotReloadable, false);
   assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+});
+
+
+test("expanded signing identity remains one candidate", () => {
+  const identity = "A".repeat(40);
+  assert.deepEqual(
+    expandedSigningIdentities(`    EXPANDED_CODE_SIGN_IDENTITY = ${identity}\n`),
+    [identity],
+  );
+});
+
+test("live build session keeps start, build, and registration under one lock", async () => {
+  const events = [];
+  const result = await withLiveBuildSession(
+    { project: "/tmp/App.xcodeproj/project.pbxproj" },
+    async ({ liveSession, registerLiveBuildResult }) => {
+      events.push(`build:${liveSession.host}`);
+      await registerLiveBuildResult({ resultBundle: "/tmp/App.xcresult" });
+      events.push("build-complete");
+      return "done";
+    },
+    {
+      lock: async (operation) => {
+        events.push("lock-start");
+        const value = await operation();
+        events.push("lock-end");
+        return value;
+      },
+      start: async () => {
+        events.push("start");
+        return { started: true, host: "100.64.0.1" };
+      },
+      register: async () => {
+        events.push("register");
+        return { registered: 1 };
+      },
+    },
+  );
+  assert.equal(result, "done");
+  assert.deepEqual(events, [
+    "lock-start",
+    "start",
+    "build:100.64.0.1",
+    "register",
+    "build-complete",
+    "lock-end",
+  ]);
+});
+
+test("device live build uses the complete lifecycle lease", () => {
+  const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
+  assert.match(source, /await withLiveBuildSession\(/);
+  assert.doesNotMatch(source, /await startLiveReload\(/);
+  assert.doesNotMatch(source, /await registerLiveBuildResult\(/);
 });

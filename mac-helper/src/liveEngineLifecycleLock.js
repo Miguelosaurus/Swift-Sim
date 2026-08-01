@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -52,15 +53,16 @@ function tryAcquire(lockPath) {
     nonce: randomUUID(),
     createdAt: new Date().toISOString(),
   };
-  let created = false;
+  let createdObservation = null;
   try {
     mkdirSync(lockPath, { mode: 0o700 });
-    created = true;
+    createdObservation = observePath(lockPath);
+    if (!createdObservation) throw new Error("Unable to observe the new live-engine lifecycle lock.");
     writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600, flag: "wx" });
     return () => releaseOwnedLock(lockPath, ownerPath, owner);
   } catch (error) {
-    if (created) {
-      try { rmSync(lockPath, { recursive: true, force: true }); } catch {}
+    if (createdObservation) {
+      cleanupCreatedLockDirectory(lockPath, createdObservation);
       throw error;
     }
     if (error?.code !== "EEXIST") throw error;
@@ -72,6 +74,27 @@ function tryAcquire(lockPath) {
     }
     return null;
   }
+}
+
+export function cleanupCreatedLockDirectory(lockPath, createdObservation) {
+  const ownerPath = join(lockPath, "owner.json");
+  if (existsSync(ownerPath)) return false;
+  const currentObservation = observePath(lockPath);
+  if (!samePath(currentObservation, createdObservation)) return false;
+  const quarantinePath = `${lockPath}.abandoned.${process.pid}.${randomUUID()}`;
+  try {
+    renameSync(lockPath, quarantinePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+  const quarantinedObservation = observePath(quarantinePath);
+  if (!samePath(quarantinedObservation, createdObservation)) {
+    try { renameSync(quarantinePath, lockPath); } catch {}
+    return false;
+  }
+  try { rmSync(quarantinePath, { recursive: true, force: true }); } catch {}
+  return true;
 }
 
 function releaseOwnedLock(lockPath, ownerPath, owner) {

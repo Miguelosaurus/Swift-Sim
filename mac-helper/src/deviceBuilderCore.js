@@ -4,10 +4,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { basename, dirname, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
-import {
-  registerLiveBuildResult,
-  startLiveReload,
-} from "./liveReload.js";
+import { withLiveBuildSession } from "./liveReload.js";
 
 export class DeviceBuildError extends Error {}
 
@@ -101,13 +98,15 @@ export async function runDeviceBuild(build, {
 
     build.state = "archiving";
     saveBuild();
-    let liveSession = null;
+    let liveBuildEntered = false;
     if (liveEligible && target.type === "project") {
       try {
-        liveSession = await startLiveReload({
+        const liveResult = await withLiveBuildSession({
           project: join(target.path, "project.pbxproj"),
-        });
-        if (liveSession.started) {
+          scheme: build.scheme,
+        }, async ({ liveSession, registerLiveBuildResult: registerBuildResult }) => {
+          if (!liveSession.started) return { completed: false, liveSession };
+          liveBuildEntered = true;
           build.liveReload = {
             eligible: true,
             engineReady: true,
@@ -115,8 +114,85 @@ export async function runDeviceBuild(build, {
             host: liveSession.host,
           };
           log("Preparing Swift Sim's private live patch lane.");
-        }
+
+          build.state = "building";
+          saveBuild();
+          const derivedDataPath = join(root, "DerivedData");
+          const destination = build.allowProvisioningUpdates
+            ? preferredPhysicalIOSDestination()
+            : "generic/platform=iOS";
+          log("Building the signed live-enabled Debug app.");
+          await runLogged("xcodebuild", [
+            ...targetArgs(target),
+            "-scheme", required(build.scheme, "scheme"),
+            "-configuration", build.configuration || "Debug",
+            ...buildSettingArgs,
+            "-destination", destination,
+            "-derivedDataPath", derivedDataPath,
+            "-resultBundlePath", resultBundlePath,
+            ...(build.allowProvisioningUpdates
+              ? [
+                  "-allowProvisioningUpdates",
+                  ...(destination === "generic/platform=iOS"
+                    ? []
+                    : ["-allowProvisioningDeviceRegistration"]),
+                ]
+              : []),
+            "build",
+          ], log, {
+            env: {
+              ...process.env,
+              INJECTION_HOST: liveSession.host,
+            },
+            build,
+          });
+
+          const appPath = findBuiltApp(join(derivedDataPath, "Build", "Products"), build.scheme);
+          if (!appPath) {
+            throw new DeviceBuildError("Xcode finished, but the signed Debug app could not be found.");
+          }
+          if (!containsDebugDylib(appPath)) {
+            throw new DeviceBuildError(
+              "Xcode did not produce the required Debug dylib. Swift Sim cannot safely enable hot reload for this build."
+            );
+          }
+          try {
+            const capture = await registerBuildResult({ resultBundle: resultBundlePath });
+            build.liveReload = {
+              eligible: true,
+              engineReady: true,
+              compilerReady: true,
+              host: liveSession.host,
+              capturedCompilations: capture.registered,
+            };
+            log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
+          } catch (error) {
+            throw new DeviceBuildError(
+              `The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+
+          build.state = "exporting";
+          saveBuild();
+          log("Packaging the signed Debug app as an installable IPA.");
+          const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
+          build.artifacts.ipaPath = ipaPath;
+          build.app.name = displayNameFromIpa(ipaPath) || build.scheme || basename(ipaPath, ".ipa");
+          build.state = "ready";
+          saveBuild();
+          log("Build is ready to install and hot reload.");
+          return { completed: true, liveSession };
+        });
+        if (liveResult.completed) return build;
+        build.liveReload = {
+          eligible: true,
+          engineReady: false,
+          compilerReady: false,
+          error: liveResult.liveSession?.error || "The live engine was not ready.",
+        };
+        log("Live patch preparation was unavailable; the signed install will still continue.");
       } catch (error) {
+        if (liveBuildEntered) throw error;
         build.liveReload = {
           eligible: true,
           engineReady: false,
@@ -125,75 +201,6 @@ export async function runDeviceBuild(build, {
         };
         log("Live patch preparation was unavailable; the signed install will still continue.");
       }
-    }
-    if (liveSession?.started) {
-      build.state = "building";
-      saveBuild();
-      const derivedDataPath = join(root, "DerivedData");
-      const destination = build.allowProvisioningUpdates
-        ? preferredPhysicalIOSDestination()
-        : "generic/platform=iOS";
-      log("Building the signed live-enabled Debug app.");
-      await runLogged("xcodebuild", [
-        ...targetArgs(target),
-        "-scheme", required(build.scheme, "scheme"),
-        "-configuration", build.configuration || "Debug",
-        ...buildSettingArgs,
-        "-destination", destination,
-        "-derivedDataPath", derivedDataPath,
-        "-resultBundlePath", resultBundlePath,
-        ...(build.allowProvisioningUpdates
-          ? [
-              "-allowProvisioningUpdates",
-              ...(destination === "generic/platform=iOS"
-                ? []
-                : ["-allowProvisioningDeviceRegistration"]),
-            ]
-          : []),
-        "build",
-      ], log, {
-        env: {
-          ...process.env,
-          INJECTION_HOST: liveSession.host,
-        },
-        build,
-      });
-
-      const appPath = findBuiltApp(join(derivedDataPath, "Build", "Products"), build.scheme);
-      if (!appPath) {
-        throw new DeviceBuildError("Xcode finished, but the signed Debug app could not be found.");
-      }
-      if (!containsDebugDylib(appPath)) {
-        throw new DeviceBuildError(
-          "Xcode did not produce the required Debug dylib. Swift Sim cannot safely enable hot reload for this build."
-        );
-      }
-      try {
-        const capture = await registerLiveBuildResult({ resultBundle: resultBundlePath });
-        build.liveReload = {
-          eligible: true,
-          engineReady: true,
-          compilerReady: true,
-          host: liveSession.host,
-          capturedCompilations: capture.registered,
-        };
-        log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
-      } catch (error) {
-        throw new DeviceBuildError(
-          `The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-
-      build.state = "exporting";
-      saveBuild();
-      log("Packaging the signed Debug app as an installable IPA.");
-      const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
-      build.artifacts.ipaPath = ipaPath;
-      build.app.name = displayNameFromIpa(ipaPath) || build.scheme || basename(ipaPath, ".ipa");
-      build.state = "ready";
-      saveBuild();
-      log("Build is ready to install and hot reload.");
-      return build;
     }
 
     log("Archiving for generic iOS device.");

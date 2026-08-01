@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { withLiveEngineLifecycleLock } from "../mac-helper/src/liveEngineLifecycleLock.js";
+import { cleanupCreatedLockDirectory, withLiveEngineLifecycleLock } from "../mac-helper/src/liveEngineLifecycleLock.js";
 
 test("live engine lifecycle operations are serialized within one process", async () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-lock-"));
@@ -107,6 +107,39 @@ test("an old malformed reclaim claim is quarantined fail-closed", async () => {
       waitMs: 2_000,
     });
     assert.equal(result, "acquired");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("failed creator cleanup never deletes a replacement lock", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-replacement-lock-"));
+  const lockPath = join(directory, "lifecycle.lock");
+  const displacedPath = join(directory, "displaced.lock");
+  mkdirSync(lockPath, { recursive: true });
+  const stat = statSync(lockPath);
+  const originalObservation = { device: String(stat.dev), inode: String(stat.ino), mtimeMs: stat.mtimeMs };
+  renameSync(lockPath, displacedPath);
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(join(lockPath, "sentinel"), "replacement");
+  try {
+    assert.equal(cleanupCreatedLockDirectory(lockPath, originalObservation), false);
+    assert.equal(existsSync(join(lockPath, "sentinel")), true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("failed creator cleanup removes only its unchanged ownerless directory", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-created-lock-"));
+  const lockPath = join(directory, "lifecycle.lock");
+  mkdirSync(lockPath, { recursive: true });
+  const stat = statSync(lockPath);
+  const observation = { device: String(stat.dev), inode: String(stat.ino), mtimeMs: stat.mtimeMs };
+  try {
+    assert.equal(cleanupCreatedLockDirectory(lockPath, observation), true);
+    assert.equal(existsSync(lockPath), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

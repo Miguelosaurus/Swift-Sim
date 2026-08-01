@@ -431,6 +431,20 @@ export async function registerLiveBuildResult(options) {
   return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));
 }
 
+export async function withLiveBuildSession(options, operation, runtime = {}) {
+  if (typeof operation !== "function") throw new TypeError("A live build operation is required.");
+  const lock = runtime.lock || withLiveEngineLifecycleLock;
+  const start = runtime.start || startLiveReloadUnlocked;
+  const register = runtime.register || registerLiveBuildResultUnlocked;
+  return lock(async () => {
+    const liveSession = await start(options);
+    return operation({
+      liveSession,
+      registerLiveBuildResult: register,
+    });
+  });
+}
+
 async function registerLiveBuildResultUnlocked({ resultBundle }) {
   const path = resolve(resultBundle || "");
   if (!existsSync(path)) {
@@ -1889,6 +1903,12 @@ export function selectLiveScheme(projectPath, requestedScheme = "", availableSch
   };
 }
 
+export function expandedSigningIdentities(output) {
+  const expanded = String(output || "")
+    .match(/^\s*EXPANDED_CODE_SIGN_IDENTITY\s*=\s*([A-F0-9]{40})\s*$/m)?.[1] || "";
+  return expanded ? [expanded] : [];
+}
+
 function resolveSigningIdentities(projectPath, scheme = "") {
   const containerArguments = xcodeContainerArguments(projectPath, scheme);
   const settings = spawnSync(
@@ -1897,8 +1917,8 @@ function resolveSigningIdentities(projectPath, scheme = "") {
     { encoding: "utf8", timeout: 30_000 }
   );
   const output = String(settings.stdout || "");
-  const expanded = output.match(/^\s*EXPANDED_CODE_SIGN_IDENTITY\s*=\s*([A-F0-9]{40})\s*$/m)?.[1];
-  if (expanded) return expanded;
+  const expanded = expandedSigningIdentities(output);
+  if (expanded.length > 0) return expanded;
   const team = output.match(/^\s*DEVELOPMENT_TEAM\s*=\s*(\S+)\s*$/m)?.[1] || "";
   const identities = spawnSync(
     "security",
