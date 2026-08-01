@@ -135,7 +135,12 @@ export function simulatorSessionIsReusable(session, { rootPath } = {}) {
   const simulatorUDID = requiredSimulatorUDID(session?.simulatorUDID);
   if (simulatorLifecycleIsActive(simulatorUDID, { rootPath })) return false;
   const expectedNonce = sessionRuntimeNonce(session);
-  const current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
+  let current;
+  try {
+    current = readSimulatorRuntimeState(simulatorUDID, { rootPath });
+  } catch {
+    return false;
+  }
   if (!current) return !expectedNonce;
   return runningRuntimeOwnsSession(current, session, expectedNonce);
 }
