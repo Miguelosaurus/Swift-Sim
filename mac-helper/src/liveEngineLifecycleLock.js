@@ -8,14 +8,14 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { kernelProcessIdentity } from "./liveEngineOwnershipPreload.js";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 const DEFAULT_LOCK_PATH = join(homedir(), ".swift-sim", "engine", "lifecycle.lock");
 const DEFAULT_WAIT_MS = 120_000;
 const OWNERLESS_LOCK_GRACE_MS = 1_000;
-let currentProcessStartedAt = "";
+let currentProcessStartToken = "";
 
 export async function withLiveEngineLifecycleLock(operation, {
   lockPath = DEFAULT_LOCK_PATH,
@@ -49,7 +49,8 @@ function tryAcquire(lockPath) {
   const ownerPath = join(lockPath, "owner.json");
   const owner = {
     pid: process.pid,
-    startedAt: processStartIdentity(),
+    version: 2,
+    startToken: processStartIdentity(),
     nonce: randomUUID(),
     createdAt: new Date().toISOString(),
   };
@@ -110,7 +111,8 @@ function claimAndQuarantineStaleLock(lockPath, observedOwner, ownerlessObservati
   const claimPath = join(lockPath, "reclaim.json");
   const claim = {
     pid: process.pid,
-    startedAt: processStartIdentity(),
+    version: 2,
+    startToken: processStartIdentity(),
     nonce: randomUUID(),
     createdAt: new Date().toISOString(),
   };
@@ -209,19 +211,26 @@ function readOwner(path) {
 function sameOwner(left, right) {
   return Boolean(left && right
     && Number(left.pid) === Number(right.pid)
-    && left.startedAt === right.startedAt
+    && ownerStartToken(left) === ownerStartToken(right)
     && left.nonce === right.nonce);
 }
 
-function lockOwnerIsAlive(owner) {
+function ownerStartToken(owner) {
+  return String(owner?.startToken || owner?.startedAt || "");
+}
+
+export function lockOwnerIsAlive(owner, {
+  identity = kernelProcessIdentity(owner?.pid),
+} = {}) {
   const pid = Number(owner?.pid);
-  if (!Number.isInteger(pid) || pid <= 1 || !owner?.startedAt) return false;
+  const startToken = String(owner?.startToken || "");
+  if (!Number.isInteger(pid) || pid <= 1 || !startToken) return false;
   try {
     process.kill(pid, 0);
   } catch {
     return false;
   }
-  return processStartedAt(pid) === owner.startedAt;
+  return Boolean(identity && identity.startToken === startToken);
 }
 
 function observePath(path) {
@@ -249,25 +258,17 @@ function samePath(left, right) {
 }
 
 function processStartIdentity() {
-  currentProcessStartedAt ||= requiredProcessStartedAt(process.pid);
-  return currentProcessStartedAt;
+  currentProcessStartToken ||= requiredProcessStartToken(process.pid);
+  return currentProcessStartToken;
 }
 
-function requiredProcessStartedAt(pid) {
+function requiredProcessStartToken(pid) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const value = processStartedAt(pid);
+    const value = kernelProcessIdentity(pid)?.startToken || "";
     if (value) return value;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
   throw new Error("Unable to establish live-engine lock ownership.");
-}
-
-function processStartedAt(pid) {
-  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], {
-    encoding: "utf8",
-    timeout: 5_000,
-  });
-  return result.status === 0 ? String(result.stdout || "").trim() : "";
 }
 
 function delay(milliseconds) {

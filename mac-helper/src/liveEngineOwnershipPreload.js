@@ -53,6 +53,11 @@ export function installLiveEngineOwnershipBoundary({
     const engineSpawn = canonicalPath(resolveCommand(command)) === configuredExecutable
       && normalized.options.detached === true;
     const instanceNonce = engineSpawn ? randomUUID() : "";
+    if (engineSpawn && process.platform === "darwin" && !identityHelperExecutable()) {
+      const error = new Error("Swift Sim could not prepare the live-engine identity verifier.");
+      error.code = "SWIFT_SIM_LIVE_ENGINE_IDENTITY_UNAVAILABLE";
+      throw error;
+    }
     if (engineSpawn) {
       normalized.options = {
         ...normalized.options,
@@ -77,7 +82,8 @@ export function installLiveEngineOwnershipBoundary({
     if (!identity || identity.processGroup !== pid
         || identity.executable !== configuredExecutable
         || identity.instanceNonce !== instanceNonce) {
-      terminateSpawnedProcessGroup(pid);
+      // Identity failure never authorizes a signal. The child may already have
+      // exited and its PID/PGID may have been recycled while inspection ran.
       const error = new Error("Swift Sim could not establish ownership of the live engine process.");
       error.code = "SWIFT_SIM_LIVE_ENGINE_IDENTITY_UNAVAILABLE";
       throw error;
@@ -239,12 +245,6 @@ function terminateExactProcessGroup(record) {
   }
 }
 
-function terminateSpawnedProcessGroup(pid) {
-  try { originalKill(-Number(pid), "SIGKILL"); } catch {
-    try { originalKill(Number(pid), "SIGKILL"); } catch {}
-  }
-}
-
 function requiredProcessIdentity(pid) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const value = processIdentity(pid);
@@ -255,14 +255,25 @@ function requiredProcessIdentity(pid) {
 }
 
 function processIdentity(pid) {
+  const kernelIdentity = kernelProcessIdentity(pid);
+  if (!kernelIdentity) return null;
+  const instanceNonce = process.platform === "darwin"
+    ? processInstanceNonceFromPS(pid)
+    : process.platform === "linux"
+      ? linuxProcessInstanceNonce(pid)
+      : "";
+  return instanceNonce ? { ...kernelIdentity, instanceNonce } : null;
+}
+
+export function kernelProcessIdentity(pid) {
   const value = Number(pid);
   if (!Number.isInteger(value) || value <= 1) return null;
-  if (process.platform === "darwin") return darwinProcessIdentity(value);
-  if (process.platform === "linux") return linuxProcessIdentity(value);
+  if (process.platform === "darwin") return darwinKernelProcessIdentity(value);
+  if (process.platform === "linux") return linuxKernelProcessIdentity(value);
   return null;
 }
 
-function darwinProcessIdentity(pid) {
+function darwinKernelProcessIdentity(pid) {
   const helper = identityHelperExecutable();
   if (!helper) return null;
   const result = originalSpawnSync(helper, [String(pid)], {
@@ -273,18 +284,15 @@ function darwinProcessIdentity(pid) {
   const [rawStartToken, rawProcessGroup, rawExecutable] = String(result.stdout || "").split(/\r?\n/);
   const processGroup = Number(rawProcessGroup);
   const executable = canonicalPath(rawExecutable || "");
-  const instanceNonce = processInstanceNonceFromPS(pid);
-  if (!rawStartToken || !Number.isInteger(processGroup) || processGroup <= 1
-      || !executable || !instanceNonce) return null;
+  if (!rawStartToken || !Number.isInteger(processGroup) || processGroup <= 1 || !executable) return null;
   return {
     startToken: `darwin:${rawStartToken}`,
     processGroup,
     executable,
-    instanceNonce,
   };
 }
 
-function linuxProcessIdentity(pid) {
+function linuxKernelProcessIdentity(pid) {
   try {
     const stat = String(originalReadFileSync(`/proc/${pid}/stat`, "utf8"));
     const closing = stat.lastIndexOf(")");
@@ -293,18 +301,23 @@ function linuxProcessIdentity(pid) {
     const processGroup = Number(fields[2]);
     const startTicks = fields[19] || "";
     const executable = canonicalPath(originalReadlinkSync(`/proc/${pid}/exe`));
-    const environment = originalReadFileSync(`/proc/${pid}/environ`);
-    const instanceNonce = environmentNonce(String(environment).replaceAll("\0", " "));
-    if (!startTicks || !Number.isInteger(processGroup) || processGroup <= 1
-        || !executable || !instanceNonce) return null;
+    if (!startTicks || !Number.isInteger(processGroup) || processGroup <= 1 || !executable) return null;
     return {
       startToken: `linux:${startTicks}`,
       processGroup,
       executable,
-      instanceNonce,
     };
   } catch {
     return null;
+  }
+}
+
+function linuxProcessInstanceNonce(pid) {
+  try {
+    const environment = originalReadFileSync(`/proc/${pid}/environ`);
+    return environmentNonce(String(environment).replaceAll("\0", " "));
+  } catch {
+    return "";
   }
 }
 

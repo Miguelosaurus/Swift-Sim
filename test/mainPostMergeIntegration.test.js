@@ -334,3 +334,14 @@ Build settings for action build and target Second:
     /multiple equally likely application targets/,
   );
 });
+
+
+test("live signing fails closed when build settings are unavailable", () => {
+  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
+  assert.match(source, /if \(settings\.status !== 0 \|\| settings\.error\)/);
+  assert.match(source, /Xcode did not report a Development Team/);
+  assert.doesNotMatch(
+    source.slice(source.indexOf("function resolveSigningIdentities"), source.indexOf("function provisioningIdentityForTeam")),
+    /\.\.\.development\.map/,
+  );
+});

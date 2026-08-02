@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, renameSync, rmSync, statSync, utime
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { cleanupCreatedLockDirectory, withLiveEngineLifecycleLock } from "../mac-helper/src/liveEngineLifecycleLock.js";
+import { cleanupCreatedLockDirectory, lockOwnerIsAlive, withLiveEngineLifecycleLock } from "../mac-helper/src/liveEngineLifecycleLock.js";
 
 test("live engine lifecycle operations are serialized within one process", async () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-lock-"));
@@ -143,4 +143,27 @@ test("failed creator cleanup removes only its unchanged ownerless directory", ()
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test("lifecycle owners require the exact kernel start token", () => {
+  const owner = {
+    version: 2,
+    pid: process.pid,
+    startToken: "darwin:1780000000.123456",
+    nonce: "owner",
+  };
+  assert.equal(lockOwnerIsAlive(owner, {
+    identity: { startToken: owner.startToken },
+  }), true);
+  assert.equal(lockOwnerIsAlive(owner, {
+    identity: { startToken: "darwin:1780000000.123457" },
+  }), false);
+  assert.equal(lockOwnerIsAlive({
+    pid: process.pid,
+    startedAt: "Sat Aug  1 23:00:00 2026",
+    nonce: "legacy",
+  }, {
+    identity: { startToken: owner.startToken },
+  }), false);
 });

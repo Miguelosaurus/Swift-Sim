@@ -166,3 +166,14 @@ async function collect(child) {
   const code = await new Promise((resolveExit) => child.once("exit", resolveExit));
   return { stdout, stderr, code };
 }
+
+
+test("identity failure never authorizes an unverified cleanup signal", () => {
+  const source = readFileSync("mac-helper/src/liveEngineOwnershipPreload.js", "utf8");
+  const failureBranch = source.slice(
+    source.indexOf("if (!identity || identity.processGroup !== pid"),
+    source.indexOf("pendingRecords.set(pid", source.indexOf("if (!identity || identity.processGroup !== pid")),
+  );
+  assert.doesNotMatch(failureBranch, /kill|terminate/);
+  assert.match(source, /process\.platform === "darwin" && !identityHelperExecutable\(\)/);
+});

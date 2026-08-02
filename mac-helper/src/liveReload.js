@@ -579,7 +579,16 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
 
   const tailnet = discoverTailnet();
   if (tailnet.socket) ensurePrivateTailnetForward(tailnet);
-  const signingIdentities = resolveSigningIdentities(status.project.path, status.project.scheme);
+  let signingIdentities;
+  try {
+    signingIdentities = resolveSigningIdentities(status.project.path, status.project.scheme);
+  } catch (error) {
+    return {
+      ...status,
+      started: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
   if (signingIdentities.length === 0) {
     return {
       ...status,
@@ -2003,11 +2012,24 @@ function resolveSigningIdentities(projectPath, scheme = "") {
     [...containerArguments, "-configuration", "Debug", "-showBuildSettings"],
     { encoding: "utf8", timeout: 30_000 }
   );
+  if (settings.status !== 0 || settings.error) {
+    const detail = settings.error?.code === "ETIMEDOUT"
+      ? "The Xcode build-settings query timed out."
+      : String(settings.stderr || settings.stdout || settings.error?.message || "").trim();
+    throw new Error(
+      detail
+        ? `Unable to determine host-app signing settings. ${detail}`
+        : "Unable to determine host-app signing settings.",
+    );
+  }
   const output = String(settings.stdout || "");
   const selectedSettings = selectLiveApplicationBuildSettings(output, scheme);
   const expanded = expandedSigningIdentitiesFromSettings(selectedSettings);
   if (expanded.length > 0) return expanded;
   const team = String(selectedSettings.DEVELOPMENT_TEAM || "").trim();
+  if (!team) {
+    throw new Error("Xcode did not report a Development Team for the selected host application target.");
+  }
   const identities = spawnSync(
     "security",
     ["find-identity", "-v", "-p", "codesigning"],
@@ -2024,7 +2046,6 @@ function resolveSigningIdentities(projectPath, scheme = "") {
   return [...new Set([
     preferred,
     teamMatch,
-    ...development.map((match) => match[1]),
   ].filter(Boolean))];
 }
 
