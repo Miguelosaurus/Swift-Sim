@@ -1,0 +1,94 @@
+name: Manual review round 2 final correction
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/main-post-merge-review-round-1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/main-post-merge-review-round-1
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply final reviewed correction
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "mac-helper/src/deviceBuilderCore.js",
+              '''    const selectedLiveTarget = target.type === "project"
+                ? selectedXcodeApplicationTarget(join(target.path, "project.pbxproj"), build.scheme)
+                : null;
+              const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
+                && target.type === "project"
+                && Boolean(selectedLiveTarget)
+                && selectedTargetHasLivePackage(selectedLiveTarget.source, selectedLiveTarget.targetName);
+              ''',
+              '''    const liveCandidate = String(build.configuration || "").toLowerCase() === "debug"
+                && target.type === "project";
+              const selectedLiveTarget = liveCandidate
+                ? selectedXcodeApplicationTarget(join(target.path, "project.pbxproj"), build.scheme)
+                : null;
+              const liveEligible = Boolean(selectedLiveTarget)
+                && selectedTargetHasLivePackage(selectedLiveTarget.source, selectedLiveTarget.targetName);
+              ''',
+          )
+
+          replace_once(
+              "test/mainPostMergeIntegration.test.js",
+              '''  assert.match(source, /selectedXcodeApplicationTarget\\(join\\(target\\.path, "project\\.pbxproj"\\), build\\.scheme\\)/);
+                assert.match(source, /selectedTargetHasLivePackage\\(selectedLiveTarget\\.source, selectedLiveTarget\\.targetName\\)/);
+              ''',
+              '''  assert.match(source, /const liveCandidate = String\\(build\\.configuration \\|\\| ""\\)\\.toLowerCase\\(\\) === "debug"/);
+                assert.match(source, /const selectedLiveTarget = liveCandidate[\\s\\S]*selectedXcodeApplicationTarget\\(join\\(target\\.path, "project\\.pbxproj"\\), build\\.scheme\\)/);
+                assert.match(source, /selectedTargetHasLivePackage\\(selectedLiveTarget\\.source, selectedLiveTarget\\.targetName\\)/);
+              ''',
+          )
+
+          replace_once("docs/MAIN_POST_MERGE_REVIEW_ROUND1.md", "| P2 | 13 | 13 | 0 |", "| P2 | 14 | 14 | 0 |")
+          replace_once(
+              "docs/MAIN_POST_MERGE_REVIEW_ROUND1.md",
+              "13. Companion Mac synchronization removes only history explicitly owned by that same Mac; ownerless link history and another Mac's history survive unrelated syncs.\n",
+              "13. Companion Mac synchronization removes only history explicitly owned by that same Mac; ownerless link history and another Mac's history survive unrelated syncs.\n14. Optional live-target inspection is gated to Debug project builds, so ordinary Release archives do not run an unnecessary Debug build-settings query or trigger live-package resolution side effects.\n",
+          )
+
+          Path(".github/workflows/manual-review-round2-tail.yml").unlink(missing_ok=True)
+          Path("docs/manual-review-round2-tail-trigger.txt").unlink(missing_ok=True)
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Focused regression
+        run: node --test test/mainPostMergeIntegration.test.js
+      - name: JavaScript syntax
+        run: node scripts/check-js-syntax.js
+      - name: Documentation links
+        run: npm run check:docs
+      - name: Commit correction
+        shell: bash
+        run: |
+          git config user.name "Swift Sim Manual Review"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: keep live inspection out of release builds"
+          git push origin HEAD:agent/main-post-merge-review-round-1
