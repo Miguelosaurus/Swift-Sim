@@ -1,0 +1,404 @@
+name: Manual review round 2 fixes
+
+on:
+  push:
+    branches:
+      - agent/main-post-merge-review-round-1
+    paths:
+      - .github/workflows/manual-review-round2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/main-post-merge-review-round-1
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply reviewed fixes and regressions
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, count=1):
+              file = Path(path)
+              text = file.read_text()
+              found = text.count(old)
+              if found != count:
+                  raise SystemExit(f"{path}: expected {count} exact match(es), found {found}")
+              file.write_text(text.replace(old, new, count))
+
+          # P1: a verified detached engine must be cancellable before PID publication.
+          replace_exact(
+              "mac-helper/src/liveEngineOwnershipPreload.js",
+              "export function parseLiveEngineProcessRecord(raw, {\n",
+              '''export function abortPendingLiveEngine(pid) {
+            const value = Number(pid);
+            const record = pendingRecords.get(value);
+            if (!record) return false;
+            pendingRecords.delete(value);
+            terminateExactProcessGroup(record);
+            return true;
+          }
+
+          export function parseLiveEngineProcessRecord(raw, {
+          ''',
+          )
+
+          replace_exact(
+              "mac-helper/src/liveReload.js",
+              'import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";\n',
+              'import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";\nimport { abortPendingLiveEngine } from "./liveEngineOwnershipPreload.js";\n',
+          )
+
+          old_spawn = '''    const output = openSync(ENGINE_LOG, "a");
+            let child;
+            try {
+              child = spawn(ENGINE_EXECUTABLE, [], {
+                detached: true,
+                stdio: ["ignore", output, output],
+                env: {
+                  ...process.env,
+                  SWIFT_SIM_ENGINE: "1",
+                  SWIFT_SIM_ENGINE_SOCKET: ENGINE_SOCKET,
+                  SWIFT_SIM_PROJECT_ROOT: status.project.root,
+                  SWIFT_SIM_CODESIGN_IDENTITY: signingIdentity,
+                },
+              });
+              await waitForChildSpawn(child);
+            } finally {
+              closeSync(output);
+            }
+            writeFileSync(ENGINE_PID, `${child.pid}\\n`, { mode: 0o600 });
+          '''
+          new_spawn = '''    const output = openSync(ENGINE_LOG, "a");
+            let child;
+            let prepublicationError = null;
+            try {
+              child = spawn(ENGINE_EXECUTABLE, [], {
+                detached: true,
+                stdio: ["ignore", output, output],
+                env: {
+                  ...process.env,
+                  SWIFT_SIM_ENGINE: "1",
+                  SWIFT_SIM_ENGINE_SOCKET: ENGINE_SOCKET,
+                  SWIFT_SIM_PROJECT_ROOT: status.project.root,
+                  SWIFT_SIM_CODESIGN_IDENTITY: signingIdentity,
+                },
+              });
+              await waitForChildSpawn(child);
+            } catch (error) {
+              prepublicationError = error;
+            }
+            try {
+              closeSync(output);
+            } catch (error) {
+              prepublicationError ||= error;
+            }
+            if (prepublicationError) {
+              if (child?.pid) {
+                try { abortPendingLiveEngine(child.pid); } catch {}
+              }
+              throw prepublicationError;
+            }
+            try {
+              writeFileSync(ENGINE_PID, `${child.pid}\\n`, { mode: 0o600 });
+            } catch (error) {
+              // The ownership boundary normally performs this rollback itself.
+              // The explicit abort also covers failures before that guarded write
+              // could consume the verified pending process record.
+              if (child?.pid) {
+                try { abortPendingLiveEngine(child.pid); } catch {}
+              }
+              throw error;
+            }
+          '''
+          replace_exact("mac-helper/src/liveReload.js", old_spawn, new_spawn)
+
+          # P1: selected-target authority and live flags are restricted to the live build lane.
+          replace_exact(
+              "mac-helper/src/liveReload.js",
+              "function selectedXcodeApplicationTarget(projectPath, scheme) {\n",
+              "export function selectedXcodeApplicationTarget(projectPath, scheme) {\n",
+          )
+          replace_exact(
+              "mac-helper/src/deviceBuilderCore.js",
+              'import { withLiveBuildSession } from "./liveReload.js";\n',
+              'import {\n  selectedTargetHasLivePackage,\n  selectedXcodeApplicationTarget,\n  withLiveBuildSession,\n} from "./liveReload.js";\n',
+          )
+          old_eligibility = '''    const requestedBuildSettingArgs = xcodeBuildSettingArgs(build.buildSettings);
+            const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
+              && target.type === "project"
+              && projectHasLivePackage(target);
+            let buildSettingArgs = liveEligible
+              ? [...requestedBuildSettingArgs, ...managedLiveBuildSettings()]
+              : requestedBuildSettingArgs;
+            throwIfBuildCancelled(build);
+          '''
+          new_eligibility = '''    const requestedBuildSettingArgs = xcodeBuildSettingArgs(build.buildSettings);
+            throwIfBuildCancelled(build);
+            const selectedLiveTarget = target.type === "project"
+              ? selectedXcodeApplicationTarget(join(target.path, "project.pbxproj"), build.scheme)
+              : null;
+            const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
+              && target.type === "project"
+              && Boolean(selectedLiveTarget)
+              && selectedTargetHasLivePackage(selectedLiveTarget.source, selectedLiveTarget.targetName);
+            let buildSettingArgs = requestedBuildSettingArgs;
+          '''
+          replace_exact("mac-helper/src/deviceBuilderCore.js", old_eligibility, new_eligibility)
+
+          replace_exact(
+              "mac-helper/src/deviceBuilderCore.js",
+              '''      settings.CURRENT_PROJECT_VERSION = automaticBuildNumber;
+                    log(`Using build number ${automaticBuildNumber} so every Swift Sim build is distinct.`);
+                  }
+                  build.app.bundleIdentifier = resolvedIdentity.bundleIdentifier;
+          ''',
+              '''      settings.CURRENT_PROJECT_VERSION = automaticBuildNumber;
+                    log(`Using build number ${automaticBuildNumber} so every Swift Sim build is distinct.`);
+                  }
+                  const liveBuildSettingArgs = liveEligible
+                    ? [...buildSettingArgs, ...managedLiveBuildSettings()]
+                    : buildSettingArgs;
+                  build.app.bundleIdentifier = resolvedIdentity.bundleIdentifier;
+          ''',
+          )
+
+          # Only the live-enabled build receives Swift Sim's implicit-dynamic/interposable settings.
+          live_section_start = Path("mac-helper/src/deviceBuilderCore.js").read_text().index(
+              '          log("Building the signed live-enabled Debug app.");'
+          )
+          live_section_end = Path("mac-helper/src/deviceBuilderCore.js").read_text().index(
+              '          const appPath = findBuiltApp', live_section_start
+          )
+          core_path = Path("mac-helper/src/deviceBuilderCore.js")
+          core = core_path.read_text()
+          live_section = core[live_section_start:live_section_end]
+          if live_section.count("...buildSettingArgs,") != 1:
+              raise SystemExit("deviceBuilderCore.js: live build setting insertion point changed")
+          live_section = live_section.replace("...buildSettingArgs,", "...liveBuildSettingArgs,", 1)
+          core_path.write_text(core[:live_section_start] + live_section + core[live_section_end:])
+
+          broad_helper = '''function projectHasLivePackage(target) {
+            try {
+              return /SwiftSimLive|github\\.com\\/Miguelosaurus\\/InjectionNext/i.test(
+                readFileSync(join(target.path, "project.pbxproj"), "utf8")
+              );
+            } catch {
+              return false;
+            }
+          }
+
+          '''
+          replace_exact("mac-helper/src/deviceBuilderCore.js", broad_helper, "")
+
+          # P2: syncing Mac A must not erase ownerless or Mac B-owned link history.
+          replace_exact(
+              "Companion/SwiftSimCompanion/SessionStore.swift",
+              '''    static func managedAppOwnerIsCurrent(ownerPairingID: String?, pairedMacID: String) -> Bool {
+                  ownerPairingID == pairedMacID
+              }
+
+          ''',
+              '''    static func managedAppOwnerIsCurrent(ownerPairingID: String?, pairedMacID: String) -> Bool {
+                  ownerPairingID == pairedMacID
+              }
+
+              static func managedAppShouldBeRemovedDuringSync(
+                  appID: String,
+                  ownerPairingID: String?,
+                  syncingMacID: String,
+                  remoteIDs: Set<String>
+              ) -> Bool {
+                  ownerPairingID == syncingMacID && !remoteIDs.contains(appID)
+              }
+
+          ''',
+          )
+          replace_exact(
+              "Companion/SwiftSimCompanion/SessionStore.swift",
+              '''            let existingRemoteIDs = Set(managedApps
+                          .filter { !$0.id.hasPrefix("local:") && !$0.id.hasPrefix("pending:") }
+                          .map(\\.id))
+          ''',
+              '''            let existingRemoteIDs = Set(managedApps
+                          .filter { $0.ownerPairingID == mac.id }
+                          .map(\\.id))
+          ''',
+          )
+          replace_exact(
+              "Companion/SwiftSimCompanion/SessionStore.swift",
+              '''            managedApps.removeAll { app in
+                          !app.id.hasPrefix("local:")
+                              && !app.id.hasPrefix("pending:")
+                              && !remoteIDs.contains(app.id)
+                      }
+          ''',
+              '''            managedApps.removeAll { app in
+                          Self.managedAppShouldBeRemovedDuringSync(
+                              appID: app.id,
+                              ownerPairingID: app.ownerPairingID,
+                              syncingMacID: mac.id,
+                              remoteIDs: remoteIDs
+                          )
+                      }
+          ''',
+          )
+
+          # Node regression: pending verified process rollback.
+          replace_exact(
+              "test/liveEngineOwnershipPreload.test.js",
+              '''import {
+            liveEngineProcessRecordIsCurrent,
+            parseLiveEngineProcessRecord,
+          } from "../mac-helper/src/liveEngineOwnershipPreload.js";
+          ''',
+              '''import {
+            abortPendingLiveEngine,
+            liveEngineProcessRecordIsCurrent,
+            parseLiveEngineProcessRecord,
+          } from "../mac-helper/src/liveEngineOwnershipPreload.js";
+          ''',
+          )
+          ownership_test = r'''
+
+          test("a verified engine can be rolled back before PID publication", async () => {
+            const directory = mkdtempSync(join(tmpdir(), "swift-sim-live-prepublication-"));
+            const pidPath = join(directory, "engine.pid");
+            const script = `
+              import { spawn } from 'node:child_process';
+              import { setTimeout as delay } from 'node:timers/promises';
+              import { abortPendingLiveEngine, installLiveEngineOwnershipBoundary } from ${JSON.stringify(preloadURL)};
+              installLiveEngineOwnershipBoundary({ engineExecutable: process.execPath, pidPath: ${JSON.stringify(pidPath)} });
+              const engine = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+                detached: true,
+                stdio: 'ignore',
+              });
+              const aborted = abortPendingLiveEngine(engine.pid);
+              await delay(100);
+              console.log(JSON.stringify({ aborted, engineAlive: alive(engine.pid) }));
+              function alive(pid) {
+                try { process.kill(pid, 0); return true; } catch { return false; }
+              }
+            `;
+            try {
+              const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+                stdio: ["ignore", "pipe", "pipe"],
+              });
+              const { stdout, stderr, code } = await collect(child);
+              assert.equal(code, 0, stderr);
+              const observed = JSON.parse(stdout.trim());
+              assert.equal(observed.aborted, true);
+              assert.equal(observed.engineAlive, false);
+            } finally {
+              rmSync(directory, { recursive: true, force: true });
+            }
+          });
+          '''
+          p = Path("test/liveEngineOwnershipPreload.test.js")
+          p.write_text(p.read_text() + ownership_test)
+
+          integration_test = r'''
+
+          test("device live instrumentation cannot leak into fallback archives", () => {
+            const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
+            assert.match(source, /selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
+            assert.match(source, /selectedTargetHasLivePackage\(selectedLiveTarget\.source, selectedLiveTarget\.targetName\)/);
+            assert.doesNotMatch(source, /function projectHasLivePackage/);
+
+            const liveStart = source.indexOf('log("Building the signed live-enabled Debug app.")');
+            const liveEnd = source.indexOf("const appPath = findBuiltApp", liveStart);
+            const liveBuild = source.slice(liveStart, liveEnd);
+            assert.match(liveBuild, /\.\.\.liveBuildSettingArgs,/);
+
+            const fallbackStart = source.indexOf('log("Archiving for generic iOS device.")');
+            const fallbackEnd = source.indexOf('log("Exporting signed IPA.")', fallbackStart);
+            const fallback = source.slice(fallbackStart, fallbackEnd);
+            assert.match(fallback, /\.\.\.buildSettingArgs,/);
+            assert.doesNotMatch(fallback, /liveBuildSettingArgs|managedLiveBuildSettings/);
+          });
+          '''
+          p = Path("test/mainPostMergeIntegration.test.js")
+          p.write_text(p.read_text() + integration_test)
+
+          swift_test = r'''
+
+          extension InstallationStateTests {
+              @MainActor
+              func testMacSyncOnlyRemovesHistoryOwnedByThatMac() {
+                  let remoteIDs: Set<String> = ["present"]
+                  XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(
+                      appID: "ownerless",
+                      ownerPairingID: nil,
+                      syncingMacID: "mac-a",
+                      remoteIDs: remoteIDs
+                  ))
+                  XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(
+                      appID: "other-mac",
+                      ownerPairingID: "mac-b",
+                      syncingMacID: "mac-a",
+                      remoteIDs: remoteIDs
+                  ))
+                  XCTAssertTrue(SessionStore.managedAppShouldBeRemovedDuringSync(
+                      appID: "missing",
+                      ownerPairingID: "mac-a",
+                      syncingMacID: "mac-a",
+                      remoteIDs: remoteIDs
+                  ))
+                  XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(
+                      appID: "present",
+                      ownerPairingID: "mac-a",
+                      syncingMacID: "mac-a",
+                      remoteIDs: remoteIDs
+                  ))
+              }
+          }
+          '''
+          p = Path("Companion/SwiftSimCompanionTests/InstallationStateTests.swift")
+          p.write_text(p.read_text() + swift_test)
+
+          # Update the manual severity ledger.
+          replace_exact("docs/MAIN_POST_MERGE_REVIEW_ROUND1.md", "| P1 | 24 | 24 | 0 |", "| P1 | 26 | 26 | 0 |")
+          replace_exact("docs/MAIN_POST_MERGE_REVIEW_ROUND1.md", "| P2 | 12 | 12 | 0 |", "| P2 | 13 | 13 | 0 |")
+          replace_exact(
+              "docs/MAIN_POST_MERGE_REVIEW_ROUND1.md",
+              "24. Generic lock owner publication is bound to the exact directory device/inode and intended owner record after the write, so a suspended writer cannot resume into a quarantined directory and execute without mutual exclusion or erase a replacement owner.\n",
+              "24. Generic lock owner publication is bound to the exact directory device/inode and intended owner record after the write, so a suspended writer cannot resume into a quarantined directory and execute without mutual exclusion or erase a replacement owner.\n25. Device-build live eligibility now uses the selected scheme's authoritative host-application target, and Swift Sim's implicit-dynamic/interposable flags are confined to the live build rather than leaking into the ordinary fallback archive.\n26. A verified detached live-engine process can be identity-checked and terminated before PID publication, closing the remaining pre-publication abandonment window.\n",
+          )
+          replace_exact(
+              "docs/MAIN_POST_MERGE_REVIEW_ROUND1.md",
+              "12. `.xcodeproj` projects now use the same explicit scheme authority, selected-host-target package validation, and target-scoped linker settings as workspaces; stale PBX comments cannot impersonate a package dependency.\n",
+              "12. `.xcodeproj` projects now use the same explicit scheme authority, selected-host-target package validation, and target-scoped linker settings as workspaces; stale PBX comments cannot impersonate a package dependency.\n13. Companion Mac synchronization removes only history explicitly owned by that same Mac; ownerless link history and history owned by another Mac survive unrelated syncs.\n",
+          )
+          replace_exact(
+              "docs/MAIN_POST_MERGE_REVIEW_ROUND1.md",
+              "Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, PID/session publication rollback,",
+              "Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback,",
+          )
+
+          # Leave no temporary workflow in the resulting code tree.
+          Path(".github/workflows/manual-review-round2.yml").unlink()
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused adversarial regressions
+        run: node --test test/liveEngineOwnershipPreload.test.js test/mainPostMergeIntegration.test.js
+      - name: Run complete Node and release checks
+        run: npm run check
+      - name: Commit reviewed fixes
+        shell: bash
+        run: |
+          git config user.name "Swift Sim Manual Review"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: close manual review round 2 findings"
+          git push origin HEAD:agent/main-post-merge-review-round-1
