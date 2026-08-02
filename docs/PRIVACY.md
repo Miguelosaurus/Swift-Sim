@@ -17,6 +17,11 @@ The app handles the following data only to provide its core functionality:
 
 The app stores pairing information and recent sessions locally on the iPhone. Simulator frames and logs are displayed in the app and are not uploaded to SEA & SEA LLC.
 
+During QR pairing, the Mac prints a short-lived invitation that the iPhone
+sends directly to the user's helper over private Tailscale. The helper returns
+the durable pairing credential after verification; the temporary invitation is
+not a Swift Sim cloud account or a Cloudflare delivery link.
+
 When optional remote hot reload is enabled, project source remains on the Mac. The running development app receives a compiled code patch directly from the Mac over the user's private Tailscale network.
 
 ## Network and Third-Party Services

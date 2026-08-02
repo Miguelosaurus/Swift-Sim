@@ -12,8 +12,7 @@ artifact is local and gitignored; it contains only call counts, action names,
 reason codes, timings, and the sanitized cost-surface inventory.
 The timing samples use injected monotonic seams so the route call graph is
 repeatable; subprocess command shapes are counted from the current deep
-inspection adapter, not presented as physical-device wall-clock proof. The
-physical iPhone latency gate remains Phase 5.
+inspection adapter.
 
 Phase 2 evidence: `benchmarks/results/agent-fast-path-phase2-20260802/`
 (`agent-fast-path-baseline`, 7 scenarios x 30 repetitions). Classifier-first
@@ -27,8 +26,7 @@ contract tests. The terminal `deliver-change` path now classifies before live
 inspection, coalesces identical in-process requests, routes structural/live-
 unavailable/exhausted-recovery cases through exactly one existing signed-build
 adapter, and requires applied/refresh/revision proof before returning
-`hot-reloaded`. The tests use injected route/build seams; they do not claim
-physical-iPhone build or install latency.
+`hot-reloaded`. The tests use injected route/build seams.
 
 Phase 4 evidence: `test/agentSkillFastPath.test.js` and the packaged skill
 references under `plugins/swift-sim-companion/skills/remote-simulator-companion/`.
@@ -37,7 +35,7 @@ signed builds, pairing, Simulator preview, troubleshooting, and security are
 lazy references. Transcript fixtures cover ordinary edits (zero Swift Sim
 commands), one-command warm edits, structural/fallback wording, protocol
 drift, and the separate Simulator lane. The fixtures are deterministic static
-contracts; physical-iPhone latency remains Phase 5.
+contracts.
 
 Phase 6 local evidence: all Node checks pass (417 tests); the core, Liquid
 Glass, native-surface, and mechanism corpora validate (240/34/31/17 cases); the

@@ -8,7 +8,7 @@ The intended boundary is:
 
 1. The full helper listens only on Mac localhost.
 2. Tailscale Serve exposes simulator and pairing routes to authenticated devices in the same Tailnet.
-3. Pairing routes require an opaque pairing token.
+3. Pairing routes require either the durable pairing token or a short-lived, one-time invitation.
 4. Session routes require a separate opaque session token.
 5. Device delivery starts a separate localhost gateway with a strict token-scoped route allowlist.
 6. Cloudflare Quick Tunnel exposes only that temporary gateway.
@@ -45,7 +45,23 @@ The public companion build uses App Transport Security defaults. Simulator sessi
 
 Remote hot reload is a third, optional path. It uses the live engine's device port 8887 only across the user's private Tailnet. Swift Sim must never expose this port through Tailscale Funnel, Cloudflare Quick Tunnel, public DNS tunneling, router forwarding, or a public firewall rule. The live client and injected dynamic libraries are permitted only in development-signed Debug builds.
 
-## Tokens
+## Pairing invitations and tokens
+
+`swift-sim pair --qr` creates a five-minute invitation by default. The optional
+`--ttl-minutes` value is limited to 1 through 15 and is accepted only with
+`--qr`. The helper stores only a SHA-256 hash of the invitation, binds it to the
+current helper installation, and consumes it on the first successful claim.
+Retrying that claim with the same client nonce is idempotent; a different nonce
+cannot reuse the consumed invitation. The iPhone exchanges the invitation for
+the existing durable credential, then verifies `/api/pairing/status` before
+saving the Mac.
+
+The invitation endpoint is available only through the private helper/Tailscale
+Serve path. It is not part of the public device-build gateway. QR codes and
+pairing URLs are credentials: do not share, log, screenshot, or place them in
+issues or documentation. If one is exposed, generate a new invitation; do not
+treat the QR as a replacement for removing the device from the Tailnet or
+rotating a durable pairing token.
 
 Pairing and sessions use different random tokens:
 

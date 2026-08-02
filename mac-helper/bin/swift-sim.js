@@ -81,6 +81,8 @@ async function pair(args) {
     options: {
       "remote-base-url": { type: "string" },
       rotate: { type: "boolean" },
+      qr: { type: "boolean" },
+      "ttl-minutes": { type: "string" },
     },
   });
   const setup = runHelperJSON(["setup-status"]);
@@ -105,6 +107,8 @@ async function pair(args) {
     helperArgs.push("--mac-name", setup.tailscale.hostName);
   }
   if (values.rotate) helperArgs.push("--rotate");
+  if (values.qr) helperArgs.push("--qr");
+  if (values["ttl-minutes"] !== undefined) helperArgs.push("--ttl-minutes", values["ttl-minutes"]);
   return runHelper(helperArgs, { inherit: true });
 }
 

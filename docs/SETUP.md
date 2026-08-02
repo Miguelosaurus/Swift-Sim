@@ -55,6 +55,33 @@ Wi-Fi network; either device may use cellular. Keep the Mac awake with the
 Swift Sim helper running. Opening the pairing link outside Swift Sim brings up
 the app's **Mac Connection** screen and verifies the Mac before saving it.
 
+### QR pairing
+
+For an interactive handoff, verify the private route before creating an
+invitation:
+
+```sh
+swift-sim setup-status
+```
+
+Continue only when the report says `ok: true`, then run:
+
+```sh
+swift-sim pair --qr
+```
+
+Scan the displayed code in the companion at **Mac Connection → Scan Pairing
+QR**. Approve camera access when iOS asks. The QR contains a five-minute,
+one-time invitation by default; use `--ttl-minutes 1` through `--ttl-minutes 15`
+to change that window. Swift Sim exchanges the invitation for a durable pairing
+credential and verifies the helper before saving it.
+
+QR only bootstraps pairing. It does not install or configure Tailscale, and the
+Mac and iPhone must remain connected to the same private Tailnet. If camera
+access is unavailable, use the normal `swift-sim pair` JSON output and open its
+universal link or paste its custom-scheme link in **Open or Paste Pairing Link**.
+Opening a link alone is not proof that pairing succeeded.
+
 Do not connect the iPhone by cable for Swift Sim pairing. A cable is only a
 separate fallback if Xcode has never trusted or registered that iPhone for its
 first development-signed build.
@@ -145,6 +172,9 @@ Same Wi-Fi is not required. Do not use Tailscale Funnel; Simulator controls shou
 Tailscale backend, and any backend conflict. Do not generate a pairing link
 until it reports `ok: true`. `swift-sim pair` then uses that verified URL
 automatically and refuses a URL belonging to another active Mac identity.
+The interactive QR flow and its TTL options are documented in [QR pairing](#qr-pairing).
+The normal `swift-sim pair` command continues to return machine-readable JSON
+for agents.
 
 ## Optional Remote iPhone Hot Reload
 

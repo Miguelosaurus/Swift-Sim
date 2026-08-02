@@ -2,6 +2,7 @@ import { createRequire, syncBuiltinESMExports } from "node:module";
 import { timingSafeEqual } from "node:crypto";
 import { URL } from "node:url";
 import { PairingStore } from "./pairingStore.js";
+import { PairingInviteStore } from "./pairingInviteStore.js";
 import { buildPairingLinks } from "./links.js";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
@@ -21,6 +22,7 @@ const ACTIVE_BUILD_STATES = new Set([
   "delivering",
 ]);
 let defaultPairingStore;
+let defaultPairingInviteStore;
 let defaultDeviceBuildStore;
 let defaultDeviceDelivery;
 let deliveryCleanupPromise;
@@ -63,7 +65,7 @@ export function installHelperHttpBoundary() {
   syncBuiltinESMExports();
 }
 
-export function handlePairingFallback(req, res, store = pairingStore()) {
+export function handlePairingFallback(req, res, store = pairingStore(), invites = pairingInviteStore()) {
   if (req?.method !== "GET") return false;
   let url;
   try {
@@ -73,15 +75,32 @@ export function handlePairingFallback(req, res, store = pairingStore()) {
   }
   if (url.pathname !== "/pair") return false;
 
+  const pairing = store.current();
+  const invite = url.searchParams.get("invite") || "";
+  if (invite) {
+    const invitation = invites.inspect(invite, pairing);
+    if (!invitation || invitation.claimed) {
+      writeJson(res, 410, { error: "Pairing invitation expired or already used." });
+      return true;
+    }
+    const base = externalBaseURL(req, url);
+    const customScheme = buildPairingLinks({
+      ...pairing,
+      invite,
+      expiresAt: invitation.expiresAt,
+    }, base).customScheme;
+    writeHtml(res, pairingPage(customScheme, pairing.macName, invitation.expiresAt));
+    return true;
+  }
+
   const token = url.searchParams.get("token") || "";
   if (!store.tokenMatches(token)) {
     writeJson(res, 401, { error: "Unauthorized." });
     return true;
   }
-  const pairing = store.current();
   const base = externalBaseURL(req, url);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
-  writeHtml(res, pairingPage(customScheme));
+  writeHtml(res, pairingPage(customScheme, pairing.macName));
   return true;
 }
 
@@ -263,6 +282,11 @@ function pairingStore() {
   return defaultPairingStore;
 }
 
+function pairingInviteStore() {
+  defaultPairingInviteStore ||= new PairingInviteStore();
+  return defaultPairingInviteStore;
+}
+
 function buildStore() {
   defaultDeviceBuildStore ||= new DeviceBuildStore({ maintenance: false });
   return defaultDeviceBuildStore;
@@ -356,12 +380,13 @@ function writeHtml(res, body) {
   res.end(body);
 }
 
-function pairingPage(customScheme) {
+function pairingPage(customScheme, macName = "this Mac", expiresAt = "") {
+  const expiry = expiresAt ? `<p>This invitation expires at ${escapeHTML(expiresAt)}.</p>` : "";
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Connect Swift Sim</title><style>
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fbff;color:#121417}main{max-width:560px;margin:0 auto;padding:40px 22px}a{display:inline-block;margin-top:18px;padding:14px 18px;border-radius:999px;color:white;background:#1677ff;text-decoration:none;font-weight:700}code{display:block;margin-top:18px;padding:14px;border-radius:14px;background:white;word-break:break-all}
-</style></head><body><main><h1>Connect Swift Sim</h1><p>Open Swift Sim on your iPhone and connect it to this Mac over Tailscale.</p><a href="${escapeHTML(customScheme)}">Open Swift Sim</a><code>${escapeHTML(customScheme)}</code></main></body></html>`;
+</style></head><body><main><h1>Connect to ${escapeHTML(macName)}</h1><p>Open Swift Sim on your iPhone and connect it to this Mac over Tailscale.</p>${expiry}<a href="${escapeHTML(customScheme)}">Open Swift Sim</a><code>${escapeHTML(customScheme)}</code></main></body></html>`;
 }
 
 function escapeHTML(value) {

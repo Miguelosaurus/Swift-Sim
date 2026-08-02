@@ -20,6 +20,10 @@ struct SwiftSimCompanionApp: App {
             ContentView()
                 .environmentObject(sessionStore)
                 .onOpenURL { url in
+                    if PairingInvite(url: url) != nil {
+                        _ = sessionStore.open(url)
+                        return
+                    }
                     guard PairedMac(url: url) != nil else {
                         _ = sessionStore.open(url)
                         return

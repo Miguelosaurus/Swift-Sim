@@ -14,7 +14,9 @@ The iPhone app does not execute project source code. Xcode signs device builds o
 - Confirm repeated builds occupy one app-library slot and appear newest-first in Build History.
 - Verify archive, restore, history deletion wording, and connected-device status.
 - Ask the coding agent to build and launch an iOS app, then use its Swift Sim integration to open that simulator in Swift Sim.
-- Pair the iPhone with the Mac helper using the generated `swift-sim://` pairing link.
+- Run `swift-sim setup-status`, generate `swift-sim pair --qr`, and pair the iPhone by scanning it from **Mac Connection → Scan Pairing QR** while both devices are on the same Tailnet.
+- Deny camera access once and confirm **Open or Paste Pairing Link** remains a usable fallback; also verify that an expired or already-used QR asks for a fresh invitation.
+- Pair the iPhone with the Mac helper using the generated `swift-sim://` pairing link as the manual fallback.
 - Open the simulator session from the companion link returned by the coding agent.
 - Verify live video, taps, gestures, keyboard input, hardware controls, and logs.
 - Leave and reopen a recent session.

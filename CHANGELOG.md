@@ -4,7 +4,17 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
-No unreleased changes.
+### Added
+
+- Interactive one-time `swift-sim pair --qr` invitations with bounded TTLs,
+  private-Tailnet handoff, and a native **Scan Pairing QR** flow.
+- A secure invitation exchange that keeps the durable pairing token out of the
+  QR payload and verifies the helper before the companion saves the Mac.
+
+### Documentation
+
+- Documented QR pairing, camera/link fallback, invitation lifecycle, route
+  boundaries, privacy handling, and beta coverage.
 
 ## 0.6.1 - 2026-08-02
 

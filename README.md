@@ -109,10 +109,18 @@ its local Xcode can perform the build.
 If the phone is not paired, tap **Pair Now**, then **Set Up With My Agent**.
 Share the prepared request with Codex, Cursor, Claude Code, or OpenCode; the
 agent checks the Mac, guides only the missing Tailscale step, and returns the
-pairing link. Terminal commands remain available only as a manual fallback.
+pairing link. For an interactive terminal handoff, first confirm
+`swift-sim setup-status` reports `ok: true`, then run `swift-sim pair --qr` on
+the Mac and scan the short-lived QR code from **Mac Connection → Scan Pairing
+QR**. The invitation lasts five minutes by default; `--ttl-minutes 1..15` can
+set a different window. The normal `swift-sim pair` command remains
+machine-readable JSON for agents, and its universal/custom-scheme links remain
+the manual fallback.
 Opening the pairing link from Safari, Messages, or an agent opens Swift Sim
 directly to **Mac Connection**. Swift Sim verifies the selected Mac and pairing
-token before saving them; opening a link alone is not reported as success.
+invitation before saving the credential; opening a link alone is not reported as
+success. QR only bootstraps the pairing: both devices must still be signed in to
+the same private Tailnet. QR invitations expire and can be used only once.
 
 No USB cable is used for companion pairing, remote builds, Simulator preview,
 or OTA installation. A cable may be needed separately if Xcode asks to trust or

@@ -61,6 +61,12 @@ final class SessionStore: ObservableObject {
 
     @discardableResult
     func open(_ url: URL) -> Bool {
+        if PairingInvite(url: url) != nil {
+            isMacSettingsPresented = true
+            Task { _ = await pairMac(using: url) }
+            return true
+        }
+
         if PairedMac(url: url) != nil {
             isMacSettingsPresented = true
             Task { _ = await pairMac(using: url) }
@@ -96,7 +102,7 @@ final class SessionStore: ObservableObject {
 
     @discardableResult
     func pairMac(using url: URL) async -> Bool {
-        guard let candidate = PairedMac(url: url) else {
+        guard PairedMac(url: url) != nil || PairingInvite(url: url) != nil else {
             pairingErrorMessage = "That is not a valid Swift Sim pairing link."
             return false
         }
@@ -107,16 +113,26 @@ final class SessionStore: ObservableObject {
         isPairingMac = true
         pairingErrorMessage = nil
         helperStatus = .checking
+        var resolvedCandidate: PairedMac?
         defer {
             if Self.revisionIsCurrent(current: pairingAttemptRevision, expected: attemptRevision) {
                 isPairingMac = false
             }
         }
 
-        var request = URLRequest(url: candidate.statusURL)
-        request.timeoutInterval = 10
-
         do {
+            let candidate: PairedMac
+            if let invite = PairingInvite(url: url) {
+                candidate = try await claimPairingInvite(invite)
+            } else if let legacy = PairedMac(url: url) {
+                candidate = legacy
+            } else {
+                throw PairingFlowError.invalidLink
+            }
+            resolvedCandidate = candidate
+
+            var request = URLRequest(url: candidate.statusURL)
+            request.timeoutInterval = 10
             let (data, response) = try await URLSession.shared.data(for: request)
             guard Self.revisionIsCurrent(current: pairingAttemptRevision, expected: attemptRevision) else { return false }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -156,9 +172,66 @@ final class SessionStore: ObservableObject {
             return true
         } catch {
             guard Self.revisionIsCurrent(current: pairingAttemptRevision, expected: attemptRevision) else { return false }
-            pairingErrorMessage = pairingFailureMessage(for: error, mac: candidate)
+            let host = resolvedCandidate?.hostDisplayName
+                ?? PairingInvite(url: url)?.baseURL.host
+                ?? "this Mac"
+            pairingErrorMessage = error is PairingFlowError
+                ? error.localizedDescription
+                : pairingFailureMessage(for: error, host: host)
             helperStatus = pairedMac == nil ? .notPaired : .offline
             showLibraryAction(pairingErrorMessage ?? "Could not connect to this Mac.", kind: .error)
+            return false
+        }
+    }
+
+    private func claimPairingInvite(_ invite: PairingInvite) async throws -> PairedMac {
+        var request = URLRequest(url: invite.claimURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(invite.invite)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(PairingClaimRequest(clientNonce: UUID().uuidString))
+
+        for attempt in 0..<2 {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if (statusCode == 408 || statusCode >= 500) && attempt == 0 {
+                    continue
+                }
+                guard statusCode == 200 else {
+                    switch statusCode {
+                    case 409: throw PairingFlowError.consumed
+                    case 410: throw PairingFlowError.expired
+                    case 401: throw PairingFlowError.unreachable
+                    default: throw PairingFlowError.rejected
+                    }
+                }
+
+                let claim = try JSONDecoder().decode(PairingClaim.self, from: data)
+                guard !claim.token.isEmpty,
+                      invite.installationID.isEmpty || claim.installationID == invite.installationID else {
+                    throw PairingFlowError.rejected
+                }
+                return PairedMac(
+                    token: claim.token,
+                    baseURL: invite.baseURL,
+                    displayName: claim.macName.isEmpty ? invite.displayName : claim.macName
+                )
+            } catch {
+                guard attempt == 0, shouldRetryPairingClaim(error) else { throw error }
+            }
+        }
+
+        throw PairingFlowError.rejected
+    }
+
+    private func shouldRetryPairingClaim(_ error: Error) -> Bool {
+        guard !Task.isCancelled, let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut, .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet:
+            return true
+        default:
             return false
         }
     }
@@ -1013,7 +1086,10 @@ final class SessionStore: ObservableObject {
     }
 
     private func pairingFailureMessage(for error: Error, mac: PairedMac) -> String {
-        let host = mac.hostDisplayName
+        pairingFailureMessage(for: error, host: mac.hostDisplayName)
+    }
+
+    private func pairingFailureMessage(for error: Error, host: String) -> String {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .timedOut:
@@ -2374,6 +2450,77 @@ private struct SessionLogs: Decodable {
 
 private struct PairingStatus: Decodable {
     let macName: String
+}
+
+struct PairingInvite: Equatable {
+    let invite: String
+    let baseURL: URL
+    let displayName: String
+    let installationID: String
+    let expiresAt: String?
+
+    var claimURL: URL {
+        baseURL.appending(path: "api/pairing/claim")
+    }
+
+    init?(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let invite = components.queryItems?.first(where: { $0.name == "invite" })?.value,
+              !invite.isEmpty else { return nil }
+
+        let baseURL: URL?
+        let displayName = components.queryItems?.first(where: { $0.name == "name" })?.value ?? "Paired Mac"
+        let installationID = components.queryItems?.first(where: { $0.name == "macID" })?.value ?? ""
+        let expiresAt = components.queryItems?.first(where: { $0.name == "expiresAt" })?.value
+
+        if url.scheme == "swift-sim", url.host == "pair" {
+            baseURL = URL(string: components.queryItems?.first(where: { $0.name == "base" })?.value ?? "")
+        } else if (url.scheme == "https" || url.scheme == "http"), url.path == "/pair" {
+            var base = URLComponents()
+            base.scheme = url.scheme
+            base.host = url.host
+            base.port = url.port
+            baseURL = base.url
+        } else {
+            baseURL = nil
+        }
+
+        guard let baseURL, baseURL.scheme == "https", baseURL.host != nil else { return nil }
+        self.invite = invite
+        self.baseURL = baseURL
+        self.displayName = displayName
+        self.installationID = installationID
+        self.expiresAt = expiresAt
+    }
+}
+
+private struct PairingClaimRequest: Encodable {
+    let clientNonce: String
+}
+
+private struct PairingClaim: Decodable {
+    let token: String
+    let installationID: String
+    let macName: String
+    let expiresAt: String
+}
+
+private enum PairingFlowError: LocalizedError {
+    case invalidLink
+    case expired
+    case consumed
+    case unreachable
+    case rejected
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidLink: return "That is not a valid Swift Sim pairing link."
+        case .expired: return "This pairing invitation expired. Ask your agent for a fresh QR code."
+        case .consumed: return "This pairing invitation was already used. Ask your agent for a fresh QR code."
+        case .unreachable: return "The Mac rejected this pairing invitation. Check Tailscale and try a fresh QR code."
+        case .rejected: return "The Mac could not accept this pairing invitation. Ask your agent to generate a fresh one."
+        }
+    }
 }
 
 private struct RemoteAppList: Decodable {

@@ -8,8 +8,10 @@
 - Signed fallbacks preserve bundle identity, team, entitlements, and data.
 - Device delivery is a separate token-scoped, time-bounded gateway and must
   not expose source, local paths, or private Xcode metadata.
-- Pairing, session, and device-build tokens are bearer secrets. Never put them
-  in public issues, logs, docs, fixtures, snapshots, or benchmarks.
+- Pairing credentials, including short-lived QR invitations, and session tokens
+  are bearer secrets. A QR invitation bootstraps pairing but does not contain
+  the durable token. Device-build links are also secrets. Never put these
+  credentials in public issues, logs, docs, fixtures, snapshots, or benchmarks.
 - User-facing links contain only opaque identities and tokens. Do not reveal
   paths, UDIDs, team IDs, ports, Tailnet names, process IDs, or raw logs.
 - The companion does not execute project code. Helper and Simulator channels

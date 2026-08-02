@@ -1,4 +1,6 @@
 import SwiftUI
+import AVFoundation
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var sessionStore: SessionStore
@@ -1656,6 +1658,7 @@ private struct MacSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: SessionStore
     @State private var showingPasteLink = false
+    @State private var showingQRScanner = false
 
     var body: some View {
         NavigationStack {
@@ -1676,6 +1679,12 @@ private struct MacSettingsSheet: View {
                         }
 
                         Label(mac.displayName, systemImage: "macbook")
+
+                        Button {
+                            showingQRScanner = true
+                        } label: {
+                            Label("Scan New Pairing QR", systemImage: "qrcode.viewfinder")
+                        }
 
                         Button {
                             Task { await sessionStore.refreshHelperStatus() }
@@ -1754,6 +1763,15 @@ private struct MacSettingsSheet: View {
                                 .padding(.vertical, 8)
                         }
                         .listRowBackground(Color.blue)
+
+                        Button {
+                            showingQRScanner = true
+                        } label: {
+                            Label("Scan Pairing QR", systemImage: "qrcode.viewfinder")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 8)
+                        }
                     } footer: {
                         Text("No cable is needed for Swift Sim pairing. A cable is only sometimes needed separately if Xcode must trust or register this iPhone for its first development-signed build.")
                     }
@@ -1811,6 +1829,14 @@ private struct MacSettingsSheet: View {
                 PasteLinkSheet()
                     .environmentObject(sessionStore)
             }
+            .sheet(isPresented: $showingQRScanner) {
+                PairingQRScannerSheet { code in
+                    showingQRScanner = false
+                    guard let url = URL(string: code),
+                          PairingInvite(url: url) != nil || PairedMac(url: url) != nil else { return }
+                    _ = sessionStore.open(url)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
@@ -1852,6 +1878,161 @@ private struct MacSettingsSheet: View {
         case .offline: .gray
         case .pairingExpired: .orange
         }
+    }
+}
+
+private struct PairingQRScannerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onCode: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            PairingQRScanner(onCode: onCode)
+                .ignoresSafeArea(edges: .bottom)
+                .navigationTitle("Scan Pairing QR")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
+private struct PairingQRScanner: UIViewControllerRepresentable {
+    let onCode: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCode: onCode)
+    }
+
+    func makeUIViewController(context: Context) -> PairingQRScannerViewController {
+        PairingQRScannerViewController(onCode: context.coordinator.onCode)
+    }
+
+    func updateUIViewController(_ viewController: PairingQRScannerViewController, context: Context) {}
+
+    final class Coordinator {
+        let onCode: (String) -> Void
+
+        init(onCode: @escaping (String) -> Void) {
+            self.onCode = onCode
+        }
+    }
+}
+
+private final class PairingQRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+    private let onCode: (String) -> Void
+    private let captureSession = AVCaptureSession()
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var didScan = false
+
+    init(onCode: @escaping (String) -> Void) {
+        self.onCode = onCode
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            configureCaptureSession()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if granted {
+                        self.configureCaptureSession()
+                    } else {
+                        self.showUnavailableMessage()
+                    }
+                }
+            }
+        case .denied, .restricted:
+            showUnavailableMessage()
+        @unknown default:
+            showUnavailableMessage()
+        }
+    }
+
+    private func configureCaptureSession() {
+        guard let device = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: device),
+              captureSession.canAddInput(input) else {
+            showUnavailableMessage()
+            return
+        }
+        captureSession.addInput(input)
+
+        let output = AVCaptureMetadataOutput()
+        guard captureSession.canAddOutput(output) else {
+            showUnavailableMessage()
+            return
+        }
+        captureSession.addOutput(output)
+        output.setMetadataObjectsDelegate(self, queue: .main)
+        output.metadataObjectTypes = [.qr]
+
+        let preview = AVCaptureVideoPreviewLayer(session: captureSession)
+        preview.videoGravity = .resizeAspectFill
+        view.layer.insertSublayer(preview, at: 0)
+        previewLayer = preview
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard captureSession.inputs.isEmpty == false,
+              captureSession.outputs.isEmpty == false,
+              !captureSession.isRunning else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [captureSession] in
+            captureSession.startRunning()
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        guard captureSession.isRunning else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [captureSession] in
+            captureSession.stopRunning()
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer?.frame = view.bounds
+    }
+
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard !didScan,
+              let value = metadataObjects.compactMap({ ($0 as? AVMetadataMachineReadableCodeObject)?.stringValue }).first else { return }
+        didScan = true
+        captureSession.stopRunning()
+        onCode(value)
+    }
+
+    private func showUnavailableMessage() {
+        guard view.viewWithTag(7101) == nil else { return }
+        let label = UILabel()
+        label.tag = 7101
+        label.text = "Camera access is unavailable. Use Open or Paste Pairing Link instead."
+        label.textColor = .white
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
     }
 }
 

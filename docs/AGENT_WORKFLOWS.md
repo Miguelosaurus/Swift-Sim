@@ -112,6 +112,12 @@ The doctor report separates:
 - `remoteHotReload`: optional Debug-only real-iPhone workflow; private Tailscale requirement
 - `simulatorPreview`: optional live Simulator workflow; private Tailscale requirement
 
+For first-time Mac pairing, run `swift-sim setup-status` and then either
+`swift-sim pair --qr` for the interactive **Scan Pairing QR** flow or
+`swift-sim pair` for the machine-readable link flow. QR invitations are
+short-lived and one-time; the companion exchanges them for the durable pairing
+credential and verifies the helper before saving the Mac.
+
 ## Build To iPhone
 
 The default command is:

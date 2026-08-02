@@ -206,6 +206,22 @@ swift-sim setup-status
 swift-sim pair
 ```
 
+For the QR flow, run `swift-sim pair --qr` after `swift-sim setup-status` reports
+`ok: true`, then scan it from **Mac Connection → Scan Pairing QR**. QR invitations
+expire after five minutes by default and are consumed once. If the app reports
+that the QR was used or expired, generate a new one; do not troubleshoot
+Tailscale first. Use `--ttl-minutes 1..15` only when you need a different
+invitation window.
+
+If iOS camera access is denied or unavailable, enable Camera for Swift Sim in
+**Settings → Privacy & Security → Camera**, or use **Open or Paste Pairing Link**
+with the normal `swift-sim pair` output. The normal link path still verifies the
+Mac before saving it.
+
+If scanning succeeds but verification fails, start a fresh QR flow. The invite
+is intentionally not a durable credential, and a retry with a different client
+cannot reuse an invitation that was already claimed.
+
 Open the returned link on the iPhone. If Safari does not switch apps, paste the returned `swift-sim://pair?...` link into Swift Sim.
 
 ## HTTPS Link Opens Safari Instead Of Swift Sim

@@ -151,7 +151,9 @@ When behavior changes:
 Tagged releases use an explicit repository bundle instead of GitHub's regenerated source archive:
 
 1. Update the package, companion, and plugin versions together; move the changelog entries out of `Unreleased`.
-2. Run `npm run check`, `swift test`, the unsigned Simulator build, and both plugin validators.
+2. Run `npm run check`, `swift test`, the native companion `xcodebuild test`
+   gate (including pairing-invitation coverage), the unsigned Simulator build,
+   and both plugin validators.
 3. Commit and push `main`, create the immutable `v<version>` tag, then build `swift-sim-<version>.tar.gz` with `git archive --prefix=swift-sim-<version>/`.
 4. Publish that bundle and its SHA-256 file on the GitHub release.
 5. Run `scripts/release/render-homebrew-formula.sh <version>` only after the assets are public. Commit the resulting formula to `Miguelosaurus/homebrew-tap` and verify a clean Homebrew install.

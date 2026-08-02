@@ -41,6 +41,7 @@ test("public delivery gateway exposes only token-scoped install routes", () => {
   assert.equal(deviceDeliveryRequestAllowed("POST", "/api/device-builds/build-123/renew"), false);
   assert.equal(deviceDeliveryRequestAllowed("GET", "/api/sessions/session-123"), false);
   assert.equal(deviceDeliveryRequestAllowed("GET", "/api/pairing/status"), false);
+  assert.equal(deviceDeliveryRequestAllowed("POST", "/api/pairing/claim"), false);
   assert.equal(deviceDeliveryRequestAllowed("GET", "/api/device-builds"), false);
   assert.equal(deviceDeliveryRequestAllowed("POST", "/api/device-builds/build-123"), false);
   assert.equal(deviceDeliveryRequestAllowed("DELETE", "/api/apps/app-123"), false);

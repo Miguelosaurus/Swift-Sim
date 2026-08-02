@@ -137,6 +137,30 @@ final class InstallationStateTests: XCTestCase {
         XCTAssertEqual(mac?.hostDisplayName, "current-mac.example")
     }
 
+    func testPairingInvitationParsesWithoutTreatingInviteAsDurableCredential() {
+        let url = URL(
+            string: "swift-sim://pair?invite=temporary-invite-token&macID=mac-id&base=https%3A%2F%2Fcurrent-mac.example&name=Miguel%27s%20MacBook%20Air&expiresAt=2026-08-02T10%3A05%3A00Z"
+        )!
+        let invite = PairingInvite(url: url)
+
+        XCTAssertEqual(invite?.invite, "temporary-invite-token")
+        XCTAssertEqual(invite?.baseURL.absoluteString, "https://current-mac.example")
+        XCTAssertEqual(invite?.displayName, "Miguel's MacBook Air")
+        XCTAssertEqual(invite?.claimURL.absoluteString, "https://current-mac.example/api/pairing/claim")
+        XCTAssertNil(PairedMac(url: url))
+    }
+
+    @MainActor
+    func testOpeningPairingInvitationPresentsMacConnectionSheet() {
+        let store = SessionStore()
+        let url = URL(
+            string: "swift-sim://pair?invite=temporary-invite-token&base=https%3A%2F%2Fcurrent-mac.example"
+        )!
+
+        XCTAssertTrue(store.open(url))
+        XCTAssertTrue(store.isMacSettingsPresented)
+    }
+
     @MainActor
     func testOpeningPairingLinkPresentsMacConnectionSheet() {
         let store = SessionStore()

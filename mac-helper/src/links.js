@@ -56,12 +56,14 @@ export function buildPairingLinks(pairing, remoteBaseUrl = "") {
   const base = normalizeBaseUrl(remoteBaseUrl);
   const name = pairing.macName ? `&name=${encodeURIComponent(pairing.macName)}` : "";
   const macID = encodeURIComponent(pairing.installationID || "");
+  const invite = pairing.invite ? `invite=${encodeURIComponent(pairing.invite)}` : `token=${encodeURIComponent(pairing.token || "")}`;
+  const expiry = pairing.expiresAt ? `&expiresAt=${encodeURIComponent(pairing.expiresAt)}` : "";
   const universalLink = base
-    ? `${base}/pair?token=${encodeURIComponent(pairing.token)}&macID=${macID}&base=${encodeURIComponent(base)}`
+    ? `${base}/pair?${invite}&macID=${macID}&base=${encodeURIComponent(base)}${expiry}`
     : "";
   return {
     universalLink,
-    customScheme: `swift-sim://pair?token=${encodeURIComponent(pairing.token)}&macID=${macID}${base ? `&base=${encodeURIComponent(base)}` : ""}${name}`,
+    customScheme: `swift-sim://pair?${invite}&macID=${macID}${base ? `&base=${encodeURIComponent(base)}` : ""}${name}${expiry}`,
   };
 }
 

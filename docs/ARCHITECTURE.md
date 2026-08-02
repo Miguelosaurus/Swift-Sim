@@ -188,12 +188,13 @@ GET /health
 GET /.well-known/apple-app-site-association
 ```
 
-Pairing-token routes:
+Pairing and helper routes:
 
 ```text
 GET  /api/serve-sim
 GET  /api/transports
 GET  /api/pairing/status
+POST /api/pairing/claim
 POST /api/pairing/rotate
 POST /api/sessions/start
 GET  /api/apps
@@ -201,6 +202,14 @@ GET  /api/apps/<app-id>
 POST /api/apps/<app-id>/archive
 DELETE /api/apps/<app-id>
 ```
+
+`POST /api/pairing/claim` exchanges a short-lived QR invitation for the
+helper's existing durable pairing credential. The invitation is supplied as a
+Bearer token (or request field) with a client nonce. The helper validates its
+hash, expiry, and installation binding before returning the durable token and
+Mac identity. Repeating a claim with the same nonce is idempotent; a different
+nonce after consumption returns `409`, while malformed, expired, or stale-
+installation invitations return `400` or `410`.
 
 Session-token routes:
 
@@ -250,10 +259,17 @@ changed.
 Browser fallback and link entry points:
 
 ```text
-GET /pair
+GET /pair?invite=<short-lived-invite>
+GET /pair?token=<durable-pairing-token>
 GET /s/<id>
 GET /d/<id>
 ```
+
+The invite form of `/pair` is a no-store browser fallback. It validates the
+invitation, renders a custom-scheme link, and never places the durable pairing
+token in the page. The public device-build gateway rejects pairing routes;
+these entry points are available only through the localhost helper and private
+Tailscale Serve path.
 
 ## Persistence
 
@@ -261,6 +277,7 @@ The helper stores local state in:
 
 ```text
 ~/.swift-sim/pairing.json
+~/.swift-sim/pairing-invites.json
 ~/.swift-sim/sessions.json
 ~/.swift-sim/device-builds.json
 ~/.swift-sim/device-builds/

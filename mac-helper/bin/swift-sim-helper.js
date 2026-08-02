@@ -28,6 +28,8 @@ import {
   normalizeDeviceBuildTTLMinutes,
 } from "../src/deviceBuildDefaults.js";
 import { PairingStore } from "../src/pairingStore.js";
+import { PairingInviteStore } from "../src/pairingInviteStore.js";
+import { printQRCode } from "../src/terminalQRCode.js";
 import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
 import { DeviceInventoryAdapter } from "../src/deviceInventory.js";
 import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";
@@ -63,6 +65,7 @@ const store = new SessionStore();
 const deviceBuildStore = new DeviceBuildStore();
 const deviceDelivery = new DeviceDeliveryAdapter();
 const pairingStore = new PairingStore();
+const pairingInviteStore = new PairingInviteStore();
 const simulatorProfiles = new SimulatorProfileResolver();
 const deviceInventory = new DeviceInventoryAdapter();
 const adapter = new ServeSimAdapter();
@@ -133,15 +136,40 @@ async function main() {
         "remote-base-url": { type: "string" },
         "mac-name": { type: "string" },
         rotate: { type: "boolean" },
+        qr: { type: "boolean" },
+        "ttl-minutes": { type: "string" },
       },
     });
     let pairing = values.rotate ? pairingStore.rotate() : pairingStore.current();
     pairing = pairingStore.updateMacName(values["mac-name"]);
-    const links = buildPairingLinks(pairing, values["remote-base-url"]);
-    console.log(JSON.stringify({
-      macName: pairing.macName,
-      links,
-    }, null, 2));
+    const ttlMinutes = values["ttl-minutes"] === undefined
+      ? undefined
+      : Number(values["ttl-minutes"]);
+    if (ttlMinutes !== undefined && (!Number.isFinite(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 15)) {
+      throw new Error("Pairing invite TTL must be between 1 and 15 minutes.");
+    }
+    if (ttlMinutes !== undefined && !values.qr) {
+      throw new Error("--ttl-minutes requires --qr.");
+    }
+    const invite = values.qr
+      ? pairingInviteStore.create({
+        pairing,
+        ttlMs: ttlMinutes === undefined ? undefined : ttlMinutes * 60 * 1000,
+      })
+      : null;
+    const links = buildPairingLinks(invite
+      ? { ...pairing, invite: invite.invite, expiresAt: invite.expiresAt }
+      : pairing, values["remote-base-url"]);
+    if (values.qr) {
+      console.log(`Pair with ${pairing.macName}`);
+      console.log(`Expires: ${invite.expiresAt}`);
+      printQRCode(links.universalLink || links.customScheme);
+      console.log(`Pairing URL: ${links.universalLink || links.customScheme}`);
+    } else {
+      const output = { macName: pairing.macName, links };
+      if (invite) output.expiresAt = invite.expiresAt;
+      console.log(JSON.stringify(output, null, 2));
+    }
     return;
   }
 
@@ -335,6 +363,24 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           return unauthorized(res);
         }
         return json(res, 200, pairingStore.status());
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/pairing/claim") {
+        const body = await readJson(req);
+        const invite = bearerToken(req) || body.invite || "";
+        const clientNonce = body.clientNonce || "";
+        const pairing = pairingStore.current();
+        const result = pairingInviteStore.claim(invite, clientNonce, pairing);
+        if (!result.ok) {
+          const status = result.code === "malformed" ? 400 : result.code === "consumed" ? 409 : 410;
+          return json(res, status, { error: `Pairing invitation ${result.code}.` });
+        }
+        return json(res, 200, {
+          token: result.pairing.token,
+          installationID: result.pairing.installationID,
+          macName: result.pairing.macName,
+          expiresAt: result.expiresAt,
+        });
       }
 
       if (req.method === "POST" && url.pathname === "/api/pairing/rotate") {
@@ -728,17 +774,28 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
 
       if (req.method === "GET" && url.pathname === "/pair") {
         const token = url.searchParams.get("token") || "";
-        if (!pairingStore.tokenMatches(token)) {
-          return unauthorized(res);
-        }
-        const base = externalRequestBase(req, url);
+        const invite = url.searchParams.get("invite") || "";
         const pairing = pairingStore.current();
+        if (invite) {
+          const invitation = pairingInviteStore.inspect(invite, pairing);
+          if (!invitation || invitation.claimed) return badRequest(res, 410, "Pairing invitation expired or already used.");
+          return text(res, 200, pairingFallbackHtml({
+            pairing: { ...pairing, invite, expiresAt: invitation.expiresAt },
+            base: externalRequestBase(req, url),
+          }), "text/html; charset=utf-8", {
+            "cache-control": "no-store",
+            "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+            "referrer-policy": "no-referrer",
+            "x-content-type-options": "nosniff",
+          });
+        }
+        if (!pairingStore.tokenMatches(token)) return unauthorized(res);
+        const base = externalRequestBase(req, url);
         return text(res, 200, pairingFallbackHtml({
-          token,
+          pairing: { ...pairing, token },
           base,
-          macName: pairing.macName,
-          installationID: pairing.installationID,
         }), "text/html; charset=utf-8", {
+          "cache-control": "no-store",
           "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
           "referrer-policy": "no-referrer",
           "x-content-type-options": "nosniff",
@@ -1888,9 +1945,12 @@ function ensureToken(session, token) {
 }
 
 function pairingTokenMatches(req, url) {
+  return pairingStore.tokenMatches(bearerToken(req) || url.searchParams.get("token"));
+}
+
+function bearerToken(req) {
   const header = req.headers.authorization || "";
-  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
-  return pairingStore.tokenMatches(bearer || url.searchParams.get("token"));
+  return header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
 }
 
 function tokenMatches(session, token) {
@@ -1941,8 +2001,9 @@ function sessionFallbackHtml(session) {
 </html>`;
 }
 
-function pairingFallbackHtml({ token, base, macName, installationID }) {
-  const customScheme = buildPairingLinks({ token, macName, installationID }, base).customScheme;
+function pairingFallbackHtml({ pairing, base }) {
+  const links = buildPairingLinks(pairing, base);
+  const customScheme = links.customScheme;
   const customSchemeScript = JSON.stringify(customScheme);
   return `<!doctype html>
 <html>
@@ -1964,7 +2025,7 @@ function pairingFallbackHtml({ token, base, macName, installationID }) {
 </head>
 <body>
   <main>
-    <h1>Pair with ${escapeHtml(macName || "this Mac")}</h1>
+    <h1>Pair with ${escapeHtml(pairing.macName || "this Mac")}</h1>
     <p>Swift Sim will verify this Mac before saving it and open the Mac Connection screen automatically.</p>
     <p>Both devices need internet access and the same Tailnet, but not the same Wi-Fi network or a USB cable.</p>
     <a class="button" href="${escapeHtml(customScheme)}">Pair in Swift Sim</a>

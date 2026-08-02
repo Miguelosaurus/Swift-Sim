@@ -11,7 +11,10 @@ Read only the matching branch:
 - **Live not ready:** confirm `SwiftSimLive`, one root `.swiftSimLive()`,
   prepared Debug build, and matching development identity. Never publish 8887.
 - **Pairing/Tailnet:** use `setup-status`, then `pair` or `pair --qr` for a
-  fresh verified invitation. Resolve backend conflicts first.
+  fresh verified invitation. Scan from **Mac Connection → Scan Pairing QR**;
+  if camera access is unavailable, use the normal link and **Open or Paste
+  Pairing Link**. Resolve backend conflicts first. An expired or used
+  invitation requires a new one.
 - **Signing/delivery:** inspect exact Xcode error, bundle ID, team, device,
   capabilities, and profile. Use `device-delivery-status` and
   `device-delivery-stop` for stale delivery; device installs do not need
