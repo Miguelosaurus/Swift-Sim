@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  closeSync,
   copyFileSync,
   existsSync,
   mkdtempSync,
@@ -17,6 +18,8 @@ import {
 import { createConnection } from "node:net";
 import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
+import { abortPendingLiveEngine } from "./liveEngineOwnershipPreload.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
@@ -189,6 +192,24 @@ export function classifySwiftSource(before, after, paths = {}) {
       LIVE_REASON_CODES.IMPORT_CHANGED,
     );
   }
+  if (beforeSurface.compilerConditions !== afterSurface.compilerConditions) {
+    return result(
+      "rebuild-required",
+      false,
+      "A conditional-compilation or availability condition changed.",
+      paths,
+      LIVE_REASON_CODES.DECLARATION_CHANGED,
+    );
+  }
+  if (beforeSurface.attributes !== afterSurface.attributes) {
+    return result(
+      "rebuild-required",
+      false,
+      "A declaration attribute or property-wrapper argument changed.",
+      paths,
+      LIVE_REASON_CODES.DECLARATION_CHANGED,
+    );
+  }
   if (beforeSurface.modifiers !== afterSurface.modifiers) {
     return result(
       "rebuild-required",
@@ -235,28 +256,40 @@ export function classifySwiftSource(before, after, paths = {}) {
   );
 }
 
-export async function inspectLiveReload({ project = "", host = "" } = {}) {
+export async function inspectLiveReload(options = {}) {
+  return withLiveEngineLifecycleLock(() => inspectLiveReloadUnlocked(options));
+}
+
+async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" } = {}) {
   const requestedProjectPath = project ? resolve(project) : "";
   const projectPath = requestedProjectPath && existsSync(requestedProjectPath)
     && statSync(requestedProjectPath).isDirectory()
     && (requestedProjectPath.endsWith(".xcodeproj") || requestedProjectPath.endsWith(".xcworkspace"))
     ? join(requestedProjectPath, requestedProjectPath.endsWith(".xcodeproj") ? "project.pbxproj" : "contents.xcworkspacedata")
     : requestedProjectPath;
-  const projectSource = projectPath && existsSync(projectPath)
-    ? readFileSync(projectPath, "utf8")
-    : "";
+  const availableSchemes = isXcodeContainerProjectPath(projectPath)
+    ? listedLiveSchemes(projectPath)
+    : [];
+  const schemeSelection = selectLiveScheme(projectPath, scheme, availableSchemes);
+  const projectConfiguration = liveProjectConfiguration(projectPath, schemeSelection.scheme);
+  const projectSource = projectConfiguration.source;
   const tailnet = host
     ? { command: "", prefix: [], socket: "", host }
     : discoverTailnet();
   const tailscaleHost = host || tailnet.host;
-  const packageConfigured = /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(projectSource);
-  const interposableConfigured = /-interposable/.test(projectSource);
+  const packageConfigured = projectConfiguration.packageConfigured;
+  const interposableConfigured = projectConfiguration.interposableConfigured;
   const engineInstalled = installedEngineMatchesManifest();
   const control = engineInstalled ? await engineControl({ action: "status" }) : null;
   const engineStatus = control?.success ? control.data : null;
   const projectRoot = projectRootFor(projectPath);
+  const engineSession = readJSONFile(ENGINE_SESSION);
+  const matchingEngineSession = liveEngineSessionMatches(engineSession, {
+    projectRoot,
+    scheme: schemeSelection.scheme,
+  });
   const watchingProject = Boolean(
-    projectRoot
+    matchingEngineSession
     && engineStatus?.watching_directories?.some((path) => resolve(path) === projectRoot)
   );
   const connected = Boolean(engineStatus?.has_connected_client);
@@ -265,6 +298,7 @@ export async function inspectLiveReload({ project = "", host = "" } = {}) {
     tailscaleHost
     && packageConfigured
     && engineInstalled
+    && !schemeSelection.error
   );
 
   return {
@@ -307,6 +341,10 @@ export async function inspectLiveReload({ project = "", host = "" } = {}) {
       packageConfigured,
       interposableConfigured,
       buildSettingsManagedBySwiftSim: packageConfigured,
+      scheme: schemeSelection.scheme,
+      availableSchemes: schemeSelection.availableSchemes,
+      schemeRequired: schemeSelection.required,
+      schemeError: schemeSelection.error,
     },
     requiredBuildSettings: {
       configuration: "Debug",
@@ -329,6 +367,10 @@ export async function inspectLiveReload({ project = "", host = "" } = {}) {
 }
 
 export async function ensureLiveEngineInstalled() {
+  return withLiveEngineLifecycleLock(() => ensureLiveEngineInstalledUnlocked());
+}
+
+async function ensureLiveEngineInstalledUnlocked() {
   if (installedEngineMatchesManifest()) {
     return {
       id: "live-engine",
@@ -392,7 +434,25 @@ export async function ensureLiveEngineInstalled() {
   };
 }
 
-export async function registerLiveBuildResult({ resultBundle }) {
+export async function registerLiveBuildResult(options) {
+  return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));
+}
+
+export async function withLiveBuildSession(options, operation, runtime = {}) {
+  if (typeof operation !== "function") throw new TypeError("A live build operation is required.");
+  const lock = runtime.lock || withLiveEngineLifecycleLock;
+  const start = runtime.start || startLiveReloadUnlocked;
+  const register = runtime.register || registerLiveBuildResultUnlocked;
+  return lock(async () => {
+    const liveSession = await start(options);
+    return operation({
+      liveSession,
+      registerLiveBuildResult: register,
+    });
+  });
+}
+
+async function registerLiveBuildResultUnlocked({ resultBundle }) {
   const path = resolve(resultBundle || "");
   if (!existsSync(path)) {
     throw new Error("The Xcode result bundle is missing.");
@@ -496,15 +556,22 @@ function resolveFrom(workingDirectory, path) {
   return resolve(workingDirectory || process.cwd(), path);
 }
 
-export async function startLiveReload({ project = "", host = "", forceRestart = false } = {}) {
-  await ensureLiveEngineInstalled();
-  let status = await inspectLiveReload({ project, host });
+export async function startLiveReload(options = {}) {
+  return withLiveEngineLifecycleLock(() => startLiveReloadUnlocked(options));
+}
+
+async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", forceRestart = false } = {}) {
+  await ensureLiveEngineInstalledUnlocked();
+  let status = await inspectLiveReloadUnlocked({ project, host, scheme });
   if (!status.project.readable) {
     return {
       ...status,
       started: false,
-      error: "Pass the path to an .xcodeproj/project.pbxproj file.",
+      error: "Pass the path to an .xcodeproj/project.pbxproj or .xcworkspace/contents.xcworkspacedata file.",
     };
+  }
+  if (status.project.schemeError) {
+    return { ...status, started: false, error: status.project.schemeError };
   }
   if (!status.host) {
     return { ...status, started: false, error: "Connect this Mac to Tailscale first." };
@@ -519,7 +586,16 @@ export async function startLiveReload({ project = "", host = "", forceRestart = 
 
   const tailnet = discoverTailnet();
   if (tailnet.socket) ensurePrivateTailnetForward(tailnet);
-  const signingIdentities = resolveSigningIdentities(status.project.path);
+  let signingIdentities;
+  try {
+    signingIdentities = resolveSigningIdentities(status.project.path, status.project.scheme);
+  } catch (error) {
+    return {
+      ...status,
+      started: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
   if (signingIdentities.length === 0) {
     return {
       ...status,
@@ -554,9 +630,11 @@ export async function startLiveReload({ project = "", host = "", forceRestart = 
       (path) => resolve(path) === status.project.root
     )
     && running.data?.codesigning_identity_configured
-    && session?.projectRoot === status.project.root
-    && session?.signingIdentity === signingIdentity
-    && session?.engineVersion === ENGINE_VERSION;
+    && liveEngineSessionMatches(session, {
+      projectRoot: status.project.root,
+      scheme: status.project.scheme,
+    })
+    && session?.signingIdentity === signingIdentity;
   if (!alreadyWatching) {
     await stopLiveEngine();
     mkdirSync(LIVE_ROOT, { recursive: true });
@@ -564,23 +642,60 @@ export async function startLiveReload({ project = "", host = "", forceRestart = 
       truncateSync(ENGINE_LOG, 0);
     }
     const output = openSync(ENGINE_LOG, "a");
-    const child = spawn(ENGINE_EXECUTABLE, [], {
-      detached: true,
-      stdio: ["ignore", output, output],
-      env: {
-        ...process.env,
-        SWIFT_SIM_ENGINE: "1",
-        SWIFT_SIM_ENGINE_SOCKET: ENGINE_SOCKET,
-        SWIFT_SIM_PROJECT_ROOT: status.project.root,
-        SWIFT_SIM_CODESIGN_IDENTITY: signingIdentity,
-      },
-    });
-    writeFileSync(ENGINE_PID, `${child.pid}\n`, { mode: 0o600 });
-    writeFileSync(ENGINE_SESSION, `${JSON.stringify({
-      projectRoot: status.project.root,
-      signingIdentity,
-      engineVersion: ENGINE_VERSION,
-    }, null, 2)}\n`, { mode: 0o600 });
+    let child;
+    let prepublicationError = null;
+    try {
+      child = spawn(ENGINE_EXECUTABLE, [], {
+        detached: true,
+        stdio: ["ignore", output, output],
+        env: {
+          ...process.env,
+          SWIFT_SIM_ENGINE: "1",
+          SWIFT_SIM_ENGINE_SOCKET: ENGINE_SOCKET,
+          SWIFT_SIM_PROJECT_ROOT: status.project.root,
+          SWIFT_SIM_CODESIGN_IDENTITY: signingIdentity,
+        },
+      });
+      await waitForChildSpawn(child);
+    } catch (error) {
+      prepublicationError = error;
+    }
+    try {
+      closeSync(output);
+    } catch (error) {
+      prepublicationError ||= error;
+    }
+    if (prepublicationError) {
+      if (child?.pid) {
+        try { abortPendingLiveEngine(child.pid); } catch {}
+      }
+      throw prepublicationError;
+    }
+    try {
+      writeFileSync(ENGINE_PID, `${child.pid}\n`, { mode: 0o600 });
+    } catch (error) {
+      // The ownership boundary normally performs this rollback.
+      // This also covers errors before the guarded write consumes
+      // the verified pending process record.
+      if (child?.pid) {
+        try { abortPendingLiveEngine(child.pid); } catch {}
+      }
+      throw error;
+    }
+    try {
+      writeFileSync(ENGINE_SESSION, `${JSON.stringify({
+        projectRoot: status.project.root,
+        scheme: status.project.scheme,
+        signingIdentity,
+        engineVersion: ENGINE_VERSION,
+      }, null, 2)}\n`, { mode: 0o600 });
+    } catch (error) {
+      // The durable PID record now authorizes an exact identity-checked stop.
+      // Roll back the engine rather than leaving a process whose session was
+      // never published and which future starts cannot safely reuse.
+      await stopLiveEngine();
+      throw error;
+    }
     child.unref();
   }
 
@@ -593,7 +708,7 @@ export async function startLiveReload({ project = "", host = "", forceRestart = 
   if (control?.success && !alreadyWatching) {
     await primeEngineWatcher(status.project.root);
   }
-  status = await inspectLiveReload({ project, host });
+  status = await inspectLiveReloadUnlocked({ project, host, scheme });
   return {
     ...status,
     started: Boolean(control?.success),
@@ -676,16 +791,17 @@ async function primeEngineWatcher(projectRoot) {
   }
 }
 
-export async function routeLiveChange({ beforePath, afterPath, project = "", host = "" }) {
+export async function routeLiveChange({ beforePath, afterPath, project = "", host = "", scheme = "" }) {
   return routeLiveChanges({
     beforePaths: [beforePath],
     afterPaths: [afterPath],
     project,
     host,
+    scheme,
   });
 }
 
-export async function routeLiveChanges({ beforePaths = [], afterPaths = [], project = "", host = "", runtime } = {}) {
+export async function routeLiveChanges({ beforePaths = [], afterPaths = [], project = "", host = "", scheme = "", runtime } = {}) {
   if (beforePaths.length === 0 || beforePaths.length !== afterPaths.length) {
     throw new Error("Pass the same nonzero number of --before and --after Swift files.");
   }
@@ -699,20 +815,35 @@ export async function routeLiveChanges({ beforePaths = [], afterPaths = [], proj
     })),
     project,
     host,
+    scheme,
     runtime,
   });
 }
 
 export async function routeLiveEditSet(options = {}) {
-  const { runtime = {}, project = "", host = "" } = options;
-  const injectedLifecycle = Boolean(runtime.inspect || runtime.inject || runtime.preflight);
+  const runtime = options.runtime || {};
+  const injectedLifecycle = Boolean(
+    runtime.inspect || runtime.inject || runtime.preflight || runtime.recover
+  );
+  if (!injectedLifecycle && runtime.lifecycleLocked !== true) {
+    return withLiveEngineLifecycleLock(() => routeLiveEditSet({
+      ...options,
+      runtime: { ...runtime, lifecycleLocked: true },
+    }));
+  }
+  const { project = "", host = "", scheme = "" } = options;
   const recoveryEnabled = runtime.disableRecovery !== true
     && Number(runtime.recoveryAttempt || 0) < 1
     && (!injectedLifecycle || typeof runtime.recover === "function");
   const result = await routeLiveEditSetOnce({ ...options, runtime: { ...runtime, disableRecovery: true } });
   if (!recoveryEnabled || !shouldAttemptProductionRecovery(result)) return result;
 
-  const recovery = await (runtime.recover || defaultRecoverLiveSession)({ project, host });
+  const recovery = await (runtime.recover || defaultRecoverLiveSession)({
+    project,
+    host,
+    scheme,
+    lifecycleLocked: runtime.lifecycleLocked === true,
+  });
   if (!recovery?.ready) {
     return {
       ...result,
@@ -742,7 +873,7 @@ export async function routeLiveEditSet(options = {}) {
   };
 }
 
-async function routeLiveEditSetOnce({ files = [], project = "", host = "", runtime = {} } = {}) {
+async function routeLiveEditSetOnce({ files = [], project = "", host = "", scheme = "", runtime = {} } = {}) {
   const now = runtime.now || (() => Date.now());
   const startedAt = now();
   const requestId = runtime.requestId || randomUUID();
@@ -750,9 +881,13 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
     ? runtime.classify({ files })
     : classifyEditSet({ files });
   const classificationMs = Math.max(0, now() - startedAt);
-  const inspect = runtime.inspect || ((options) => inspectLiveReload(options));
-  const inject = runtime.inject || ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options }));
-  const live = await inspect({ project, host });
+  const inspect = runtime.inspect || (runtime.lifecycleLocked
+    ? ((options) => inspectLiveReloadUnlocked(options))
+    : ((options) => inspectLiveReload(options)));
+  const inject = runtime.inject || (runtime.lifecycleLocked
+    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked(sourcePath, { ...runtime, ...options }))
+    : ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options })));
+  const live = await inspect({ project, host, scheme });
 
   if (change.route === "no-change") {
     return routeResult({
@@ -800,7 +935,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
           action: "hot-reload-failed",
           change,
           reasonCode: patchFailureReason(patch),
-          live: await inspect({ project, host }),
+          live: await inspect({ project, host, scheme }),
           patch,
           patches,
           patchBundle: {
@@ -825,7 +960,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
       return routeResult({
         action: "hot-reload",
         change,
-        live: await inspect({ project, host }),
+        live: await inspect({ project, host, scheme }),
         patch,
         patches,
         patchBundle: {
@@ -860,7 +995,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
           action: "hot-reload-failed",
           change,
           reasonCode: patchFailureReason(patch),
-          live: await inspect({ project, host }),
+          live: await inspect({ project, host, scheme }),
           patch,
           patches,
           atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.atomic),
@@ -882,7 +1017,7 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", runti
     return routeResult({
       action: "hot-reload",
       change,
-      live: await inspect({ project, host }),
+      live: await inspect({ project, host, scheme }),
       patch: patches[0],
       patches,
       atomic: hotFiles.length <= 1 || Boolean(preparedPatches?.atomic),
@@ -989,18 +1124,20 @@ function shouldAttemptProductionRecovery(result) {
   return true;
 }
 
-async function defaultRecoverLiveSession({ project, host }) {
+async function defaultRecoverLiveSession({ project, host, scheme, lifecycleLocked = false }) {
+  const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload;
+  const inspect = lifecycleLocked ? inspectLiveReloadUnlocked : inspectLiveReload;
   try {
-    const restarted = await startLiveReload({ project, host, forceRestart: true });
+    const restarted = await start({ project, host, scheme, forceRestart: true });
     if (!restarted?.started) {
       return { ready: false, error: restarted?.error || "The live engine did not restart." };
     }
     const deadline = Date.now() + 8_000;
-    let status = await inspectLiveReload({ project, host });
+    let status = await inspect({ project, host, scheme });
     while (Date.now() < deadline) {
       if (status.ready) return { ready: true, status };
       await delay(250);
-      status = await inspectLiveReload({ project, host });
+      status = await inspect({ project, host, scheme });
     }
     return { ready: false, error: "The live-enabled app did not reconnect after the live engine restarted." };
   } catch (error) {
@@ -1113,6 +1250,13 @@ function prepareLivePatch(sourcePath, { beforePath = "", forceInterposition = fa
 }
 
 export async function injectLiveSource(sourcePath, runtime = {}) {
+  if (typeof runtime.engineControl === "function") {
+    return injectLiveSourceUnlocked(sourcePath, runtime);
+  }
+  return withLiveEngineLifecycleLock(() => injectLiveSourceUnlocked(sourcePath, runtime));
+}
+
+async function injectLiveSourceUnlocked(sourcePath, runtime = {}) {
   const source = resolve(sourcePath || "");
   const now = runtime.now || (() => Date.now());
   const control = runtime.engineControl || engineControl;
@@ -1652,14 +1796,176 @@ function readJSONFile(path) {
   }
 }
 
+export function liveEngineSessionMatches(session, {
+  projectRoot = "",
+  scheme = "",
+} = {}) {
+  return Boolean(
+    session
+    && String(session.projectRoot || "") === String(projectRoot || "")
+    && String(session.scheme || "") === String(scheme || "")
+    && session.engineVersion === ENGINE_VERSION
+  );
+}
+
 function projectRootFor(projectPath) {
   if (!projectPath) return "";
   const absolute = resolve(projectPath);
-  if (absolute.endsWith("/project.pbxproj")) return dirname(dirname(absolute));
-  if (absolute.endsWith(".xcodeproj") || absolute.endsWith(".xcworkspace")) {
-    return dirname(absolute);
+  if (absolute.endsWith("/project.pbxproj") || absolute.endsWith("/contents.xcworkspacedata")) {
+    return dirname(dirname(absolute));
   }
+  if (absolute.endsWith(".xcodeproj") || absolute.endsWith(".xcworkspace")) return dirname(absolute);
   return dirname(absolute);
+}
+
+function liveProjectConfiguration(projectPath, scheme = "") {
+  if (!projectPath || !existsSync(projectPath)) {
+    return { source: "", packageConfigured: false, interposableConfigured: false };
+  }
+  const source = readFileSync(projectPath, "utf8");
+  if (!isXcodeContainerProjectPath(projectPath)) {
+    return {
+      source,
+      packageConfigured: /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(source),
+      interposableConfigured: /-interposable/.test(source),
+    };
+  }
+
+  const selected = selectedXcodeApplicationTarget(projectPath, scheme);
+  if (!selected) {
+    return { source, packageConfigured: false, interposableConfigured: false };
+  }
+  return {
+    source: selected.source,
+    packageConfigured: selectedTargetHasLivePackage(selected.source, selected.targetName),
+    interposableConfigured: /(?:^|\s)-interposable(?:\s|$)/.test(
+      String(selected.settings.OTHER_LDFLAGS || ""),
+    ),
+  };
+}
+
+export function selectedXcodeApplicationTarget(projectPath, scheme) {
+  if (!scheme) return null;
+  const settingsResult = spawnSync(
+    "xcodebuild",
+    [...xcodeContainerArguments(projectPath, scheme), "-configuration", "Debug", "-showBuildSettings"],
+    { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+  );
+  if (settingsResult.status !== 0 || settingsResult.error) return null;
+
+  let settings;
+  try {
+    settings = selectLiveApplicationBuildSettings(settingsResult.stdout || "", scheme);
+  } catch {
+    return null;
+  }
+  const targetName = String(settings.TARGET_NAME || "").trim();
+  const projectFile = normalizedProjectDefinitionPath(settings.PROJECT_FILE_PATH, projectPath);
+  if (!targetName || !projectFile || !existsSync(projectFile)) return null;
+  return {
+    targetName,
+    settings,
+    source: readFileSync(projectFile, "utf8"),
+  };
+}
+
+function normalizedProjectDefinitionPath(value, containerPath) {
+  const candidate = String(value || "").trim();
+  if (!candidate) return "";
+  const absolute = candidate.startsWith("/")
+    ? resolve(candidate)
+    : resolve(projectRootFor(containerPath), candidate);
+  if (absolute.endsWith("/project.pbxproj")) return absolute;
+  if (absolute.endsWith(".xcodeproj")) return join(absolute, "project.pbxproj");
+  return "";
+}
+
+export function selectedTargetHasLivePackage(projectSource, targetName) {
+  const source = String(projectSource || "");
+  const expectedTarget = String(targetName || "").trim();
+  if (!source || !expectedTarget) return false;
+  const sectionMatch = source.match(
+    /\/\* Begin PBXNativeTarget section \*\/([\s\S]*?)\/\* End PBXNativeTarget section \*\//,
+  );
+  if (!sectionMatch) return false;
+  const section = sectionMatch[1];
+  const sectionOffset = sectionMatch.index + sectionMatch[0].indexOf(section);
+  for (const entry of section.matchAll(/^\s*([A-Fa-f0-9]{24})(?:\s+\/\*.*?\*\/)?\s*=\s*\{/gm)) {
+    const absoluteEntry = sectionOffset + entry.index;
+    const open = source.indexOf("{", absoluteEntry);
+    const close = matchingBrace(source, open);
+    if (open < 0 || close < 0) continue;
+    const body = source.slice(open + 1, close);
+    if (pbxScalar(body, "name") !== expectedTarget) continue;
+    const dependencies = body.match(/\bpackageProductDependencies\s*=\s*\(([\s\S]*?)\);/)?.[1] || "";
+    if (!dependencies) return false;
+    const productIds = [...dependencies.matchAll(/\b([A-Fa-f0-9]{24})\b/g)]
+      .map((match) => match[1]);
+    return productIds.some((identifier) => {
+      const productBody = pbxObjectBody(source, identifier);
+      return /\bXCSwiftPackageProductDependency\b/.test(productBody)
+        && pbxScalar(productBody, "productName") === "SwiftSimLive";
+    });
+  }
+  return false;
+}
+
+function pbxObjectBody(source, identifier) {
+  const entry = new RegExp(
+    `^\\s*${escapeRegExp(identifier)}(?:\\s+\\/\\*.*?\\*\\/)?\\s*=\\s*\\{`,
+    "m",
+  ).exec(source);
+  if (!entry) return "";
+  const open = source.indexOf("{", entry.index);
+  const close = matchingBrace(source, open);
+  return open >= 0 && close >= 0 ? source.slice(open + 1, close) : "";
+}
+
+function pbxScalar(body, key) {
+  const match = String(body || "").match(
+    new RegExp(`\\b${escapeRegExp(key)}\\s*=\\s*(?:"((?:\\\\.|[^"\\\\])*)"|([^;]+));`),
+  );
+  return String(match?.[1] ?? match?.[2] ?? "")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\")
+    .trim();
+}
+
+function listedLiveSchemes(projectPath) {
+  const result = spawnSync(
+    "xcodebuild",
+    [...xcodeContainerArguments(projectPath), "-list", "-json"],
+    { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+  );
+  if (result.status !== 0) return [];
+  try {
+    const payload = JSON.parse(result.stdout || "{}");
+    return payload.workspace?.schemes || payload.project?.schemes || [];
+  } catch {
+    return [];
+  }
+}
+
+function isXcodeContainerProjectPath(projectPath) {
+  const value = resolve(String(projectPath || ""));
+  return value.endsWith("/project.pbxproj")
+    || value.endsWith(".xcodeproj")
+    || value.endsWith("/contents.xcworkspacedata")
+    || value.endsWith(".xcworkspace");
+}
+
+function isWorkspaceProjectPath(projectPath) {
+  const value = resolve(String(projectPath || ""));
+  return value.endsWith("/contents.xcworkspacedata") || value.endsWith(".xcworkspace");
+}
+
+function decodeXMLAttribute(value) {
+  return String(value || "")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 }
 
 async function engineControl(request) {
@@ -1720,19 +2026,171 @@ function resolveSigningIdentity(projectPath) {
   return resolveSigningIdentities(projectPath)[0] || "";
 }
 
-function resolveSigningIdentities(projectPath) {
-  const projectContainer = projectPath.endsWith("/project.pbxproj")
-    ? dirname(projectPath)
-    : projectPath;
+export function xcodeContainerArguments(projectPath, scheme = "") {
+  const sourcePath = resolve(String(projectPath || ""));
+  const projectContainer = sourcePath.endsWith("/project.pbxproj")
+    ? dirname(sourcePath)
+    : sourcePath.endsWith("/contents.xcworkspacedata")
+      ? dirname(sourcePath)
+      : sourcePath;
+  const argumentsList = [
+    projectContainer.endsWith(".xcworkspace") ? "-workspace" : "-project",
+    projectContainer,
+  ];
+  if (String(scheme || "").trim()) argumentsList.push("-scheme", String(scheme).trim());
+  return argumentsList;
+}
+
+export function workspaceProjectReferences(workspaceSource, projectPath) {
+  if (!isWorkspaceProjectPath(projectPath)) return [];
+  const workspaceDirectory = dirname(resolve(String(projectPath)));
+  const workspaceRoot = dirname(workspaceDirectory);
+  const references = [];
+  for (const match of String(workspaceSource || "").matchAll(/location\s*=\s*"([^"]+\.xcodeproj)"/g)) {
+    const decoded = decodeXMLAttribute(match[1]);
+    const separator = decoded.indexOf(":");
+    const kind = separator >= 0 ? decoded.slice(0, separator) : "group";
+    const value = separator >= 0 ? decoded.slice(separator + 1) : decoded;
+    let container;
+    if (kind === "absolute") container = resolve(value);
+    else if (kind === "self") container = resolve(workspaceDirectory, value);
+    else container = resolve(workspaceRoot, value);
+    const projectFile = container.endsWith("/project.pbxproj")
+      ? container
+      : join(container, "project.pbxproj");
+    if (!references.includes(projectFile)) references.push(projectFile);
+  }
+  return references;
+}
+
+export function selectLiveScheme(projectPath, requestedScheme = "", availableSchemes = []) {
+  const requested = String(requestedScheme || "").trim();
+  const available = [...new Set((availableSchemes || []).map((value) => String(value).trim()).filter(Boolean))];
+  if (!isXcodeContainerProjectPath(projectPath)) {
+    return { scheme: requested, availableSchemes: available, required: false, error: "" };
+  }
+  if (requested) {
+    if (available.length > 0 && !available.includes(requested)) {
+      return {
+        scheme: "",
+        availableSchemes: available,
+        required: true,
+        error: `The Xcode project or workspace does not contain the '${requested}' scheme. Choose one of: ${available.join(", ")}.`,
+      };
+    }
+    return { scheme: requested, availableSchemes: available, required: false, error: "" };
+  }
+  if (available.length === 1) {
+    return { scheme: available[0], availableSchemes: available, required: false, error: "" };
+  }
+  return {
+    scheme: "",
+    availableSchemes: available,
+    required: true,
+    error: available.length > 1
+      ? `This Xcode project or workspace has multiple schemes. Pass --scheme with one of: ${available.join(", ")}.`
+      : "Swift Sim could not discover a shared scheme for this Xcode project or workspace. Pass --scheme explicitly.",
+  };
+}
+
+export function selectLiveApplicationBuildSettings(output, scheme = "") {
+  const collector = { sections: [], current: null, loose: {} };
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const header = line.match(/^Build settings for action .* and target (.+):\s*$/);
+    if (header) {
+      const section = { target: header[1].trim(), settings: {} };
+      collector.sections.push(section);
+      collector.current = section;
+      continue;
+    }
+    const setting = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+    if (!setting) continue;
+    const destination = collector.current?.settings || collector.loose;
+    destination[setting[1]] = setting[2].trim();
+  }
+
+  const normalizedScheme = String(scheme || "").trim();
+  const candidates = collector.sections.filter(({ settings }) => {
+    const productType = String(settings.PRODUCT_TYPE || "");
+    return settings.WRAPPER_EXTENSION === "app"
+      && !productType.includes("app-extension")
+      && !productType.includes("unit-test")
+      && !productType.includes("ui-testing");
+  });
+  const scored = candidates
+    .map((section) => ({ section, score: liveApplicationSectionScore(section, normalizedScheme) }))
+    .sort((left, right) => right.score - left.score || left.section.target.localeCompare(right.section.target));
+
+  if (scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)) {
+    return scored[0].section.settings;
+  }
+  if (scored.length > 1) {
+    const hostApps = scored.filter(({ section }) =>
+      section.settings.PRODUCT_TYPE === "com.apple.product-type.application"
+    );
+    if (hostApps.length === 1) return hostApps[0].section.settings;
+    const names = scored.map(({ section }) => section.target).join(", ");
+    throw new Error(
+      `Xcode reported multiple equally likely application targets for live scheme ${normalizedScheme || "(unknown)"}: ${names}.`
+    );
+  }
+  if (collector.sections.length > 0) {
+    throw new Error(
+      `Xcode did not report a host application target for live scheme ${normalizedScheme || "(unknown)"}.`
+    );
+  }
+  return collector.loose;
+}
+
+function liveApplicationSectionScore({ target, settings }, scheme) {
+  const productType = String(settings.PRODUCT_TYPE || "");
+  let score = 0;
+  if (target === scheme || settings.TARGET_NAME === scheme || settings.PRODUCT_NAME === scheme) score += 100;
+  if (productType === "com.apple.product-type.application") score += 80;
+  if (settings.SKIP_INSTALL !== "YES") score += 20;
+  if (/iphoneos|iphonesimulator/.test(String(settings.SUPPORTED_PLATFORMS || ""))) score += 10;
+  if (productType.includes("on-demand-install-capable")) score -= 80;
+  if (productType.includes("watchapp")) score -= 80;
+  if (productType.includes("messages")) score -= 60;
+  return score;
+}
+
+function expandedSigningIdentitiesFromSettings(settings) {
+  const expanded = String(settings?.EXPANDED_CODE_SIGN_IDENTITY || "").trim();
+  return /^[A-F0-9]{40}$/.test(expanded) ? [expanded] : [];
+}
+
+export function expandedSigningIdentities(output, scheme = "") {
+  return expandedSigningIdentitiesFromSettings(
+    selectLiveApplicationBuildSettings(output, scheme),
+  );
+}
+
+function resolveSigningIdentities(projectPath, scheme = "") {
+  const containerArguments = xcodeContainerArguments(projectPath, scheme);
   const settings = spawnSync(
     "xcodebuild",
-    ["-project", projectContainer, "-configuration", "Debug", "-showBuildSettings"],
+    [...containerArguments, "-configuration", "Debug", "-showBuildSettings"],
     { encoding: "utf8", timeout: 30_000 }
   );
+  if (settings.status !== 0 || settings.error) {
+    const detail = settings.error?.code === "ETIMEDOUT"
+      ? "The Xcode build-settings query timed out."
+      : String(settings.stderr || settings.stdout || settings.error?.message || "").trim();
+    throw new Error(
+      detail
+        ? `Unable to determine host-app signing settings. ${detail}`
+        : "Unable to determine host-app signing settings.",
+    );
+  }
   const output = String(settings.stdout || "");
-  const expanded = output.match(/^\s*EXPANDED_CODE_SIGN_IDENTITY\s*=\s*([A-F0-9]{40})\s*$/m)?.[1];
-  if (expanded) return expanded;
-  const team = output.match(/^\s*DEVELOPMENT_TEAM\s*=\s*(\S+)\s*$/m)?.[1] || "";
+  const selectedSettings = selectLiveApplicationBuildSettings(output, scheme);
+  const expanded = expandedSigningIdentitiesFromSettings(selectedSettings);
+  if (expanded.length > 0) return expanded;
+  const team = String(selectedSettings.DEVELOPMENT_TEAM || "").trim();
+  if (!team) {
+    throw new Error("Xcode did not report a Development Team for the selected host application target.");
+  }
   const identities = spawnSync(
     "security",
     ["find-identity", "-v", "-p", "codesigning"],
@@ -1749,7 +2207,6 @@ function resolveSigningIdentities(projectPath) {
   return [...new Set([
     preferred,
     teamMatch,
-    ...development.map((match) => match[1]),
   ].filter(Boolean))];
 }
 
@@ -1870,6 +2327,16 @@ function validTailnetIPv4(output) {
     : "";
 }
 
+function waitForChildSpawn(child) {
+  if (Number.isInteger(Number(child?.pid)) && Number(child.pid) > 1) {
+    return Promise.resolve();
+  }
+  return new Promise((resolveSpawn, rejectSpawn) => {
+    child.once("spawn", resolveSpawn);
+    child.once("error", rejectSpawn);
+  });
+}
+
 function delay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
@@ -1887,6 +2354,9 @@ function declarationSurface(source) {
   if (/#(?:externalMacro|freestanding|attached)\b|@_dynamicReplacement\b/.test(clean)) {
     return { unsupported: "Macros and explicit dynamic replacement require a rebuild." };
   }
+  if (swiftRegexLiteralPresent(source, clean)) {
+    return { unsupported: "Swift regex literals require a rebuild." };
+  }
 
   const imports = [...clean.matchAll(/^\s*(?:@testable\s+)?import\s+[^\n;]+/gm)]
     .map((match) => compact(match[0]))
@@ -1895,9 +2365,18 @@ function declarationSurface(source) {
   const declarations = [];
   const signatures = [];
   const storedProperties = [];
-  const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
-    .map((match) => compact(match[1]))
-    .sort()
+  const compilerConditions = [
+    ...[...clean.matchAll(/^\s*#(?:if|elseif|else|endif)\b[^\n]*/gm)]
+      .map((match) => compact(match[0])),
+    ...swiftRuntimeAvailabilitySurface(source, clean),
+  ].join("\n");
+  const attributes = swiftAttributeSurface(source, clean);
+  const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\s*\((?:[^()\n]|\([^()]*\))*\))?|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
+    .map((match) => {
+      const captureOffset = match[0].indexOf(match[1]);
+      const start = match.index + captureOffset;
+      return compact(source.slice(start, start + match[1].length));
+    })
     .join("\n");
   const declarationPattern = /\b(actor|associatedtype|case|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b/gm;
   const typeRanges = typeDeclarationRanges(clean);
@@ -1921,9 +2400,128 @@ function declarationSurface(source) {
     declarations: declarations.join("\n"),
     signatures: signatures.join("\n"),
     storedProperties: storedProperties.join("\n"),
+    compilerConditions,
+    attributes,
     modifiers,
     unsupported: "",
   };
+}
+
+function swiftRegexLiteralPresent(source, clean) {
+  for (let index = 0; index < clean.length; index += 1) {
+    let hashCount = 0;
+    let slashIndex = index;
+    if (clean[index] === "#") {
+      while (clean[slashIndex] === "#") {
+        hashCount += 1;
+        slashIndex += 1;
+      }
+      if (clean[slashIndex] !== "/") continue;
+    } else if (clean[index] !== "/" || clean[index + 1] === "/" || clean[index + 1] === "*") {
+      continue;
+    }
+    if (!swiftRegexCanStart(clean, index)) continue;
+
+    let escaped = false;
+    let characterClass = false;
+    for (let cursor = slashIndex + 1; cursor < source.length; cursor += 1) {
+      const character = source[cursor];
+      if (hashCount > 0) {
+        if (character === "/"
+            && source.startsWith("#".repeat(hashCount), cursor + 1)) {
+          return true;
+        }
+        continue;
+      }
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (character === "[") {
+        characterClass = true;
+        continue;
+      }
+      if (character === "]") {
+        characterClass = false;
+        continue;
+      }
+      if (character === "/" && !characterClass) return true;
+      if (character === "\n") break;
+    }
+  }
+  return false;
+}
+
+function swiftRegexCanStart(clean, index) {
+  const prefix = clean.slice(0, index);
+  const previous = prefix.match(/\S(?=\s*$)/)?.[0] || "";
+  if (!previous || "=([{,:;!?&|".includes(previous)) return true;
+  return /\b(?:return|throw|case|in|where|try|await|yield)\s*$/.test(prefix);
+}
+
+function swiftAttributeSurface(source, clean) {
+  const attributes = [];
+  for (let index = 0; index < clean.length; index += 1) {
+    if (clean[index] !== "@") continue;
+    const previous = clean[index - 1] || "";
+    if (/[A-Za-z0-9_]/.test(previous)) continue;
+    let end = index + 1;
+    if (!/[A-Za-z_]/.test(clean[end] || "")) continue;
+    while (/[A-Za-z0-9_.]/.test(clean[end] || "")) end += 1;
+    let cursor = end;
+    while (/\s/.test(clean[cursor] || "")) cursor += 1;
+    if (clean[cursor] === "(") {
+      let depth = 0;
+      for (; cursor < clean.length; cursor += 1) {
+        if (clean[cursor] === "(") depth += 1;
+        else if (clean[cursor] === ")") {
+          depth -= 1;
+          if (depth === 0) {
+            cursor += 1;
+            break;
+          }
+        }
+      }
+      if (depth === 0) end = cursor;
+    }
+    attributes.push(source.slice(index, end).trim());
+    index = Math.max(index, end - 1);
+  }
+  return attributes.join("\n");
+}
+
+function swiftRuntimeAvailabilitySurface(source, clean) {
+  const conditions = [];
+  const tokens = ["#available", "#unavailable"];
+  for (let index = 0; index < clean.length; index += 1) {
+    const token = tokens.find((candidate) => clean.startsWith(candidate, index));
+    if (!token) continue;
+    const previous = clean[index - 1] || "";
+    const next = clean[index + token.length] || "";
+    if (/[A-Za-z0-9_]/.test(previous) || /[A-Za-z0-9_]/.test(next)) continue;
+    let cursor = index + token.length;
+    while (/\s/.test(clean[cursor] || "")) cursor += 1;
+    if (clean[cursor] !== "(") continue;
+    let depth = 0;
+    let end = clean.length;
+    for (; cursor < clean.length; cursor += 1) {
+      if (clean[cursor] === "(") depth += 1;
+      else if (clean[cursor] === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          end = cursor + 1;
+          break;
+        }
+      }
+    }
+    conditions.push(compact(source.slice(index, end)));
+    index = Math.max(index, end - 1);
+  }
+  return conditions;
 }
 
 function typeDeclarationRanges(source) {
@@ -2020,6 +2618,8 @@ function maskCommentsAndStrings(source) {
   let output = "";
   let mode = "code";
   let escaped = false;
+  let blockCommentDepth = 0;
+  let stringDelimiter = null;
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
     const next = source[index + 1];
@@ -2031,17 +2631,32 @@ function maskCommentsAndStrings(source) {
       continue;
     }
     if (mode === "block-comment") {
-      if (char === "*" && next === "/") {
+      if (char === "/" && next === "*") {
         output += "  ";
         index += 1;
-        mode = "code";
+        blockCommentDepth += 1;
+      } else if (char === "*" && next === "/") {
+        output += "  ";
+        index += 1;
+        blockCommentDepth -= 1;
+        if (blockCommentDepth === 0) mode = "code";
       } else output += char === "\n" ? "\n" : " ";
       continue;
     }
     if (mode === "string") {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === "\"") mode = "code";
+      const closingLength = swiftStringClosingLength(source, index, stringDelimiter);
+      if (closingLength > 0 && !escaped) {
+        output += " ".repeat(closingLength);
+        index += closingLength - 1;
+        mode = "code";
+        stringDelimiter = null;
+        continue;
+      }
+      if (stringDelimiter.hashCount === 0 && !escaped && char === "\\") {
+        escaped = true;
+      } else {
+        escaped = false;
+      }
       output += char === "\n" ? "\n" : " ";
       continue;
     }
@@ -2053,14 +2668,47 @@ function maskCommentsAndStrings(source) {
       output += "  ";
       index += 1;
       mode = "block-comment";
-    } else if (char === "\"") {
-      output += " ";
-      mode = "string";
+      blockCommentDepth = 1;
     } else {
-      output += char;
+      const opening = swiftStringOpeningDelimiter(source, index);
+      if (opening) {
+        output += " ".repeat(opening.length);
+        index += opening.length - 1;
+        mode = "string";
+        escaped = false;
+        stringDelimiter = opening;
+      } else {
+        output += char;
+      }
     }
   }
   return output;
+}
+
+function swiftStringOpeningDelimiter(source, index) {
+  let cursor = index;
+  let hashCount = 0;
+  while (source[cursor] === "#") {
+    hashCount += 1;
+    cursor += 1;
+  }
+  if (source.startsWith('"""', cursor)) {
+    return { hashCount, quoteLength: 3, length: hashCount + 3 };
+  }
+  if (source[cursor] === '"') {
+    return { hashCount, quoteLength: 1, length: hashCount + 1 };
+  }
+  return null;
+}
+
+function swiftStringClosingLength(source, index, delimiter) {
+  if (!delimiter) return 0;
+  const quotes = '"'.repeat(delimiter.quoteLength);
+  if (!source.startsWith(quotes, index)) return 0;
+  const hashes = "#".repeat(delimiter.hashCount);
+  return source.startsWith(hashes, index + delimiter.quoteLength)
+    ? delimiter.quoteLength + delimiter.hashCount
+    : 0;
 }
 
 function compact(value) {

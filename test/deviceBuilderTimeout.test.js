@@ -9,6 +9,7 @@ import {
   runBuffered,
   terminateRecordedDeviceBuildWorker,
 } from "../mac-helper/src/deviceBuilderCore.js";
+import { requiredOwnedWorkerProcessRecord } from "../mac-helper/src/ownedWorkerIdentity.js";
 
 test("a timed out build waits for the complete process group to exit", {
   skip: process.platform === "win32",
@@ -191,11 +192,10 @@ test("a persisted interrupted worker identity can be terminated after restart", 
   });
   child.unref();
   try {
-    const identity = spawnSync("/bin/ps", ["-p", String(child.pid), "-o", "lstart="], { encoding: "utf8" });
-    writeFileSync(workerPath, JSON.stringify({
-      pid: child.pid,
-      startedAt: String(identity.stdout || "").trim(),
-    }));
+    writeFileSync(
+      workerPath,
+      JSON.stringify(requiredOwnedWorkerProcessRecord(child.pid, "node")),
+    );
     const terminated = await terminateRecordedDeviceBuildWorker({
       id: "build-id",
       control: { cancelPath },

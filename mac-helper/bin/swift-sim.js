@@ -114,6 +114,7 @@ async function liveStatus(args) {
   console.log(JSON.stringify(await inspectLiveReload({
     project: values.project,
     host: values.host,
+    scheme: values.scheme,
   }), null, 2));
 }
 
@@ -122,6 +123,7 @@ async function liveStart(args) {
   const result = await startLiveReload({
     project: values.project,
     host: values.host,
+    scheme: values.scheme,
   });
   console.log(JSON.stringify(result, null, 2));
   if (!result.started) process.exitCode = 1;
@@ -165,6 +167,7 @@ async function routeChange(args) {
       files: readChangesManifest(values["changes-manifest"]),
       project: values.project,
       host: values.host,
+      scheme: values.scheme,
     });
     return console.log(JSON.stringify(await result, null, 2));
   }
@@ -173,11 +176,11 @@ async function routeChange(args) {
   const result = beforePaths.length === 1 && afterPaths.length === 1
     ? routeLiveChange({
       beforePath: beforePaths[0], afterPath: afterPaths[0],
-      project: values.project, host: values.host,
+      project: values.project, host: values.host, scheme: values.scheme,
     })
     : routeLiveChanges({
       beforePaths, afterPaths,
-      project: values.project, host: values.host,
+      project: values.project, host: values.host, scheme: values.scheme,
     });
   console.log(JSON.stringify(await result, null, 2));
 }
@@ -195,6 +198,7 @@ function liveOptions() {
   return {
     project: { type: "string" },
     host: { type: "string" },
+    scheme: { type: "string" },
   };
 }
 

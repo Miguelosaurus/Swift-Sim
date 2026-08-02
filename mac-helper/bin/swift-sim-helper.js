@@ -288,7 +288,11 @@ function commonDeviceBuildOptions() {
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
   await recoverInterruptedDeviceBuilds();
-  await drainDeliveryReferenceCleanupJobs();
+  setImmediate(() => {
+    void drainDeliveryReferenceCleanupJobs().catch((error) => {
+      console.warn(`Swift Sim delivery-reference cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
   const activeSockets = new Set();
   const server = createServer(async (req, res) => {
     try {

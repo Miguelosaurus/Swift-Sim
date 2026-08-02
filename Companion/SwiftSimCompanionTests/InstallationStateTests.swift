@@ -65,6 +65,68 @@ final class InstallationStateTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testSimulatorResponsesAreRejectedAfterViewChanges() {
+        let expected = SimulatorSession(
+            id: "session-a",
+            token: "token-a",
+            baseURL: URL(string: "https://mac-a.example")!
+        )
+        let replacement = SimulatorSession(
+            id: "session-b",
+            token: "token-b",
+            baseURL: URL(string: "https://mac-b.example")!
+        )
+        XCTAssertTrue(SessionStore.simulatorResponseIsCurrent(
+            current: expected,
+            expected: expected,
+            currentRevision: 4,
+            expectedRevision: 4
+        ))
+        XCTAssertFalse(SessionStore.simulatorResponseIsCurrent(
+            current: replacement,
+            expected: expected,
+            currentRevision: 5,
+            expectedRevision: 4
+        ))
+        XCTAssertFalse(SessionStore.simulatorResponseIsCurrent(
+            current: nil,
+            expected: expected,
+            currentRevision: 5,
+            expectedRevision: 4
+        ))
+    }
+
+    @MainActor
+    func testManagedAppMutationRequiresExactPairedMacOwner() {
+        XCTAssertTrue(SessionStore.managedAppOwnerIsCurrent(
+            ownerPairingID: "https://mac.example",
+            pairedMacID: "https://mac.example"
+        ))
+        XCTAssertFalse(SessionStore.managedAppOwnerIsCurrent(
+            ownerPairingID: nil,
+            pairedMacID: "https://mac.example"
+        ))
+        XCTAssertFalse(SessionStore.managedAppOwnerIsCurrent(
+            ownerPairingID: "https://old.example",
+            pairedMacID: "https://mac.example"
+        ))
+    }
+
+    @MainActor
+    func testPairingAndDiagnosticRevisionsRejectStaleResponses() {
+        XCTAssertTrue(SessionStore.revisionIsCurrent(current: 3, expected: 3))
+        XCTAssertFalse(SessionStore.revisionIsCurrent(current: 4, expected: 3))
+        let first = PairedMac(token: "first", baseURL: URL(string: "https://first.example")!)
+        let second = PairedMac(token: "second", baseURL: URL(string: "https://second.example")!)
+        XCTAssertFalse(SessionStore.pairingContextIsCurrent(
+            current: second,
+            expected: first,
+            currentRevision: 2,
+            expectedRevision: 1
+        ))
+    }
+
     func testPairingLinkCarriesMacNameUntilVerificationCompletes() {
         let url = URL(
             string: "swift-sim://pair?token=secret&base=https%3A%2F%2Fcurrent-mac.example&name=Miguel%27s%20MacBook%20Air"
@@ -468,6 +530,70 @@ extension InstallationStateTests {
             expected: old,
             currentRevision: 4,
             expectedRevision: 4
+        ))
+    }
+}
+
+
+extension InstallationStateTests {
+    @MainActor
+    func testConnectionDiagnosticsRejectAChangedSimulatorView() {
+        let mac = PairedMac(
+            token: "token",
+            baseURL: URL(string: "https://mac.example")!
+        )
+        XCTAssertTrue(SessionStore.connectionDiagnosticsAreCurrent(
+            currentMac: mac,
+            expectedMac: mac,
+            currentPairingRevision: 4,
+            expectedPairingRevision: 4,
+            currentSimulatorViewRevision: 8,
+            expectedSimulatorViewRevision: 8
+        ))
+        XCTAssertFalse(SessionStore.connectionDiagnosticsAreCurrent(
+            currentMac: mac,
+            expectedMac: mac,
+            currentPairingRevision: 4,
+            expectedPairingRevision: 4,
+            currentSimulatorViewRevision: 9,
+            expectedSimulatorViewRevision: 8
+        ))
+    }
+}
+
+
+extension InstallationStateTests {
+    @MainActor
+    func testMacSyncOnlyRemovesHistoryOwnedByThatMac() {
+        let remoteIDs: Set<String> = ["present"]
+        XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "ownerless", ownerPairingID: nil, syncingMacID: "mac-a", remoteIDs: remoteIDs))
+        XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "other-mac", ownerPairingID: "mac-b", syncingMacID: "mac-a", remoteIDs: remoteIDs))
+        XCTAssertTrue(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "missing", ownerPairingID: "mac-a", syncingMacID: "mac-a", remoteIDs: remoteIDs))
+        XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "present", ownerPairingID: "mac-a", syncingMacID: "mac-a", remoteIDs: remoteIDs))
+    }
+}
+
+extension InstallationStateTests {
+    @MainActor
+    func testMacSyncPreservesSameIdentityBuildsFromOtherSources() {
+        let remoteIDs: Set<String> = ["remote-current"]
+        XCTAssertFalse(SessionStore.managedBuildShouldBePreservedDuringSync(
+            buildID: "remote-current",
+            buildBaseURLString: "https://mac-a.example/",
+            remoteIDs: remoteIDs,
+            syncingBaseURLString: "https://mac-a.example/"
+        ))
+        XCTAssertFalse(SessionStore.managedBuildShouldBePreservedDuringSync(
+            buildID: "remote-stale",
+            buildBaseURLString: "https://mac-a.example/",
+            remoteIDs: remoteIDs,
+            syncingBaseURLString: "https://mac-a.example/"
+        ))
+        XCTAssertTrue(SessionStore.managedBuildShouldBePreservedDuringSync(
+            buildID: "foreign-link",
+            buildBaseURLString: "https://mac-b.example/",
+            remoteIDs: remoteIDs,
+            syncingBaseURLString: "https://mac-a.example/"
         ))
     }
 }

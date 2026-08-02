@@ -15,9 +15,13 @@ if (script === "swift-sim-helper.js") {
   await import("./runtimeHealthPreload.js");
   await import("./deviceBuildCapabilityBoundaryPreload.js");
   await import("./helperHttpBoundaryPreload.js");
+  const { installArtifactCleanupBoundary } = await import("./artifactCleanupBoundaryPreload.js");
   const { installCompatibleHelperHealthFetchBoundary } = await import("./cliRuntimeBoundary.js");
+  const { installLiveEngineOwnershipBoundary } = await import("./liveEngineOwnershipPreload.js");
   const { installSwiftSimChildRuntimeBoundary } = await import("./swiftSimChildRuntimeBoundary.js");
+  installArtifactCleanupBoundary();
   installCompatibleHelperHealthFetchBoundary();
+  installLiveEngineOwnershipBoundary();
   installSwiftSimChildRuntimeBoundary();
   if (helperRunsAsService()) {
     const { installRenewalShutdownGuard } = await import("./renewalShutdownPreload.js");
@@ -28,6 +32,8 @@ if (script === "swift-sim-helper.js") {
   await import("./atomicLockRemovalPreload.js");
   await import("./lockOwnershipPreload.js");
   await import("./runtimeHealthPreload.js");
+  const { installArtifactCleanupBoundary } = await import("./artifactCleanupBoundaryPreload.js");
+  installArtifactCleanupBoundary();
 } else if (script === "swift-sim-device-delivery.js") {
   await import("./commandDeadlinePreload.js");
   await import("./atomicLockRemovalPreload.js");

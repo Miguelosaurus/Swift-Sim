@@ -46,6 +46,8 @@ final class SessionStore: ObservableObject {
     private var installRequestSnapshot: (build: ManagedBuild, status: DeviceBuildStatus?)?
     private var currentSourceBuildRequestKeys: [String: String] = [:]
     private var pairingRevision: UInt64 = 0
+    private var pairingAttemptRevision: UInt64 = 0
+    private var connectionChecksRevision: UInt64 = 0
     private var deviceBuildViewRevision: UInt64 = 0
     private var managedAppsRevision: UInt64 = 0
     private var managedAppOperationRevisions: [String: UInt64] = [:]
@@ -99,16 +101,24 @@ final class SessionStore: ObservableObject {
             return false
         }
 
+        pairingAttemptRevision &+= 1
+        connectionChecksRevision &+= 1
+        let attemptRevision = pairingAttemptRevision
         isPairingMac = true
         pairingErrorMessage = nil
         helperStatus = .checking
-        defer { isPairingMac = false }
+        defer {
+            if Self.revisionIsCurrent(current: pairingAttemptRevision, expected: attemptRevision) {
+                isPairingMac = false
+            }
+        }
 
         var request = URLRequest(url: candidate.statusURL)
         request.timeoutInterval = 10
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard Self.revisionIsCurrent(current: pairingAttemptRevision, expected: attemptRevision) else { return false }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard statusCode == 200 else {
                 if statusCode == 401 {
@@ -145,6 +155,7 @@ final class SessionStore: ObservableObject {
             await syncManagedAppsFromMac(expectedMac: verified, pairingRevision: pairingRevision)
             return true
         } catch {
+            guard Self.revisionIsCurrent(current: pairingAttemptRevision, expected: attemptRevision) else { return false }
             pairingErrorMessage = pairingFailureMessage(for: error, mac: candidate)
             helperStatus = pairedMac == nil ? .notPaired : .offline
             showLibraryAction(pairingErrorMessage ?? "Could not connect to this Mac.", kind: .error)
@@ -215,8 +226,15 @@ final class SessionStore: ObservableObject {
 
     func refresh() async {
         guard let session = currentSession else { return }
+        let viewRevision = deviceBuildViewRevision
         do {
             let (data, response) = try await URLSession.shared.data(from: session.statusURL)
+            guard Self.simulatorResponseIsCurrent(
+                current: currentSession,
+                expected: session,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                 isConnected = false
                 simulatorCheck = .issue("This saved preview is unavailable. Open a new Simulator link")
@@ -239,6 +257,12 @@ final class SessionStore: ObservableObject {
             simulatorCheck = .ready("\(displayName) is available to open")
             await fetchLogs()
         } catch {
+            guard Self.simulatorResponseIsCurrent(
+                current: currentSession,
+                expected: session,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             isConnected = false
             simulatorCheck = .issue("This saved preview is unavailable. Open a new Simulator link")
         }
@@ -246,11 +270,24 @@ final class SessionStore: ObservableObject {
 
     func fetchLogs() async {
         guard let session = currentSession else { return }
+        let viewRevision = deviceBuildViewRevision
         do {
             let (data, _) = try await URLSession.shared.data(from: session.logsURL)
+            guard Self.simulatorResponseIsCurrent(
+                current: currentSession,
+                expected: session,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             let decoded = try JSONDecoder().decode(SessionLogs.self, from: data)
             logs = decoded.logs
         } catch {
+            guard Self.simulatorResponseIsCurrent(
+                current: currentSession,
+                expected: session,
+                currentRevision: deviceBuildViewRevision,
+                expectedRevision: viewRevision
+            ) else { return }
             logs = ["Unable to load logs: \(error.localizedDescription)"]
         }
     }
@@ -590,9 +627,20 @@ final class SessionStore: ObservableObject {
             buildCurrentSourceMessage = "Remote builds are not paired on this iPhone yet. Pair your Mac once—no cable or shared Wi-Fi is required."
             return
         }
+        guard Self.managedAppOwnerIsCurrent(ownerPairingID: app.ownerPairingID, pairedMacID: mac.id) else {
+            buildCurrentSourceMessage = "This app is not owned by the currently paired Mac. Refresh the library or pair the Mac that created it."
+            return
+        }
+        let expectedPairingRevision = pairingRevision
         if helperStatus != .online {
             await refreshHelperStatus()
         }
+        guard Self.pairingResponseIsCurrent(
+            current: pairedMac,
+            expected: mac,
+            currentRevision: pairingRevision,
+            expectedRevision: expectedPairingRevision
+        ) else { return }
         guard helperStatus == .online else {
             buildCurrentSourceMessage = "Your Mac is offline or unreachable through Tailscale. Remote builds work from anywhere when both devices are online."
             return
@@ -614,6 +662,12 @@ final class SessionStore: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: mac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+            ) else { return }
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 || httpResponse.statusCode == 202 else {
                 buildCurrentSourceMessage = decodeServerError(data)
@@ -638,6 +692,12 @@ final class SessionStore: ObservableObject {
             currentSourceBuildRequestKeys[app.id] = nil
             buildCurrentSourceMessage = nil
         } catch {
+            guard Self.pairingResponseIsCurrent(
+                current: pairedMac,
+                expected: mac,
+                currentRevision: pairingRevision,
+                expectedRevision: expectedPairingRevision
+            ) else { return }
             buildCurrentSourceMessage = "Your Mac is unreachable through the private remote connection. Keep it awake and online, then try again."
         }
     }
@@ -760,15 +820,89 @@ final class SessionStore: ObservableObject {
         currentRevision: UInt64,
         expectedRevision: UInt64
     ) -> Bool {
+        pairingContextIsCurrent(
+            current: current,
+            expected: expected,
+            currentRevision: currentRevision,
+            expectedRevision: expectedRevision
+        )
+    }
+
+    static func pairingContextIsCurrent(
+        current: PairedMac?,
+        expected: PairedMac?,
+        currentRevision: UInt64,
+        expectedRevision: UInt64
+    ) -> Bool {
         currentRevision == expectedRevision
-            && current?.id == expected.id
-            && current?.token == expected.token
+            && current?.id == expected?.id
+            && current?.token == expected?.token
+    }
+
+    static func revisionIsCurrent(current: UInt64, expected: UInt64) -> Bool {
+        current == expected
+    }
+
+    static func simulatorResponseIsCurrent(
+        current: SimulatorSession?,
+        expected: SimulatorSession,
+        currentRevision: UInt64,
+        expectedRevision: UInt64
+    ) -> Bool {
+        currentRevision == expectedRevision && current == expected
+    }
+
+    static func managedAppOwnerIsCurrent(ownerPairingID: String?, pairedMacID: String) -> Bool {
+        ownerPairingID == pairedMacID
+    }
+
+    static func managedAppShouldBeRemovedDuringSync(
+        appID: String,
+        ownerPairingID: String?,
+        syncingMacID: String,
+        remoteIDs: Set<String>
+    ) -> Bool {
+        ownerPairingID == syncingMacID && !remoteIDs.contains(appID)
+    }
+
+    static func managedBuildShouldBePreservedDuringSync(
+        buildID: String,
+        buildBaseURLString: String,
+        remoteIDs: Set<String>,
+        syncingBaseURLString: String
+    ) -> Bool {
+        !remoteIDs.contains(buildID) && buildBaseURLString != syncingBaseURLString
+    }
+
+    static func connectionDiagnosticsAreCurrent(
+        currentMac: PairedMac?,
+        expectedMac: PairedMac?,
+        currentPairingRevision: UInt64,
+        expectedPairingRevision: UInt64,
+        currentSimulatorViewRevision: UInt64,
+        expectedSimulatorViewRevision: UInt64
+    ) -> Bool {
+        pairingContextIsCurrent(
+            current: currentMac,
+            expected: expectedMac,
+            currentRevision: currentPairingRevision,
+            expectedRevision: expectedPairingRevision
+        ) && revisionIsCurrent(
+            current: currentSimulatorViewRevision,
+            expected: expectedSimulatorViewRevision
+        )
     }
 
     func refreshConnectionChecks() async {
+        connectionChecksRevision &+= 1
+        let checkRevision = connectionChecksRevision
+        let expectedMac = pairedMac
+        let expectedPairingRevision = pairingRevision
+        let expectedSimulatorViewRevision = deviceBuildViewRevision
+        let recentSnapshot = recentSessions
         guard let baseURL = Self.preferredConnectionBaseURL(
-            paired: pairedMac?.baseURL,
-            recent: recentSessions.first?.session.baseURL
+            paired: expectedMac?.baseURL,
+            recent: recentSnapshot.first?.session.baseURL
         ) else {
             tailscaleCheck = .notConfigured("Open a Simulator link before checking the connection")
             macHelperCheck = .notConfigured("Connect your Mac to check its status")
@@ -778,19 +912,26 @@ final class SessionStore: ObservableObject {
 
         tailscaleCheck = .checking("Checking Tailscale")
         macHelperCheck = .checking("Looking for Swift Sim on your Mac")
-        simulatorCheck = recentSessions.isEmpty
+        simulatorCheck = recentSnapshot.isEmpty
             ? .notConfigured("Open a Simulator link in Swift Sim")
             : .checking("Checking saved Simulator previews")
 
-        let connectionURL = pairedMac?.statusURL ?? baseURL.appending(path: "health")
+        let connectionURL = expectedMac?.statusURL ?? baseURL.appending(path: "health")
         var healthRequest = URLRequest(url: connectionURL)
         healthRequest.timeoutInterval = 8
 
         do {
             let (data, response) = try await URLSession.shared.data(for: healthRequest)
+            guard Self.revisionIsCurrent(current: connectionChecksRevision, expected: checkRevision),
+                  Self.pairingContextIsCurrent(
+                    current: pairedMac,
+                    expected: expectedMac,
+                    currentRevision: pairingRevision,
+                    expectedRevision: expectedPairingRevision
+                  ) else { return }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             if statusCode == 200 {
-                if let mac = pairedMac,
+                if let mac = expectedMac,
                    let decoded = try? JSONDecoder().decode(PairingStatus.self, from: data) {
                     pairedMac = mac.updated(name: decoded.macName)
                     savePairedMac()
@@ -806,14 +947,21 @@ final class SessionStore: ObservableObject {
                 macHelperCheck = .issue("Swift Sim answered unexpectedly. Ask your agent to check the helper")
             }
         } catch {
+            guard Self.revisionIsCurrent(current: connectionChecksRevision, expected: checkRevision),
+                  Self.pairingContextIsCurrent(
+                    current: pairedMac,
+                    expected: expectedMac,
+                    currentRevision: pairingRevision,
+                    expectedRevision: expectedPairingRevision
+                  ) else { return }
             tailscaleCheck = .issue("Your iPhone could not reach your Mac. Check Tailscale on both devices")
             macHelperCheck = .notConfigured("Not checked because the Mac could not be reached")
         }
 
-        guard !recentSessions.isEmpty else { return }
+        guard !recentSnapshot.isEmpty else { return }
 
         let availableSession = await withTaskGroup(of: RecentSession?.self) { group in
-            for recent in recentSessions {
+            for recent in recentSnapshot {
                 group.addTask {
                     var request = URLRequest(url: recent.session.statusURL)
                     request.timeoutInterval = 8
@@ -834,6 +982,16 @@ final class SessionStore: ObservableObject {
             return Optional<RecentSession>.none
         }
 
+        guard Self.revisionIsCurrent(current: connectionChecksRevision, expected: checkRevision),
+              Self.connectionDiagnosticsAreCurrent(
+                currentMac: pairedMac,
+                expectedMac: expectedMac,
+                currentPairingRevision: pairingRevision,
+                expectedPairingRevision: expectedPairingRevision,
+                currentSimulatorViewRevision: deviceBuildViewRevision,
+                expectedSimulatorViewRevision: expectedSimulatorViewRevision
+              ) else { return }
+
         if let availableSession {
             simulatorCheck = .ready("\(availableSession.displayName) is available to open")
             return
@@ -843,6 +1001,8 @@ final class SessionStore: ObservableObject {
     }
 
     func forgetPairedMac() {
+        pairingAttemptRevision &+= 1
+        connectionChecksRevision &+= 1
         pairingRevision &+= 1
         pairedMac = nil
         invalidateRemoteManagedAppsForPairingChange()
@@ -1109,14 +1269,17 @@ final class SessionStore: ObservableObject {
             let remote = try JSONDecoder().decode(RemoteAppList.self, from: data)
             let remoteIDs = Set(remote.apps.map(\.id))
             let existingRemoteIDs = Set(managedApps
-                .filter { !$0.id.hasPrefix("local:") && !$0.id.hasPrefix("pending:") }
+                .filter { $0.ownerPairingID == mac.id }
                 .map(\.id))
             invalidateManagedAppOperations(existingRemoteIDs.union(remoteIDs))
             managedAppsRevision &+= 1
             managedApps.removeAll { app in
-                !app.id.hasPrefix("local:")
-                    && !app.id.hasPrefix("pending:")
-                    && !remoteIDs.contains(app.id)
+                Self.managedAppShouldBeRemovedDuringSync(
+                    appID: app.id,
+                    ownerPairingID: app.ownerPairingID,
+                    syncingMacID: mac.id,
+                    remoteIDs: remoteIDs
+                )
             }
             for app in remote.apps {
                 let builds = app.builds.compactMap { status -> ManagedBuild? in
@@ -1134,8 +1297,31 @@ final class SessionStore: ObservableObject {
                 managed.archivedAt = Self.parseDate(app.archivedAt)
                 managed.lastOpened = managed.builds.first?.lastOpened ?? Date()
                 if let index = managedApps.firstIndex(where: { $0.id == managed.id }) {
-                    let localLastOpened = managedApps[index].lastOpened
-                    managed.lastOpened = max(localLastOpened, managed.lastOpened)
+                    let existing = managedApps[index]
+                    let remoteBuildIDs = Set(managed.builds.map(\.id))
+                    let preservedForeignBuilds = existing.builds.filter { build in
+                        Self.managedBuildShouldBePreservedDuringSync(
+                            buildID: build.id,
+                            buildBaseURLString: build.baseURLString,
+                            remoteIDs: remoteBuildIDs,
+                            syncingBaseURLString: mac.baseURLString
+                        )
+                    }
+                    managed.lastOpened = max(existing.lastOpened, managed.lastOpened)
+                    if !preservedForeignBuilds.isEmpty {
+                        var buildsByID = Dictionary(
+                            uniqueKeysWithValues: managed.builds.map { ($0.id, $0) }
+                        )
+                        for build in preservedForeignBuilds where buildsByID[build.id] == nil {
+                            buildsByID[build.id] = build
+                        }
+                        managed.builds = buildsByID.values.sorted { $0.createdAt > $1.createdAt }
+                        // A same-identity library entry containing history from
+                        // more than one source remains local-only. No single Mac
+                        // may gain archive/delete/build authority over the mix.
+                        managed.ownerPairingID = nil
+                        managed.archivedAt = existing.archivedAt
+                    }
                     managedApps[index] = managed
                 } else {
                     managedApps.append(managed)

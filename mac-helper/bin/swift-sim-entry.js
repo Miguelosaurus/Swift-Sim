@@ -13,8 +13,12 @@ import {
   reconcileHelperRuntime,
   rememberHelperStateForUpdate,
 } from "../src/cliRuntimeBoundary.js";
+import { installArtifactCleanupBoundary } from "../src/artifactCleanupBoundaryPreload.js";
+import { installLiveEngineOwnershipBoundary } from "../src/liveEngineOwnershipPreload.js";
 import { installSwiftSimChildRuntimeBoundary } from "../src/swiftSimChildRuntimeBoundary.js";
 
+installArtifactCleanupBoundary();
+installLiveEngineOwnershipBoundary();
 installSwiftSimChildRuntimeBoundary();
 
 const { readBuildValidationPreferences } = await import("../src/buildValidation.js");
