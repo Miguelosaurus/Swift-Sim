@@ -45,12 +45,12 @@ export async function runDeviceBuild(build, {
     const target = resolveTarget(build);
     const requestedBuildSettingArgs = xcodeBuildSettingArgs(build.buildSettings);
     throwIfBuildCancelled(build);
-    const selectedLiveTarget = target.type === "project"
+    const liveCandidate = String(build.configuration || "").toLowerCase() === "debug"
+      && target.type === "project";
+    const selectedLiveTarget = liveCandidate
       ? selectedXcodeApplicationTarget(join(target.path, "project.pbxproj"), build.scheme)
       : null;
-    const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
-      && target.type === "project"
-      && Boolean(selectedLiveTarget)
+    const liveEligible = Boolean(selectedLiveTarget)
       && selectedTargetHasLivePackage(selectedLiveTarget.source, selectedLiveTarget.targetName);
     let buildSettingArgs = requestedBuildSettingArgs;
     const root = build.artifacts?.root || join(homedir(), ".swift-sim", "device-builds", build.id);

@@ -10,7 +10,7 @@ Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff3848
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
 | P1 | 26 | 26 | 0 |
-| P2 | 13 | 13 | 0 |
+| P2 | 14 | 14 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## P1 fixes
@@ -57,6 +57,7 @@ Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff3848
 11. Workspace package readiness is derived from the explicitly selected scheme's host application target and cannot be inherited from an unrelated project or target in the workspace.
 12. `.xcodeproj` projects now use the same explicit scheme authority, selected-host-target package validation, and target-scoped linker settings as workspaces; stale PBX comments cannot impersonate a package dependency.
 13. Companion Mac synchronization removes only history explicitly owned by that same Mac; ownerless link history and another Mac's history survive unrelated syncs.
+14. Optional live-target inspection is gated to Debug project builds, so ordinary Release archives do not run an unnecessary Debug build-settings query or trigger live-package resolution side effects.
 
 ## Regression coverage
 

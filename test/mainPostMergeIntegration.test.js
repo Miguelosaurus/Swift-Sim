@@ -410,3 +410,11 @@ test("device live instrumentation cannot leak into fallback archives", () => {
   assert.match(fallback, /\.\.\.buildSettingArgs,/);
   assert.doesNotMatch(fallback, /liveBuildSettingArgs|managedLiveBuildSettings/);
 });
+
+
+test("release archives do not inspect optional live targets", () => {
+  const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
+  assert.match(source, /const liveCandidate = String\(build\.configuration \|\| ""\)\.toLowerCase\(\) === "debug"/);
+  assert.match(source, /const selectedLiveTarget = liveCandidate[\s\S]*?selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
+  assert.match(source, /const liveEligible = Boolean\(selectedLiveTarget\)/);
+});
