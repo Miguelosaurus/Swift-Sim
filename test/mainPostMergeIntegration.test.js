@@ -5,6 +5,7 @@ import {
   classifySwiftSource,
   expandedSigningIdentities,
   LIVE_REASON_CODES,
+  liveEngineSessionMatches,
   selectLiveApplicationBuildSettings,
   selectLiveScheme,
   withLiveBuildSession,
@@ -344,4 +345,30 @@ test("live signing fails closed when build settings are unavailable", () => {
     source.slice(source.indexOf("function resolveSigningIdentities"), source.indexOf("function provisioningIdentityForTeam")),
     /\.\.\.development\.map/,
   );
+});
+
+
+
+test("live readiness is bound to the active engine scheme", () => {
+  const session = {
+    projectRoot: "/tmp/Repo",
+    scheme: "OtherApp",
+    engineVersion: "0.4.0",
+  };
+  assert.equal(liveEngineSessionMatches(session, {
+    projectRoot: "/tmp/Repo",
+    scheme: "SelectedApp",
+  }), false);
+  assert.equal(liveEngineSessionMatches(session, {
+    projectRoot: "/tmp/Repo",
+    scheme: "OtherApp",
+  }), true);
+  assert.equal(liveEngineSessionMatches(session, {
+    projectRoot: "/tmp/AnotherRepo",
+    scheme: "OtherApp",
+  }), false);
+
+  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
+  assert.match(source, /const matchingEngineSession = liveEngineSessionMatches\(engineSession/);
+  assert.match(source, /const watchingProject = Boolean\([\s\S]*?matchingEngineSession/);
 });

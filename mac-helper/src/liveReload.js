@@ -282,8 +282,13 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
   const control = engineInstalled ? await engineControl({ action: "status" }) : null;
   const engineStatus = control?.success ? control.data : null;
   const projectRoot = projectRootFor(projectPath);
+  const engineSession = readJSONFile(ENGINE_SESSION);
+  const matchingEngineSession = liveEngineSessionMatches(engineSession, {
+    projectRoot,
+    scheme: schemeSelection.scheme,
+  });
   const watchingProject = Boolean(
-    projectRoot
+    matchingEngineSession
     && engineStatus?.watching_directories?.some((path) => resolve(path) === projectRoot)
   );
   const connected = Boolean(engineStatus?.has_connected_client);
@@ -624,10 +629,11 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
       (path) => resolve(path) === status.project.root
     )
     && running.data?.codesigning_identity_configured
-    && session?.projectRoot === status.project.root
-    && session?.scheme === status.project.scheme
-    && session?.signingIdentity === signingIdentity
-    && session?.engineVersion === ENGINE_VERSION;
+    && liveEngineSessionMatches(session, {
+      projectRoot: status.project.root,
+      scheme: status.project.scheme,
+    })
+    && session?.signingIdentity === signingIdentity;
   if (!alreadyWatching) {
     await stopLiveEngine();
     mkdirSync(LIVE_ROOT, { recursive: true });
@@ -1757,6 +1763,18 @@ function readJSONFile(path) {
   } catch {
     return null;
   }
+}
+
+export function liveEngineSessionMatches(session, {
+  projectRoot = "",
+  scheme = "",
+} = {}) {
+  return Boolean(
+    session
+    && String(session.projectRoot || "") === String(projectRoot || "")
+    && String(session.scheme || "") === String(scheme || "")
+    && session.engineVersion === ENGINE_VERSION
+  );
 }
 
 function projectRootFor(projectPath) {
