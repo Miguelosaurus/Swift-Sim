@@ -54,16 +54,16 @@ jobs:
               ''',
           )
 
-          replace_once(
-              "test/mainPostMergeIntegration.test.js",
-              '''  assert.match(source, /selectedXcodeApplicationTarget\\(join\\(target\\.path, "project\\.pbxproj"\\), build\\.scheme\\)/);
-                assert.match(source, /selectedTargetHasLivePackage\\(selectedLiveTarget\\.source, selectedLiveTarget\\.targetName\\)/);
-              ''',
-              '''  assert.match(source, /const liveCandidate = String\\(build\\.configuration \\|\\| ""\\)\\.toLowerCase\\(\\) === "debug"/);
-                assert.match(source, /const selectedLiveTarget = liveCandidate[\\s\\S]*selectedXcodeApplicationTarget\\(join\\(target\\.path, "project\\.pbxproj"\\), build\\.scheme\\)/);
-                assert.match(source, /selectedTargetHasLivePackage\\(selectedLiveTarget\\.source, selectedLiveTarget\\.targetName\\)/);
-              ''',
-          )
+          test_path = Path("test/mainPostMergeIntegration.test.js")
+          test_path.write_text(test_path.read_text() + r'''
+
+          test("release archives do not inspect optional live targets", () => {
+            const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
+            assert.match(source, /const liveCandidate = String\(build\.configuration \|\| ""\)\.toLowerCase\(\) === "debug"/);
+            assert.match(source, /const selectedLiveTarget = liveCandidate[\s\S]*?selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
+            assert.match(source, /const liveEligible = Boolean\(selectedLiveTarget\)/);
+          });
+          ''')
 
           replace_once("docs/MAIN_POST_MERGE_REVIEW_ROUND1.md", "| P2 | 13 | 13 | 0 |", "| P2 | 14 | 14 | 0 |")
           replace_once(
@@ -74,6 +74,7 @@ jobs:
 
           Path(".github/workflows/manual-review-round2-tail.yml").unlink(missing_ok=True)
           Path("docs/manual-review-round2-tail-trigger.txt").unlink(missing_ok=True)
+          Path("docs/manual-review-round2-tail-trigger-2.txt").unlink(missing_ok=True)
           PY
       - name: Install dependencies
         run: npm ci
