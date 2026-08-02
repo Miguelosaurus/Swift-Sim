@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { basename, dirname } from "node:path";
 import { runRequiredBuildValidation } from "./buildValidation.js";
 import { renewalCancellationPath } from "./renewalCancellation.js";
+import { completeOwnedWorkerProcessRecord, ownedWorkerProcessState } from "./ownedWorkerIdentity.js";
 import {
   requestDeviceBuildCancellation as requestDeviceBuildCancellationCore,
   runDeviceBuild as runDeviceBuildCore,
@@ -76,27 +77,30 @@ export async function terminateRecordedDeviceBuildWorker(build) {
     throw recoveryError(build, "has an unreadable worker identity");
   }
 
-  const pid = Number(record?.pid);
-  if (!Number.isInteger(pid) || pid <= 0 || !record?.startedAt || !record?.command) {
-    throw recoveryError(build, "has an incomplete worker identity");
+  if (!completeOwnedWorkerProcessRecord(record)) {
+    throw recoveryError(build, "has an incomplete or legacy worker identity");
   }
 
-  if (!processIsAlive(pid)) return clearStaleWorkerJournal(workerPath);
-  const observedStartedAt = processStartedAt(pid);
-  if (!observedStartedAt) {
-    if (!processIsAlive(pid)) return clearStaleWorkerJournal(workerPath);
+  const ownershipState = ownedWorkerProcessState(record);
+  if (ownershipState === "dead" || ownershipState === "replaced") {
+    return clearStaleWorkerJournal(workerPath);
+  }
+  if (ownershipState !== "current") {
     throw recoveryError(build, "points to a process whose start identity cannot be verified");
   }
-  if (observedStartedAt !== record.startedAt) return clearStaleWorkerJournal(workerPath);
 
+  const pid = Number(record.pid);
   const command = processCommand(pid);
   const expected = record.command === "required-validation"
     ? ["/bin/sh", " sh "]
     : [basename(String(record.command))];
   if (!command || !expected.some((fragment) => command.includes(fragment))) {
-    const finalStartedAt = processStartedAt(pid);
-    if (!processIsAlive(pid) || !finalStartedAt || finalStartedAt !== record.startedAt) {
+    const finalOwnershipState = ownedWorkerProcessState(record);
+    if (finalOwnershipState === "dead" || finalOwnershipState === "replaced") {
       return clearStaleWorkerJournal(workerPath);
+    }
+    if (finalOwnershipState !== "current") {
+      throw recoveryError(build, "points to a process whose start identity cannot be verified");
     }
     throw recoveryError(build, "points to a process whose command cannot be verified");
   }

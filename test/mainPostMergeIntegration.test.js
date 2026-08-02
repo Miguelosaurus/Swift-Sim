@@ -418,3 +418,27 @@ test("release archives do not inspect optional live targets", () => {
   assert.match(source, /const selectedLiveTarget = liveCandidate[\s\S]*?selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
   assert.match(source, /const liveEligible = Boolean\(selectedLiveTarget\)/);
 });
+
+test("raw Swift strings cannot hide following structural changes", () => {
+  const before = `struct Model {
+  let text = #"He said "hello"#
+  var count: Int = 0
+}`;
+  const after = before.replace("var count: Int", "var count: String");
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, false);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.STORED_PROPERTY_CHANGED);
+});
+
+test("multiline Swift strings cannot hide following structural changes", () => {
+  const before = `struct Model {
+  let text = """
+  He said "hello
+  """
+  var count: Int = 0
+}`;
+  const after = before.replace("var count: Int", "var count: String");
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, false);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.STORED_PROPERTY_CHANGED);
+});

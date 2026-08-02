@@ -572,3 +572,28 @@ extension InstallationStateTests {
         XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "present", ownerPairingID: "mac-a", syncingMacID: "mac-a", remoteIDs: remoteIDs))
     }
 }
+
+extension InstallationStateTests {
+    @MainActor
+    func testMacSyncPreservesSameIdentityBuildsFromOtherSources() {
+        let remoteIDs: Set<String> = ["remote-current"]
+        XCTAssertFalse(SessionStore.managedBuildShouldBePreservedDuringSync(
+            buildID: "remote-current",
+            buildBaseURLString: "https://mac-a.example/",
+            remoteIDs: remoteIDs,
+            syncingBaseURLString: "https://mac-a.example/"
+        ))
+        XCTAssertFalse(SessionStore.managedBuildShouldBePreservedDuringSync(
+            buildID: "remote-stale",
+            buildBaseURLString: "https://mac-a.example/",
+            remoteIDs: remoteIDs,
+            syncingBaseURLString: "https://mac-a.example/"
+        ))
+        XCTAssertTrue(SessionStore.managedBuildShouldBePreservedDuringSync(
+            buildID: "foreign-link",
+            buildBaseURLString: "https://mac-b.example/",
+            remoteIDs: remoteIDs,
+            syncingBaseURLString: "https://mac-a.example/"
+        ))
+    }
+}

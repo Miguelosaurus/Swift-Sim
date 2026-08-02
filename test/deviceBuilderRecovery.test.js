@@ -40,15 +40,40 @@ test("a reused worker pid is cleared by start identity before command inspection
     const workerPath = `${cancelPath}.worker.json`;
     mkdirSync(dirname(cancelPath), { recursive: true });
     writeFileSync(workerPath, JSON.stringify({
+      version: 2,
       pid: process.pid,
-      startedAt: "Mon Jan  1 00:00:00 1990",
+      processGroup: process.pid,
+      startToken: "darwin:stale-process-start",
+      executable: process.execPath,
       command: "xcodebuild",
+      createdAt: new Date().toISOString(),
     }));
     assert.equal(await terminateRecordedDeviceBuildWorker({
       id: "reused-pid",
       control: { cancelPath },
     }), true);
     assert.equal(existsSync(workerPath), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a live legacy worker journal fails closed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-recovery-legacy-live-"));
+  try {
+    const cancelPath = join(directory, "build", ".cancelled");
+    const workerPath = `${cancelPath}.worker.json`;
+    mkdirSync(dirname(cancelPath), { recursive: true });
+    writeFileSync(workerPath, JSON.stringify({
+      pid: process.pid,
+      startedAt: "legacy-second-resolution-token",
+      command: "xcodebuild",
+    }));
+    await assert.rejects(
+      terminateRecordedDeviceBuildWorker({ id: "legacy-live", control: { cancelPath } }),
+      (error) => error?.code === "SWIFT_SIM_UNSAFE_BUILD_RECOVERY"
+    );
+    assert.equal(existsSync(workerPath), true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

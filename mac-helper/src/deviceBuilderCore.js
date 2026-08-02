@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { basename, dirname, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
+import { ownedWorkerProcessState, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
 import {
   selectedTargetHasLivePackage,
   selectedXcodeApplicationTarget,
@@ -533,12 +534,11 @@ export function runBuffered(command, args, {
     if (workerPath) {
       try {
         mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
-        writeFileSync(workerPath, JSON.stringify({
-          pid: child.pid,
-          startedAt: requiredProcessStartedAt(child.pid),
-          command,
-          createdAt: new Date().toISOString(),
-        }), { mode: 0o600 });
+        writeFileSync(
+          workerPath,
+          JSON.stringify(requiredOwnedWorkerProcessRecord(child.pid, command)),
+          { mode: 0o600 },
+        );
       } catch (error) {
         workerRecordError = error;
       }
@@ -713,28 +713,27 @@ export async function terminateRecordedDeviceBuildWorker(build) {
   if (!workerPath || !existsSync(workerPath)) return true;
   let record;
   try { record = JSON.parse(readFileSync(workerPath, "utf8")); } catch { return false; }
-  const pid = Number(record?.pid);
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (record.startedAt && processStartedAt(pid) !== record.startedAt) {
+  const state = ownedWorkerProcessState(record);
+  if (state === "dead" || state === "replaced") {
     rmSync(workerPath, { force: true });
     return true;
   }
-  const terminated = await terminateProcessGroup(pid, 2_000);
+  if (state !== "current") return false;
+  const terminated = await terminateRecordedOwnedProcessGroup(record, 2_000);
   if (terminated) rmSync(workerPath, { force: true });
   return terminated;
 }
 
-function requiredProcessStartedAt(pid) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const startedAt = processStartedAt(pid);
-    if (startedAt) return startedAt;
-  }
-  throw new Error("Unable to establish the active build worker process identity.");
-}
-
-function processStartedAt(pid) {
-  const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
-  return result.status === 0 ? String(result.stdout || "").trim() : "";
+async function terminateRecordedOwnedProcessGroup(record, graceMs) {
+  if (ownedWorkerProcessState(record) !== "current") return false;
+  signalProcessGroup(record.processGroup, "SIGTERM");
+  if (await waitForProcessGroupExit(record.processGroup, graceMs)) return true;
+  // If the original group leader exited, a later process could reuse its PID
+  // and PGID. Without the exact high-resolution identity, never authorize a
+  // second signal against the observed group.
+  if (ownedWorkerProcessState(record) !== "current") return false;
+  signalProcessGroup(record.processGroup, "SIGKILL");
+  return waitForProcessGroupExit(record.processGroup, 2_000);
 }
 
 function signalProcessGroup(pid, signal) {

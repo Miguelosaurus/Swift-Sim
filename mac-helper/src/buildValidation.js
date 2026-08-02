@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
 
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
 const DEFAULT_VALIDATION_TIMEOUT_SECONDS = 15 * 60;
@@ -127,12 +128,11 @@ function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
     if (workerPath) {
       try {
         mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });
-        writeFileSync(workerPath, JSON.stringify({
-          pid: child.pid,
-          startedAt: requiredProcessStartedAt(child.pid),
-          command: "required-validation",
-          createdAt: new Date().toISOString(),
-        }), { mode: 0o600 });
+        writeFileSync(
+          workerPath,
+          JSON.stringify(requiredOwnedWorkerProcessRecord(child.pid, "required-validation")),
+          { mode: 0o600 },
+        );
       } catch (error) {
         validationWorkerRecordError = error;
       }
@@ -216,15 +216,6 @@ async function terminateProcessGroup(pid, graceMs) {
   if (await waitForProcessGroupExit(pid, graceMs)) return true;
   signalProcessGroup(pid, "SIGKILL");
   return waitForProcessGroupExit(pid, 2_000);
-}
-
-function requiredProcessStartedAt(pid) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
-    const startedAt = result.status === 0 ? String(result.stdout || "").trim() : "";
-    if (startedAt) return startedAt;
-  }
-  throw new Error("Unable to establish the active validation worker process identity.");
 }
 
 function signalProcessGroup(pid, signal) {

@@ -9,8 +9,8 @@ Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df6
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 26 | 26 | 0 |
-| P2 | 14 | 14 | 0 |
+| P1 | 28 | 28 | 0 |
+| P2 | 15 | 15 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## P1 fixes
@@ -41,6 +41,8 @@ Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df6
 24. Generic lock owner publication is bound to the exact directory device/inode and intended owner record after the write, so a suspended writer cannot resume into a quarantined directory and execute without mutual exclusion or erase a replacement owner.
 25. Device-build live eligibility uses the selected scheme's authoritative host application, and managed implicit-dynamic/interposable flags cannot leak into the ordinary fallback archive.
 26. A verified detached live engine can be identity-checked and terminated before PID publication, closing the pre-publication abandonment window.
+27. Swift source masking recognizes ordinary, raw/extended, multiline, and raw-multiline string delimiters, so quote characters inside valid literals cannot hide following structural declarations from rebuild classification.
+28. Persisted device-build and validation worker journals use the collision-resistant kernel start token, executable, and process-group identity; restart recovery never signals a live legacy, unverifiable, or PID-reused worker record.
 
 ## P2 fixes
 
@@ -58,6 +60,7 @@ Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df6
 12. `.xcodeproj` projects now use the same explicit scheme authority, selected-host-target package validation, and target-scoped linker settings as workspaces; stale PBX comments cannot impersonate a package dependency.
 13. Companion Mac synchronization removes only history explicitly owned by that same Mac; ownerless link history and another Mac's history survive unrelated syncs.
 14. Optional live-target inspection is gated to Debug project builds, so ordinary Release archives do not run an unnecessary Debug build-settings query or trigger live-package resolution side effects.
+15. Same-identity Companion history from another Mac or an ownerless link survives Mac synchronization and remains local-only instead of being overwritten or inheriting remote mutation authority.
 
 ## Regression coverage
 

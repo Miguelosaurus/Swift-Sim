@@ -865,6 +865,15 @@ final class SessionStore: ObservableObject {
         ownerPairingID == syncingMacID && !remoteIDs.contains(appID)
     }
 
+    static func managedBuildShouldBePreservedDuringSync(
+        buildID: String,
+        buildBaseURLString: String,
+        remoteIDs: Set<String>,
+        syncingBaseURLString: String
+    ) -> Bool {
+        !remoteIDs.contains(buildID) && buildBaseURLString != syncingBaseURLString
+    }
+
     static func connectionDiagnosticsAreCurrent(
         currentMac: PairedMac?,
         expectedMac: PairedMac?,
@@ -1288,8 +1297,31 @@ final class SessionStore: ObservableObject {
                 managed.archivedAt = Self.parseDate(app.archivedAt)
                 managed.lastOpened = managed.builds.first?.lastOpened ?? Date()
                 if let index = managedApps.firstIndex(where: { $0.id == managed.id }) {
-                    let localLastOpened = managedApps[index].lastOpened
-                    managed.lastOpened = max(localLastOpened, managed.lastOpened)
+                    let existing = managedApps[index]
+                    let remoteBuildIDs = Set(managed.builds.map(\.id))
+                    let preservedForeignBuilds = existing.builds.filter { build in
+                        Self.managedBuildShouldBePreservedDuringSync(
+                            buildID: build.id,
+                            buildBaseURLString: build.baseURLString,
+                            remoteIDs: remoteBuildIDs,
+                            syncingBaseURLString: mac.baseURLString
+                        )
+                    }
+                    managed.lastOpened = max(existing.lastOpened, managed.lastOpened)
+                    if !preservedForeignBuilds.isEmpty {
+                        var buildsByID = Dictionary(
+                            uniqueKeysWithValues: managed.builds.map { ($0.id, $0) }
+                        )
+                        for build in preservedForeignBuilds where buildsByID[build.id] == nil {
+                            buildsByID[build.id] = build
+                        }
+                        managed.builds = buildsByID.values.sorted { $0.createdAt > $1.createdAt }
+                        // A same-identity library entry containing history from
+                        // more than one source remains local-only. No single Mac
+                        // may gain archive/delete/build authority over the mix.
+                        managed.ownerPairingID = nil
+                        managed.archivedAt = existing.archivedAt
+                    }
                     managedApps[index] = managed
                 } else {
                     managedApps.append(managed)

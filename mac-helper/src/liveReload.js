@@ -2560,6 +2560,7 @@ function maskCommentsAndStrings(source) {
   let mode = "code";
   let escaped = false;
   let blockCommentDepth = 0;
+  let stringDelimiter = null;
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
     const next = source[index + 1];
@@ -2584,9 +2585,19 @@ function maskCommentsAndStrings(source) {
       continue;
     }
     if (mode === "string") {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === "\"") mode = "code";
+      const closingLength = swiftStringClosingLength(source, index, stringDelimiter);
+      if (closingLength > 0 && !escaped) {
+        output += " ".repeat(closingLength);
+        index += closingLength - 1;
+        mode = "code";
+        stringDelimiter = null;
+        continue;
+      }
+      if (stringDelimiter.hashCount === 0 && !escaped && char === "\\") {
+        escaped = true;
+      } else {
+        escaped = false;
+      }
       output += char === "\n" ? "\n" : " ";
       continue;
     }
@@ -2599,14 +2610,46 @@ function maskCommentsAndStrings(source) {
       index += 1;
       mode = "block-comment";
       blockCommentDepth = 1;
-    } else if (char === "\"") {
-      output += " ";
-      mode = "string";
     } else {
-      output += char;
+      const opening = swiftStringOpeningDelimiter(source, index);
+      if (opening) {
+        output += " ".repeat(opening.length);
+        index += opening.length - 1;
+        mode = "string";
+        escaped = false;
+        stringDelimiter = opening;
+      } else {
+        output += char;
+      }
     }
   }
   return output;
+}
+
+function swiftStringOpeningDelimiter(source, index) {
+  let cursor = index;
+  let hashCount = 0;
+  while (source[cursor] === "#") {
+    hashCount += 1;
+    cursor += 1;
+  }
+  if (source.startsWith('"""', cursor)) {
+    return { hashCount, quoteLength: 3, length: hashCount + 3 };
+  }
+  if (source[cursor] === '"') {
+    return { hashCount, quoteLength: 1, length: hashCount + 1 };
+  }
+  return null;
+}
+
+function swiftStringClosingLength(source, index, delimiter) {
+  if (!delimiter) return 0;
+  const quotes = '"'.repeat(delimiter.quoteLength);
+  if (!source.startsWith(quotes, index)) return 0;
+  const hashes = "#".repeat(delimiter.hashCount);
+  return source.startsWith(hashes, index + delimiter.quoteLength)
+    ? delimiter.quoteLength + delimiter.hashCount
+    : 0;
 }
 
 function compact(value) {
