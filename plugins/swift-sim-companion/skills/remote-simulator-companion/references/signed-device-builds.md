@@ -2,12 +2,12 @@
 
 Use this for build, signing, install-link, or Build Current Code detail:
 
-`sh
+```sh
 swift-sim build-device \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
   --allow-provisioning-updates
-`
+```
 
 Use `--workspace` for workspaces and preserve repeated `--build-setting
 KEY=VALUE` arguments. Only `state: ready` is installable. Return
@@ -25,3 +25,4 @@ helper without Git changes. Keep it separate from Create New Install Link,
 which republishes an existing IPA. Verify with
 `swift-sim verify-device-build --build-id "<opaque-build-id>"` and report its
 `verified`, `different-version`, `not-installed`, or `unknown` state exactly.
+

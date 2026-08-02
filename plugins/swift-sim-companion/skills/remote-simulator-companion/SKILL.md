@@ -24,14 +24,14 @@ Use this lane only when the user requested iPhone delivery, remote hot reload,
 or is continuing an explicit phone-testing loop. An ordinary coding task
 invokes zero Swift Sim commands. After one logical change, invoke exactly once:
 
-`sh
+```sh
 swift-sim deliver-change \
   --before "<previous.swift>" \
   --after "<current.swift>" \
   --project "<App.xcodeproj>" \
   --scheme "<App>" \
   --allow-provisioning-updates
-`
+```
 
 Use `--workspace` for workspaces, repeat matching `--before`/`--after` pairs
 for multi-file changes, and preserve repeated `--build-setting` arguments.
@@ -47,15 +47,15 @@ patch or loaded dylib is not proof.
 Terminal outcomes are `hot-reloaded`, `install-link-ready`, `no-change`,
 `needs-user-action`, and `failed`. Say exactly:
 
-`text
+```text
 Hot reloaded successfully. Test it now on your iPhone in the running Debug app—no install needed.
-`
+```
 
 For `install-link-ready`, say:
 
-`text
+```text
 This change needs a new signed build.
-`
+```
 
 Then provide the returned universal link labeled **Open in Swift Sim to
 Install**. Do not expose paths, device identifiers, signing identities,
@@ -110,3 +110,4 @@ Read only the branch-specific reference:
 
 Codex, Cursor, Claude Code, and OpenCode use this same packaged skill and
 references. Host-specific remote-control details remain in the references.
+

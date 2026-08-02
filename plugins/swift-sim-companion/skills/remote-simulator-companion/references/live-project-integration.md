@@ -8,13 +8,13 @@ Client and compiler/linker settings are Debug-only.
 Establish with `swift-sim live-start`/`live-status`, then create the first
 signed Debug build:
 
-`sh
+```sh
 swift-sim build-device \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
   --configuration Debug \
   --allow-provisioning-updates
-`
+```
 
 Keep a trusted iPhone reachable for registration and approve a matching
 development-key prompt with **Always Allow**. Install, launch, and leave the
@@ -31,3 +31,4 @@ nonzero replacements unless interposition is used, `refresh_acknowledged`, and
 a revision greater than the prior revision. Screenshots are not proof. One
 bounded recovery may restart a stale session; compile failures and partial
 applications are never retried.
+

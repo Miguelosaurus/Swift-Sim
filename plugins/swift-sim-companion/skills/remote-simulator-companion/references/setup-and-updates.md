@@ -2,11 +2,11 @@
 
 Read this only for first-time setup, helper/integration drift, or diagnosis:
 
-`sh
+```sh
 command -v swift-sim
 swift-sim setup
 swift-sim doctor --json
-`
+```
 
 Setup refreshes the helper and installs bundled Codex, Cursor, Claude Code,
 and OpenCode integrations. `deviceInstalls` is the real-iPhone lane and needs
@@ -28,13 +28,13 @@ Client and compiler/linker settings are Debug-only.
 Establish with `swift-sim live-start`/`live-status`, then create the first
 signed Debug build:
 
-`sh
+```sh
 swift-sim build-device \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
   --configuration Debug \
   --allow-provisioning-updates
-`
+```
 
 Keep a trusted iPhone reachable for registration and approve a matching
 development-key prompt with **Always Allow**. Install, launch, and leave the
@@ -56,12 +56,12 @@ applications are never retried.
 
 Use this for build, signing, install-link, or Build Current Code detail:
 
-`sh
+```sh
 swift-sim build-device \
   --project "<absolute-project-path>" \
   --scheme "<scheme>" \
   --allow-provisioning-updates
-`
+```
 
 Use `--workspace` for workspaces and preserve repeated `--build-setting
 KEY=VALUE` arguments. Only `state: ready` is installable. Return
@@ -88,14 +88,14 @@ Use only for an explicitly requested live Simulator preview:
 2. Build and launch one exact Simulator.
 3. Start/reuse that UDID:
 
-`sh
+```sh
 swift-sim start-session \
   --project "<absolute-project-or-workspace-path>" \
   --scheme "<scheme>" \
   --simulator "<simulator-udid>" \
   --remote-base-url "<tailscale-serve-url>" \
   --transport auto
-`
+```
 
 In Codex verify `codex.localPreviewUrl` in the in-app browser; other hosts
 use local preview tools. Return **Open Simulator in Companion App**. Keep
@@ -143,3 +143,4 @@ Read only the matching branch:
 - **Install opened** is not **Installed** until trusted verification proves it.
 - No background updater rewrites a running agent's skill; protocol drift
   requires an explicit update and a new agent session.
+

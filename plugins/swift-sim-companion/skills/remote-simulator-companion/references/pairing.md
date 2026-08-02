@@ -12,9 +12,9 @@ and a valid session link does not prove the app is paired.
 First require `swift-sim setup-status` to report `ok: true` with the intended
 Tailscale hostname and private Serve URL. Then generate a verified link:
 
-`sh
+```sh
 swift-sim pair
-`
+```
 
 Return `links.universalLink` labeled **Pair Swift Sim Companion**. Keep
 `links.customScheme` as the fallback when universal links open Safari. The app
@@ -33,9 +33,9 @@ token, or helper failure precisely.
 
 For an interactive first-time handoff:
 
-`sh
+```sh
 swift-sim pair --qr
-`
+```
 
 The invitation is one-time and expires after five minutes. The user scans it
 from **Mac Connection → Scan Pairing QR**. QR only bootstraps pairing; both
@@ -63,14 +63,14 @@ This lane is separate from real-iPhone hot reload and signed device builds.
    tools. In Codex, prefer XcodeBuildMCP.
 3. Start or reuse Swift Sim for that same UDID:
 
-`sh
+```sh
 swift-sim start-session \
   --project "<absolute-project-or-workspace-path>" \
   --scheme "<scheme>" \
   --simulator "<simulator-udid>" \
   --remote-base-url "<tailscale-serve-url>" \
   --transport auto
-`
+```
 
 4. In Codex, verify the returned `codex.localPreviewUrl` in the in-app
    browser. Other hosts use their local screenshot/UI tools.
@@ -102,10 +102,10 @@ actionable next step; do not dump this entire reference into an agent reply.
 
 Install the signed release through Homebrew, then run:
 
-`sh
+```sh
 brew install miguelosaurus/tap/swift-sim
 swift-sim setup
-`
+```
 
 If the project is a source checkout, use `swift-sim setup` from that checkout.
 For a protocol mismatch, say **Update Swift Sim, then start a new agent
@@ -143,10 +143,10 @@ new link is generated.
 Check the exact Xcode signing error, bundle identifier, team, registered
 device, capabilities, and provisioning profile. For a delivery tunnel issue:
 
-`sh
+```sh
 swift-sim device-delivery-status
 swift-sim device-delivery-stop
-`
+```
 
 Then rebuild. Device installs do not require Tailscale. If the app installs as
 a second app, the bundle identifier changed. If login/keychain data is absent,
@@ -189,3 +189,4 @@ rules are invariant across every host integration.
   trusted helper/device verification reports **Installed**.
 - No background updater may rewrite a running agent's skill. Protocol drift
   requires an explicit update and a new agent session.
+
