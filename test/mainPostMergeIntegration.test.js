@@ -5,6 +5,7 @@ import {
   classifySwiftSource,
   expandedSigningIdentities,
   LIVE_REASON_CODES,
+  selectLiveApplicationBuildSettings,
   selectLiveScheme,
   withLiveBuildSession,
   workspaceProjectReferences,
@@ -284,4 +285,52 @@ test("nested block comments cannot truncate runtime availability scanning", () =
   const result = classifySwiftSource(before, after);
   assert.equal(result.hotReloadable, false);
   assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+});
+
+
+test("attribute string-literal whitespace requires a rebuild", () => {
+  const before = `struct Model {
+  @Wrapper(value: "a b") var value: String
+}`;
+  const after = before.replace('"a b"', '"a  b"');
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, false);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+});
+
+test("live signing selects the host application section", () => {
+  const extensionIdentity = "E".repeat(40);
+  const appIdentity = "A".repeat(40);
+  const output = `Build settings for action build and target ShareExtension:
+    TARGET_NAME = ShareExtension
+    PRODUCT_TYPE = com.apple.product-type.app-extension
+    WRAPPER_EXTENSION = appex
+    EXPANDED_CODE_SIGN_IDENTITY = ${extensionIdentity}
+    DEVELOPMENT_TEAM = EXTTEAM
+Build settings for action build and target App:
+    TARGET_NAME = App
+    PRODUCT_NAME = App
+    PRODUCT_TYPE = com.apple.product-type.application
+    WRAPPER_EXTENSION = app
+    SKIP_INSTALL = NO
+    SUPPORTED_PLATFORMS = iphoneos iphonesimulator
+    EXPANDED_CODE_SIGN_IDENTITY = ${appIdentity}
+    DEVELOPMENT_TEAM = APPTEAM`;
+  assert.deepEqual(expandedSigningIdentities(output, "App"), [appIdentity]);
+  assert.equal(selectLiveApplicationBuildSettings(output, "App").DEVELOPMENT_TEAM, "APPTEAM");
+});
+
+test("ambiguous live host application settings fail closed", () => {
+  const output = `Build settings for action build and target First:
+    PRODUCT_TYPE = com.apple.product-type.application
+    WRAPPER_EXTENSION = app
+    SKIP_INSTALL = NO
+Build settings for action build and target Second:
+    PRODUCT_TYPE = com.apple.product-type.application
+    WRAPPER_EXTENSION = app
+    SKIP_INSTALL = NO`;
+  assert.throws(
+    () => selectLiveApplicationBuildSettings(output, "Unknown"),
+    /multiple equally likely application targets/,
+  );
 });

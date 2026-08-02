@@ -1923,10 +1923,77 @@ export function selectLiveScheme(projectPath, requestedScheme = "", availableSch
   };
 }
 
-export function expandedSigningIdentities(output) {
-  const expanded = String(output || "")
-    .match(/^\s*EXPANDED_CODE_SIGN_IDENTITY\s*=\s*([A-F0-9]{40})\s*$/m)?.[1] || "";
-  return expanded ? [expanded] : [];
+export function selectLiveApplicationBuildSettings(output, scheme = "") {
+  const collector = { sections: [], current: null, loose: {} };
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const header = line.match(/^Build settings for action .* and target (.+):\s*$/);
+    if (header) {
+      const section = { target: header[1].trim(), settings: {} };
+      collector.sections.push(section);
+      collector.current = section;
+      continue;
+    }
+    const setting = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+    if (!setting) continue;
+    const destination = collector.current?.settings || collector.loose;
+    destination[setting[1]] = setting[2].trim();
+  }
+
+  const normalizedScheme = String(scheme || "").trim();
+  const candidates = collector.sections.filter(({ settings }) => {
+    const productType = String(settings.PRODUCT_TYPE || "");
+    return settings.WRAPPER_EXTENSION === "app"
+      && !productType.includes("app-extension")
+      && !productType.includes("unit-test")
+      && !productType.includes("ui-testing");
+  });
+  const scored = candidates
+    .map((section) => ({ section, score: liveApplicationSectionScore(section, normalizedScheme) }))
+    .sort((left, right) => right.score - left.score || left.section.target.localeCompare(right.section.target));
+
+  if (scored.length === 1 || (scored.length > 1 && scored[0].score > scored[1].score)) {
+    return scored[0].section.settings;
+  }
+  if (scored.length > 1) {
+    const hostApps = scored.filter(({ section }) =>
+      section.settings.PRODUCT_TYPE === "com.apple.product-type.application"
+    );
+    if (hostApps.length === 1) return hostApps[0].section.settings;
+    const names = scored.map(({ section }) => section.target).join(", ");
+    throw new Error(
+      `Xcode reported multiple equally likely application targets for live scheme ${normalizedScheme || "(unknown)"}: ${names}.`
+    );
+  }
+  if (collector.sections.length > 0) {
+    throw new Error(
+      `Xcode did not report a host application target for live scheme ${normalizedScheme || "(unknown)"}.`
+    );
+  }
+  return collector.loose;
+}
+
+function liveApplicationSectionScore({ target, settings }, scheme) {
+  const productType = String(settings.PRODUCT_TYPE || "");
+  let score = 0;
+  if (target === scheme || settings.TARGET_NAME === scheme || settings.PRODUCT_NAME === scheme) score += 100;
+  if (productType === "com.apple.product-type.application") score += 80;
+  if (settings.SKIP_INSTALL !== "YES") score += 20;
+  if (/iphoneos|iphonesimulator/.test(String(settings.SUPPORTED_PLATFORMS || ""))) score += 10;
+  if (productType.includes("on-demand-install-capable")) score -= 80;
+  if (productType.includes("watchapp")) score -= 80;
+  if (productType.includes("messages")) score -= 60;
+  return score;
+}
+
+function expandedSigningIdentitiesFromSettings(settings) {
+  const expanded = String(settings?.EXPANDED_CODE_SIGN_IDENTITY || "").trim();
+  return /^[A-F0-9]{40}$/.test(expanded) ? [expanded] : [];
+}
+
+export function expandedSigningIdentities(output, scheme = "") {
+  return expandedSigningIdentitiesFromSettings(
+    selectLiveApplicationBuildSettings(output, scheme),
+  );
 }
 
 function resolveSigningIdentities(projectPath, scheme = "") {
@@ -1937,9 +2004,10 @@ function resolveSigningIdentities(projectPath, scheme = "") {
     { encoding: "utf8", timeout: 30_000 }
   );
   const output = String(settings.stdout || "");
-  const expanded = expandedSigningIdentities(output);
+  const selectedSettings = selectLiveApplicationBuildSettings(output, scheme);
+  const expanded = expandedSigningIdentitiesFromSettings(selectedSettings);
   if (expanded.length > 0) return expanded;
-  const team = output.match(/^\s*DEVELOPMENT_TEAM\s*=\s*(\S+)\s*$/m)?.[1] || "";
+  const team = String(selectedSettings.DEVELOPMENT_TEAM || "").trim();
   const identities = spawnSync(
     "security",
     ["find-identity", "-v", "-p", "codesigning"],
@@ -2179,7 +2247,7 @@ function swiftAttributeSurface(source, clean) {
       }
       if (depth === 0) end = cursor;
     }
-    attributes.push(compact(source.slice(index, end)));
+    attributes.push(source.slice(index, end).trim());
     index = Math.max(index, end - 1);
   }
   return attributes.join("\n");
