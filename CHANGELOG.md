@@ -6,6 +6,25 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 No unreleased changes.
 
+## 0.6.1 - 2026-08-02
+
+### Added
+
+- A classifier-first `swift-sim deliver-change` fast path that gives agents one
+  compact command for hot reload or a signed-build fallback, with correlated
+  live proof and bounded recovery.
+- Lazy-loaded agent references and deterministic transcript contracts so the
+  normal edit loop stays short while setup, Simulator, build, and troubleshooting
+  guidance remains available when needed.
+- Local corpus, static-safety, package, and native Simulator release gates for
+  the fast path.
+
+### Validation
+
+- The physical-iPhone Phase 5 gate remains unverified on the release machine;
+  the paired device's CoreDevice tunnel and signing profile were unavailable.
+  This release does not claim new physical latency results from that attempt.
+
 ## 0.6.0 - 2026-08-01
 
 ### Added
