@@ -2,7 +2,7 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `9fa4727d9a58069735e6516342d9c2b3407a80c7`
+Final code candidate before this ledger commit: `cd7c2127223d98539e0512b665f36b10b3d5d119`
 
 ## Result
 
@@ -56,7 +56,7 @@ Coverage includes kernel process-start tokens, executable and instance-nonce mis
 
 ## Validation policy
 
-The transformation run for code head `9fa4727d9a58069735e6516342d9c2b3407a80c7` passed JavaScript syntax, documentation, the complete Node/release suite, workflow YAML, release-shell syntax, and iOS companion tests in GitHub Verify run `30726212901`. That run compiled and exercised the package-owned macOS `proc_pidinfo` / `proc_pidpath` helper used by both engine ownership and lifecycle-lock ownership.
+The self-cleaning transformation that produced code head `cd7c2127223d98539e0512b665f36b10b3d5d119` passed the focused lifecycle/workspace regressions, `npm run check`, workflow YAML validation, and release-shell syntax before publishing the candidate. The temporary transformer and workflow were removed in that same commit.
 
 This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, all remaining Codex threads to be resolved, and one clean exact-head Codex review.
 
