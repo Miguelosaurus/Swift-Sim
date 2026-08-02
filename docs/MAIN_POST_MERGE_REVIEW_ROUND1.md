@@ -61,15 +61,15 @@ Coverage includes kernel process-start tokens, executable and instance-nonce mis
 
 ## Validation policy
 
-The self-cleaning transformations that produced code head `08e9dbeaf0e3658928b76532eff38485f4577699` passed their focused lifecycle, generic-lock, scheme-authority, workspace-package, engine-ownership, and post-merge regressions. All temporary transformers, workflows, and diagnostics were removed from the candidate.
+The self-cleaning transformations that produced code head `08e9dbeaf0e3658928b76532eff38485f4577699` passed focused project/workspace scheme-authority, package-association, engine-publication, generic lock-reclamation, displaced-writer, and post-merge regressions before publishing. The project/scheme and engine-publication transformations also passed the complete Node/release suite through `npm run check`, workflow YAML validation, and release-shell syntax. All temporary transformers and workflows were removed from the code candidate.
 
-This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, all remaining Codex threads to be resolved, and one clean exact-head Codex review.
+This connector-authored ledger commit intentionally triggers the normal exact-head Verify workflow. Merge readiness requires that workflow to pass in full. No external automated reviewer is required or requested.
 
 ## Remaining external release gates
 
 1. Real Homebrew install and upgrade smoke test.
 2. Physical-device signed build and install.
 3. Real private publication and install-link flow.
-4. Real multi-project `.xcworkspace` live-start with an explicitly selected shared scheme and signing identity.
+4. Real multi-project `.xcworkspace` and multi-target `.xcodeproj` live-start with an explicitly selected shared scheme and signing identity.
 
 PR #21 remains draft and unmerged.
