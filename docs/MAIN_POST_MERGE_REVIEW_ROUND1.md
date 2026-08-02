@@ -2,15 +2,15 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `b7abbf4699fa4bfeb9b5280cf4bdd40c73954e9b`
+Final code candidate before this ledger commit: `445c0e7cd5da3d1256220a0dff0f15936f943836`
 
 ## Result
 
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 16 | 16 | 0 |
-| P2 | 7 | 7 | 0 |
+| P1 | 17 | 17 | 0 |
+| P2 | 8 | 8 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## P1 fixes
@@ -31,6 +31,7 @@ Final code candidate before this ledger commit: `b7abbf4699fa4bfeb9b5280cf4bdd40
 14. Expanded signing identities remain one-element candidate arrays.
 15. Production inspect, compile, inject, acknowledgement, and recovery use one lifecycle lease.
 16. Nested Swift block comments are masked to their true closing delimiter, so commented structural text cannot affect classification.
+17. Attribute and wrapper surfaces preserve exact string-literal whitespace, so initializer metadata changes cannot be collapsed into an implementation-only edit.
 
 ## P2 fixes
 
@@ -41,16 +42,17 @@ Final code candidate before this ledger commit: `b7abbf4699fa4bfeb9b5280cf4bdd40
 5. Connection diagnostics are fenced by pairing and Simulator revisions.
 6. Ownerless stale-lock reclamation preserves its pre-claim identity observation.
 7. Live start, device compilation, registration, and packaging use one lifecycle lease.
+8. Workspace signing settings are selected from the scored host-application target section rather than the first signed dependency; ambiguous host-app selection fails closed.
 
 ## Regression coverage
 
-Coverage includes stale/reused PIDs, process groups, lock ownership and reclamation, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, runtime availability conditions, nested block comments, workspace schemes and signing identities, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
+Coverage includes stale/reused PIDs, process groups, lock ownership and reclamation, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, workspace schemes and host-application signing sections, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
 
 ## Validation policy
 
-The transformation run for code head `b7abbf4699fa4bfeb9b5280cf4bdd40c73954e9b` passed JavaScript syntax, documentation, the complete Node/release suite, workflow YAML, and shell syntax before its clean-candidate push superseded the iOS stage.
+The transformation run for code head `445c0e7cd5da3d1256220a0dff0f15936f943836` passed JavaScript syntax, documentation, the complete Node/release suite, workflow YAML, release-shell syntax, and iOS companion tests in GitHub Verify run `30724844954`.
 
-This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, including iOS companion tests, with all review threads resolved and a clean exact-head Codex review.
+This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, with both remaining Codex threads resolved and one clean exact-head Codex review.
 
 ## Remaining external release gates
 
