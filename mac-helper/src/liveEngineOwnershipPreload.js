@@ -115,7 +115,16 @@ export function installLiveEngineOwnershipBoundary({
       throw error;
     }
     pendingRecords.delete(pid);
-    atomicWriteProcessRecord(configuredPIDPath, record);
+    try {
+      atomicWriteProcessRecord(configuredPIDPath, record);
+    } catch (error) {
+      // Once publication fails there is no durable record through which a
+      // later start can identify this detached engine. Terminate only the
+      // exact process group whose complete kernel/executable/nonce identity
+      // was established above; never leave an untracked engine behind.
+      try { terminateExactProcessGroup(record); } catch {}
+      throw error;
+    }
     return undefined;
   };
 

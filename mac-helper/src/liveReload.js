@@ -659,12 +659,20 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
       closeSync(output);
     }
     writeFileSync(ENGINE_PID, `${child.pid}\n`, { mode: 0o600 });
-    writeFileSync(ENGINE_SESSION, `${JSON.stringify({
-      projectRoot: status.project.root,
-      scheme: status.project.scheme,
-      signingIdentity,
-      engineVersion: ENGINE_VERSION,
-    }, null, 2)}\n`, { mode: 0o600 });
+    try {
+      writeFileSync(ENGINE_SESSION, `${JSON.stringify({
+        projectRoot: status.project.root,
+        scheme: status.project.scheme,
+        signingIdentity,
+        engineVersion: ENGINE_VERSION,
+      }, null, 2)}\n`, { mode: 0o600 });
+    } catch (error) {
+      // The durable PID record now authorizes an exact identity-checked stop.
+      // Roll back the engine rather than leaving a process whose session was
+      // never published and which future starts cannot safely reuse.
+      await stopLiveEngine();
+      throw error;
+    }
     child.unref();
   }
 

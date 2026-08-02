@@ -168,6 +168,63 @@ async function collect(child) {
 }
 
 
+test("PID publication failure terminates the exact detached engine", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-live-publish-failure-"));
+  const pidPath = join(directory, "engine.pid");
+  const script = `
+    import { spawn } from 'node:child_process';
+    import { mkdirSync, writeFileSync } from 'node:fs';
+    import { setTimeout as delay } from 'node:timers/promises';
+    import { installLiveEngineOwnershipBoundary } from ${JSON.stringify(preloadURL)};
+    const pidPath = ${JSON.stringify(pidPath)};
+    mkdirSync(pidPath);
+    installLiveEngineOwnershipBoundary({ engineExecutable: process.execPath, pidPath });
+    const engine = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    let failureCode = '';
+    try {
+      writeFileSync(pidPath, String(engine.pid), { mode: 0o600 });
+    } catch (error) {
+      failureCode = String(error?.code || error?.name || 'error');
+    }
+    await delay(150);
+    const engineAlive = alive(engine.pid);
+    if (engineAlive) {
+      try { process.kill(-engine.pid, 'SIGKILL'); } catch {}
+    }
+    console.log(JSON.stringify({ failureCode, engineAlive }));
+    function alive(pid) {
+      try { process.kill(pid, 0); return true; } catch { return false; }
+    }
+  `;
+
+  try {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { stdout, stderr, code } = await collect(child);
+    assert.equal(code, 0, stderr);
+    const observed = JSON.parse(stdout.trim());
+    assert.notEqual(observed.failureCode, "");
+    assert.equal(observed.engineAlive, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("session publication failure rolls back through the durable PID record", () => {
+  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
+  const pidWrite = source.indexOf("writeFileSync(ENGINE_PID");
+  const sessionWrite = source.indexOf("writeFileSync(ENGINE_SESSION", pidWrite);
+  const unref = source.indexOf("child.unref()", sessionWrite);
+  const publication = source.slice(pidWrite, unref);
+  assert.match(publication, /try \{[\s\S]*writeFileSync\(ENGINE_SESSION/);
+  assert.match(publication, /catch \(error\) \{[\s\S]*await stopLiveEngine\(\);[\s\S]*throw error/);
+});
+
+
 test("identity failure never authorizes an unverified cleanup signal", () => {
   const source = readFileSync("mac-helper/src/liveEngineOwnershipPreload.js", "utf8");
   const failureBranch = source.slice(
