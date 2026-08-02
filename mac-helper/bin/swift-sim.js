@@ -855,6 +855,7 @@ Usage:
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
   swift-sim route-change ...      Choose hot reload or a new signed build
+  swift-sim deliver-change ...    Deliver one edit with live proof or one signed fallback
   swift-sim list-apps [--archived] List managed prototype apps and build history
   swift-sim verify-device-build    Verify an install on a reachable iPhone
   swift-sim archive-app ...        Archive or restore an app from the library
