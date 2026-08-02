@@ -32,7 +32,7 @@ physical-iPhone build or install latency.
 
 Phase 4 evidence: `test/agentSkillFastPath.test.js` and the packaged skill
 references under `plugins/swift-sim-companion/skills/remote-simulator-companion/`.
-The primary skill is 665 words and 5,019 UTF-8 bytes; setup, live integration,
+The primary skill is 665 words and 5,032 UTF-8 bytes; setup, live integration,
 signed builds, pairing, Simulator preview, troubleshooting, and security are
 lazy references. Transcript fixtures cover ordinary edits (zero Swift Sim
 commands), one-command warm edits, structural/fallback wording, protocol
