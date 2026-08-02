@@ -1,8 +1,8 @@
-# Main post-merge review — round 1
+# Main post-merge review — rounds 1–3
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df63ec79f249`
+Final production code candidate before this ledger commit: `53bbd857dd515b2946ec612aa5ec1667d2c213ec`
 
 ## Result
 
@@ -65,11 +65,11 @@ Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df6
 
 ## Regression coverage
 
-Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, Debug-only optional live inspection, fallback-archive flag isolation, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
+Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback, stale/reused PIDs, detached process groups, persisted worker-journal identity and legacy-record rejection, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, ordinary/raw/multiline/raw-multiline Swift strings, bare and extended Swift regex literals, division-expression non-regression, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, Debug-only optional live inspection, fallback-archive flag isolation, cleanup containment, complete live build/routing leases, startup cleanup, same-identity cross-source Companion preservation, and companion ownership/revision fences.
 
 ## Validation policy
 
-The self-cleaning transformations that produced code head `36f43b532bccd3c178f4424e4b20df63ec79f249` passed focused project/workspace scheme-authority, package-association, fallback-archive isolation, Debug-only live-inspection, engine-publication, generic lock-reclamation, displaced-writer, companion ownership, and post-merge regressions before publishing. JavaScript syntax and documentation validation also passed before each production publication. All temporary transformers, triggers, and workflows were removed from the code candidate.
+The self-cleaning transformations that produced production code candidate `53bbd857dd515b2946ec612aa5ec1667d2c213ec` passed focused project/workspace scheme authority, package association, fallback-archive isolation, Debug-only live inspection, engine publication, generic lock reclamation, displaced-writer, persisted worker ownership, Swift string/regex classification, Companion cross-source ownership, and post-merge regressions before publishing. JavaScript syntax and documentation validation also passed before each production publication. All temporary transformers, triggers, and workflows were removed from the candidate.
 
 This connector-authored ledger commit intentionally triggers the normal exact-head macOS Verify workflow. Merge readiness requires that workflow to pass in full. No external automated reviewer is required or requested.
 
