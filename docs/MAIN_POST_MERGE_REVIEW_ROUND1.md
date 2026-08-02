@@ -2,7 +2,7 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff38485f4577699`
+Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df63ec79f249`
 
 ## Result
 
@@ -61,13 +61,13 @@ Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff3848
 
 ## Regression coverage
 
-Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
+Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, Debug-only optional live inspection, fallback-archive flag isolation, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
 
 ## Validation policy
 
-The self-cleaning transformations that produced code head `08e9dbeaf0e3658928b76532eff38485f4577699` passed focused project/workspace scheme-authority, package-association, engine-publication, generic lock-reclamation, displaced-writer, and post-merge regressions before publishing. The project/scheme and engine-publication transformations also passed the complete Node/release suite through `npm run check`, workflow YAML validation, and release-shell syntax. All temporary transformers and workflows were removed from the code candidate.
+The self-cleaning transformations that produced code head `36f43b532bccd3c178f4424e4b20df63ec79f249` passed focused project/workspace scheme-authority, package-association, fallback-archive isolation, Debug-only live-inspection, engine-publication, generic lock-reclamation, displaced-writer, companion ownership, and post-merge regressions before publishing. JavaScript syntax and documentation validation also passed before each production publication. All temporary transformers, triggers, and workflows were removed from the code candidate.
 
-This connector-authored ledger commit intentionally triggers the normal exact-head Verify workflow. Merge readiness requires that workflow to pass in full. No external automated reviewer is required or requested.
+This connector-authored ledger commit intentionally triggers the normal exact-head macOS Verify workflow. Merge readiness requires that workflow to pass in full. No external automated reviewer is required or requested.
 
 ## Remaining external release gates
 
