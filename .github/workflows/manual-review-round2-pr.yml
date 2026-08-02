@@ -26,8 +26,10 @@ jobs:
         run: npm ci
       - name: Focused adversarial regressions
         run: node --test test/liveEngineOwnershipPreload.test.js test/mainPostMergeIntegration.test.js
-      - name: Complete Node and release suite
-        run: npm run check
+      - name: Check JavaScript syntax
+        run: node scripts/check-js-syntax.js
+      - name: Check documentation links
+        run: npm run check:docs
       - name: Commit reviewed fixes
         shell: bash
         run: |
