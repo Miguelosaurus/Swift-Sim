@@ -54,6 +54,7 @@ jobs:
           set -euo pipefail
           git config user.name "swift-sim-review-bot"
           git config user.email "swift-sim-review-bot@users.noreply.github.com"
+          rm -f docs/PR21_SCHEME_READINESS_DIAGNOSTIC.log
           git rm .github/workflows/apply-pr21-scheme-readiness.yml scripts/apply-pr21-scheme-readiness.py
           git add -A
           git commit -m "Bind live readiness to the active scheme"
