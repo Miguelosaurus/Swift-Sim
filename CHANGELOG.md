@@ -19,12 +19,6 @@ No unreleased changes.
 - Local corpus, static-safety, package, and native Simulator release gates for
   the fast path.
 
-### Validation
-
-- The physical-iPhone Phase 5 gate remains unverified on the release machine;
-  the paired device's CoreDevice tunnel and signing profile were unavailable.
-  This release does not claim new physical latency results from that attempt.
-
 ## 0.6.0 - 2026-08-01
 
 ### Added
