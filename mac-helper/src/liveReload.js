@@ -266,7 +266,7 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
     && (requestedProjectPath.endsWith(".xcodeproj") || requestedProjectPath.endsWith(".xcworkspace"))
     ? join(requestedProjectPath, requestedProjectPath.endsWith(".xcodeproj") ? "project.pbxproj" : "contents.xcworkspacedata")
     : requestedProjectPath;
-  const availableSchemes = isWorkspaceProjectPath(projectPath)
+  const availableSchemes = isXcodeContainerProjectPath(projectPath)
     ? listedLiveSchemes(projectPath)
     : [];
   const schemeSelection = selectLiveScheme(projectPath, scheme, availableSchemes);
@@ -277,7 +277,7 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
     : discoverTailnet();
   const tailscaleHost = host || tailnet.host;
   const packageConfigured = projectConfiguration.packageConfigured;
-  const interposableConfigured = /-interposable/.test(projectSource);
+  const interposableConfigured = projectConfiguration.interposableConfigured;
   const engineInstalled = installedEngineMatchesManifest();
   const control = engineInstalled ? await engineControl({ action: "status" }) : null;
   const engineStatus = control?.success ? control.data : null;
@@ -1789,25 +1789,31 @@ function projectRootFor(projectPath) {
 
 function liveProjectConfiguration(projectPath, scheme = "") {
   if (!projectPath || !existsSync(projectPath)) {
-    return { source: "", packageConfigured: false };
+    return { source: "", packageConfigured: false, interposableConfigured: false };
   }
   const source = readFileSync(projectPath, "utf8");
-  if (!isWorkspaceProjectPath(projectPath)) {
+  if (!isXcodeContainerProjectPath(projectPath)) {
     return {
       source,
       packageConfigured: /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(source),
+      interposableConfigured: /-interposable/.test(source),
     };
   }
 
-  const selected = selectedWorkspaceApplicationTarget(projectPath, scheme);
-  if (!selected) return { source: "", packageConfigured: false };
+  const selected = selectedXcodeApplicationTarget(projectPath, scheme);
+  if (!selected) {
+    return { source, packageConfigured: false, interposableConfigured: false };
+  }
   return {
     source: selected.source,
     packageConfigured: selectedTargetHasLivePackage(selected.source, selected.targetName),
+    interposableConfigured: /(?:^|\s)-interposable(?:\s|$)/.test(
+      String(selected.settings.OTHER_LDFLAGS || ""),
+    ),
   };
 }
 
-function selectedWorkspaceApplicationTarget(projectPath, scheme) {
+function selectedXcodeApplicationTarget(projectPath, scheme) {
   if (!scheme) return null;
   const settingsResult = spawnSync(
     "xcodebuild",
@@ -1827,16 +1833,17 @@ function selectedWorkspaceApplicationTarget(projectPath, scheme) {
   if (!targetName || !projectFile || !existsSync(projectFile)) return null;
   return {
     targetName,
+    settings,
     source: readFileSync(projectFile, "utf8"),
   };
 }
 
-function normalizedProjectDefinitionPath(value, workspacePath) {
+function normalizedProjectDefinitionPath(value, containerPath) {
   const candidate = String(value || "").trim();
   if (!candidate) return "";
   const absolute = candidate.startsWith("/")
     ? resolve(candidate)
-    : resolve(projectRootFor(workspacePath), candidate);
+    : resolve(projectRootFor(containerPath), candidate);
   if (absolute.endsWith("/project.pbxproj")) return absolute;
   if (absolute.endsWith(".xcodeproj")) return join(absolute, "project.pbxproj");
   return "";
@@ -1861,7 +1868,6 @@ export function selectedTargetHasLivePackage(projectSource, targetName) {
     if (pbxScalar(body, "name") !== expectedTarget) continue;
     const dependencies = body.match(/\bpackageProductDependencies\s*=\s*\(([\s\S]*?)\);/)?.[1] || "";
     if (!dependencies) return false;
-    if (/\bSwiftSimLive\b/.test(dependencies)) return true;
     const productIds = [...dependencies.matchAll(/\b([A-Fa-f0-9]{24})\b/g)]
       .map((match) => match[1]);
     return productIds.some((identifier) => {
@@ -1907,6 +1913,14 @@ function listedLiveSchemes(projectPath) {
   } catch {
     return [];
   }
+}
+
+function isXcodeContainerProjectPath(projectPath) {
+  const value = resolve(String(projectPath || ""));
+  return value.endsWith("/project.pbxproj")
+    || value.endsWith(".xcodeproj")
+    || value.endsWith("/contents.xcworkspacedata")
+    || value.endsWith(".xcworkspace");
 }
 
 function isWorkspaceProjectPath(projectPath) {
@@ -2021,7 +2035,7 @@ export function workspaceProjectReferences(workspaceSource, projectPath) {
 export function selectLiveScheme(projectPath, requestedScheme = "", availableSchemes = []) {
   const requested = String(requestedScheme || "").trim();
   const available = [...new Set((availableSchemes || []).map((value) => String(value).trim()).filter(Boolean))];
-  if (!isWorkspaceProjectPath(projectPath)) {
+  if (!isXcodeContainerProjectPath(projectPath)) {
     return { scheme: requested, availableSchemes: available, required: false, error: "" };
   }
   if (requested) {
@@ -2030,7 +2044,7 @@ export function selectLiveScheme(projectPath, requestedScheme = "", availableSch
         scheme: "",
         availableSchemes: available,
         required: true,
-        error: `The workspace does not contain the '${requested}' scheme. Choose one of: ${available.join(", ")}.`,
+        error: `The Xcode project or workspace does not contain the '${requested}' scheme. Choose one of: ${available.join(", ")}.`,
       };
     }
     return { scheme: requested, availableSchemes: available, required: false, error: "" };
@@ -2043,8 +2057,8 @@ export function selectLiveScheme(projectPath, requestedScheme = "", availableSch
     availableSchemes: available,
     required: true,
     error: available.length > 1
-      ? `This workspace has multiple schemes. Pass --scheme with one of: ${available.join(", ")}.`
-      : "Swift Sim could not discover a shared workspace scheme. Pass --scheme explicitly.",
+      ? `This Xcode project or workspace has multiple schemes. Pass --scheme with one of: ${available.join(", ")}.`
+      : "Swift Sim could not discover a shared scheme for this Xcode project or workspace. Pass --scheme explicitly.",
   };
 }
 

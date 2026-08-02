@@ -86,18 +86,22 @@ test("workspace project references resolve beside the workspace", () => {
   );
 });
 
-test("workspace schemes are selected safely", () => {
-  assert.deepEqual(
-    selectLiveScheme("/tmp/App.xcworkspace/contents.xcworkspacedata", "", ["App"]),
-    { scheme: "App", availableSchemes: ["App"], required: false, error: "" },
-  );
-  const ambiguous = selectLiveScheme(
+test("project and workspace schemes are selected safely", () => {
+  for (const path of [
+    "/tmp/App.xcodeproj/project.pbxproj",
     "/tmp/App.xcworkspace/contents.xcworkspacedata",
-    "",
-    ["App", "Tests"],
-  );
-  assert.equal(ambiguous.required, true);
-  assert.match(ambiguous.error, /--scheme/);
+  ]) {
+    assert.deepEqual(
+      selectLiveScheme(path, "", ["App"]),
+      { scheme: "App", availableSchemes: ["App"], required: false, error: "" },
+    );
+    const ambiguous = selectLiveScheme(path, "", ["App", "Tests"]);
+    assert.equal(ambiguous.required, true);
+    assert.match(ambiguous.error, /--scheme/);
+    const missing = selectLiveScheme(path, "Missing", ["App"]);
+    assert.equal(missing.required, true);
+    assert.match(missing.error, /does not contain/);
+  }
 });
 
 test("string-valued property-wrapper arguments require a rebuild", () => {
@@ -371,4 +375,22 @@ test("live readiness is bound to the active engine scheme", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
   assert.match(source, /const matchingEngineSession = liveEngineSessionMatches\(engineSession/);
   assert.match(source, /const watchingProject = Boolean\([\s\S]*?matchingEngineSession/);
+});
+
+
+
+test("project live inspection applies the same scheme authority as workspaces", () => {
+  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
+  assert.match(
+    source,
+    /const availableSchemes = isXcodeContainerProjectPath\(projectPath\)/,
+  );
+  assert.match(source, /selectedXcodeApplicationTarget\(projectPath, scheme\)/);
+  assert.doesNotMatch(
+    source.slice(
+      source.indexOf("function liveProjectConfiguration"),
+      source.indexOf("function selectedXcodeApplicationTarget"),
+    ),
+    /if \(!isWorkspaceProjectPath/,
+  );
 });

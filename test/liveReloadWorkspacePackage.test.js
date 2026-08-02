@@ -45,3 +45,13 @@ test("workspace inspection consumes selected-target configuration", () => {
   assert.match(source, /liveProjectConfiguration\(projectPath, schemeSelection\.scheme\)/);
   assert.match(source, /const packageConfigured = projectConfiguration\.packageConfigured;/);
 });
+
+
+
+test("PBX comments cannot impersonate a SwiftSimLive product dependency", () => {
+  const misleading = project.replace(
+    "packageProductDependencies = ();",
+    "packageProductDependencies = (DDDDDDDDDDDDDDDDDDDDDDDD /* SwiftSimLive */);",
+  );
+  assert.equal(selectedTargetHasLivePackage(misleading, "SelectedApp"), false);
+});
