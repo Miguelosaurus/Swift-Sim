@@ -2,7 +2,7 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final production code candidate before this ledger commit: `53bbd857dd515b2946ec612aa5ec1667d2c213ec`
+Final production code candidate before this ledger commit: `0a21965bb43f0d7e77914daa67e9dce2551db0b4`
 
 ## Result
 
@@ -70,7 +70,7 @@ Coverage includes kernel process-start tokens, executable and instance-nonce mis
 
 ## Validation policy
 
-The self-cleaning transformations that produced production code candidate `53bbd857dd515b2946ec612aa5ec1667d2c213ec` passed focused project/workspace scheme authority, package association, fallback-archive isolation, Debug-only live inspection, engine publication, generic lock reclamation, displaced-writer, persisted worker ownership, Swift string/regex classification, Companion cross-source ownership, and post-merge regressions before publishing. JavaScript syntax and documentation validation also passed before each production publication. All temporary transformers, triggers, and workflows were removed from the candidate.
+The self-cleaning transformations that produced production code candidate `0a21965bb43f0d7e77914daa67e9dce2551db0b4` passed focused project/workspace scheme authority, package association, fallback-archive isolation, Debug-only live inspection, engine publication, generic lock reclamation, displaced-writer, persisted worker ownership and pre-spawn identity preparation, Swift string/regex classification, Companion cross-source ownership, and post-merge regressions before publishing. JavaScript syntax and documentation validation also passed before each production publication. All temporary transformers, triggers, and workflows were removed from the candidate.
 
 This connector-authored ledger commit intentionally triggers the normal exact-head macOS Verify workflow. Merge readiness requires that workflow to pass in full. No external automated reviewer is required or requested.
 
