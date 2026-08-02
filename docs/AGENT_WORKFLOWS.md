@@ -29,12 +29,14 @@ version drift. After an update, start a new agent session so it loads the new
 skill text. A user should see a concise update instruction when drift is
 detected, not a hidden fallback to an older hot-reload contract.
 
-For the normal edit loop the shared skill makes the decision automatically:
-`route-change` sends a proven implementation-only edit through live reload and
-routes structural, mixed, unavailable, or unproven edits to a fresh signed
-device-build link. The user-facing result is intentionally just “Hot reloaded
-successfully—test it now on your phone; no install link needed” or “This edit
-needs a new signed build” followed by **Open in Swift Sim to Install**.
+For the normal phone edit loop the shared skill makes one terminal decision:
+`deliver-change` classifies the completed edit, uses the warm live lane when it
+can prove an applied refresh and revision, and sends structural, mixed,
+unavailable, or unproven edits through one signed device-build fallback. The
+user-facing result is intentionally just the exact hot-reload sentence or
+“This change needs a new signed build.” followed by **Open in Swift Sim to
+Install**. The agent does not run screenshots, doctor, or status checks before
+each warm edit.
 
 ## Codex
 
@@ -88,14 +90,21 @@ OpenCode loads global skills on demand through its `skill` tool. Swift Sim write
 
 ## First Request
 
-The agent begins with:
+For ordinary coding work, the agent invokes no Swift Sim tooling. When the user
+explicitly asks for a phone delivery loop, the agent begins with one terminal
+delivery command:
 
 ```sh
-command -v swift-sim
-swift-sim doctor --json
+swift-sim deliver-change \
+  --before "<prior.swift>" \
+  --after "<current.swift>" \
+  --project "<absolute project path>" \
+  --scheme "<scheme>"
 ```
 
-If the CLI is missing, install it through Homebrew and run `swift-sim setup`. Otherwise fix only the item marked `needs-attention`.
+If it returns `needs-user-action` because the CLI or integration is missing,
+follow only that setup/update branch, then start a new agent session. Use
+`swift-sim doctor --json` for setup or explicit diagnosis, not for every edit.
 
 The doctor report separates:
 
@@ -134,16 +143,20 @@ Never uninstall first. Matching bundle identifier, team, and compatible entitlem
 
 Remote hot reload is an acceleration lane for a prepared, running Debug build. It is not a replacement for the signed-device workflow.
 
-Agents must run `swift-sim live-status --project "<project.pbxproj>"` and preflight each Swift change. Use:
+Agents establish the live project once, then use the terminal fast path for
+each completed logical change:
 
 ```sh
-swift-sim route-change \
+swift-sim deliver-change \
   --before "<prior.swift>" \
   --after "<proposed.swift>" \
   --project "<project.pbxproj>"
 ```
 
-Repeat `--before` and `--after` in matching order for a multi-file edit. Swift Sim applies all implementation-only files or rebuilds the entire app if any file changes structure.
+Repeat `--before` and `--after` in matching order for a multi-file edit. The
+command owns classification, warm readiness, bounded recovery, proof, and the
+signed build fallback. Keep `route-change` for compatibility and diagnostics;
+it is not the normal agent edit command.
 
 The live replacement generator covers parameterized, static, and generic
 functions, explicit accessors, computed properties, actor and extension
