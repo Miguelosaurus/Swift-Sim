@@ -1,0 +1,52 @@
+name: Apply PR21 Scheme Readiness
+
+on:
+  push:
+    branches: [agent/main-post-merge-review-round-1]
+    paths:
+      - .github/workflows/apply-pr21-scheme-readiness.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-pr21-scheme-readiness
+  cancel-in-progress: false
+
+jobs:
+  transform:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: agent/main-post-merge-review-round-1
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply exact-source transformation
+        run: python3 scripts/apply-pr21-scheme-readiness.py
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused integration regressions
+        run: node --test test/mainPostMergeIntegration.test.js
+      - name: Run repository checks
+        run: npm run check
+      - name: Validate workflow and release syntax
+        run: |
+          ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
+          bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh
+      - name: Publish self-cleaned candidate
+        env:
+          BRANCH: agent/main-post-merge-review-round-1
+        run: |
+          set -euo pipefail
+          git config user.name "swift-sim-review-bot"
+          git config user.email "swift-sim-review-bot@users.noreply.github.com"
+          git rm .github/workflows/apply-pr21-scheme-readiness.yml scripts/apply-pr21-scheme-readiness.py
+          git add -A
+          git commit -m "Bind live readiness to the active scheme"
+          git push origin "HEAD:${BRANCH}"
