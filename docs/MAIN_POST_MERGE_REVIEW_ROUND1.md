@@ -2,15 +2,15 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `b6b7e2971bd5b8795a377dfc38c1112f57257108`
+Final code candidate before this ledger commit: `9fa4727d9a58069735e6516342d9c2b3407a80c7`
 
 ## Result
 
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 18 | 18 | 0 |
-| P2 | 8 | 8 | 0 |
+| P1 | 19 | 19 | 0 |
+| P2 | 10 | 10 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## P1 fixes
@@ -30,9 +30,10 @@ Final code candidate before this ledger commit: `b6b7e2971bd5b8795a377dfc38c1112
 13. Failed lock-creator cleanup is bound to the exact observed directory identity.
 14. Expanded signing identities remain one-element candidate arrays.
 15. Production inspect, compile, inject, acknowledgement, and recovery use one lifecycle lease.
-16. Nested Swift block comments are masked to their true closing delimiter, so commented structural text cannot affect classification.
-17. Attribute and wrapper surfaces preserve exact string-literal whitespace, so initializer metadata changes cannot be collapsed into an implementation-only edit.
-18. Live-engine termination requires a microsecond-resolution kernel start token, the current kernel-reported executable path and process group, and a per-engine random instance nonce; same-second PID reuse cannot authorize a signal.
+16. Nested Swift block comments are masked to their true closing delimiter.
+17. Attribute and wrapper surfaces preserve exact string-literal whitespace.
+18. Live-engine termination requires a microsecond-resolution kernel start token, the current kernel-reported executable path and process group, and a per-spawn random instance nonce.
+19. Failure to establish engine ownership never authorizes an unverified PID or process-group signal; identity tooling is prepared before spawn and cleanup fails closed.
 
 ## P2 fixes
 
@@ -43,17 +44,19 @@ Final code candidate before this ledger commit: `b6b7e2971bd5b8795a377dfc38c1112
 5. Connection diagnostics are fenced by pairing and Simulator revisions.
 6. Ownerless stale-lock reclamation preserves its pre-claim identity observation.
 7. Live start, device compilation, registration, and packaging use one lifecycle lease.
-8. Workspace signing settings are selected from the scored host-application target section rather than the first signed dependency; ambiguous host-app selection fails closed.
+8. Workspace signing settings are selected from the scored host-application target section rather than the first signed dependency.
+9. Lifecycle-lock owners and reclaim claimants use the same collision-resistant kernel process-start token as engine ownership; second-resolution legacy owner records are never treated as live.
+10. Live signing fails closed when `xcodebuild -showBuildSettings` fails, times out, lacks a host-application section, or omits the selected target's Development Team; unrelated Apple Development identities are no longer fallback candidates.
 
 ## Regression coverage
 
-Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, stale/reused PIDs, detached process groups, lock ownership and reclamation, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, workspace schemes and host-application signing sections, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
+Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, workspace schemes and host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
 
 ## Validation policy
 
-The transformation run for code head `b6b7e2971bd5b8795a377dfc38c1112f57257108` passed JavaScript syntax, documentation, the complete Node/release suite, workflow YAML, release-shell syntax, and iOS companion tests in GitHub Verify run `30725589874`. That run compiled and exercised the package-owned macOS `proc_pidinfo` / `proc_pidpath` helper used by the ownership boundary.
+The transformation run for code head `9fa4727d9a58069735e6516342d9c2b3407a80c7` passed JavaScript syntax, documentation, the complete Node/release suite, workflow YAML, release-shell syntax, and iOS companion tests in GitHub Verify run `30726212901`. That run compiled and exercised the package-owned macOS `proc_pidinfo` / `proc_pidpath` helper used by both engine ownership and lifecycle-lock ownership.
 
-This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, with the final process-identity thread resolved and one clean exact-head Codex review.
+This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, all remaining Codex threads to be resolved, and one clean exact-head Codex review.
 
 ## Remaining external release gates
 
