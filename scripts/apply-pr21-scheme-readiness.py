@@ -96,7 +96,7 @@ replace_once(
 )
 
 with integration_test.open("a") as handle:
-    handle.write('''
+    handle.write(r'''
 
 
 test("live readiness is bound to the active engine scheme", () => {
@@ -120,7 +120,7 @@ test("live readiness is bound to the active engine scheme", () => {
 
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
   assert.match(source, /const matchingEngineSession = liveEngineSessionMatches\(engineSession/);
-  assert.match(source, /const watchingProject = Boolean\(\n    matchingEngineSession/);
+  assert.match(source, /const watchingProject = Boolean\([\s\S]*?matchingEngineSession/);
 });
 ''')
 
