@@ -65,6 +65,7 @@ Run the deterministic benchmark gates locally:
 ```sh
 npm run benchmark:validate
 npm run benchmark:static -- --output /tmp/swift-sim-static-benchmark
+npm run benchmark:agent-fast-path -- --repeat 3 --output benchmarks/results/agent-fast-path-baseline-<run-id>/baseline.json
 npm run benchmark:validate:liquid-glass
 npm run benchmark:static:liquid-glass
 ```
