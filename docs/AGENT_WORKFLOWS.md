@@ -19,6 +19,23 @@ The repository distributes that skill through four host integrations:
 
 `swift-sim setup` installs the appropriate integration for every supported agent detected on the Mac. `swift-sim doctor --json` reports each integration under `deviceInstalls.agents` and considers the build lane ready when at least one is configured.
 
+## Version And Update Contract
+
+Agent integrations are packaged copies, not a live network prompt. They do not
+silently update an already-running agent session. `swift-sim update` upgrades
+the Homebrew CLI and refreshes the detected Codex, Cursor, Claude Code, and
+OpenCode integrations from that same package; `swift-sim doctor --json` exposes
+version drift. After an update, start a new agent session so it loads the new
+skill text. A user should see a concise update instruction when drift is
+detected, not a hidden fallback to an older hot-reload contract.
+
+For the normal edit loop the shared skill makes the decision automatically:
+`route-change` sends a proven implementation-only edit through live reload and
+routes structural, mixed, unavailable, or unproven edits to a fresh signed
+device-build link. The user-facing result is intentionally just “Hot reloaded
+successfully—test it now on your phone; no install link needed” or “This edit
+needs a new signed build” followed by **Open in Swift Sim to Install**.
+
 ## Codex
 
 Codex uses the marketplace bundled in the Homebrew package. Setup registers that immutable package path and installs `swift-sim-companion@swift-sim`.

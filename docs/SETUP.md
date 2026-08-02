@@ -189,7 +189,11 @@ Do not publish port 8887 through Funnel, Cloudflare Quick Tunnel, router port fo
 swift-sim update
 ```
 
-This upgrades Homebrew and refreshes every detected agent integration from the same package.
+This upgrades Homebrew and refreshes every detected agent integration from the
+same package. It does not rewrite an agent session that is already running:
+after an update, start a new Codex/Cursor/Claude/OpenCode session. If
+`swift-sim doctor --json` reports version drift, update before using the live
+reload lane so the CLI, helper, and skill share one contract.
 
 ## Next
 

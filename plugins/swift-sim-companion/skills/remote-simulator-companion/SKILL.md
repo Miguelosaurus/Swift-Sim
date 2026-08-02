@@ -31,6 +31,19 @@ Use this skill when:
 
 Do not use this skill to create a second AI agent. The helper is only a simulator/session and device-build server.
 
+## Fast Edit Contract
+
+Keep the edit loop deterministic and short:
+
+1. Run `swift-sim doctor --json` once per thread. If the app is not already a live-enabled Debug build with `live-status ...` reporting `ready: true`, use `build-device`.
+2. For a ready live session, run `swift-sim route-change` before acting. Implementation/body/layout/modifier-only edits may return `hot-reload`; declaration, stored-state, import, resource, package, signing, or mixed edits return `build-device`.
+3. Honor the returned action. A `hot-reload` is successful only after the correlated engine report has `applied`, `refresh_acknowledged`, and a nonzero revision. A `hot-reload-failed` goes straight to one normal signed build; do not take a screenshot or ask the user to choose.
+4. Report the result in one sentence:
+   - Hot reload: “Hot reloaded successfully. Test it now on your phone in the running Debug app—no install link needed.”
+   - Build: “This edit needs a new signed build.” Then return **Open in Swift Sim to Install** with the fresh link.
+
+Do not explain the classifier or re-analyze the screen after every edit. If `doctor` reports a stale CLI/integration version, tell the user to run `swift-sim update` (or `swift-sim setup` for a source checkout), then start a new agent session; never silently mix an old installed skill with a newer helper.
+
 ## Choose The Correct Lane
 
 Use the device-build lane when the user says:
