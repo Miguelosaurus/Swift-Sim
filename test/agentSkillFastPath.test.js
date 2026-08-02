@@ -47,7 +47,7 @@ test("primary skill meets the lazy fast-path size and reference gates", () => {
   assert.ok(fastContract[0].trim().split(/\s+/).length <= 300);
   assert.doesNotMatch(skill, /swift-sim route-change/);
   assert.match(skill, /swift-sim deliver-change/);
-  assert.match(skill, /never run .*doctor.*before a normal warm delivery/i);
+  assert.match(skill, /never run [\s\S]*doctor[\s\S]*before a normal warm delivery/i);
   for (const reference of references) {
     assert.equal(existsSync(join(skillDirectory, "references", reference)), true, reference);
     assert.match(skill, new RegExp("references/" + reference.replace(".", "\\.")));
