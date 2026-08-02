@@ -9,7 +9,7 @@ Final code candidate before this ledger commit: `f60c8e237ed21a22cedd2a6a13e2b3b
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 22 | 22 | 0 |
+| P1 | 24 | 24 | 0 |
 | P2 | 12 | 12 | 0 |
 | P3 | 0 | 0 | 0 |
 
@@ -37,6 +37,8 @@ Final code candidate before this ledger commit: `f60c8e237ed21a22cedd2a6a13e2b3b
 20. Parseable but incomplete owner and reclaim records are treated as malformed state and become safely reclaimable instead of permanently wedging every lifecycle operation.
 21. Live readiness and routing are bound to the persisted engine session's exact project root, selected scheme, and engine version, preventing cross-scheme compilation-map injection within a shared workspace.
 22. Detached live-engine startup is transactional: PID-record publication failure terminates the exact verified process group, and session-publication failure rolls back through the durable identity-checked PID record.
+23. Shared helper/build-state lock reclamation rejects parseable malformed owner records and revalidates the exact reclaim claim before atomic removal, preventing permanent wedges and stale-claim deletion after ownership changes.
+24. Generic lock owner publication is bound to the exact directory device/inode and intended owner record after the write, so a suspended writer cannot resume into a quarantined directory and execute without mutual exclusion or erase a replacement owner.
 
 ## P2 fixes
 
@@ -55,7 +57,7 @@ Final code candidate before this ledger commit: `f60c8e237ed21a22cedd2a6a13e2b3b
 
 ## Regression coverage
 
-Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, PID/session publication rollback, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
+Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, PID/session publication rollback, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
 
 ## Validation policy
 

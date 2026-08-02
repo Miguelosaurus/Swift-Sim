@@ -114,7 +114,20 @@ function looksLikeDurableFence(path) {
 }
 
 function readOwner(path) {
-  return readJSON(join(String(path), "owner.json"));
+  const owner = readJSON(join(String(path), "owner.json"));
+  return completeLockOwner(owner) ? owner : null;
+}
+
+function completeLockOwner(owner) {
+  const pid = Number(owner?.pid);
+  const identity = String(owner?.startToken || owner?.startedAt || "");
+  const createdAt = Date.parse(owner?.createdAt || "");
+  return Boolean(owner
+    && typeof owner === "object"
+    && !Array.isArray(owner)
+    && Number.isInteger(pid)
+    && pid > 0
+    && (identity || Number.isFinite(createdAt)));
 }
 
 function readReclaim(path) {
@@ -131,15 +144,52 @@ function readJSON(path) {
 
 function writeLockOwner(path, data, options) {
   const lockPath = dirname(String(path));
+  const intendedOwner = parseOwnerData(data);
+  const observedPath = observePath(lockPath);
+  if (!completeLockOwner(intendedOwner) || !observedPath) throw busyLockError();
   const before = readReclaim(lockPath);
   if (before && ownerBelongsToAnotherLiveProcess(before)) throw busyLockError();
   const result = originalWriteFileSync.call(fs, path, data, options);
+  pauseAfterOwnerWriteForTest();
+
+  const currentPath = observePath(lockPath);
+  const currentOwner = readOwner(lockPath);
+  if (!samePath(currentPath, observedPath) || !sameOwner(currentOwner, intendedOwner)) {
+    throw busyLockError();
+  }
+
   const after = readReclaim(lockPath);
   if (after && ownerBelongsToAnotherLiveProcess(after)) {
-    try { originalRmSync.call(fs, path, { force: true }); } catch {}
+    // Remove only the exact owner just published into the same directory. A
+    // displaced writer must never erase a replacement owner's record.
+    if (samePath(observePath(lockPath), observedPath)
+        && sameOwner(readOwner(lockPath), intendedOwner)) {
+      try { originalRmSync.call(fs, path, { force: true }); } catch {}
+    }
     throw busyLockError();
   }
   return result;
+}
+
+function parseOwnerData(data) {
+  try {
+    const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+    const owner = JSON.parse(text);
+    return owner && typeof owner === "object" && !Array.isArray(owner) ? owner : null;
+  } catch {
+    return null;
+  }
+}
+
+function pauseAfterOwnerWriteForTest() {
+  const milliseconds = Number(process.env.SWIFT_SIM_LOCK_OWNER_PAUSE_MS || 0);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return;
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    Math.min(5_000, Math.floor(milliseconds)),
+  );
 }
 
 function claimLockRemoval(path, observedOwner) {
@@ -167,7 +217,13 @@ function claimLockRemoval(path, observedOwner) {
     }
   }
 
+  pauseAfterClaimForTest();
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  const currentClaim = readReclaim(lockPath);
+  if (!sameOwner(currentClaim, claim)) {
+    removeOwnedClaim(claimPath, claim);
+    return false;
+  }
   const currentOwner = readOwner(lockPath);
   if (!sameOwner(currentOwner, observedOwner) || lockOwnerIsAlive(currentOwner)) {
     removeOwnedClaim(claimPath, claim);
@@ -176,10 +232,36 @@ function claimLockRemoval(path, observedOwner) {
   return true;
 }
 
+function pauseAfterClaimForTest() {
+  const milliseconds = Number(process.env.SWIFT_SIM_LOCK_CLAIM_PAUSE_MS || 0);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return;
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    Math.min(5_000, Math.floor(milliseconds)),
+  );
+}
+
 function removeOwnedClaim(path, claim) {
   const current = readJSON(path);
   if (current?.pid !== claim.pid || current?.nonce !== claim.nonce) return;
   try { originalRmSync.call(fs, path, { force: true }); } catch {}
+}
+
+function observePath(path) {
+  try {
+    const stat = originalStatSync.call(fs, path);
+    return { device: String(stat.dev), inode: String(stat.ino) };
+  } catch {
+    return null;
+  }
+}
+
+function samePath(first, second) {
+  return Boolean(first && second
+    && first.device === second.device
+    && first.inode === second.inode);
 }
 
 function sameOwner(first, second) {

@@ -1,15 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { renewalCancellationPath } from "../mac-helper/src/renewalCancellation.js";
@@ -109,6 +111,120 @@ test("a live reclaim claim blocks competing stale-lock deletion", () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("a parseable malformed owner cannot permanently block lock reclamation", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-lock-malformed-owner-"));
+  const lock = join(directory, "state.lock");
+  mkdirSync(lock);
+  writeFileSync(join(lock, "owner.json"), JSON.stringify({}));
+  try {
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      await import(${JSON.stringify(resolve("mac-helper/src/atomicLockRemovalPreload.js"))});
+      await import(${JSON.stringify(preload)});
+      const fs = await import('node:fs');
+      fs.rmSync(${JSON.stringify(lock)}, { recursive: true, force: true });
+    `], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(lock), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a reclaimer cannot delete after its exact claim is replaced", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-lock-replaced-claim-"));
+  const lock = join(directory, "state.lock");
+  const claimPath = join(lock, ".swift-sim-reclaim.json");
+  mkdirSync(lock);
+  writeFileSync(join(lock, "owner.json"), JSON.stringify({
+    pid: 99_999_999,
+    startedAt: "never",
+    nonce: "stale-owner",
+    createdAt: new Date(0).toISOString(),
+  }));
+
+  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+    process.env.SWIFT_SIM_LOCK_CLAIM_PAUSE_MS = '300';
+    await import(${JSON.stringify(resolve("mac-helper/src/atomicLockRemovalPreload.js"))});
+    await import(${JSON.stringify(preload)});
+    const fs = await import('node:fs');
+    fs.rmSync(${JSON.stringify(lock)}, { recursive: true, force: true });
+  `], { stdio: ["ignore", "pipe", "pipe"] });
+
+  try {
+    await waitForPath(claimPath);
+    const replacementClaim = {
+      pid: process.pid,
+      startedAt: processStartedAt(process.pid),
+      nonce: "replacement-claim",
+      createdAt: new Date().toISOString(),
+    };
+    writeFileSync(claimPath, JSON.stringify(replacementClaim));
+    const [code] = await once(child, "exit");
+    assert.equal(code, 0);
+    assert.equal(existsSync(lock), true);
+    assert.deepEqual(JSON.parse(readFileSync(claimPath, "utf8")), replacementClaim);
+  } finally {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a displaced owner writer cannot claim a replacement lock", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-lock-displaced-writer-"));
+  const lock = join(directory, "state.lock");
+  const displaced = join(directory, "displaced.lock");
+  const ownerPath = join(lock, "owner.json");
+  mkdirSync(lock);
+
+  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+    process.env.SWIFT_SIM_LOCK_OWNER_PAUSE_MS = '300';
+    await import(${JSON.stringify(preload)});
+    const { spawnSync } = await import('node:child_process');
+    const fs = await import('node:fs');
+    const startedAt = String(spawnSync('/bin/ps', ['-p', String(process.pid), '-o', 'lstart='], { encoding: 'utf8' }).stdout || '').trim();
+    try {
+      fs.writeFileSync(${JSON.stringify(ownerPath)}, JSON.stringify({
+        pid: process.pid,
+        startedAt,
+        nonce: 'displaced-writer',
+        createdAt: new Date().toISOString(),
+      }), { flag: 'wx', mode: 0o600 });
+      process.exit(2);
+    } catch (error) {
+      if (error?.code !== 'EBUSY') process.exit(3);
+    }
+  `], { stdio: ["ignore", "pipe", "pipe"] });
+
+  try {
+    await waitForPath(ownerPath);
+    renameSync(lock, displaced);
+    mkdirSync(lock);
+    const replacementOwner = {
+      pid: process.pid,
+      startedAt: processStartedAt(process.pid),
+      nonce: "replacement-owner",
+      createdAt: new Date().toISOString(),
+    };
+    writeFileSync(join(lock, "owner.json"), JSON.stringify(replacementOwner));
+    const [code] = await once(child, "exit");
+    assert.equal(code, 0);
+    assert.equal(existsSync(lock), true);
+    assert.deepEqual(JSON.parse(readFileSync(join(lock, "owner.json"), "utf8")), replacementOwner);
+  } finally {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+async function waitForPath(path) {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  throw new Error(`Timed out waiting for ${path}`);
+}
 
 test("stale renewal cancellation markers self-heal without clearing build cancellation", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-renewal-cancel-guard-"));
