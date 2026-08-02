@@ -37,9 +37,10 @@ commands), one-command warm edits, structural/fallback wording, protocol
 drift, and the separate Simulator lane. The fixtures are deterministic static
 contracts.
 
-Phase 6 local evidence: all Node checks pass (417 tests); the core, Liquid
-Glass, native-surface, and mechanism corpora validate (240/34/31/17 cases); the
-static matrix reports zero dangerous false-live results across 966 executions;
+Phase 6 local evidence: all Node checks pass (421 tests on current `main`; the
+0.6.1 release snapshot passed 417); the core, Liquid Glass, native-surface,
+and mechanism corpora validate (240/34/31/17 cases); the static matrix reports
+zero dangerous false-live results across 966 executions;
 Swift package tests, YAML/shell validation, and native iOS Simulator tests pass.
 The `v0.6.1` tag archive includes the primary skill, all seven references, and
 the three plugin manifests. GitHub release `v0.6.1` is published with the
