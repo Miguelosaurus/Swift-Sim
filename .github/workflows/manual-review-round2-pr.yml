@@ -20,21 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Extract and apply reviewed patch
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-          source = Path('.github/workflows/manual-review-round2-v2.yml').read_text()
-          marker = "          python3 <<'PY'\n"
-          start = source.index(marker) + len(marker)
-          end = source.index("\n          PY", start)
-          lines = source[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
-          Path('/tmp/manual-review-round2.py').write_text(script)
-          PY
-          python3 /tmp/manual-review-round2.py
-          rm -f .github/workflows/manual-review-round2-pr.yml
+      - name: Apply reviewed fixes
+        run: python3 scripts/manual-review-round2.py
       - name: Install dependencies
         run: npm ci
       - name: Focused adversarial regressions
