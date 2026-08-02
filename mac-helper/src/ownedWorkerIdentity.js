@@ -1,6 +1,11 @@
-import { kernelProcessIdentity } from "./liveEngineOwnershipPreload.js";
+import { kernelProcessIdentity, prepareKernelProcessIdentity } from "./liveEngineOwnershipPreload.js";
 
 const OWNED_WORKER_RECORD_VERSION = 2;
+
+export function prepareOwnedWorkerProcessIdentity() {
+  if (prepareKernelProcessIdentity()) return;
+  throw new Error("Unable to prepare the build-worker process identity verifier.");
+}
 
 export function requiredOwnedWorkerProcessRecord(pid, command) {
   const value = Number(pid);

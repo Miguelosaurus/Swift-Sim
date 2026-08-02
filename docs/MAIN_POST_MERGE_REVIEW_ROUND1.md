@@ -10,7 +10,7 @@ Final production code candidate before this ledger commit: `53bbd857dd515b2946ec
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
 | P1 | 29 | 29 | 0 |
-| P2 | 15 | 15 | 0 |
+| P2 | 16 | 16 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## P1 fixes
@@ -62,10 +62,11 @@ Final production code candidate before this ledger commit: `53bbd857dd515b2946ec
 13. Companion Mac synchronization removes only history explicitly owned by that same Mac; ownerless link history and another Mac's history survive unrelated syncs.
 14. Optional live-target inspection is gated to Debug project builds, so ordinary Release archives do not run an unnecessary Debug build-settings query or trigger live-package resolution side effects.
 15. Same-identity Companion history from another Mac or an ownerless link survives Mac synchronization and remains local-only instead of being overwritten or inheriting remote mutation authority.
+16. The kernel worker-identity verifier is prepared before spawning the journal-gated supervisor, so first-use Xcode/clang startup cannot exhaust the supervisor handshake and fail an otherwise valid build.
 
 ## Regression coverage
 
-Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback, stale/reused PIDs, detached process groups, persisted worker-journal identity and legacy-record rejection, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, ordinary/raw/multiline/raw-multiline Swift strings, bare and extended Swift regex literals, division-expression non-regression, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, Debug-only optional live inspection, fallback-archive flag isolation, cleanup containment, complete live build/routing leases, startup cleanup, same-identity cross-source Companion preservation, and companion ownership/revision fences.
+Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback, stale/reused PIDs, detached process groups, persisted worker-journal identity, legacy-record rejection, pre-spawn identity preparation, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, ordinary/raw/multiline/raw-multiline Swift strings, bare and extended Swift regex literals, division-expression non-regression, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, Debug-only optional live inspection, fallback-archive flag isolation, cleanup containment, complete live build/routing leases, startup cleanup, same-identity cross-source Companion preservation, and companion ownership/revision fences.
 
 ## Validation policy
 

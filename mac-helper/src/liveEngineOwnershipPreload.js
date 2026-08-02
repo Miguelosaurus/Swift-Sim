@@ -283,6 +283,10 @@ function processIdentity(pid) {
   return instanceNonce ? { ...kernelIdentity, instanceNonce } : null;
 }
 
+export function prepareKernelProcessIdentity() {
+  return process.platform !== "darwin" || Boolean(identityHelperExecutable());
+}
+
 export function kernelProcessIdentity(pid) {
   const value = Number(pid);
   if (!Number.isInteger(value) || value <= 1) return null;

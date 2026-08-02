@@ -463,3 +463,19 @@ test("ordinary division expressions remain hot reloadable", () => {
   assert.equal(result.hotReloadable, true);
   assert.equal(result.reasonCode, LIVE_REASON_CODES.IMPLEMENTATION_ONLY);
 });
+
+test("worker identity verification is prepared before supervised commands spawn", () => {
+  const builder = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
+  const bufferedStart = builder.indexOf("export function runBuffered");
+  const bufferedEnd = builder.indexOf("async function terminateProcessGroup", bufferedStart);
+  const buffered = builder.slice(bufferedStart, bufferedEnd);
+  assert.ok(buffered.indexOf("prepareOwnedWorkerProcessIdentity()") >= 0);
+  assert.ok(buffered.indexOf("prepareOwnedWorkerProcessIdentity()") < buffered.indexOf("const child = spawn"));
+
+  const validation = readFileSync("mac-helper/src/buildValidation.js", "utf8");
+  const validationStart = validation.indexOf("function runValidationCommand");
+  const validationEnd = validation.indexOf("async function terminateProcessGroup", validationStart);
+  const validationCommand = validation.slice(validationStart, validationEnd);
+  assert.ok(validationCommand.indexOf("prepareOwnedWorkerProcessIdentity()") >= 0);
+  assert.ok(validationCommand.indexOf("prepareOwnedWorkerProcessIdentity()") < validationCommand.indexOf("const child = spawn"));
+});

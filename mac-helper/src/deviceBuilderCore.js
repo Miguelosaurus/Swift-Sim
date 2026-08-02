@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { basename, dirname, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
-import { ownedWorkerProcessState, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
+import { ownedWorkerProcessState, prepareOwnedWorkerProcessIdentity, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
 import {
   selectedTargetHasLivePackage,
   selectedXcodeApplicationTarget,
@@ -514,6 +514,23 @@ export function runBuffered(command, args, {
   cancelPath = "",
 } = {}) {
   return new Promise((resolve) => {
+    const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
+    if (workerPath) {
+      try {
+        // The owned-worker supervisor waits only for its durable journal. On
+        // first macOS use, prepare the kernel helper before spawning so compiler
+        // startup cannot consume that handshake window.
+        prepareOwnedWorkerProcessIdentity();
+      } catch (error) {
+        resolve({
+          code: null,
+          stdout: "",
+          stderr: "",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env,
@@ -530,7 +547,6 @@ export function runBuffered(command, args, {
     let cancellationTimer;
     let timer;
     let workerRecordError = null;
-    const workerPath = cancelPath ? `${cancelPath}.worker.json` : "";
     if (workerPath) {
       try {
         mkdirSync(dirname(workerPath), { recursive: true, mode: 0o700 });

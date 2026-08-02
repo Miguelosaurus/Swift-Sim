@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
-import { requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
+import { prepareOwnedWorkerProcessIdentity, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
 
 const preferencesPath = join(homedir(), ".swift-sim", "preferences.json");
 const DEFAULT_VALIDATION_TIMEOUT_SECONDS = 15 * 60;
@@ -113,6 +113,16 @@ export function resolveValidationWorkingDirectory({ args = [], cwd = process.cwd
 
 function runValidationCommand(command, { cwd, timeoutMs, cancelPath = "" }) {
   return new Promise((resolvePromise, reject) => {
+    if (cancelPath) {
+      try {
+        prepareOwnedWorkerProcessIdentity();
+      } catch (error) {
+        reject(validationError(
+          `Unable to prepare the active validation worker identity: ${error instanceof Error ? error.message : String(error)}`
+        ));
+        return;
+      }
+    }
     const child = spawn("/bin/sh", ["-lc", command], {
       cwd,
       env: process.env,
