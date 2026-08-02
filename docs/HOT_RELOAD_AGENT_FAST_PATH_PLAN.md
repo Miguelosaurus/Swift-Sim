@@ -1,6 +1,6 @@
 # Hot Reload Agent Fast-Path Plan
 
-Status: Phase 5 hardware gate blocked; Phase 6 local gates complete
+Status: Phase 5 hardware gate blocked; Phase 6 release gates complete
 Target: Swift Sim post-0.6 development cycle  
 Owner of architecture: Swift Sim maintainers  
 Implementation profile: deterministic CLI orchestration, cached session facts,
@@ -47,14 +47,15 @@ before install/patch proof. Its signed fixture build also failed closed because
 the selected Xcode team had no authenticated account or provisioning profile.
 No physical latency or hot-reload success claim is made from this attempt.
 
-Phase 6 local evidence: all Node checks pass (421 tests); the core, Liquid
+Phase 6 local evidence: all Node checks pass (417 tests); the core, Liquid
 Glass, native-surface, and mechanism corpora validate (240/34/31/17 cases); the
 static matrix reports zero dangerous false-live results across 966 executions;
 Swift package tests, YAML/shell validation, and native iOS Simulator tests pass.
-The HEAD archive includes the primary skill, all seven references, and the
-three plugin manifests. Public Homebrew rendering remains pending because the
-published `v0.6.0` GitHub archive currently returns HTTP 404; a local archive
-and formula render were verified separately.
+The `v0.6.1` tag archive includes the primary skill, all seven references, and
+the three plugin manifests. GitHub release `v0.6.1` is published with the
+explicit source archive and SHA-256 asset; the public Homebrew formula renderer
+resolves that asset and matches its checksum. The Phase 5 hardware gate remains
+unverified as described above.
 
 Execution rule for the implementing agent: implement the phases in order. Do
 not redesign the architecture, weaken the live-success contract, or skip an
