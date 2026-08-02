@@ -82,10 +82,13 @@ test("release versions and public plugin metadata stay synchronized", () => {
 
 test("shared skill supports every mobile-capable local agent", () => {
   const skill = readFileSync(new URL("../plugins/swift-sim-companion/skills/remote-simulator-companion/SKILL.md", import.meta.url), "utf8");
+  const references = readFileSync(new URL("../plugins/swift-sim-companion/skills/remote-simulator-companion/references/setup-and-updates.md", import.meta.url), "utf8")
+    + readFileSync(new URL("../plugins/swift-sim-companion/skills/remote-simulator-companion/references/simulator-preview.md", import.meta.url), "utf8");
   assert.match(skill, /Codex, Cursor, Claude Code, or OpenCode/);
-  assert.match(skill, /Cursor Remote Control/);
-  assert.match(skill, /Claude Code Remote Control/);
   assert.match(skill, /OpenCode/);
+  assert.match(references, /Cursor/);
+  assert.match(references, /Claude Code/);
+  assert.match(references, /OpenCode/);
   assert.doesNotMatch(skill, /Codex remains the only coding agent/);
 });
 
