@@ -113,6 +113,49 @@ test("an old malformed reclaim claim is quarantined fail-closed", async () => {
 });
 
 
+test("a parseable malformed owner record cannot permanently block the lifecycle lock", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-parseable-malformed-owner-"));
+  const lockPath = join(directory, "lifecycle.lock");
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(join(lockPath, "owner.json"), JSON.stringify({}));
+  const staleTime = new Date(Date.now() - 5_000);
+  utimesSync(lockPath, staleTime, staleTime);
+  try {
+    const result = await withLiveEngineLifecycleLock(async () => "acquired", {
+      lockPath,
+      waitMs: 2_000,
+    });
+    assert.equal(result, "acquired");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a parseable malformed reclaim record cannot permanently block a stale lock", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-parseable-malformed-reclaim-"));
+  const lockPath = join(directory, "lifecycle.lock");
+  const claimPath = join(lockPath, "reclaim.json");
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(join(lockPath, "owner.json"), JSON.stringify({
+    pid: 999_995,
+    startedAt: "stale-owner",
+    nonce: "stale-owner",
+  }));
+  writeFileSync(claimPath, JSON.stringify({}));
+  const staleTime = new Date(Date.now() - 5_000);
+  utimesSync(claimPath, staleTime, staleTime);
+  try {
+    const result = await withLiveEngineLifecycleLock(async () => "acquired", {
+      lockPath,
+      waitMs: 2_000,
+    });
+    assert.equal(result, "acquired");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
 test("failed creator cleanup never deletes a replacement lock", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-engine-replacement-lock-"));
   const lockPath = join(directory, "lifecycle.lock");

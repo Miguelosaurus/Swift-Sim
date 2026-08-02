@@ -266,16 +266,17 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
     && (requestedProjectPath.endsWith(".xcodeproj") || requestedProjectPath.endsWith(".xcworkspace"))
     ? join(requestedProjectPath, requestedProjectPath.endsWith(".xcodeproj") ? "project.pbxproj" : "contents.xcworkspacedata")
     : requestedProjectPath;
-  const projectSource = liveProjectDefinitionSource(projectPath);
   const availableSchemes = isWorkspaceProjectPath(projectPath)
     ? listedLiveSchemes(projectPath)
     : [];
   const schemeSelection = selectLiveScheme(projectPath, scheme, availableSchemes);
+  const projectConfiguration = liveProjectConfiguration(projectPath, schemeSelection.scheme);
+  const projectSource = projectConfiguration.source;
   const tailnet = host
     ? { command: "", prefix: [], socket: "", host }
     : discoverTailnet();
   const tailscaleHost = host || tailnet.host;
-  const packageConfigured = /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(projectSource);
+  const packageConfigured = projectConfiguration.packageConfigured;
   const interposableConfigured = /-interposable/.test(projectSource);
   const engineInstalled = installedEngineMatchesManifest();
   const control = engineInstalled ? await engineControl({ action: "status" }) : null;
@@ -1768,14 +1769,111 @@ function projectRootFor(projectPath) {
   return dirname(absolute);
 }
 
-function liveProjectDefinitionSource(projectPath) {
-  if (!projectPath || !existsSync(projectPath)) return "";
+function liveProjectConfiguration(projectPath, scheme = "") {
+  if (!projectPath || !existsSync(projectPath)) {
+    return { source: "", packageConfigured: false };
+  }
   const source = readFileSync(projectPath, "utf8");
-  if (!isWorkspaceProjectPath(projectPath)) return source;
-  const projectSources = workspaceProjectReferences(source, projectPath)
-    .filter((path) => existsSync(path))
-    .map((path) => readFileSync(path, "utf8"));
-  return [source, ...projectSources].join("\n");
+  if (!isWorkspaceProjectPath(projectPath)) {
+    return {
+      source,
+      packageConfigured: /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(source),
+    };
+  }
+
+  const selected = selectedWorkspaceApplicationTarget(projectPath, scheme);
+  if (!selected) return { source: "", packageConfigured: false };
+  return {
+    source: selected.source,
+    packageConfigured: selectedTargetHasLivePackage(selected.source, selected.targetName),
+  };
+}
+
+function selectedWorkspaceApplicationTarget(projectPath, scheme) {
+  if (!scheme) return null;
+  const settingsResult = spawnSync(
+    "xcodebuild",
+    [...xcodeContainerArguments(projectPath, scheme), "-configuration", "Debug", "-showBuildSettings"],
+    { encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+  );
+  if (settingsResult.status !== 0 || settingsResult.error) return null;
+
+  let settings;
+  try {
+    settings = selectLiveApplicationBuildSettings(settingsResult.stdout || "", scheme);
+  } catch {
+    return null;
+  }
+  const targetName = String(settings.TARGET_NAME || "").trim();
+  const projectFile = normalizedProjectDefinitionPath(settings.PROJECT_FILE_PATH, projectPath);
+  if (!targetName || !projectFile || !existsSync(projectFile)) return null;
+  return {
+    targetName,
+    source: readFileSync(projectFile, "utf8"),
+  };
+}
+
+function normalizedProjectDefinitionPath(value, workspacePath) {
+  const candidate = String(value || "").trim();
+  if (!candidate) return "";
+  const absolute = candidate.startsWith("/")
+    ? resolve(candidate)
+    : resolve(projectRootFor(workspacePath), candidate);
+  if (absolute.endsWith("/project.pbxproj")) return absolute;
+  if (absolute.endsWith(".xcodeproj")) return join(absolute, "project.pbxproj");
+  return "";
+}
+
+export function selectedTargetHasLivePackage(projectSource, targetName) {
+  const source = String(projectSource || "");
+  const expectedTarget = String(targetName || "").trim();
+  if (!source || !expectedTarget) return false;
+  const sectionMatch = source.match(
+    /\/\* Begin PBXNativeTarget section \*\/([\s\S]*?)\/\* End PBXNativeTarget section \*\//,
+  );
+  if (!sectionMatch) return false;
+  const section = sectionMatch[1];
+  const sectionOffset = sectionMatch.index + sectionMatch[0].indexOf(section);
+  for (const entry of section.matchAll(/^\s*([A-Fa-f0-9]{24})(?:\s+\/\*.*?\*\/)?\s*=\s*\{/gm)) {
+    const absoluteEntry = sectionOffset + entry.index;
+    const open = source.indexOf("{", absoluteEntry);
+    const close = matchingBrace(source, open);
+    if (open < 0 || close < 0) continue;
+    const body = source.slice(open + 1, close);
+    if (pbxScalar(body, "name") !== expectedTarget) continue;
+    const dependencies = body.match(/\bpackageProductDependencies\s*=\s*\(([\s\S]*?)\);/)?.[1] || "";
+    if (!dependencies) return false;
+    if (/\bSwiftSimLive\b/.test(dependencies)) return true;
+    const productIds = [...dependencies.matchAll(/\b([A-Fa-f0-9]{24})\b/g)]
+      .map((match) => match[1]);
+    return productIds.some((identifier) => {
+      const productBody = pbxObjectBody(source, identifier);
+      return /\bXCSwiftPackageProductDependency\b/.test(productBody)
+        && pbxScalar(productBody, "productName") === "SwiftSimLive";
+    });
+  }
+  return false;
+}
+
+function pbxObjectBody(source, identifier) {
+  const entry = new RegExp(
+    `^\\s*${escapeRegExp(identifier)}(?:\\s+\\/\\*.*?\\*\\/)?\\s*=\\s*\\{`,
+    "m",
+  ).exec(source);
+  if (!entry) return "";
+  const open = source.indexOf("{", entry.index);
+  const close = matchingBrace(source, open);
+  return open >= 0 && close >= 0 ? source.slice(open + 1, close) : "";
+}
+
+function pbxScalar(body, key) {
+  const match = String(body || "").match(
+    new RegExp(`\\b${escapeRegExp(key)}\\s*=\\s*(?:"((?:\\\\.|[^"\\\\])*)"|([^;]+));`),
+  );
+  return String(match?.[1] ?? match?.[2] ?? "")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\")
+    .trim();
 }
 
 function listedLiveSchemes(projectPath) {

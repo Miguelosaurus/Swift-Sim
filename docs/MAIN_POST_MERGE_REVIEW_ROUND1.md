@@ -9,8 +9,8 @@ Final code candidate before this ledger commit: `9fa4727d9a58069735e6516342d9c2b
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 19 | 19 | 0 |
-| P2 | 10 | 10 | 0 |
+| P1 | 20 | 20 | 0 |
+| P2 | 11 | 11 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## P1 fixes
@@ -34,6 +34,7 @@ Final code candidate before this ledger commit: `9fa4727d9a58069735e6516342d9c2b
 17. Attribute and wrapper surfaces preserve exact string-literal whitespace.
 18. Live-engine termination requires a microsecond-resolution kernel start token, the current kernel-reported executable path and process group, and a per-spawn random instance nonce.
 19. Failure to establish engine ownership never authorizes an unverified PID or process-group signal; identity tooling is prepared before spawn and cleanup fails closed.
+20. Parseable but incomplete owner and reclaim records are treated as malformed state and become safely reclaimable instead of permanently wedging every lifecycle operation.
 
 ## P2 fixes
 
@@ -47,10 +48,11 @@ Final code candidate before this ledger commit: `9fa4727d9a58069735e6516342d9c2b
 8. Workspace signing settings are selected from the scored host-application target section rather than the first signed dependency.
 9. Lifecycle-lock owners and reclaim claimants use the same collision-resistant kernel process-start token as engine ownership; second-resolution legacy owner records are never treated as live.
 10. Live signing fails closed when `xcodebuild -showBuildSettings` fails, times out, lacks a host-application section, or omits the selected target's Development Team; unrelated Apple Development identities are no longer fallback candidates.
+11. Workspace package readiness is derived from the explicitly selected scheme's host application target and cannot be inherited from an unrelated project or target in the workspace.
 
 ## Regression coverage
 
-Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, workspace schemes and host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
+Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, workspace schemes, selected-target package association, host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
 
 ## Validation policy
 

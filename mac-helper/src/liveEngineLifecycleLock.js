@@ -202,10 +202,23 @@ function quarantineAbandonedReclaimClaim(claimPath) {
 function readOwner(path) {
   try {
     const value = JSON.parse(readFileSync(path, "utf8"));
-    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    return completeOwnerRecord(value) ? value : null;
   } catch {
     return null;
   }
+}
+
+function completeOwnerRecord(value) {
+  const pid = Number(value?.pid);
+  const startToken = ownerStartToken(value);
+  return Boolean(value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Number.isInteger(pid)
+    && pid > 1
+    && startToken
+    && typeof value.nonce === "string"
+    && value.nonce.length > 0);
 }
 
 function sameOwner(left, right) {
