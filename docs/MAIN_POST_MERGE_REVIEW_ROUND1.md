@@ -9,8 +9,8 @@ Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff3848
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 24 | 24 | 0 |
-| P2 | 12 | 12 | 0 |
+| P1 | 26 | 26 | 0 |
+| P2 | 13 | 13 | 0 |
 | P3 | 0 | 0 | 0 |
 
 ## P1 fixes
@@ -39,6 +39,8 @@ Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff3848
 22. Detached live-engine startup is transactional: PID-record publication failure terminates the exact verified process group, and session-publication failure rolls back through the durable identity-checked PID record.
 23. Shared helper/build-state lock reclamation rejects parseable malformed owner records and revalidates the exact reclaim claim before atomic removal, preventing permanent wedges and stale-claim deletion after ownership changes.
 24. Generic lock owner publication is bound to the exact directory device/inode and intended owner record after the write, so a suspended writer cannot resume into a quarantined directory and execute without mutual exclusion or erase a replacement owner.
+25. Device-build live eligibility uses the selected scheme's authoritative host application, and managed implicit-dynamic/interposable flags cannot leak into the ordinary fallback archive.
+26. A verified detached live engine can be identity-checked and terminated before PID publication, closing the pre-publication abandonment window.
 
 ## P2 fixes
 
@@ -54,10 +56,11 @@ Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff3848
 10. Live signing fails closed when `xcodebuild -showBuildSettings` fails, times out, lacks a host-application section, or omits the selected target's Development Team; unrelated Apple Development identities are no longer fallback candidates.
 11. Workspace package readiness is derived from the explicitly selected scheme's host application target and cannot be inherited from an unrelated project or target in the workspace.
 12. `.xcodeproj` projects now use the same explicit scheme authority, selected-host-target package validation, and target-scoped linker settings as workspaces; stale PBX comments cannot impersonate a package dependency.
+13. Companion Mac synchronization removes only history explicitly owned by that same Mac; ownerless link history and another Mac's history survive unrelated syncs.
 
 ## Regression coverage
 
-Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, PID/session publication rollback, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
+Coverage includes kernel process-start tokens, executable and instance-nonce mismatch rejection, identity-failure no-signal behavior, pre-publication/PID/session publication rollback, stale/reused PIDs, detached process groups, lifecycle-owner token collisions, lock ownership and reclamation, exact generic reclaim claims, displaced-writer rejection, parseable malformed owner/reclaim records, abandoned claims, replacement-lock preservation, nested and multiline Swift attributes, exact attribute string literals, runtime availability conditions, nested block comments, project/workspace schemes, selected-target package association, stale PBX-comment rejection, active engine-scheme identity, host-application signing sections, failed build-settings queries, cleanup containment, complete live build/routing leases, startup cleanup, and companion ownership/revision fences.
 
 ## Validation policy
 

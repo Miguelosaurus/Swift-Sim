@@ -394,3 +394,19 @@ test("project live inspection applies the same scheme authority as workspaces", 
     /if \(!isWorkspaceProjectPath/,
   );
 });
+
+
+test("device live instrumentation cannot leak into fallback archives", () => {
+  const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
+  assert.match(source, /selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
+  assert.match(source, /selectedTargetHasLivePackage\(selectedLiveTarget\.source, selectedLiveTarget\.targetName\)/);
+  assert.doesNotMatch(source, /function projectHasLivePackage/);
+  const liveStart = source.indexOf('log("Building the signed live-enabled Debug app.")');
+  const liveEnd = source.indexOf("const appPath = findBuiltApp", liveStart);
+  assert.match(source.slice(liveStart, liveEnd), /\.\.\.liveBuildSettingArgs,/);
+  const fallbackStart = source.indexOf('log("Archiving for generic iOS device.")');
+  const fallbackEnd = source.indexOf('log("Exporting signed IPA.")', fallbackStart);
+  const fallback = source.slice(fallbackStart, fallbackEnd);
+  assert.match(fallback, /\.\.\.buildSettingArgs,/);
+  assert.doesNotMatch(fallback, /liveBuildSettingArgs|managedLiveBuildSettings/);
+});

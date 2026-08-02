@@ -560,3 +560,15 @@ extension InstallationStateTests {
         ))
     }
 }
+
+
+extension InstallationStateTests {
+    @MainActor
+    func testMacSyncOnlyRemovesHistoryOwnedByThatMac() {
+        let remoteIDs: Set<String> = ["present"]
+        XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "ownerless", ownerPairingID: nil, syncingMacID: "mac-a", remoteIDs: remoteIDs))
+        XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "other-mac", ownerPairingID: "mac-b", syncingMacID: "mac-a", remoteIDs: remoteIDs))
+        XCTAssertTrue(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "missing", ownerPairingID: "mac-a", syncingMacID: "mac-a", remoteIDs: remoteIDs))
+        XCTAssertFalse(SessionStore.managedAppShouldBeRemovedDuringSync(appID: "present", ownerPairingID: "mac-a", syncingMacID: "mac-a", remoteIDs: remoteIDs))
+    }
+}

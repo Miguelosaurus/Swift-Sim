@@ -856,6 +856,15 @@ final class SessionStore: ObservableObject {
         ownerPairingID == pairedMacID
     }
 
+    static func managedAppShouldBeRemovedDuringSync(
+        appID: String,
+        ownerPairingID: String?,
+        syncingMacID: String,
+        remoteIDs: Set<String>
+    ) -> Bool {
+        ownerPairingID == syncingMacID && !remoteIDs.contains(appID)
+    }
+
     static func connectionDiagnosticsAreCurrent(
         currentMac: PairedMac?,
         expectedMac: PairedMac?,
@@ -1251,14 +1260,17 @@ final class SessionStore: ObservableObject {
             let remote = try JSONDecoder().decode(RemoteAppList.self, from: data)
             let remoteIDs = Set(remote.apps.map(\.id))
             let existingRemoteIDs = Set(managedApps
-                .filter { !$0.id.hasPrefix("local:") && !$0.id.hasPrefix("pending:") }
+                .filter { $0.ownerPairingID == mac.id }
                 .map(\.id))
             invalidateManagedAppOperations(existingRemoteIDs.union(remoteIDs))
             managedAppsRevision &+= 1
             managedApps.removeAll { app in
-                !app.id.hasPrefix("local:")
-                    && !app.id.hasPrefix("pending:")
-                    && !remoteIDs.contains(app.id)
+                Self.managedAppShouldBeRemovedDuringSync(
+                    appID: app.id,
+                    ownerPairingID: app.ownerPairingID,
+                    syncingMacID: mac.id,
+                    remoteIDs: remoteIDs
+                )
             }
             for app in remote.apps {
                 let builds = app.builds.compactMap { status -> ManagedBuild? in

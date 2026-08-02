@@ -171,6 +171,15 @@ export function installLiveEngineOwnershipBoundary({
   syncBuiltinESMExports();
 }
 
+export function abortPendingLiveEngine(pid) {
+  const value = Number(pid);
+  const record = pendingRecords.get(value);
+  if (!record) return false;
+  pendingRecords.delete(value);
+  terminateExactProcessGroup(record);
+  return true;
+}
+
 export function parseLiveEngineProcessRecord(raw, {
   engineExecutable = DEFAULT_ENGINE_EXECUTABLE,
 } = {}) {

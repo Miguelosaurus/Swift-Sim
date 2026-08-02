@@ -4,7 +4,11 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { basename, dirname, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
-import { withLiveBuildSession } from "./liveReload.js";
+import {
+  selectedTargetHasLivePackage,
+  selectedXcodeApplicationTarget,
+  withLiveBuildSession,
+} from "./liveReload.js";
 
 export class DeviceBuildError extends Error {}
 
@@ -40,13 +44,15 @@ export async function runDeviceBuild(build, {
     saveBuild();
     const target = resolveTarget(build);
     const requestedBuildSettingArgs = xcodeBuildSettingArgs(build.buildSettings);
+    throwIfBuildCancelled(build);
+    const selectedLiveTarget = target.type === "project"
+      ? selectedXcodeApplicationTarget(join(target.path, "project.pbxproj"), build.scheme)
+      : null;
     const liveEligible = String(build.configuration || "").toLowerCase() === "debug"
       && target.type === "project"
-      && projectHasLivePackage(target);
-    let buildSettingArgs = liveEligible
-      ? [...requestedBuildSettingArgs, ...managedLiveBuildSettings()]
-      : requestedBuildSettingArgs;
-    throwIfBuildCancelled(build);
+      && Boolean(selectedLiveTarget)
+      && selectedTargetHasLivePackage(selectedLiveTarget.source, selectedLiveTarget.targetName);
+    let buildSettingArgs = requestedBuildSettingArgs;
     const root = build.artifacts?.root || join(homedir(), ".swift-sim", "device-builds", build.id);
     const archivePath = join(root, `${safeName(build.scheme || "App")}.xcarchive`);
     const exportPath = join(root, "export");
@@ -85,6 +91,9 @@ export async function runDeviceBuild(build, {
       settings.CURRENT_PROJECT_VERSION = automaticBuildNumber;
       log(`Using build number ${automaticBuildNumber} so every Swift Sim build is distinct.`);
     }
+    const liveBuildSettingArgs = liveEligible
+      ? [...buildSettingArgs, ...managedLiveBuildSettings()]
+      : buildSettingArgs;
     build.app.bundleIdentifier = resolvedIdentity.bundleIdentifier;
     build.app.version = settings.MARKETING_VERSION || "";
     build.app.build = settings.CURRENT_PROJECT_VERSION || "";
@@ -126,7 +135,7 @@ export async function runDeviceBuild(build, {
             ...targetArgs(target),
             "-scheme", required(build.scheme, "scheme"),
             "-configuration", build.configuration || "Debug",
-            ...buildSettingArgs,
+            ...liveBuildSettingArgs,
             "-destination", destination,
             "-derivedDataPath", derivedDataPath,
             "-resultBundlePath", resultBundlePath,
@@ -793,15 +802,6 @@ function findIpa(exportPath) {
   return candidates[0] || "";
 }
 
-function projectHasLivePackage(target) {
-  try {
-    return /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(
-      readFileSync(join(target.path, "project.pbxproj"), "utf8")
-    );
-  } catch {
-    return false;
-  }
-}
 
 function managedLiveBuildSettings() {
   return [

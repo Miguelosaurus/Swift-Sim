@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  abortPendingLiveEngine,
   liveEngineProcessRecordIsCurrent,
   parseLiveEngineProcessRecord,
 } from "../mac-helper/src/liveEngineOwnershipPreload.js";
@@ -233,4 +234,38 @@ test("identity failure never authorizes an unverified cleanup signal", () => {
   );
   assert.doesNotMatch(failureBranch, /kill|terminate/);
   assert.match(source, /process\.platform === "darwin" && !identityHelperExecutable\(\)/);
+});
+
+
+test("a verified engine can be rolled back before PID publication", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-live-prepublication-"));
+  const pidPath = join(directory, "engine.pid");
+  const script = `
+    import { spawn } from 'node:child_process';
+    import { setTimeout as delay } from 'node:timers/promises';
+    import { abortPendingLiveEngine, installLiveEngineOwnershipBoundary } from ${JSON.stringify(preloadURL)};
+    installLiveEngineOwnershipBoundary({ engineExecutable: process.execPath, pidPath: ${JSON.stringify(pidPath)} });
+    const engine = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    const aborted = abortPendingLiveEngine(engine.pid);
+    await delay(100);
+    console.log(JSON.stringify({ aborted, engineAlive: alive(engine.pid) }));
+    function alive(pid) {
+      try { process.kill(pid, 0); return true; } catch { return false; }
+    }
+  `;
+  try {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { stdout, stderr, code } = await collect(child);
+    assert.equal(code, 0, stderr);
+    const observed = JSON.parse(stdout.trim());
+    assert.equal(observed.aborted, true);
+    assert.equal(observed.engineAlive, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

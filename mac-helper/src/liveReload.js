@@ -19,6 +19,7 @@ import { createConnection } from "node:net";
 import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
+import { abortPendingLiveEngine } from "./liveEngineOwnershipPreload.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
@@ -642,6 +643,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
     }
     const output = openSync(ENGINE_LOG, "a");
     let child;
+    let prepublicationError = null;
     try {
       child = spawn(ENGINE_EXECUTABLE, [], {
         detached: true,
@@ -655,10 +657,31 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
         },
       });
       await waitForChildSpawn(child);
-    } finally {
-      closeSync(output);
+    } catch (error) {
+      prepublicationError = error;
     }
-    writeFileSync(ENGINE_PID, `${child.pid}\n`, { mode: 0o600 });
+    try {
+      closeSync(output);
+    } catch (error) {
+      prepublicationError ||= error;
+    }
+    if (prepublicationError) {
+      if (child?.pid) {
+        try { abortPendingLiveEngine(child.pid); } catch {}
+      }
+      throw prepublicationError;
+    }
+    try {
+      writeFileSync(ENGINE_PID, `${child.pid}\n`, { mode: 0o600 });
+    } catch (error) {
+      // The ownership boundary normally performs this rollback.
+      // This also covers errors before the guarded write consumes
+      // the verified pending process record.
+      if (child?.pid) {
+        try { abortPendingLiveEngine(child.pid); } catch {}
+      }
+      throw error;
+    }
     try {
       writeFileSync(ENGINE_SESSION, `${JSON.stringify({
         projectRoot: status.project.root,
@@ -1821,7 +1844,7 @@ function liveProjectConfiguration(projectPath, scheme = "") {
   };
 }
 
-function selectedXcodeApplicationTarget(projectPath, scheme) {
+export function selectedXcodeApplicationTarget(projectPath, scheme) {
   if (!scheme) return null;
   const settingsResult = spawnSync(
     "xcodebuild",
