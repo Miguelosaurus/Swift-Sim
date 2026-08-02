@@ -12,16 +12,18 @@ import {
   validateDeliveryEnvelope,
 } from "../../mac-helper/src/changeDeliveryContract.js";
 
-test("Phase 1 baseline covers the current warm and fallback call graph", async () => {
+test("Phase 2 baseline covers classifier-first and warm fallback call graph", async () => {
   const result = await runAgentFastPathBaseline({ repeat: 1 });
   assert.equal(result.schemaVersion, 1);
   assert.equal(result.scenarios.length, AGENT_FAST_PATH_SCENARIOS.length);
   assert.deepEqual(result.costSurface.warmHotLogicalPath, [
     "classify",
-    "inspect-live",
+    "load-session-descriptor",
+    "validate-fingerprints",
+    "engine-status",
     "preflight-or-generate",
     "inject",
-    "inspect-live-after-success",
+    "engine-status-after-success",
   ]);
   const summary = summarizeBaseline(result);
   assert.deepEqual(summary["no-change"].actions, ["none"]);
@@ -33,25 +35,23 @@ test("Phase 1 baseline covers the current warm and fallback call graph", async (
   assert.deepEqual(summary["exhausted-recovery"].actions, ["hot-reload-failed"]);
 });
 
-test("Phase 1 records current repeated inspection work without private data", async () => {
+test("Phase 2 records repeated warm checks without private data", async () => {
   const result = await runAgentFastPathBaseline({ repeat: 1 });
   const byScenario = Object.fromEntries(result.scenarios.map((sample) => [sample.scenario, sample]));
-  assert.equal(byScenario["no-change"].calls.inspect, 1);
-  assert.equal(byScenario.structural.calls.inspect, 1);
-  assert.equal(byScenario.mixed.calls.inspect, 1);
+  assert.equal(byScenario["no-change"].calls.inspect, 0);
+  assert.equal(byScenario.structural.calls.inspect, 0);
+  assert.equal(byScenario.mixed.calls.inspect, 0);
   assert.equal(byScenario["warm-hot"].calls.inspect, 2);
+  assert.equal(byScenario["warm-hot"].calls.warmInspect, 2);
   assert.equal(byScenario["warm-hot"].calls.inject, 1);
   assert.equal(byScenario["transient-recovery"].calls.inspect, 4);
+  assert.equal(byScenario["transient-recovery"].calls.warmInspect, 4);
   assert.equal(byScenario["transient-recovery"].calls.recover, 1);
   assert.equal(byScenario["exhausted-recovery"].calls.recover, 1);
+  assert.deepEqual(byScenario["warm-hot"].subprocesses, []);
   assert.deepEqual(
-    byScenario["warm-hot"].subprocesses.map(({ executable, args }) => `${executable} ${args.join(" ")}`),
+    result.costSurface.currentDeepInspectionSubprocesses.map(({ executable, args }) => `${executable} ${args.join(" ")}`),
     [
-      "xcodebuild -list -json",
-      "xcodebuild -configuration Debug -showBuildSettings",
-      "tailscale ip -4",
-      "tailscale ip -4",
-      "tailscale ip -4",
       "xcodebuild -list -json",
       "xcodebuild -configuration Debug -showBuildSettings",
       "tailscale ip -4",

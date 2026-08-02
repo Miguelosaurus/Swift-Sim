@@ -42,7 +42,7 @@ export async function runAgentFastPathBaseline({ repeat = 3, now = () => perform
   return {
     schemaVersion: 1,
     kind: "agent-fast-path-baseline",
-    implementation: "pre-deliver-change routeLiveEditSet",
+    implementation: "classifier-first routeLiveEditSet with warm session seams",
     generatedAt: new Date().toISOString(),
     costSurface: {
       router: "live-reload-router",
@@ -52,12 +52,15 @@ export async function runAgentFastPathBaseline({ repeat = 3, now = () => perform
         "discoverTailnet",
         "engineControl",
       ],
+      currentDeepInspectionSubprocesses: currentInspectionSubprocesses(),
       warmHotLogicalPath: [
         "classify",
-        "inspect-live",
+        "load-session-descriptor",
+        "validate-fingerprints",
+        "engine-status",
         "preflight-or-generate",
         "inject",
-        "inspect-live-after-success",
+        "engine-status-after-success",
       ],
     },
     primarySkill: primarySkillStats(),
@@ -68,6 +71,8 @@ export async function runAgentFastPathBaseline({ repeat = 3, now = () => perform
 async function runScenario(scenario, { iteration, now }) {
   const calls = {
     inspect: 0,
+    deepInspect: 0,
+    warmInspect: 0,
     preflight: 0,
     compileBundle: 0,
     inject: 0,
@@ -95,11 +100,21 @@ async function runScenario(scenario, { iteration, now }) {
     files: scenarioFiles(scenario.id),
     runtime: {
       now,
-      inspect: () => timed("inspect-live", async () => {
-        calls.inspect += 1;
-        subprocesses.push(...currentInspectionSubprocesses());
-        return { ready: scenario.liveReady };
-      }),
+      ...(scenario.temperature === "warm" ? {
+        warmInspect: () => timed("warm-inspect", async () => {
+          calls.inspect += 1;
+          calls.warmInspect += 1;
+          return { ready: scenario.liveReady };
+        }),
+      } : {}),
+      ...(scenario.temperature === "cold" ? {
+        inspect: () => timed("inspect-live", async () => {
+          calls.inspect += 1;
+          calls.deepInspect += 1;
+          subprocesses.push(...currentInspectionSubprocesses());
+          return { ready: scenario.liveReady };
+        }),
+      } : {}),
       preflight: () => timed("preflight", async () => {
         calls.preflight += 1;
         return { mode: "interposition", generated: null, compileMs: 1 };

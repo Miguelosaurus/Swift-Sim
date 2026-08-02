@@ -8,6 +8,7 @@ import {
   LIVE_REASON_CODES,
   routeLiveEditSet,
   injectLiveSource,
+  inspectLiveReloadWarm,
 } from "../mac-helper/src/liveReload.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -107,6 +108,25 @@ test("canonical edit sets identify mixed edits as one rebuild operation", () => 
   assert.equal(result.route, "rebuild-required");
   assert.equal(result.reasonCode, LIVE_REASON_CODES.MIXED_EDIT_SET);
   assert.equal(result.changes.length, 2);
+});
+
+test("classifier-first routing avoids live inspection for no-change and structural edits", async () => {
+  let inspectCalls = 0;
+  const runtime = { inspect: async () => { inspectCalls += 1; throw new Error("inspection must not run"); } };
+  const noChange = await routeLiveEditSet({ files: [{ path: "Card.swift", kind: "swift", status: "modified", beforeSource: "struct Card { var body: String { \"A\" } }", afterSource: "struct Card { var body: String { \"A\" } }" }], runtime });
+  const structural = await routeLiveEditSet({ files: [{ path: "Model.swift", kind: "swift", status: "modified", beforeSource: "struct Model { var count = 0 }", afterSource: "struct Model { var count = 0; var name = \"Swift Sim\" }" }], runtime });
+  assert.equal(noChange.action, "none"); assert.equal(structural.action, "build-device"); assert.equal(inspectCalls, 0);
+});
+
+test("valid warm readiness uses only the engine status seam", async () => {
+  const descriptor = { schemaVersion: 1, protocolVersion: "1", generation: 1, project: { path: "/tmp/Example.xcodeproj/project.pbxproj", root: "/tmp", scheme: "Example", availableSchemes: ["Example"], packageConfigured: true, interposableConfigured: true }, liveHost: "100.64.0.10", tailnet: { privateForwardConfigured: true, userspace: true }, engine: { sessionNonce: "engine-one", version: "0.4.0" }, compilerCapture: { path: "/tmp/compilations.json", missing: true }, configurationFingerprints: {} };
+  let statusCalls = 0; let deepCalls = 0;
+  const result = await inspectLiveReloadWarm({ project: descriptor.project.path, scheme: "Example", runtime: {
+    readDescriptor: () => ({ valid: true, descriptor }),
+    engineControl: async () => { statusCalls += 1; return { success: true, data: { watching_directories: ["/tmp"], has_connected_client: true, captured_compilations: 2, injection_state: "Ready" } }; },
+    deepInspect: async () => { deepCalls += 1; return { ready: false }; },
+  } });
+  assert.equal(result.ready, true); assert.equal(result.readinessMode, "warm"); assert.equal(statusCalls, 1); assert.equal(deepCalls, 0);
 });
 
 test("ignores declaration words inside comments and strings", () => {

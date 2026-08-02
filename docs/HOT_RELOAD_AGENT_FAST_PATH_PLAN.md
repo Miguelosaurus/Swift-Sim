@@ -1,6 +1,6 @@
 # Hot Reload Agent Fast-Path Plan
 
-Status: Phase 1 complete; Phase 2 not started
+Status: Phase 2 complete; Phase 3 not started
 Target: Swift Sim post-0.6 development cycle  
 Owner of architecture: Swift Sim maintainers  
 Implementation profile: deterministic CLI orchestration, cached session facts,
@@ -14,6 +14,13 @@ The timing samples use injected monotonic seams so the route call graph is
 repeatable; subprocess command shapes are counted from the current deep
 inspection adapter, not presented as physical-device wall-clock proof. The
 physical iPhone latency gate remains Phase 5.
+
+Phase 2 evidence: `benchmarks/results/agent-fast-path-phase2-20260802/`
+(`agent-fast-path-baseline`, 7 scenarios x 30 repetitions). Classifier-first
+routing recorded zero live-inspector calls for no-change, structural, and
+mixed edits; warm scenarios recorded zero prohibited subprocesses. Local
+injected-seam p95 was 0.216 ms for no-change and 0.158 ms for structural
+decisions. These are route-boundary measurements, not physical-device proof.
 
 Execution rule for the implementing agent: implement the phases in order. Do
 not redesign the architecture, weaken the live-success contract, or skip an

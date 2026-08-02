@@ -269,7 +269,7 @@ test("production live routing holds one lifecycle lease", () => {
   ));
   assert.ok(source.includes(
     "runtime.lifecycleLocked\n"
-      + "    ? ((options) => inspectLiveReloadUnlocked(options))",
+      + "    ? ((options) => inspectLiveReloadWarmUnlocked(options))",
   ));
   assert.ok(source.includes(
     "runtime.lifecycleLocked\n"

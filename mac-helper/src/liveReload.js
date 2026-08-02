@@ -20,6 +20,7 @@ import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 import { abortPendingLiveEngine } from "./liveEngineOwnershipPreload.js";
+import { buildLiveSessionDescriptor, publishLiveSessionDescriptor, readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
@@ -260,6 +261,24 @@ export async function inspectLiveReload(options = {}) {
   return withLiveEngineLifecycleLock(() => inspectLiveReloadUnlocked(options));
 }
 
+export async function inspectLiveReloadWarm(options = {}) {
+  return withLiveEngineLifecycleLock(() => inspectLiveReloadWarmUnlocked(options));
+}
+
+async function inspectLiveReloadWarmUnlocked({ project = "", host = "", scheme = "", runtime = {} } = {}) {
+  const descriptor = (runtime.readDescriptor || readLiveSessionDescriptor)({ projectPath: project, scheme, host });
+  if (!descriptor.valid) {
+    const deep = runtime.deepInspect ? await runtime.deepInspect({ project, host, scheme }) : await inspectLiveReloadUnlocked({ project, host, scheme });
+    return { ...deep, readinessMode: "deep", descriptor: { valid: false, errors: descriptor.errors } };
+  }
+  const value = descriptor.descriptor;
+  const control = runtime.engineControl ? await runtime.engineControl({ action: "status" }) : await engineControl({ action: "status" });
+  const engineStatus = control?.success ? control.data : null;
+  const watchingProject = Boolean(engineStatus?.watching_directories?.some((path) => resolve(path) === value.project.root));
+  const ready = Boolean(control?.success && watchingProject && engineStatus?.has_connected_client && Number(engineStatus?.captured_compilations || 0) > 0 && engineStatus?.injection_state !== "Error");
+  return { ...statusFromLiveSessionDescriptor(value, { engineStatus, ready }), readinessMode: "warm", descriptor: { valid: true } };
+}
+
 async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" } = {}) {
   const requestedProjectPath = project ? resolve(project) : "";
   const projectPath = requestedProjectPath && existsSync(requestedProjectPath)
@@ -301,7 +320,7 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
     && !schemeSelection.error
   );
 
-  return {
+  const status = {
     ready: Boolean(
       configured
       && watchingProject
@@ -345,6 +364,7 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
       availableSchemes: schemeSelection.availableSchemes,
       schemeRequired: schemeSelection.required,
       schemeError: schemeSelection.error,
+      applicationTarget: projectConfiguration.applicationTarget || "",
     },
     requiredBuildSettings: {
       configuration: "Debug",
@@ -363,6 +383,28 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
       "A structural change requires a new signed build and install link",
       "Never enable this lane in App Store or Release builds",
     ],
+  };
+  if (status.ready) publishDescriptorFromStatus(status, engineSession);
+  return status;
+}
+
+function publishDescriptorFromStatus(status, engineSession) {
+  if (!engineSession?.nonce || !status?.project?.path || !status?.project?.scheme) return;
+  try {
+    publishLiveSessionDescriptor(buildLiveSessionDescriptor({ projectPath: status.project.path, projectRoot: status.project.root, scheme: status.project.scheme, applicationTarget: status.project.applicationTarget, availableSchemes: status.project.availableSchemes, host: status.host, packageConfigured: status.project.packageConfigured, interposableConfigured: status.project.interposableConfigured, tailnet: status.tailnet, engineSession, engineVersion: status.engine.version }));
+  } catch {}
+}
+
+function statusFromLiveSessionDescriptor(descriptor, { engineStatus = null, ready = false } = {}) {
+  const project = descriptor.project;
+  const watchingProject = Boolean(engineStatus?.watching_directories?.some((path) => resolve(path) === project.root));
+  return {
+    ready, canStart: true, mode: "debug-only", transport: "private-tailscale", host: descriptor.liveHost, port: 8887,
+    engine: { installed: true, version: descriptor.engine.version, running: Boolean(engineStatus), watchingProject, connected: Boolean(engineStatus?.has_connected_client), injectionState: engineStatus?.injection_state || "Stopped", lastSource: engineStatus?.last_source || "", lastError: engineStatus?.last_error || "", signingReady: Boolean(engineStatus?.codesigning_identity_configured), compilerReady: Number(engineStatus?.captured_compilations || 0) > 0, capturedCompilations: Number(engineStatus?.captured_compilations || 0) },
+    tailnet: { detected: Boolean(descriptor.liveHost), userspace: Boolean(descriptor.tailnet?.userspace), privateForwardConfigured: Boolean(descriptor.tailnet?.privateForwardConfigured) },
+    project: { path: project.path, root: project.root, readable: true, packageConfigured: Boolean(project.packageConfigured), interposableConfigured: Boolean(project.interposableConfigured), buildSettingsManagedBySwiftSim: Boolean(project.packageConfigured), scheme: project.scheme, availableSchemes: project.availableSchemes || [], schemeRequired: false, schemeError: "", applicationTarget: project.applicationTarget || "" },
+    requiredBuildSettings: { configuration: "Debug", INJECTION_HOST: descriptor.liveHost, EMIT_FRONTEND_COMMAND_LINES: "YES", COMPILATION_CACHE_ENABLE_CACHING: "NO", ENABLE_DEBUG_DYLIB: "YES", ENABLE_XOJIT_PREVIEWS: "YES", SWIFT_OPTIMIZATION_LEVEL: "-Onone", OTHER_SWIFT_FLAGS: ["$(inherited)", "-Xfrontend", "-enable-implicit-dynamic", "-enable-private-imports"], OTHER_LDFLAGS: ["$(inherited)", "-Xlinker", "-interposable"] },
+    limitations: ["Implementation-body and SwiftUI composition edits only", "The iPhone and Mac must both be connected to the same private tailnet", "A structural change requires a new signed build and install link", "Never enable this lane in App Store or Release builds"],
   };
 }
 
@@ -630,6 +672,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
       (path) => resolve(path) === status.project.root
     )
     && running.data?.codesigning_identity_configured
+    && String(session?.nonce || "")
     && liveEngineSessionMatches(session, {
       projectRoot: status.project.root,
       scheme: status.project.scheme,
@@ -682,12 +725,14 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
       }
       throw error;
     }
+    const sessionNonce = randomUUID();
     try {
       writeFileSync(ENGINE_SESSION, `${JSON.stringify({
         projectRoot: status.project.root,
         scheme: status.project.scheme,
         signingIdentity,
         engineVersion: ENGINE_VERSION,
+        nonce: sessionNonce,
       }, null, 2)}\n`, { mode: 0o600 });
     } catch (error) {
       // The durable PID record now authorizes an exact identity-checked stop.
@@ -881,23 +926,26 @@ async function routeLiveEditSetOnce({ files = [], project = "", host = "", schem
     ? runtime.classify({ files })
     : classifyEditSet({ files });
   const classificationMs = Math.max(0, now() - startedAt);
-  const inspect = runtime.inspect || (runtime.lifecycleLocked
-    ? ((options) => inspectLiveReloadUnlocked(options))
-    : ((options) => inspectLiveReload(options)));
-  const inject = runtime.inject || (runtime.lifecycleLocked
-    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked(sourcePath, { ...runtime, ...options }))
-    : ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options })));
-  const live = await inspect({ project, host, scheme });
-
   if (change.route === "no-change") {
     return routeResult({
       action: "none",
       change,
-      live,
+      live: null,
       requestId,
       timing: { classificationMs, totalMs: Math.max(0, now() - startedAt) },
+      message: "The Swift sources are unchanged.",
     });
   }
+  if (change.route === "rebuild-required") {
+    return routeResult({ action: "build-device", change, live: null, reasonCode: change.reasonCode, requestId, timing: { classificationMs, totalMs: Math.max(0, now() - startedAt) }, message: "The edit changes compiled structure. Create a new Swift Sim update link." });
+  }
+  const inspect = runtime.inspect || runtime.warmInspect || (runtime.lifecycleLocked
+    ? ((options) => inspectLiveReloadWarmUnlocked(options))
+    : ((options) => inspectLiveReloadWarm(options)));
+  const inject = runtime.inject || (runtime.lifecycleLocked
+    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked(sourcePath, { ...runtime, ...options }))
+    : ((sourcePath, options = {}) => injectLiveSource(sourcePath, { ...runtime, ...options })));
+  const live = await inspect({ project, host, scheme });
   if (change.hotReloadable && live.ready) {
     const hotFiles = change.changes.filter((item) => item.route === "hot-reload");
     const preparedPatches = await preflightMultiFilePatches({ hotFiles, runtime });
@@ -1820,7 +1868,7 @@ function projectRootFor(projectPath) {
 
 function liveProjectConfiguration(projectPath, scheme = "") {
   if (!projectPath || !existsSync(projectPath)) {
-    return { source: "", packageConfigured: false, interposableConfigured: false };
+    return { source: "", packageConfigured: false, interposableConfigured: false, applicationTarget: "" };
   }
   const source = readFileSync(projectPath, "utf8");
   if (!isXcodeContainerProjectPath(projectPath)) {
@@ -1828,12 +1876,13 @@ function liveProjectConfiguration(projectPath, scheme = "") {
       source,
       packageConfigured: /SwiftSimLive|github\.com\/Miguelosaurus\/InjectionNext/i.test(source),
       interposableConfigured: /-interposable/.test(source),
+      applicationTarget: "",
     };
   }
 
   const selected = selectedXcodeApplicationTarget(projectPath, scheme);
   if (!selected) {
-    return { source, packageConfigured: false, interposableConfigured: false };
+    return { source, packageConfigured: false, interposableConfigured: false, applicationTarget: "" };
   }
   return {
     source: selected.source,
@@ -1841,6 +1890,7 @@ function liveProjectConfiguration(projectPath, scheme = "") {
     interposableConfigured: /(?:^|\s)-interposable(?:\s|$)/.test(
       String(selected.settings.OTHER_LDFLAGS || ""),
     ),
+    applicationTarget: selected.targetName,
   };
 }
 
