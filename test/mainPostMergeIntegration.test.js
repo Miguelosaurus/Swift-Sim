@@ -442,3 +442,24 @@ test("multiline Swift strings cannot hide following structural changes", () => {
   assert.equal(result.hotReloadable, false);
   assert.equal(result.reasonCode, LIVE_REASON_CODES.STORED_PROPERTY_CHANGED);
 });
+
+test("Swift regex literals fail closed before quote content can hide declarations", () => {
+  for (const literal of ['/"/', '#/"/#']) {
+    const before = `struct Model {
+  let pattern = ${literal}
+  var count: Int = 0
+}`;
+    const after = before.replace("var count: Int", "var count: String");
+    const result = classifySwiftSource(before, after);
+    assert.equal(result.hotReloadable, false);
+    assert.equal(result.reasonCode, LIVE_REASON_CODES.MACRO_OR_EXPLICIT_REPLACEMENT);
+  }
+});
+
+test("ordinary division expressions remain hot reloadable", () => {
+  const before = `func ratio() -> Int { total / count }`;
+  const after = `func ratio() -> Int { total / divisor }`;
+  const result = classifySwiftSource(before, after);
+  assert.equal(result.hotReloadable, true);
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.IMPLEMENTATION_ONLY);
+});

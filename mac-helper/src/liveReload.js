@@ -2354,6 +2354,9 @@ function declarationSurface(source) {
   if (/#(?:externalMacro|freestanding|attached)\b|@_dynamicReplacement\b/.test(clean)) {
     return { unsupported: "Macros and explicit dynamic replacement require a rebuild." };
   }
+  if (swiftRegexLiteralPresent(source, clean)) {
+    return { unsupported: "Swift regex literals require a rebuild." };
+  }
 
   const imports = [...clean.matchAll(/^\s*(?:@testable\s+)?import\s+[^\n;]+/gm)]
     .map((match) => compact(match[0]))
@@ -2402,6 +2405,62 @@ function declarationSurface(source) {
     modifiers,
     unsupported: "",
   };
+}
+
+function swiftRegexLiteralPresent(source, clean) {
+  for (let index = 0; index < clean.length; index += 1) {
+    let hashCount = 0;
+    let slashIndex = index;
+    if (clean[index] === "#") {
+      while (clean[slashIndex] === "#") {
+        hashCount += 1;
+        slashIndex += 1;
+      }
+      if (clean[slashIndex] !== "/") continue;
+    } else if (clean[index] !== "/" || clean[index + 1] === "/" || clean[index + 1] === "*") {
+      continue;
+    }
+    if (!swiftRegexCanStart(clean, index)) continue;
+
+    let escaped = false;
+    let characterClass = false;
+    for (let cursor = slashIndex + 1; cursor < source.length; cursor += 1) {
+      const character = source[cursor];
+      if (hashCount > 0) {
+        if (character === "/"
+            && source.startsWith("#".repeat(hashCount), cursor + 1)) {
+          return true;
+        }
+        continue;
+      }
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (character === "[") {
+        characterClass = true;
+        continue;
+      }
+      if (character === "]") {
+        characterClass = false;
+        continue;
+      }
+      if (character === "/" && !characterClass) return true;
+      if (character === "\n") break;
+    }
+  }
+  return false;
+}
+
+function swiftRegexCanStart(clean, index) {
+  const prefix = clean.slice(0, index);
+  const previous = prefix.match(/\S(?=\s*$)/)?.[0] || "";
+  if (!previous || "=([{,:;!?&|".includes(previous)) return true;
+  return /\b(?:return|throw|case|in|where|try|await|yield)\s*$/.test(prefix);
 }
 
 function swiftAttributeSurface(source, clean) {

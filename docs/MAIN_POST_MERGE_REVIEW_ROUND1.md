@@ -9,7 +9,7 @@ Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df6
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 28 | 28 | 0 |
+| P1 | 29 | 29 | 0 |
 | P2 | 15 | 15 | 0 |
 | P3 | 0 | 0 | 0 |
 
@@ -43,6 +43,7 @@ Final code candidate before this ledger commit: `36f43b532bccd3c178f4424e4b20df6
 26. A verified detached live engine can be identity-checked and terminated before PID publication, closing the pre-publication abandonment window.
 27. Swift source masking recognizes ordinary, raw/extended, multiline, and raw-multiline string delimiters, so quote characters inside valid literals cannot hide following structural declarations from rebuild classification.
 28. Persisted device-build and validation worker journals use the collision-resistant kernel start token, executable, and process-group identity; restart recovery never signals a live legacy, unverifiable, or PID-reused worker record.
+29. Swift bare and extended regex literals fail closed to rebuild before quote or delimiter content can desynchronize the declaration scanner; ordinary division expressions remain eligible for implementation-only hot reload.
 
 ## P2 fixes
 
