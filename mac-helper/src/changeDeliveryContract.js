@@ -32,6 +32,7 @@ export function deliveryEnvelope({
   timing = undefined,
   error = undefined,
   warning = undefined,
+  diagnostics = undefined,
 } = {}) {
   const envelope = {
     schemaVersion: DELIVERY_SCHEMA_VERSION,
@@ -43,6 +44,7 @@ export function deliveryEnvelope({
   if (timing !== undefined) envelope.timing = timing;
   if (error !== undefined) envelope.error = error;
   if (warning !== undefined) envelope.warning = warning;
+  if (diagnostics !== undefined) envelope.diagnostics = diagnostics;
   return envelope;
 }
 

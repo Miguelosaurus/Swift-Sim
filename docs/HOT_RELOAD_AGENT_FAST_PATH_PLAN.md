@@ -1,6 +1,6 @@
 # Hot Reload Agent Fast-Path Plan
 
-Status: Phase 2 complete; Phase 3 not started
+Status: Phase 3 complete; Phase 4 not started
 Target: Swift Sim post-0.6 development cycle  
 Owner of architecture: Swift Sim maintainers  
 Implementation profile: deterministic CLI orchestration, cached session facts,
@@ -21,6 +21,14 @@ routing recorded zero live-inspector calls for no-change, structural, and
 mixed edits; warm scenarios recorded zero prohibited subprocesses. Local
 injected-seam p95 was 0.216 ms for no-change and 0.158 ms for structural
 decisions. These are route-boundary measurements, not physical-device proof.
+
+Phase 3 evidence: `test/changeDelivery.test.js` and the compact envelope
+contract tests. The terminal `deliver-change` path now classifies before live
+inspection, coalesces identical in-process requests, routes structural/live-
+unavailable/exhausted-recovery cases through exactly one existing signed-build
+adapter, and requires applied/refresh/revision proof before returning
+`hot-reloaded`. The tests use injected route/build seams; they do not claim
+physical-iPhone build or install latency.
 
 Execution rule for the implementing agent: implement the phases in order. Do
 not redesign the architecture, weaken the live-success contract, or skip an

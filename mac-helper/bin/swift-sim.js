@@ -17,9 +17,11 @@ import {
   routeLiveChanges,
   startLiveReload,
 } from "../src/liveReload.js";
+import { deliverChange } from "../src/changeDelivery.js";
 
 const rootDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const helperPath = join(rootDirectory, "mac-helper", "bin", "swift-sim-helper.js");
+const helperEntryPath = join(rootDirectory, "mac-helper", "bin", "swift-sim-helper-entry.js");
 const helperBaseURL = `http://127.0.0.1:${Number(process.env.SWIFT_SIM_PORT || 47217)}`;
 const marketplaceRoot = process.env.SWIFT_SIM_MARKETPLACE_ROOT || rootDirectory;
 const marketplaceName = "swift-sim";
@@ -45,6 +47,7 @@ async function main() {
   if (command === "live-start") return liveStart(args);
   if (command === "classify-change") return classifyChange(args);
   if (command === "route-change") return routeChange(args);
+  if (command === "deliver-change") return deliverChangeCommand(args);
   if (command === "pair") return pair(args);
 
   if (command === "serve") return runHelper(["serve", ...args], { inherit: true });
@@ -183,6 +186,76 @@ async function routeChange(args) {
       project: values.project, host: values.host, scheme: values.scheme,
     });
   console.log(JSON.stringify(await result, null, 2));
+}
+
+async function deliverChangeCommand(args) {
+  const { values } = parseArgs({ args, options: {
+    ...liveOptions(), workspace: { type: "string" },
+    before: { type: "string", multiple: true }, after: { type: "string", multiple: true },
+    "changes-manifest": { type: "string" }, configuration: { type: "string" },
+    "remote-base-url": { type: "string" }, delivery: { type: "string" },
+    "export-method": { type: "string" }, "ttl-minutes": { type: "string" },
+    "build-setting": { type: "string", multiple: true },
+    "allow-provisioning-updates": { type: "boolean" }, "replace-app-data": { type: "boolean" },
+    "verbose-json": { type: "boolean" },
+  }});
+  const files = values["changes-manifest"] ? readChangesManifest(values["changes-manifest"]) : deliveryFiles(values.before || [], values.after || []);
+  const result = await deliverChange({
+    files, project: values.project || "", workspace: values.workspace || "", host: values.host || "", scheme: values.scheme || "",
+    build: {
+      configuration: values.configuration || "Release", "remote-base-url": values["remote-base-url"] || "",
+      delivery: values.delivery || "", "export-method": values["export-method"] || "development",
+      "ttl-minutes": values["ttl-minutes"], "build-setting": values["build-setting"] || [],
+      "allow-provisioning-updates": Boolean(values["allow-provisioning-updates"]),
+      "replace-app-data": Boolean(values["replace-app-data"]),
+    },
+    runtimeCheck: deliveryRuntimeHealth, buildDevice: runDeliveryDeviceBuild,
+    verbose: Boolean(values["verbose-json"]),
+  });
+  console.log(values["verbose-json"] ? JSON.stringify(result, null, 2) : JSON.stringify(result));
+  if (["failed", "needs-user-action"].includes(result.outcome)) process.exitCode = 1;
+}
+
+function deliveryFiles(beforePaths, afterPaths) {
+  if (beforePaths.length === 0 || beforePaths.length !== afterPaths.length) throw new Error("Pass the same nonzero number of --before and --after Swift files.");
+  return beforePaths.map((beforePath, index) => ({ path: afterPaths[index] || beforePath, status: "modified", kind: "swift", beforePath, afterPath: afterPaths[index] }));
+}
+
+async function deliveryRuntimeHealth() {
+  try {
+    const response = await fetch(`${helperBaseURL}/health`, { cache: "no-store", signal: AbortSignal.timeout(1_200) });
+    let payload = null; try { payload = await response.json(); } catch {}
+    if (response.ok && payload?.helper === "swift-sim-helper" && payload?.version === packageJSON.version && Number(payload?.protocol) === 1) return { ok: true, version: payload.version, protocol: Number(payload.protocol) };
+    if (response.status === 503 || payload?.helper || payload?.version || payload?.protocol) return { ok: false, userAction: true, code: "PROTOCOL_MISMATCH", message: "Update Swift Sim, then start a new agent session." };
+    return { ok: false, userAction: true, code: "HELPER_UNAVAILABLE", message: "Swift Sim is not ready. Run swift-sim setup, then start a new agent session." };
+  } catch { return { ok: false, userAction: true, code: "HELPER_UNAVAILABLE", message: "Swift Sim is not ready. Run swift-sim setup, then start a new agent session." }; }
+}
+
+async function runDeliveryDeviceBuild(input) {
+  const helperArgs = ["build-device"];
+  const add = (flag, value) => { if (value !== undefined && value !== null && value !== "") helperArgs.push(flag, String(value)); };
+  add("--project", input.project); add("--workspace", input.workspace); add("--scheme", input.scheme); add("--configuration", input.configuration);
+  add("--remote-base-url", input["remote-base-url"]); add("--delivery", input.delivery); add("--export-method", input["export-method"]); add("--ttl-minutes", input["ttl-minutes"]);
+  for (const setting of input["build-setting"] || []) add("--build-setting", setting);
+  if (input["allow-provisioning-updates"]) helperArgs.push("--allow-provisioning-updates");
+  if (input["replace-app-data"]) helperArgs.push("--replace-app-data");
+  const result = spawnSync(process.execPath, [helperEntryPath, ...helperArgs], { encoding: "utf8", env: process.env, maxBuffer: 32 * 1024 * 1024 });
+  if (result.status !== 0) {
+    const error = new Error(compactError(result) || "The signed Swift Sim build failed.");
+    if (/outdated|protocol|version mismatch/i.test(error.message)) error.code = "PROTOCOL_MISMATCH";
+    throw error;
+  }
+  const parsed = parseJSONOutput(result.stdout);
+  if (!parsed) throw new Error("The signed Swift Sim build did not return a readable result.");
+  return parsed;
+}
+
+function parseJSONOutput(output) {
+  const value = String(output || "").trim(); if (!value) return null;
+  try { return JSON.parse(value); } catch {}
+  const start = value.indexOf("{"); const end = value.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try { return JSON.parse(value.slice(start, end + 1)); } catch { return null; }
 }
 
 function readChangesManifest(path) {
