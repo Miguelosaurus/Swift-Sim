@@ -12,22 +12,46 @@ import {
 
 const preloadURL = pathToFileURL(resolve("mac-helper/src/liveEngineOwnershipPreload.js")).href;
 
-test("live engine records require the exact process start identity", () => {
+test("live engine records require the exact kernel start, executable, group, and nonce", () => {
+  const executable = resolve(process.execPath);
   const record = {
+    version: 2,
+    pid: 321,
+    processGroup: 321,
+    startToken: "darwin:1780000000.123456",
+    executable,
+    instanceNonce: "11111111-1111-4111-8111-111111111111",
+  };
+  const identity = {
+    startToken: record.startToken,
+    processGroup: record.processGroup,
+    executable,
+    instanceNonce: record.instanceNonce,
+  };
+  assert.equal(liveEngineProcessRecordIsCurrent(record, {
+    engineExecutable: executable,
+    identity,
+  }), true);
+  assert.equal(liveEngineProcessRecordIsCurrent(record, {
+    engineExecutable: executable,
+    identity: { ...identity, startToken: "darwin:1780000000.123457" },
+  }), false);
+  assert.equal(liveEngineProcessRecordIsCurrent(record, {
+    engineExecutable: executable,
+    identity: { ...identity, executable: "/bin/sleep" },
+  }), false);
+  assert.equal(liveEngineProcessRecordIsCurrent(record, {
+    engineExecutable: executable,
+    identity: { ...identity, instanceNonce: "22222222-2222-4222-8222-222222222222" },
+  }), false);
+  assert.equal(liveEngineProcessRecordIsCurrent({
     version: 1,
     pid: 321,
     processGroup: 321,
     startedAt: "Sat Aug  1 23:00:00 2026",
-    executable: "/tmp/InjectionNext",
-  };
-  assert.equal(liveEngineProcessRecordIsCurrent(record, {
-    engineExecutable: "/tmp/InjectionNext",
-    startedAt: record.startedAt,
-  }), true);
-  assert.equal(liveEngineProcessRecordIsCurrent(record, {
-    engineExecutable: "/tmp/InjectionNext",
-    startedAt: "Sat Aug  1 23:01:00 2026",
-  }), false);
+    executable,
+  }, { engineExecutable: executable, identity }), false);
+  assert.equal(parseLiveEngineProcessRecord("321"), null);
   assert.equal(parseLiveEngineProcessRecord("not-json"), null);
 });
 
@@ -77,7 +101,9 @@ test("the live engine boundary kills the exact detached process group", async ()
     const { stdout, stderr, code } = await collect(child);
     assert.equal(code, 0, stderr);
     const observed = JSON.parse(stdout.trim());
-    assert.equal(observed.record.version, 1);
+    assert.equal(observed.record.version, 2);
+    assert.match(observed.record.startToken, /^(?:darwin|linux):/);
+    assert.match(observed.record.instanceNonce, /^[0-9a-f-]{36}$/i);
     assert.equal(observed.record.pid, observed.record.processGroup);
     assert.equal(observed.engineAlive, false);
     assert.equal(observed.descendantAlive, false);
@@ -92,11 +118,12 @@ test("a stale live engine record cannot authorize a reused PID", async () => {
   const sleeper = spawn("/bin/sleep", ["30"], { detached: true, stdio: "ignore" });
   try {
     const stale = JSON.stringify({
-      version: 1,
+      version: 2,
       pid: sleeper.pid,
       processGroup: sleeper.pid,
-      startedAt: "stale-start-identity",
+      startToken: "darwin:stale-start-identity",
       executable: process.execPath,
+      instanceNonce: "33333333-3333-4333-8333-333333333333",
     });
     const writer = spawnSync("/bin/sh", ["-c", "printf '%s' \"$1\" > \"$2\"", "sh", stale, pidPath]);
     assert.equal(writer.status, 0, writer.stderr?.toString());
