@@ -2,7 +2,7 @@
 
 Base main head: `c7090b14c6f1fd12af9c311b1954b79b00c415ac`
 
-Final code candidate before this ledger commit: `f60c8e237ed21a22cedd2a6a13e2b3b9412d4cd7`
+Final code candidate before this ledger commit: `08e9dbeaf0e3658928b76532eff38485f4577699`
 
 ## Result
 
@@ -61,7 +61,7 @@ Coverage includes kernel process-start tokens, executable and instance-nonce mis
 
 ## Validation policy
 
-The self-cleaning transformation that produced code head `f60c8e237ed21a22cedd2a6a13e2b3b9412d4cd7` passed the focused post-merge and workspace-package regressions, the complete Node/release suite through `npm run check`, workflow YAML validation, and release-shell syntax before publishing. The temporary transformer and workflow were removed in that same commit.
+The self-cleaning transformations that produced code head `08e9dbeaf0e3658928b76532eff38485f4577699` passed their focused lifecycle, generic-lock, scheme-authority, workspace-package, engine-ownership, and post-merge regressions. All temporary transformers, workflows, and diagnostics were removed from the candidate.
 
 This connector-authored ledger commit is the final exact-head validation and review trigger. Merge readiness requires the resulting head to pass the normal Verify workflow in full, all remaining Codex threads to be resolved, and one clean exact-head Codex review.
 
