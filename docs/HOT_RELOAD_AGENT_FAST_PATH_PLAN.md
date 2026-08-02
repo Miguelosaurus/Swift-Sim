@@ -1,6 +1,6 @@
 # Hot Reload Agent Fast-Path Plan
 
-Status: Phase 3 complete; Phase 4 not started
+Status: Phase 4 complete; Phase 5 not started
 Target: Swift Sim post-0.6 development cycle  
 Owner of architecture: Swift Sim maintainers  
 Implementation profile: deterministic CLI orchestration, cached session facts,
@@ -29,6 +29,15 @@ unavailable/exhausted-recovery cases through exactly one existing signed-build
 adapter, and requires applied/refresh/revision proof before returning
 `hot-reloaded`. The tests use injected route/build seams; they do not claim
 physical-iPhone build or install latency.
+
+Phase 4 evidence: `test/agentSkillFastPath.test.js` and the packaged skill
+references under `plugins/swift-sim-companion/skills/remote-simulator-companion/`.
+The primary skill is 665 words and 5,019 UTF-8 bytes; setup, live integration,
+signed builds, pairing, Simulator preview, troubleshooting, and security are
+lazy references. Transcript fixtures cover ordinary edits (zero Swift Sim
+commands), one-command warm edits, structural/fallback wording, protocol
+drift, and the separate Simulator lane. The fixtures are deterministic static
+contracts; physical-iPhone latency remains Phase 5.
 
 Execution rule for the implementing agent: implement the phases in order. Do
 not redesign the architecture, weaken the live-success contract, or skip an
