@@ -16,30 +16,30 @@ export async function deliverChange({ files = [], project = "", workspace = "", 
 async function deliverOnce({ files, project, workspace, host, scheme, build, runtime, route, buildDevice, runtimeCheck, verbose, now }) {
   const startedAt = now();
   const change = classifyEditSet({ files });
-  if (change.route === "no-change") return finish(deliveryEnvelope({ outcome: "no-change", message: "No Swift source changes need delivery.", timing: { totalMs: elapsed(now, startedAt) } }), !verbose);
+  if (change.route === "no-change") return finish(deliveryEnvelope({ outcome: "no-change", message: "No Swift source changes need delivery.", timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { route: "none" }) }), !verbose);
   if (typeof buildDevice !== "function") return failedEnvelope("BUILD_ADAPTER_MISSING", "Swift Sim could not start the signed build workflow.");
   const health = await checkRuntime(runtimeCheck);
-  if (!health.ok) return finish(deliveryEnvelope({ outcome: health.userAction ? "needs-user-action" : "failed", message: health.message, reasonCode: health.code, error: { code: health.code, message: health.message }, timing: { totalMs: elapsed(now, startedAt) } }), !verbose);
-  if (change.route === "rebuild-required") return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: change.reasonCode, startedAt, now }), !verbose);
+  if (!health.ok) return finish(deliveryEnvelope({ outcome: health.userAction ? "needs-user-action" : "failed", message: health.message, reasonCode: health.code, error: { code: health.code, message: health.message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { runtime: { code: health.code } }) }), !verbose);
+  if (change.route === "rebuild-required") return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: change.reasonCode, startedAt, now, verbose, diagnostic: { action: "build-device", reasonCode: change.reasonCode } }), !verbose);
   const routed = await route({ files, project, host, scheme, runtime: { ...runtime, classify: () => change } });
   if (routed?.action === "hot-reload") {
     const proof = liveProof(routed);
-    if (proof.valid) return finish(deliveryEnvelope({ outcome: "hot-reloaded", message: "Hot reloaded successfully. Test it now on your iPhone in the running Debug app—no install needed.", delivery: { kind: "live", revision: proof.revision }, timing: { totalMs: elapsed(now, startedAt) } }), !verbose);
+    if (proof.valid) return finish(deliveryEnvelope({ outcome: "hot-reloaded", message: "Hot reloaded successfully. Test it now on your iPhone in the running Debug app—no install needed.", delivery: { kind: "live", revision: proof.revision }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { action: routed.action, reasonCode: routed.reasonCode }) }), !verbose);
   }
-  if (routed?.action === "none") return finish(deliveryEnvelope({ outcome: "no-change", message: "No Swift source changes need delivery.", timing: { totalMs: elapsed(now, startedAt) } }), !verbose);
-  return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: routed?.reasonCode || "LIVE_NOT_READY", startedAt, now }), !verbose);
+  if (routed?.action === "none") return finish(deliveryEnvelope({ outcome: "no-change", message: "No Swift source changes need delivery.", timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { action: routed.action, reasonCode: routed.reasonCode }) }), !verbose);
+  return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: routed?.reasonCode || "LIVE_NOT_READY", startedAt, now, verbose, diagnostic: { action: routed?.action || "build-device", reasonCode: routed?.reasonCode || "LIVE_NOT_READY" } }), !verbose);
 }
 
-async function fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode, startedAt, now }) {
+async function fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode, startedAt, now, verbose = false, diagnostic = undefined }) {
   let built;
   try { built = await buildDevice({ ...build, project, workspace, scheme, change }); } catch (error) {
     const message = safeError(error); const code = error?.code || buildErrorCode(message);
-    return deliveryEnvelope({ outcome: code === "PROTOCOL_MISMATCH" || code === "HELPER_UNAVAILABLE" ? "needs-user-action" : "failed", message, reasonCode: code, error: { code, message }, timing: { totalMs: elapsed(now, startedAt) } });
+    return deliveryEnvelope({ outcome: code === "PROTOCOL_MISMATCH" || code === "HELPER_UNAVAILABLE" ? "needs-user-action" : "failed", message, reasonCode: code, error: { code, message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
   }
   const link = installDelivery(built);
-  if (!link) return deliveryEnvelope({ outcome: "failed", message: "The signed build finished without a usable Swift Sim install link.", reasonCode: "INSTALL_LINK_MISSING", error: { code: "INSTALL_LINK_MISSING", message: "The signed build did not return a universal install link." }, timing: { totalMs: elapsed(now, startedAt) } });
+  if (!link) return deliveryEnvelope({ outcome: "failed", message: "The signed build finished without a usable Swift Sim install link.", reasonCode: "INSTALL_LINK_MISSING", error: { code: "INSTALL_LINK_MISSING", message: "The signed build did not return a universal install link." }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
   const warnings = Array.isArray(built?.signing?.warnings) ? built.signing.warnings.filter(Boolean).slice(0, 3) : [];
-  return deliveryEnvelope({ outcome: "install-link-ready", message: "This change needs a new signed build.", reasonCode, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) } });
+  return deliveryEnvelope({ outcome: "install-link-ready", message: "This change needs a new signed build.", reasonCode, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
 }
 
 function installDelivery(build) {
@@ -69,6 +69,7 @@ function finish(value, compact) {
   const max = value.outcome === "install-link-ready" ? 2048 : 1024;
   return Buffer.byteLength(JSON.stringify(value)) <= max ? value : failedEnvelope("DELIVERY_ENVELOPE_TOO_LARGE", "Swift Sim returned an oversized delivery result.");
 }
+function diagnostics(verbose, value) { return verbose && value ? { diagnostics: value } : {}; }
 function failedEnvelope(code, message) { return deliveryEnvelope({ outcome: "failed", message: String(message), reasonCode: String(code), error: { code: String(code), message: String(message) } }); }
 function elapsed(now, start) { return Math.max(0, Number(now()) - Number(start)); }
 function buildErrorCode(message) { if (/outdated|different|protocol|version mismatch/i.test(message)) return "PROTOCOL_MISMATCH"; if (/sign|provision|certificate|identity|entitlement/i.test(message)) return "SIGNING_FAILED"; if (/missing|required|project|workspace|scheme/i.test(message)) return "BUILD_INPUT_INVALID"; return "BUILD_FAILED"; }
