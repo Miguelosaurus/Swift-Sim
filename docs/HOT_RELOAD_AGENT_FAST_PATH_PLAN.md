@@ -1,6 +1,6 @@
 # Hot Reload Agent Fast-Path Plan
 
-Status: Phase 4 complete; Phase 5 not started
+Status: Phase 5 hardware gate blocked; Phase 6 local gates complete
 Target: Swift Sim post-0.6 development cycle  
 Owner of architecture: Swift Sim maintainers  
 Implementation profile: deterministic CLI orchestration, cached session facts,
@@ -38,6 +38,23 @@ lazy references. Transcript fixtures cover ordinary edits (zero Swift Sim
 commands), one-command warm edits, structural/fallback wording, protocol
 drift, and the separate Simulator lane. The fixtures are deterministic static
 contracts; physical-iPhone latency remains Phase 5.
+
+Phase 5 hardware evidence: `swift-sim doctor --json` reported device installs,
+the live engine, and the private Tailnet route ready. The paired iPhone was
+listed by CoreDevice with `pairingState: paired` but
+`tunnelState: unavailable`; the bounded CatalogApp physical smoke stopped
+before install/patch proof. Its signed fixture build also failed closed because
+the selected Xcode team had no authenticated account or provisioning profile.
+No physical latency or hot-reload success claim is made from this attempt.
+
+Phase 6 local evidence: all Node checks pass (421 tests); the core, Liquid
+Glass, native-surface, and mechanism corpora validate (240/34/31/17 cases); the
+static matrix reports zero dangerous false-live results across 966 executions;
+Swift package tests, YAML/shell validation, and native iOS Simulator tests pass.
+The HEAD archive includes the primary skill, all seven references, and the
+three plugin manifests. Public Homebrew rendering remains pending because the
+published `v0.6.0` GitHub archive currently returns HTTP 404; a local archive
+and formula render were verified separately.
 
 Execution rule for the implementing agent: implement the phases in order. Do
 not redesign the architecture, weaken the live-success contract, or skip an
