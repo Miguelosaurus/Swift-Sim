@@ -177,7 +177,13 @@ swift-sim build-device \
   --allow-provisioning-updates
 ```
 
-Swift Sim captures the exact frontend commands from this baseline build. Later edits use `swift-sim route-change`; structural edits or any patch without a compiler, client, replacement, and root-revision acknowledgment automatically return to the normal signed-build lane.
+Swift Sim captures the exact frontend commands from this baseline build. Later
+edits use `swift-sim deliver-change` exactly once per completed logical change;
+structural edits or any patch without a compiler, client, replacement, and
+root-revision acknowledgment automatically return to the normal signed-build
+lane. The agent does not run doctor, status checks, screenshots, or UI analysis
+before each warm edit. `route-change` remains available for compatibility,
+diagnostics, and benchmark tooling.
 
 Install that build normally through Swift Sim, open it, and leave it running while editing. The shared agent skill routes compatible body changes through live injection and automatically returns to the normal signed-update workflow for structural changes.
 

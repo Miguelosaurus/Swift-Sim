@@ -175,12 +175,17 @@ applications are never retried automatically.
 
 The coding agent adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at the app's root view as a one-time project change. The user does not operate the engine or scatter Swift Sim code through the app. Release builds make the modifier a no-op.
 
-The coding-agent integration runs `swift-sim route-change` to choose the safe path:
+The coding-agent integration runs `swift-sim deliver-change` once per completed
+logical edit to choose the safe path:
 
 - Compatible implementation and SwiftUI body edits are attempted when the live lane is connected. SwiftUI changes use compiler-supported dynamic replacement and count as successful only after the running app acknowledges a new root revision.
 - Stored properties, type shape, function signatures, imports, packages, resources, assets, configuration, entitlements, and signing changes create a fresh signed update link.
 - If compilation, delivery, runtime replacement, or root refresh cannot be proved within a few seconds, the agent falls back to a normal build.
 - Multi-file implementation edits can reload in one routed operation. If any changed file crosses a structural boundary, the entire edit uses a fresh signed update instead.
+
+The normal warm loop does not run doctor, live-status, screenshots, or UI
+analysis before each edit. `route-change` remains available for compatibility,
+diagnostics, and benchmark tooling.
 
 This is a development feature, not downloadable-code support for App Store builds. It requires one initial live-enabled Debug install and Tailscale on both devices. See [Setup](docs/SETUP.md) for the one-time preparation.
 

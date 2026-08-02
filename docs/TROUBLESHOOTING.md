@@ -98,9 +98,17 @@ Do not make port 8887 public to work around connectivity. Use the normal Swift S
 
 ## A Live Edit Did Not Appear
 
-Run `swift-sim route-change` with the before and after Swift files. If it returns `build-device`, the change crossed a structural boundary and needs a new link.
+Run `swift-sim deliver-change` with the before and after Swift files. It owns
+classification, warm readiness, one bounded recovery, strict proof, and the
+signed-build fallback. `hot-reloaded` is success only when the running app
+acknowledged an applied replacement, refresh, and new revision.
 
-If it returns `hot-reload`, Swift Sim proved the patch completed and the running app acknowledged a new root revision. `hot-reload-failed` is actionable fallback—not partial success—so immediately run the normal `swift-sim build-device` flow and return a fresh update link. A compiler error, missing replacement descriptor, missing refresh acknowledgment, disconnected or locked device, or timeout all take that fallback. Do not repeatedly inject a structural change or capture a screenshot for each edit.
+An `install-link-ready` result means the edit crossed a structural boundary or
+live proof was unavailable; open the returned link. A compiler error, missing
+replacement descriptor, missing refresh acknowledgment, disconnected or
+locked device, timeout, or partial application is not a live success. Do not
+run screenshots, repeat doctor/status checks, or repeatedly inject the same
+edit. `route-change` remains available for diagnostics and benchmarks.
 
 ## Temporary Delivery Tunnel Fails
 
