@@ -12,6 +12,7 @@ import {
 } from "../mac-helper/src/liveEngineOwnershipPreload.js";
 
 const preloadURL = pathToFileURL(resolve("mac-helper/src/liveEngineOwnershipPreload.js")).href;
+const childBoundaryURL = pathToFileURL(resolve("mac-helper/src/swiftSimChildRuntimeBoundary.js")).href;
 
 test("live engine records require the exact kernel start, executable, group, and nonce", () => {
   const executable = resolve(process.execPath);
@@ -54,6 +55,52 @@ test("live engine records require the exact kernel start, executable, group, and
   }, { engineExecutable: executable, identity }), false);
   assert.equal(parseLiveEngineProcessRecord("321"), null);
   assert.equal(parseLiveEngineProcessRecord("not-json"), null);
+});
+
+test("live ownership composes with the child runtime boundary", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-live-composed-owner-"));
+  const pidPath = join(directory, "engine.pid");
+  const script = `
+    import { spawn } from 'node:child_process';
+    import { readFileSync, writeFileSync } from 'node:fs';
+    import { installSwiftSimChildRuntimeBoundary } from ${JSON.stringify(childBoundaryURL)};
+    import {
+      installLiveEngineOwnershipBoundary,
+      readPublishedLiveEngineRecord,
+    } from ${JSON.stringify(preloadURL)};
+
+    installLiveEngineOwnershipBoundary({
+      engineExecutable: process.execPath,
+      pidPath: ${JSON.stringify(pidPath)},
+    });
+    installSwiftSimChildRuntimeBoundary();
+    const engine = spawn(process.execPath, ['-e', "setInterval(() => {}, 1000)"], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    writeFileSync(${JSON.stringify(pidPath)}, String(engine.pid), { mode: 0o600 });
+    const record = readPublishedLiveEngineRecord(${JSON.stringify(pidPath)});
+    try { process.kill(-engine.pid, 'SIGKILL'); } catch {}
+    console.log(JSON.stringify({
+      version: record?.version || 0,
+      hasNonce: Boolean(record?.instanceNonce),
+      processGroup: record?.processGroup || 0,
+    }));
+  `;
+
+  try {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { stdout, stderr, code } = await collect(child);
+    assert.equal(code, 0, stderr);
+    const observed = JSON.parse(stdout.trim());
+    assert.equal(observed.version, 2);
+    assert.equal(observed.hasNonce, true);
+    assert.equal(observed.processGroup > 1, true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("the live engine boundary kills the exact detached process group", async () => {

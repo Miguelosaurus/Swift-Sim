@@ -4,8 +4,6 @@ import { replaceSwiftSimNodeImport } from "./runtimePreloadOptions.js";
 
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
-const originalSpawn = childProcess.spawn;
-const originalSpawnSync = childProcess.spawnSync;
 const SWIFT_SIM_RAW_CHILDREN = new Set([
   "swift-sim-helper.js",
   "swift-sim-device-delivery.js",
@@ -20,10 +18,14 @@ export function installSwiftSimChildRuntimeBoundary({
   installedPreloadURL = String(preloadURL || installedPreloadURL || "");
   if (installed) return;
   installed = true;
+  // Capture the implementation installed so far so this boundary composes
+  // with the live-engine ownership wrapper.
+  const spawnImplementation = childProcess.spawn;
+  const spawnSyncImplementation = childProcess.spawnSync;
 
   childProcess.spawn = function guardedSpawn(command, args, options) {
     const normalized = normalizeInvocation(args, options);
-    return originalSpawn.call(
+    return spawnImplementation.call(
       this,
       command,
       normalized.args,
@@ -32,7 +34,7 @@ export function installSwiftSimChildRuntimeBoundary({
   };
   childProcess.spawnSync = function guardedSpawnSync(command, args, options) {
     const normalized = normalizeInvocation(args, options);
-    return originalSpawnSync.call(
+    return spawnSyncImplementation.call(
       this,
       command,
       normalized.args,

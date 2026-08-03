@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
-const originalSpawn = childProcess.spawn;
 const originalSpawnSync = childProcess.spawnSync;
 const originalReadFileSync = fs.readFileSync;
 const originalWriteFileSync = fs.writeFileSync;
@@ -47,6 +46,9 @@ export function installLiveEngineOwnershipBoundary({
   configuredPIDPath = resolve(String(pidPath));
   if (installed) return;
   installed = true;
+  // Capture the implementation installed so far so this boundary composes
+  // with the child-runtime hardening wrapper.
+  const spawnImplementation = childProcess.spawn;
 
   childProcess.spawn = function guardedSpawn(command, args, options) {
     const normalized = normalizeInvocation(args, options);
@@ -68,7 +70,7 @@ export function installLiveEngineOwnershipBoundary({
         },
       };
     }
-    const child = originalSpawn.call(this, command, normalized.args, normalized.options);
+    const child = spawnImplementation.call(this, command, normalized.args, normalized.options);
     if (!engineSpawn) return child;
 
     // A failed spawn otherwise emits an unhandled `error` because the legacy

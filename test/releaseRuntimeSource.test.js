@@ -10,9 +10,11 @@ const packageJSON = JSON.parse(readFileSync(new URL("../package.json", import.me
 test("CLI installs child-only hardening before loading the implementation", () => {
   const workerIndex = cliEntry.indexOf("ownedWorkerPreload.js");
   const boundaryIndex = cliEntry.indexOf("installSwiftSimChildRuntimeBoundary()");
+  const ownershipIndex = cliEntry.indexOf("installLiveEngineOwnershipBoundary()");
   const importIndex = cliEntry.indexOf('await import("./swift-sim.js")');
   assert.ok(workerIndex >= 0);
-  assert.ok(boundaryIndex > workerIndex);
+  assert.ok(ownershipIndex > workerIndex);
+  assert.ok(boundaryIndex > ownershipIndex);
   assert.ok(importIndex > boundaryIndex);
   assert.doesNotMatch(cliEntry, /process\.env\.NODE_OPTIONS/);
   assert.match(cliEntry, /rememberHelperStateForUpdate/);
@@ -24,15 +26,19 @@ test("CLI installs child-only hardening before loading the implementation", () =
 test("helper entrypoint composes child hardening after owned-worker supervision", () => {
   const workerIndex = helperEntry.indexOf("ownedWorkerPreload.js");
   const boundaryIndex = helperEntry.indexOf("installSwiftSimChildRuntimeBoundary()");
+  const ownershipIndex = helperEntry.indexOf("installLiveEngineOwnershipBoundary()");
   assert.ok(workerIndex >= 0);
-  assert.ok(boundaryIndex > workerIndex);
+  assert.ok(ownershipIndex > workerIndex);
+  assert.ok(boundaryIndex > ownershipIndex);
   assert.match(helperEntry, /runtimeHealthPreload\.js/);
   assert.doesNotMatch(helperEntry, /process\.env\.NODE_OPTIONS/);
 
   const preloadWorkerIndex = preload.indexOf("ownedWorkerPreload.js");
   const preloadBoundaryIndex = preload.indexOf("installSwiftSimChildRuntimeBoundary()");
+  const preloadOwnershipIndex = preload.indexOf("installLiveEngineOwnershipBoundary()");
   assert.ok(preloadWorkerIndex >= 0);
-  assert.ok(preloadBoundaryIndex > preloadWorkerIndex);
+  assert.ok(preloadOwnershipIndex > preloadWorkerIndex);
+  assert.ok(preloadBoundaryIndex > preloadOwnershipIndex);
   assert.match(preload, /script === "swift-sim-helper\.js"/);
   assert.match(preload, /script === "swift-sim-device-gateway\.js"/);
   assert.match(preload, /script === "swift-sim-device-delivery\.js"/);
