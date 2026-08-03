@@ -45,6 +45,8 @@ export async function reconcileHelperRuntime({ startIfStopped = true } = {}) {
         detail: `Mac helper ${action === "restart" ? "restarted" : "started"} with Homebrew services`,
       };
     }
+    const recovered = await recoverHomebrewHelperPort({ brew, action, port });
+    if (recovered) return recovered;
     throw new Error(
       compactError(service)
         || `Homebrew could not ${action} a compatible Swift Sim helper on port ${port}.`
@@ -64,6 +66,23 @@ export async function reconcileHelperRuntime({ startIfStopped = true } = {}) {
     throw new Error(`A compatible Mac helper did not start. Check ${helperLogPath()}.`);
   }
   return { id: "helper", state: "started", detail: "Compatible Mac helper started for this user session" };
+}
+
+async function recoverHomebrewHelperPort({ brew, action, port }) {
+  const stopped = await stopOwnedStandaloneHelper(port, { allowMissing: true });
+  if (!stopped) return null;
+  const retry = runCapture(brew, ["services", action, "swift-sim"]);
+  if (retry.status === 0 && await waitForCompatibleHelper()) {
+    return {
+      id: "helper",
+      state: action === "restart" ? "restarted" : "started",
+      detail: `Mac helper ${action === "restart" ? "restarted" : "started"} with Homebrew services after replacing an older listener`,
+    };
+  }
+  throw new Error(
+    compactError(retry)
+      || `Homebrew could not ${action} a compatible Swift Sim helper on port ${port} after replacing an older listener.`
+  );
 }
 
 export function installCompatibleHelperHealthFetchBoundary({

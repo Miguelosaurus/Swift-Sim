@@ -6,11 +6,13 @@ import {
   classifyLiveChanges,
   generateDynamicReplacementSource,
   LIVE_REASON_CODES,
+  LIVE_COMPILER_REGISTRATION_TIMEOUT_MS,
+  registerLiveBuildResult,
   routeLiveEditSet,
   injectLiveSource,
   inspectLiveReloadWarm,
 } from "../mac-helper/src/liveReload.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -127,6 +129,61 @@ test("valid warm readiness uses only the engine status seam", async () => {
     deepInspect: async () => { deepCalls += 1; return { ready: false }; },
   } });
   assert.equal(result.ready, true); assert.equal(result.readinessMode, "warm"); assert.equal(statusCalls, 1); assert.equal(deepCalls, 0);
+});
+
+test("compiler registration allows a slow bounded command and preserves context", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-live-registration-"));
+  const resultBundle = join(directory, "Build.xcresult");
+  const sourcePath = join(directory, "PhoneNumberKit.swift");
+  const command = `/usr/bin/swift-frontend -frontend -c -module-name PhoneNumberKit -sdk /tmp/iPhoneOS.sdk -target arm64-apple-ios18.0 ${sourcePath} -file-compilation-dir ${directory}`;
+  writeFileSync(resultBundle, "fixture");
+  writeFileSync(sourcePath, "struct PhoneNumberKitFixture {}\n");
+  const liveManifestPath = join(directory, "compilations.json");
+  let requestedTimeout = 0;
+  const startedAt = Date.now();
+  try {
+    const result = await registerLiveBuildResult({
+      resultBundle,
+      runtime: {
+        buildLog: { emittedOutput: command },
+        liveManifestPath,
+        engineControl: async (_request, options) => {
+          requestedTimeout = options.timeoutMs;
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          return { success: true, data: { registered_count: 2, sources: [sourcePath] } };
+        },
+      },
+    });
+    assert.ok(Date.now() - startedAt > 750);
+    assert.equal(requestedTimeout, LIVE_COMPILER_REGISTRATION_TIMEOUT_MS);
+    assert.equal(result.registered, 2);
+    assert.deepEqual(result.sources, [sourcePath]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("compiler registration timeout errors retain module and command context", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-live-registration-timeout-"));
+  const resultBundle = join(directory, "Build.xcresult");
+  const sourcePath = join(directory, "PhoneNumberKit.swift");
+  const command = `/usr/bin/swift-frontend -frontend -c -module-name PhoneNumberKit -sdk /tmp/iPhoneOS.sdk -target arm64-apple-ios18.0 ${sourcePath} -file-compilation-dir ${directory}`;
+  writeFileSync(resultBundle, "fixture");
+  try {
+    await assert.rejects(
+      registerLiveBuildResult({
+        resultBundle,
+        runtime: {
+          buildLog: { emittedOutput: command },
+          liveManifestPath: join(directory, "compilations.json"),
+          engineControl: async () => null,
+        },
+      }),
+      /Live compiler registration failed \(module PhoneNumberKit, 1 Swift source, command 1\/1, working directory .*\): the engine response timed out or disconnected after 5000 ms\./,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("ignores declaration words inside comments and strings", () => {

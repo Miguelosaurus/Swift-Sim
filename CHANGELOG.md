@@ -24,6 +24,13 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Preserved live-engine ownership metadata when the child-runtime hardening
   wrapper and live-engine launcher are installed together, so `live-start` can
   publish and later verify the exact engine process.
+- Bounded live compiler registration separately from fast engine status probes,
+  preserving module and command context when a large Swift compilation times
+  out.
+- Deferred delivery-reference cleanup while the device-build state lock is held,
+  keeping the helper alive so the next maintenance interval can retry.
+- Recovered Homebrew setup from an owned stale helper listener after an address-
+  in-use restart failure.
 
 ## 0.6.1 - 2026-08-02
 
@@ -35,6 +42,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Lazy-loaded agent references and deterministic transcript contracts so the
   normal edit loop stays short while setup, Simulator, build, and troubleshooting
   guidance remains available when needed.
+- Documented the immutable SwiftPM revision required by the Swift Sim engine fork
+  until a matching semver dependency is available.
 - Local corpus, static-safety, package, and native Simulator release gates for
   the fast path.
 

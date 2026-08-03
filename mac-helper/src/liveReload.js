@@ -24,6 +24,8 @@ import { buildLiveSessionDescriptor, publishLiveSessionDescriptor, readLiveSessi
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
+export const LIVE_ENGINE_CONTROL_TIMEOUT_MS = 750;
+export const LIVE_COMPILER_REGISTRATION_TIMEOUT_MS = 5_000;
 
 export const LIVE_REASON_CODES = Object.freeze({
   NO_CHANGE: "NO_CHANGE",
@@ -494,20 +496,15 @@ export async function withLiveBuildSession(options, operation, runtime = {}) {
   });
 }
 
-async function registerLiveBuildResultUnlocked({ resultBundle }) {
+async function registerLiveBuildResultUnlocked({ resultBundle, runtime = {} }) {
   const path = resolve(resultBundle || "");
   if (!existsSync(path)) {
     throw new Error("The Xcode result bundle is missing.");
   }
-  const result = spawnSync(
-    "xcrun",
-    ["xcresulttool", "get", "log", "--path", path, "--type", "build", "--compact"],
-    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }
-  );
-  if (result.status !== 0) {
-    throw new Error(String(result.stderr || "Unable to read the Xcode build log.").trim());
-  }
-  const log = JSON.parse(result.stdout);
+  const log = runtime.buildLog ?? readXcodeBuildLog(path);
+  const control = typeof runtime.engineControl === "function"
+    ? runtime.engineControl
+    : engineControl;
   const commands = [...new Set(frontendCommandLines(log))]
     .map((command) => {
       const tokens = splitShellCommand(command);
@@ -522,13 +519,17 @@ async function registerLiveBuildResultUnlocked({ resultBundle }) {
   let registered = 0;
   const sources = new Set();
   const compilationContexts = [];
-  for (const command of commands) {
-    const response = await engineControl({
+  for (const [index, command] of commands.entries()) {
+    const response = await control({
       action: "register_compilations",
       commands: [command],
-    });
+    }, { timeoutMs: LIVE_COMPILER_REGISTRATION_TIMEOUT_MS });
     if (!response?.success) {
-      throw new Error(response?.error || "The live engine rejected a compiler command.");
+      const context = compilerRegistrationContext(command, index, commands.length);
+      const detail = response?.error
+        ? `: ${response.error}`
+        : `: the engine response timed out or disconnected after ${LIVE_COMPILER_REGISTRATION_TIMEOUT_MS} ms`;
+      throw new Error(`Live compiler registration failed (${context})${detail}.`);
     }
     registered += Number(response.data?.registered_count || 0);
     for (const source of response.data?.sources || []) sources.add(source);
@@ -540,13 +541,35 @@ async function registerLiveBuildResultUnlocked({ resultBundle }) {
       "The build completed without capturable Swift frontend commands. Make a clean Debug build with EMIT_FRONTEND_COMMAND_LINES=YES."
     );
   }
-  mkdirSync(LIVE_ROOT, { recursive: true });
-  writeFileSync(LIVE_MANIFEST, `${JSON.stringify({
+  const liveManifestPath = resolve(String(runtime.liveManifestPath || LIVE_MANIFEST));
+  mkdirSync(dirname(liveManifestPath), { recursive: true });
+  writeFileSync(liveManifestPath, `${JSON.stringify({
     version: 1,
     capturedAt: new Date().toISOString(),
     compilations: compilationContexts,
   }, null, 2)}\n`, { mode: 0o600 });
   return { registered, sources: [...sources].sort() };
+}
+
+function readXcodeBuildLog(path) {
+  const result = spawnSync(
+    "xcrun",
+    ["xcresulttool", "get", "log", "--path", path, "--type", "build", "--compact"],
+    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }
+  );
+  if (result.status !== 0) {
+    throw new Error(String(result.stderr || "Unable to read the Xcode build log.").trim());
+  }
+  return JSON.parse(result.stdout);
+}
+
+function compilerRegistrationContext(command, index, total) {
+  const args = command.arguments || [];
+  const moduleName = argumentValue(args, "-module-name") || "unknown module";
+  const sourceCount = args.filter((value) => String(value).endsWith(".swift")).length;
+  const sourceLabel = `${sourceCount} Swift source${sourceCount === 1 ? "" : "s"}`;
+  const workingDirectory = command.working_directory || "unknown working directory";
+  return `module ${moduleName}, ${sourceLabel}, command ${index + 1}/${total}, working directory ${workingDirectory}`;
 }
 
 function dynamicReplacementContext(command) {
@@ -2018,7 +2041,7 @@ function decodeXMLAttribute(value) {
     .replaceAll("&amp;", "&");
 }
 
-async function engineControl(request) {
+async function engineControl(request, { timeoutMs = LIVE_ENGINE_CONTROL_TIMEOUT_MS } = {}) {
   if (!existsSync(ENGINE_SOCKET)) return null;
   return new Promise((resolveRequest) => {
     const socket = createConnection({ path: ENGINE_SOCKET });
@@ -2030,7 +2053,7 @@ async function engineControl(request) {
       socket.destroy();
       resolveRequest(value);
     };
-    socket.setTimeout(750);
+    socket.setTimeout(timeoutMs);
     socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on("data", (chunk) => {
       response += chunk.toString("utf8");

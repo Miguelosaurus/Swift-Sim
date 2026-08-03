@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import {
   DeviceBuildStore as DeviceBuildStoreCore,
+  BUILD_STATE_LOCK_TIMEOUT_CODE,
   MAX_DEVICE_BUILD_LOG_LINES,
   deviceAppIdentity,
 } from "./deviceBuildStoreCore.js";
@@ -421,7 +422,11 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
           rmSync(this.lockPath, { recursive: true, force: true });
           continue;
         }
-        if (Date.now() >= deadline) throw new Error("Timed out waiting for the Swift Sim build-state lock.");
+        if (Date.now() >= deadline) {
+          const timeout = new Error("Timed out waiting for the Swift Sim build-state lock.");
+          timeout.code = BUILD_STATE_LOCK_TIMEOUT_CODE;
+          throw timeout;
+        }
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
       }
     }

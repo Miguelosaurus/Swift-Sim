@@ -211,6 +211,28 @@ Do not publish port 8887 through Funnel, Cloudflare Quick Tunnel, public DNS, ro
 
 Do not add live loading to Release, TestFlight, or App Store configurations.
 
+## Swift Package Manager Version Pin
+
+The `SwiftSimLive` package intentionally pins the Swift Sim InjectionNext fork
+to an immutable revision. The upstream semver tags do not contain Swift Sim's
+headless control protocol, so changing the dependency to a stable InjectionNext
+version removes the engine behavior that live registration requires.
+
+If SwiftPM reports that a stable Swift Sim package depends on an unstable
+`InjectionNext` revision, pin Swift Sim itself to an immutable commit in the
+app's `Package.swift`:
+
+```swift
+.package(
+    url: "https://github.com/Miguelosaurus/Swift-Sim.git",
+    revision: "<immutable Swift Sim commit>"
+)
+```
+
+Use the commit from the Swift Sim release being installed. Do not use an exact
+Swift Sim version until the engine fork publishes a semver tag for the matching
+control-protocol revision.
+
 ## Update Swift Sim
 
 Run:

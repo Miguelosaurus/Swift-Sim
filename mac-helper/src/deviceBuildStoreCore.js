@@ -6,6 +6,7 @@ import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import { runRequiredBuildValidation } from "./buildValidation.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
+export const BUILD_STATE_LOCK_TIMEOUT_CODE = "SWIFT_SIM_BUILD_STATE_LOCK_TIMEOUT";
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const ACTIVE_INSTALL_OBSERVATION_STATES = new Set(["requested", "not-installed", "different-version"]);
@@ -305,7 +306,11 @@ export class DeviceBuildStore {
           rmSync(this.lockPath, { recursive: true, force: true });
           continue;
         }
-        if (Date.now() >= deadline) throw new Error("Timed out waiting for the Swift Sim build-state lock.");
+        if (Date.now() >= deadline) {
+          const timeout = new Error("Timed out waiting for the Swift Sim build-state lock.");
+          timeout.code = BUILD_STATE_LOCK_TIMEOUT_CODE;
+          throw timeout;
+        }
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
       }
     }

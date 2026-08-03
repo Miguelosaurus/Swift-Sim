@@ -19,6 +19,7 @@ import {
   sessionTransportMatches,
 } from "../src/sessionTransportPreference.js";
 import { DeviceBuildStore } from "../src/deviceBuildStore.js";
+import { runDeliveryCleanupSafely } from "../src/deliveryCleanupScheduler.js";
 import {
   DeviceDeliveryAdapter,
   buildCapabilityExpiresAt,
@@ -317,9 +318,7 @@ function commonDeviceBuildOptions() {
 async function serve({ host, port, deviceBuildsOnly = false }) {
   await recoverInterruptedDeviceBuilds();
   setImmediate(() => {
-    void drainDeliveryReferenceCleanupJobs().catch((error) => {
-      console.warn(`Swift Sim delivery-reference cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
+    void scheduleDeliveryReferenceCleanup();
   });
   const activeSockets = new Set();
   const server = createServer(async (req, res) => {
@@ -839,7 +838,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     reconciliationTimer = setInterval(scheduleReconciliation, 15_000);
   }
   deliveryCleanupTimer = setInterval(() => {
-    void drainDeliveryReferenceCleanupJobs();
+    void scheduleDeliveryReferenceCleanup();
   }, 30_000);
   deliveryCleanupTimer.unref?.();
 
@@ -1861,6 +1860,10 @@ async function drainDeliveryReferenceCleanupJobs() {
   } finally {
     deliveryReferenceCleanupRunning = false;
   }
+}
+
+function scheduleDeliveryReferenceCleanup() {
+  return runDeliveryCleanupSafely(() => drainDeliveryReferenceCleanupJobs());
 }
 
 async function runCLIDeviceBuild(build) {
