@@ -58,7 +58,7 @@ The Swift package pins the `swift-sim-engine` branch of the Swift Sim InjectionN
 
 For physical-device proof, use a regular development-signed Debug app on an iPhone connected through the private Tailnet. Require two consecutive `deliver-change` results with `outcome: hot-reloaded`, `applied: true`, `dynamic_replacements > 0`, `refresh_acknowledged: true`, and increasing nonzero revisions. Record patch duration, verify no rebuild or reinstall occurred between edits, and do not substitute screenshots for the runtime report.
 
-The implementation contract for the repeatable classifier, physical-device, and real-workflow benchmark is in [Remote Hot Reload Benchmark Plan](HOT_RELOAD_BENCHMARK_PLAN.md). Keep its three scoreboards separate: a curated routing corpus cannot establish the percentage of chronological real-app edits accelerated.
+The implementation contract for the repeatable classifier, physical-device, and real-workflow benchmark is in [Remote Hot Reload Benchmark Plan](internal/plans/HOT_RELOAD_BENCHMARK_PLAN.md). Keep its three scoreboards separate: a curated routing corpus cannot establish the percentage of chronological real-app edits accelerated.
 
 Run the deterministic benchmark gates locally:
 
@@ -71,7 +71,7 @@ npm run benchmark:static:liquid-glass
 ```
 
 The focused Liquid Glass matrix, availability boundary, and physical proof
-status are documented in [Liquid Glass Hot Reload Coverage](LIQUID_GLASS_HOT_RELOAD.md).
+status are documented in [Liquid Glass Hot Reload Coverage](evidence/LIQUID_GLASS_HOT_RELOAD.md).
 
 The physical runner requires an explicitly named, unlocked trusted iPhone and
 an automatic-signing override when the fixture project has no committed team:

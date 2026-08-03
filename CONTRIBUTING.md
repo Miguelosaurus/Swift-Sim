@@ -29,7 +29,7 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-See [Development](docs/DEVELOPMENT.md) for device builds, integration validation, and manual end-to-end checks.
+See [Development](docs/DEVELOPMENT.md) for device builds, integration validation, and manual end-to-end checks. Use the [Documentation Guide](docs/README.md) to find public guides, evidence, and internal records.
 
 ## Pull Requests
 

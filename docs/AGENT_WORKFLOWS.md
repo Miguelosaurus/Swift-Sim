@@ -1,126 +1,95 @@
 # Agent Workflows
 
-Swift Sim does not add another AI agent. It gives an existing local coding agent a version-matched skill plus a local CLI for Xcode builds, signed iPhone installs, app history, and optional Simulator sessions.
+Swift Sim works with an agent that already runs on the user's Mac. It does not create another coding agent.
+
+The agent edits the local project. Swift Sim provides the build, delivery, update routing, and optional Simulator workflow.
 
 ## Shared Contract
 
-Every supported agent uses the same instructions:
+All supported agents use the same source instructions:
 
 ```text
 plugins/swift-sim-companion/skills/remote-simulator-companion/SKILL.md
 ```
 
-The repository distributes that skill through four host integrations:
+`swift-sim setup` installs the correct integration for each detected host. `swift-sim doctor --json` reports integration status under `deviceInstalls.agents`.
 
-- Codex plugin: `.codex-plugin/plugin.json`
-- Cursor plugin: `.cursor-plugin/plugin.json`
-- Claude Code plugin: `.claude-plugin/plugin.json`
-- OpenCode global skill: `~/.config/opencode/skills/remote-simulator-companion/SKILL.md`
+The normal rules are:
 
-`swift-sim setup` installs the appropriate integration for every supported agent detected on the Mac. `swift-sim doctor --json` reports each integration under `deviceInstalls.agents` and considers the build lane ready when at least one is configured.
+- Do not run Swift Sim for an ordinary coding task.
+- Use Swift Sim when the user requests iPhone delivery, remote hot reload, or Simulator preview.
+- Keep the agent session on the Mac that contains Xcode and the project.
+- Run `swift-sim deliver-change` one time after a completed phone-loop edit.
+- Let that command choose between a live Debug update and a signed build.
+- Do not claim a live update without applied, refresh, and revision proof.
+- Report **Install opened** until helper and device verification proves **Installed**.
+- Do not expose paths, device identifiers, signing identities, private hostnames, ports, or tokens.
 
-## Version And Update Contract
+## Installation And Version Updates
 
-Agent integrations are packaged copies, not a live network prompt. They do not
-silently update an already-running agent session. `swift-sim update` upgrades
-the Homebrew CLI and refreshes the detected Codex, Cursor, Claude Code, and
-OpenCode integrations from that same package; `swift-sim doctor --json` exposes
-version drift. After an update, start a new agent session so it loads the new
-skill text. A user should see a concise update instruction when drift is
-detected, not a hidden fallback to an older hot-reload contract.
+Agent integrations are packaged copies. They do not update inside a running agent session.
 
-For the normal phone edit loop the shared skill makes one terminal decision:
-`deliver-change` classifies the completed edit, uses the warm live lane when it
-can prove an applied refresh and revision, and sends structural, mixed,
-unavailable, or unproven edits through one signed device-build fallback. The
-user-facing result is intentionally just the exact hot-reload sentence or
-“This change needs a new signed build.” followed by **Open in Swift Sim to
-Install**. The agent does not run screenshots, doctor, or status checks before
-each warm edit.
+Run:
 
-## Codex
+```sh
+swift-sim update
+```
 
-Codex uses the marketplace bundled in the Homebrew package. Setup registers that immutable package path and installs `swift-sim-companion@swift-sim`.
+Then start a new agent session.
 
-For Simulator work, Codex should build and verify with XcodeBuildMCP, start Swift Sim with the same Simulator UDID, and inspect `codex.localPreviewUrl` in the Codex sidebar before returning the phone link.
+If `swift-sim doctor --json` reports version drift, update before using remote hot reload. The CLI, helper, and skill must use one contract.
 
-The ChatGPT/Codex mobile app continues the same Mac-hosted session, so Xcode and Swift Sim stay local.
+## Supported Agents
 
-## Cursor
+### Codex
 
-Setup copies the packaged skill into the supported user skill directory:
+Setup registers the bundled marketplace and installs `swift-sim-companion@swift-sim`.
+
+Continue the same Mac-hosted task from the ChatGPT or Codex mobile app. Xcode and Swift Sim remain on the Mac.
+
+For Simulator work, Codex can use its Xcode and local preview tools before it returns the phone link.
+
+### Cursor
+
+Setup copies the packaged skill to:
 
 ```text
 ~/.cursor/skills/remote-simulator-companion/
 ```
 
-A copy is used instead of a symlink for reliable Cursor desktop, CLI, automation, and remote-session discovery. Each `swift-sim setup` or `swift-sim update` replaces only this Swift Sim-owned directory with the version from Homebrew.
+Use Cursor Remote Control to continue the local Mac agent. Do not move the build to a cloud agent.
 
-The repository also includes the native Cursor manifest. Public installation still uses `swift-sim setup`, keeping Cursor on the exact skill version shipped with the helper rather than creating a second version source.
+### Claude Code
 
-Use Cursor Remote Control to continue an agent that is running on the Mac. Do not send the build to a cloud agent: a cloud VM cannot use the Mac's Xcode credentials or local helper.
+Setup registers the bundled marketplace and installs `swift-sim-companion@swift-sim`.
 
-## Claude Code
-
-Setup uses Claude Code's native non-interactive plugin commands to register the bundled `swift-sim` marketplace at user scope and install `swift-sim-companion@swift-sim`.
-
-Start the local mobile-capable session with:
+Start a local remote-control session:
 
 ```sh
 claude remote-control
 ```
 
-or:
+You can also run `claude --remote-control`. Continue the session from the **Code** tab in the Claude mobile app.
 
-```sh
-claude --remote-control
-```
+### OpenCode
 
-Then continue it from the **Code** tab in the Claude mobile app. The agent, filesystem, Xcode tools, and Swift Sim helper remain on the Mac.
-
-## OpenCode
-
-Setup follows OpenCode's native agent-skill discovery contract and copies the shared skill to:
+Setup copies the shared skill to:
 
 ```text
 ~/.config/opencode/skills/remote-simulator-companion/SKILL.md
 ```
 
-OpenCode loads global skills on demand through its `skill` tool. Swift Sim writes a version marker beside the skill so `swift-sim doctor` can detect drift and `swift-sim update` can refresh it. OpenCode has no required Swift Sim account or backend; users may connect to the local Mac session through whatever remote or mobile surface they already operate.
+OpenCode loads the skill on demand. Swift Sim stores a version marker so `doctor` can report drift.
 
-## First Request
+## Build An App To iPhone
 
-For ordinary coding work, the agent invokes no Swift Sim tooling. When the user
-explicitly asks for a phone delivery loop, the agent begins with one terminal
-delivery command:
+The user can ask:
 
-```sh
-swift-sim deliver-change \
-  --before "<prior.swift>" \
-  --after "<current.swift>" \
-  --project "<absolute project path>" \
-  --scheme "<scheme>"
+```text
+Build this app to my iPhone with Swift Sim
 ```
 
-If it returns `needs-user-action` because the CLI or integration is missing,
-follow only that setup/update branch, then start a new agent session. Use
-`swift-sim doctor --json` for setup or explicit diagnosis, not for every edit.
-
-The doctor report separates:
-
-- `deviceInstalls`: primary real-iPhone workflow; no Tailscale requirement
-- `remoteHotReload`: optional Debug-only real-iPhone workflow; private Tailscale requirement
-- `simulatorPreview`: optional live Simulator workflow; private Tailscale requirement
-
-For first-time Mac pairing, run `swift-sim setup-status` and then either
-`swift-sim pair --qr` for the interactive **Scan Pairing QR** flow or
-`swift-sim pair` for the machine-readable link flow. QR invitations are
-short-lived and one-time; the companion exchanges them for the durable pairing
-credential and verifies the helper before saving the Mac.
-
-## Build To iPhone
-
-The default command is:
+The normal command is:
 
 ```sh
 swift-sim build-device \
@@ -129,9 +98,13 @@ swift-sim build-device \
   --allow-provisioning-updates
 ```
 
-Use `--workspace` for `.xcworkspace` projects. The agent verifies `state`, signing compatibility, delivery mode, and the returned HTTPS URL, then ends with **Open in Swift Sim to Install**. The HTTPS page opens the companion first; direct OTA installation is visibly presented only as the no-companion fallback.
+Use `--workspace` for an `.xcworkspace` project.
 
-When a project needs an explicit Xcode build-setting override, pass one or more repeated `--build-setting KEY=VALUE` options. Swift Sim applies the same validated settings while reading signing metadata and archiving, so the app identity shown in install history matches the signed build:
+Before handoff, check the returned build state, app identity, signing compatibility, delivery mode, and HTTPS link. Then provide the link as **Open in Swift Sim to Install**.
+
+Do not uninstall an existing app. Matching bundle identifier, team, and compatible entitlements preserve its app container.
+
+When a project needs explicit Xcode settings, repeat `--build-setting`:
 
 ```sh
 swift-sim build-device \
@@ -141,66 +114,79 @@ swift-sim build-device \
   --build-setting "CURRENT_PROJECT_VERSION=42"
 ```
 
-Use uppercase Xcode setting names and quote the complete `KEY=VALUE` argument.
+Use uppercase Xcode setting names. Quote the complete `KEY=VALUE` argument.
 
-Never uninstall first. Matching bundle identifier, team, and compatible entitlements preserve the existing app container.
+## Deliver A Completed Phone-Loop Edit
 
-## Remote Hot Reload
-
-Remote hot reload is an acceleration lane for a prepared, running Debug build. It is not a replacement for the signed-device workflow.
-
-Agents establish the live project once, then use the terminal fast path for
-each completed logical change:
+After one logical Swift edit, run:
 
 ```sh
 swift-sim deliver-change \
-  --before "<prior.swift>" \
-  --after "<proposed.swift>" \
-  --project "<project.pbxproj>"
+  --before "<previous.swift>" \
+  --after "<current.swift>" \
+  --project "<App.xcodeproj>" \
+  --scheme "<App>" \
+  --allow-provisioning-updates
 ```
 
-Repeat `--before` and `--after` in matching order for a multi-file edit. The
-command owns classification, warm readiness, bounded recovery, proof, and the
-signed build fallback. Keep `route-change` for compatibility and diagnostics;
-it is not the normal agent edit command.
+For a multi-file edit, repeat matching `--before` and `--after` arguments in the same order.
 
-The live replacement generator covers parameterized, static, and generic
-functions, explicit accessors, computed properties, actor and extension
-members, `ViewModifier` bodies, and UIKit bridge callbacks when their
-implementation can be interposed. A simple literal result from an initializer
-or subscript call can also be folded into a changed SwiftUI body; arbitrary
-initializer/subscript metadata is not replaced directly and falls back to a
-build. Async/throws implementations use the engine's interposition path. These
-are still implementation-only edits: adding stored state, changing a
-signature, changing an import, or changing a declaration remains a rebuild
-boundary.
+The command owns:
 
-For a dynamic-only multi-file implementation edit, Swift Sim compiles every
-replacement into one signed bundle and sends one engine request. The route
-reports `atomic: true` and `patchBundle` metadata only for that path. If an
-async/interposition member is present, Swift Sim keeps a preflighted sequential
-fallback and reports `atomic: false`; a later load failure makes the result
-`partialApplication` and contaminates the session. The benchmark or agent must
-then establish a clean live session before more edits are attempted.
+- change classification
+- warm live readiness
+- one bounded recovery attempt
+- runtime proof
+- signed-build fallback
 
-An `action` of `hot-reload` is allowed only when the declaration surface is unchanged, the private live lane completed, and the running app acknowledged the replacement and root refresh. For a transient `LIVE_NOT_READY`, `PATCH_TIMEOUT`, `PATCH_LOAD_FAILED`, or refresh-acknowledgement failure, the production router makes one bounded engine/session recovery attempt and retries once. Compile failures and partial applications are never retried. If recovery does not prove readiness, `hot-reload-failed` or `build-device` means the agent should immediately produce a normal update link with the existing bundle identity. Non-Swift changes and multi-file edits containing any structural change always rebuild.
+Interpret the terminal outcome:
 
-When the user asks for remote hot reload, the agent performs the one-time project integration: one `SwiftSimLive` package product and one root `.swiftSimLive()` modifier. Do not make the user operate InjectionNext or manually distribute setup code. Swift Sim manages the Debug-only compiler and linker settings during `build-device --configuration Debug`; agents must not scatter observer properties, package calls, or manual flags across the project. They must not enable live loading in Release, TestFlight, or App Store builds.
+| Outcome | Agent response |
+| --- | --- |
+| `hot-reloaded` | Tell the user to test the running Debug app. No install is required. |
+| `install-link-ready` | Say that the change needs a new signed build. Provide **Open in Swift Sim to Install**. |
+| `no-change` | Do not report a delivery result. |
+| `needs-user-action` | Explain only the returned action. |
+| `failed` | Report the returned failure without claiming delivery. |
 
-Do not claim success merely because a file compiled or a patch library loaded. Require the correlated patch report with `applied`, `refresh_acknowledged`, and a nonzero revision. Do not take screenshots on each edit. If confirmation does not arrive within a few seconds, rebuild and return the new Swift Sim update link.
+Do not run `doctor`, `live-status`, screenshots, UI analysis, or a second classification command before a normal warm delivery.
 
-## Live Simulator Preview
+A compiled patch or loaded dynamic library is not proof. A live success requires the correlated applied replacement, refresh acknowledgement, and new root revision.
 
-Use this lane only when requested:
+Structural, mixed, non-Swift, unavailable, and unproven edits must use a signed build. Partial application is not success.
+
+See [Hot Reload Evidence](evidence/README.md) for tested mechanism boundaries.
+
+## Pair A Mac
+
+Run:
+
+```sh
+swift-sim setup-status
+```
+
+Continue only when the report contains `ok: true`.
+
+Use `swift-sim pair --qr` for the interactive QR flow. Use `swift-sim pair` for machine-readable links.
+
+QR invitations are short-lived and one-time. The companion must verify the helper before it saves the durable pairing credential.
+
+## Open A Live Simulator Preview
+
+Use this lane only when the user asks for Simulator preview.
 
 1. Check `swift-sim setup-status`.
 2. Build and launch one exact Simulator.
-3. Verify the local UI using host-available tools.
-4. Start Swift Sim with that Simulator UDID.
-5. End with **Open Simulator in Companion App**.
+3. Verify the local app with available host tools.
+4. Start Swift Sim with the same Simulator UDID.
+5. Return **Open Simulator in Companion App**.
 
-Do not expose local paths, ports, Simulator UDIDs, process IDs, or unredacted tokens in the response.
+Do not expose the Simulator UDID, local path, port, process ID, or token.
 
 ## Release Synchronization
 
-One tagged Homebrew release contains the helper, shared skill, three native plugin manifests, and OpenCode installer. Setup always installs from that package, so agent behavior moves with the CLI instead of drifting across copied documentation.
+One tagged Homebrew release contains the CLI, helper, shared skill, native plugin manifests, and OpenCode installer.
+
+Setup installs these components from that package. This keeps agent behavior aligned with the helper protocol.
+
+See [Development](DEVELOPMENT.md) for release validation and [Security](SECURITY.md) for transport boundaries.

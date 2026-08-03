@@ -1,7 +1,7 @@
 # Swift Sim hot-reload benchmark
 
 This is the internal, source-private benchmark described in
-[`docs/HOT_RELOAD_BENCHMARK_PLAN.md`](../docs/HOT_RELOAD_BENCHMARK_PLAN.md).
+[`docs/internal/plans/HOT_RELOAD_BENCHMARK_PLAN.md`](../docs/internal/plans/HOT_RELOAD_BENCHMARK_PLAN.md).
 It keeps classifier safety, physical-device reliability, and chronological
 workflow acceleration on separate scoreboards. Curated corpus results are
 scoped regression evidence; they are not an everyday SwiftUI coverage claim.
@@ -64,7 +64,7 @@ drops, preserve the failed record, rebuild the disposable baseline, and rerun
 the affected case from a fresh live session.
 
 The August 1, 2026 core evidence is summarized in
-[`docs/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md`](../docs/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md).
+[`docs/evidence/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md`](../docs/evidence/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md).
 
 Never use a Simulator or screenshot as device proof. Device output remains
 local; exported records redact paths, identifiers, signing metadata, Tailnet
@@ -83,11 +83,11 @@ The supplemental `liquid-glass-1` corpus keeps the fixed core corpus intact
 while covering 27 current SwiftUI Liquid Glass and adjacent system-surface
 edits plus seven structural rebuild controls. Its scope and evidence levels are
 documented in
-[`docs/LIQUID_GLASS_HOT_RELOAD.md`](../docs/LIQUID_GLASS_HOT_RELOAD.md).
+[`docs/evidence/LIQUID_GLASS_HOT_RELOAD.md`](../docs/evidence/LIQUID_GLASS_HOT_RELOAD.md).
 
 The native-surfaces-1 corpus covers 24 native SwiftUI system-surface edits and
 seven rebuild controls. Its API matrix and physical evidence are documented in
-[`docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md`](../docs/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md).
+[`docs/evidence/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md`](../docs/evidence/NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md).
 
 The supplemental mechanism corpus covers fourteen generated replacement forms
 that are easy to miss when testing only `View.body`: protocol defaults, actor
@@ -96,7 +96,7 @@ property wrappers, initializer/subscript body folds, generic and parameterized
 helpers, async/throws interposition, and UIKit bridge callbacks. It also
 contains three explicit build controls. The scope, physical evidence, and
 recovery semantics are documented in
-[`docs/HOT_RELOAD_MECHANISM_COVERAGE.md`](../docs/HOT_RELOAD_MECHANISM_COVERAGE.md).
+[`docs/evidence/HOT_RELOAD_MECHANISM_COVERAGE.md`](../docs/evidence/HOT_RELOAD_MECHANISM_COVERAGE.md).
 
 Run its physical lane with the dedicated fixture:
 

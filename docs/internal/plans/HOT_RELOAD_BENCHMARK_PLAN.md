@@ -308,7 +308,7 @@ build-boundary runs. This prevents structural controls from silently changing
 a hot-reload reliability denominator.
 
 The current scoped core-device evidence is recorded in
-[`CORE_HOT_RELOAD_PHYSICAL_RESULTS.md`](CORE_HOT_RELOAD_PHYSICAL_RESULTS.md).
+[`CORE_HOT_RELOAD_PHYSICAL_RESULTS.md`](../../evidence/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md).
 The implementation uses Node 20 built-ins and the existing Swift/Xcode tools;
 do not add a runtime dependency merely for argument parsing, statistics, JSONL,
 or patch orchestration.
@@ -940,7 +940,7 @@ The fixed 240-case core corpus remains unchanged. A separate
 `liquid-glass-1` capability corpus covers the current SwiftUI Liquid Glass API
 surface and closely related toolbar, scroll-edge, safe-area, tab, search, and
 control APIs. It contains 27 hot-edit cases and seven structural rebuild
-controls. See [Liquid Glass Hot Reload Coverage](LIQUID_GLASS_HOT_RELOAD.md)
+controls. See [Liquid Glass Hot Reload Coverage](../../evidence/LIQUID_GLASS_HOT_RELOAD.md)
 for the matrix, availability requirements, and independently stated proof
 levels.
 
@@ -969,7 +969,7 @@ observed all 14/14 hot edits and 14/14 restores. Two initial `PATCH_TIMEOUT`
 records were retained as diagnostics; the runner rebuilt/relaunched a clean
 session and recovered both cases. Headline edit latency was 665.0 ms median,
 1,249.9 ms p90, and 1,712.5 ms p95. The full scope and commands are in
-[`HOT_RELOAD_MECHANISM_COVERAGE.md`](HOT_RELOAD_MECHANISM_COVERAGE.md).
+[`HOT_RELOAD_MECHANISM_COVERAGE.md`](../../evidence/HOT_RELOAD_MECHANISM_COVERAGE.md).
 
 ## Explicitly Deferred
 

@@ -4,9 +4,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 const roots = ["README.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md", "CHANGELOG.md"];
-const docs = fs.readdirSync("docs")
-  .filter((name) => name.endsWith(".md"))
-  .map((name) => path.join("docs", name));
+
+function markdownFiles(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) return markdownFiles(entryPath);
+    return entry.isFile() && entry.name.endsWith(".md") ? [entryPath] : [];
+  });
+}
+
+const documentationRoots = ["docs", "benchmarks", "plugins"];
+const docs = documentationRoots.flatMap(markdownFiles).sort();
 
 const failures = [];
 for (const file of [...roots, ...docs]) {

@@ -1,21 +1,23 @@
 # Troubleshooting
 
-Start with the structured readiness check:
+Start with the readiness check:
 
 ```sh
 swift-sim doctor
 ```
 
-It separates primary iPhone-install requirements from optional Simulator-preview requirements. Fix only the item marked `needs-attention`.
+Fix only the item marked `needs-attention`. The report separates normal iPhone builds from optional private features.
 
 ## `swift-sim` Is Not Found
+
+Run:
 
 ```sh
 brew install miguelosaurus/tap/swift-sim
 swift-sim setup
 ```
 
-Open a new terminal after Homebrew finishes if the command is still missing.
+If the command is still missing, open a new terminal.
 
 ## The Coding Agent Does Not Know Swift Sim
 
@@ -25,18 +27,18 @@ Run:
 swift-sim setup
 ```
 
-Then refresh the host agent:
+Then refresh the agent:
 
-- Codex: start a new thread.
+- Codex: start a new task.
 - Cursor: start a new agent session or reload the Cursor window.
 - Claude Code: run `/reload-plugins` or start a new session.
-- OpenCode: start a new session so its skill inventory is rebuilt, then run `swift-sim doctor`.
+- OpenCode: start a new session.
 
-Use `swift-sim doctor --json` and inspect `deviceInstalls.agents`. The current host should report `ready: true`, and `deviceInstalls.agentIntegrations.ready` should be true.
+For detailed status, run `swift-sim doctor --json`. The current host must report `ready: true` under `deviceInstalls.agents`.
 
-## Mac Helper Is Unavailable
+## The Mac Helper Is Unavailable
 
-Run setup again, then check the service:
+Run setup again. Then check the service:
 
 ```sh
 swift-sim setup
@@ -44,24 +46,26 @@ brew services list | grep swift-sim
 curl http://127.0.0.1:47217/health
 ```
 
-The health response should contain `"ok": true`. If it does not, inspect:
+The health response must contain `"ok": true`.
+
+If it does not, inspect the logs:
 
 ```sh
 tail -n 100 ~/.swift-sim/helper.log
 tail -n 100 "$(brew --prefix)/var/log/swift-sim.log"
 ```
 
-## Device Build Fails During Signing
+## A Device Build Fails During Signing
 
-Swift Sim uses normal Xcode signing and does not bypass Apple's provisioning rules.
+Swift Sim uses normal Xcode signing. It does not bypass Apple provisioning rules.
 
-Check:
+Check these items:
 
-- an Apple Developer account is present in Xcode Settings
-- the target has a valid team and bundle identifier
-- the iPhone is registered with that team
-- required capabilities are enabled for the App ID
-- the provisioning profile contains the destination device
+- An Apple Developer account is present in Xcode Settings.
+- The target has a valid team and bundle identifier.
+- The iPhone is registered with the team.
+- The App ID has the required capabilities.
+- The provisioning profile contains the destination iPhone.
 
 Retry through the coding agent or run:
 
@@ -72,7 +76,9 @@ swift-sim build-device \
   --allow-provisioning-updates
 ```
 
-Use `--workspace` for workspace-based projects. Report the exact Xcode signing error rather than replacing the app or changing its bundle identifier automatically.
+Use `--workspace` for an `.xcworkspace` project.
+
+Report the exact Xcode signing error. Do not change the bundle identifier or signing team automatically.
 
 ## Remote Hot Reload Is Unavailable
 
@@ -83,171 +89,187 @@ swift-sim live-status \
   --project "/absolute/App.xcodeproj/project.pbxproj"
 ```
 
-The JSON reports the missing prerequisite. Common causes are:
+The JSON identifies the missing prerequisite. Common causes are:
 
 - The private engine was not provisioned by `swift-sim setup`.
 - Tailscale is disconnected on the Mac or iPhone.
 - The project does not link `SwiftSimLive`.
-- The installed Debug app predates Swift Sim's managed live build settings.
-- Swift Sim could not find the development identity used by the installed app.
-- The installed app is a Release build rather than the prepared Debug build.
+- The installed Debug app was built before the managed live settings were added.
+- Swift Sim cannot find the development identity used by the installed app.
+- The installed app is a Release build.
 
-Physical-device patches must be signed by the same Apple team as the installed app. If compilation completes but signing waits, look for the one-time macOS private-key prompt and choose **Always Allow**. Do not switch teams on an installed bundle: iOS rejects that as an incompatible update. If the matching private key is unavailable or cannot be authorized, use the normal signed-build lane.
+Patches must use the same Apple team as the installed app. If signing waits, find the macOS private-key prompt. Select **Always Allow** for the matching development key.
 
-Do not make port 8887 public to work around connectivity. Use the normal Swift Sim signed update link until the private lane is healthy.
+If the key is unavailable, use the normal signed-build path.
+
+Do not make port 8887 public.
 
 ## A Live Edit Did Not Appear
 
-Run `swift-sim deliver-change` with the before and after Swift files. It owns
-classification, warm readiness, one bounded recovery, strict proof, and the
-signed-build fallback. `hot-reloaded` is success only when the running app
-acknowledged an applied replacement, refresh, and new revision.
+Run `swift-sim deliver-change` with the before and after Swift files.
 
-An `install-link-ready` result means the edit crossed a structural boundary or
-live proof was unavailable; open the returned link. A compiler error, missing
-replacement descriptor, missing refresh acknowledgment, disconnected or
-locked device, timeout, or partial application is not a live success. Do not
-run screenshots, repeat doctor/status checks, or repeatedly inject the same
-edit. `route-change` remains available for diagnostics and benchmarks.
+The command owns classification, warm readiness, one bounded recovery attempt, proof, and signed-build fallback.
 
-## Temporary Delivery Tunnel Fails
+Interpret the result:
 
-Check the restricted delivery process:
+| Result | Meaning | Action |
+| --- | --- | --- |
+| `hot-reloaded` | The running app acknowledged the replacement, refresh, and new revision. | Test the running app. |
+| `install-link-ready` | The edit needs a signed build or live proof was unavailable. | Open the returned install link. |
+| `needs-user-action` | A prerequisite needs manual action. | Follow the returned action. |
+| `failed` | Swift Sim could not complete either safe path. | Inspect the returned failure. |
+
+A compiled patch or loaded library is not proof of success.
+
+Do not repeatedly inject the same edit. Do not run screenshots or repeated doctor checks before a normal warm delivery.
+
+## The Temporary Delivery Link Fails
+
+Check the delivery process:
 
 ```sh
 swift-sim device-delivery-status
 tail -n 100 ~/.swift-sim/device-delivery.log
 ```
 
-Then stop the stale process and rebuild:
+Stop a stale process:
 
 ```sh
 swift-sim device-delivery-stop
 ```
 
-Device installs do not require Tailscale. Do not route them through the full Simulator helper as a workaround.
+Then build the app again.
 
-## Install Link Expired Or Cannot Connect
+Device installation does not require Tailscale. Do not expose the full Simulator helper as a workaround.
 
-Open the saved version in Swift Sim and tap **Generate New Link**. The trusted Mac must be online and still have the saved app file. Swift Sim creates another two-hour link without rebuilding the project.
+## An Install Link Expired
 
-If the Mac is not connected or the saved app was deleted, ask your coding agent to build the app again. Links can also end early if the Mac sleeps, restarts, or loses internet access.
+Open the saved build in Swift Sim. Tap **Create New Install Link**.
 
-The old random `trycloudflare.com` hostname disappearing is expected after its tunnel closes. Durable hosting requires a separately secured custom delivery service.
+The trusted Mac must be online. The saved IPA must still exist. Swift Sim creates a new link without rebuilding the project.
 
-## Build Current Code From iPhone
+If the saved IPA is unavailable, ask the coding agent to build the app again.
 
-Open an app in Swift Sim and tap **Build Current Code**. The trusted Mac builds
-the exact working tree already on disk, including uncommitted changes, then
-opens the normal install flow. It does not pull, commit, or switch branches.
-This works remotely from anywhere through the private Tailnet; no cable or
-shared Wi-Fi is required.
+A temporary link can end early when the Mac sleeps, restarts, or loses internet access. A closed `trycloudflare.com` hostname is expected after its tunnel stops.
 
-This action needs a previous successful device build, one-time Mac pairing,
-Tailscale online on both devices, the Mac awake with its helper running, and the
-saved project at its original path. Pairing is how the app securely learns which
-Mac may run Xcode; it is not a local-network or USB connection. If Swift Sim
-reports an identity change, open the project on the Mac and create a new trusted
-device build there; the remote rebuild intentionally refuses to turn an update
-into a different app.
+## Build Current Code Fails
 
-**Create New Install Link** is different: it republishes the previously saved
-IPA and does not compile newer source changes.
+Confirm these prerequisites:
 
-## App Installed As A Second App
+- The app has a previous successful device build.
+- The iPhone is paired with the Mac.
+- Tailscale is online on both devices.
+- The Mac is awake and its helper is running.
+- The project remains at its saved path.
 
-The bundle identifier changed. iOS treats it as a different app and cannot reuse the previous app container.
+**Build Current Code** builds the current working tree on the Mac. It includes uncommitted changes. It does not pull, commit, or switch branches.
 
-Keep the same bundle identifier for every update that should preserve app data.
+If Swift Sim reports an identity change, open the project on the Mac. Create a new trusted device build there. The remote build stops when the bundle identifier or signing team changes.
 
-## App Updated But Login Or Keychain Data Is Missing
+**Create New Install Link** republishes a saved IPA. It does not compile current source.
 
-The signing team, keychain access groups, or app-group entitlements probably changed. The main app container may still be present while protected shared data becomes inaccessible.
+## The App Was Installed As A Second App
 
-Compare the old and new signed entitlements before installing another update.
+The bundle identifier or signing team changed. iOS treats the build as a different app.
+
+Use the original bundle identifier and team for updates that must preserve app data.
+
+## Login Or Keychain Data Is Missing After An Update
+
+The signing team, keychain access groups, or app-group entitlements can make protected data unavailable.
+
+Compare the old and new signed entitlements before you install another update.
 
 ## Simulator Preview Is Not Configured
 
-This does not block iPhone installs.
+This problem does not block iPhone builds.
 
-When live preview is wanted, connect the Mac and iPhone to the same Tailnet and run:
+For Simulator preview, connect the Mac and iPhone to the same Tailnet. Then run:
 
 ```sh
 tailscale serve 47217
 swift-sim setup-status
 ```
 
-Use the exact `suggestedRemoteBaseUrl` returned by the command. Same Wi-Fi is not required. Do not use Tailscale Funnel.
+Continue only when `setup-status` reports `ok: true`. Use its exact `suggestedRemoteBaseUrl`.
 
-## Companion Shows No Mac Or A Gray Status
+Do not use Tailscale Funnel.
 
-Mac pairing enables **Build Current Code**, install verification, and Simulator
-diagnostics. Tap **Pair Now**, then **Set Up With My Agent**. Share the prepared
-request with your local coding agent; it will inspect the Mac, guide the missing
-iPhone step, and send back the pairing link.
+## The Companion Shows No Mac Or A Gray Status
 
-The companion verifies the Mac before saving it. If it says the token expired,
-generate a fresh link. If it says the Mac is unreachable, check Tailscale on
-both devices. First-time pairing requires internet access and the same Tailnet,
-not the same Wi-Fi network. A USB cable does not help Swift Sim pairing and is
-not required. Opening the pairing link from another app should take Swift Sim
-directly to **Mac Connection** while verification runs.
+Tap **Pair Now**, then **Set Up With My Agent**. Share the prepared request with the local coding agent.
 
-If a newly fixed pairing flow still shows the old generic **Paired Mac** screen,
-confirm the updated companion was actually installed. Rotating or regenerating
-a pairing link updates the credential only; it cannot update an older iPhone
-app or Homebrew CLI. For unreleased repository testing, use a distinct companion
-build number and verify that exact build on the device.
+If the companion reports an expired token, generate a new pairing link.
 
-For manual recovery, generate a fresh pairing link:
+If the companion cannot reach the Mac, check Tailscale on both devices. The devices need internet access and the same Tailnet. They do not need the same Wi-Fi network or a USB cable.
+
+For manual recovery, run:
 
 ```sh
 swift-sim setup-status
 swift-sim pair
 ```
 
-For the QR flow, run `swift-sim pair --qr` after `swift-sim setup-status` reports
-`ok: true`, then scan it from **Mac Connection → Scan Pairing QR**. QR invitations
-expire after five minutes by default and are consumed once. If the app reports
-that the QR was used or expired, generate a new one; do not troubleshoot
-Tailscale first. Use `--ttl-minutes 1..15` only when you need a different
-invitation window.
+Open the returned link on the iPhone. If Safari does not switch apps, paste the `swift-sim://pair?...` link into Swift Sim.
 
-If iOS camera access is denied or unavailable, enable Camera for Swift Sim in
-**Settings → Privacy & Security → Camera**, or use **Open or Paste Pairing Link**
-with the normal `swift-sim pair` output. The normal link path still verifies the
-Mac before saving it.
+## QR Pairing Fails
 
-If scanning succeeds but verification fails, start a fresh QR flow. The invite
-is intentionally not a durable credential, and a retry with a different client
-cannot reuse an invitation that was already claimed.
+Check the private route first:
 
-Open the returned link on the iPhone. If Safari does not switch apps, paste the returned `swift-sim://pair?...` link into Swift Sim.
+```sh
+swift-sim setup-status
+```
 
-## HTTPS Link Opens Safari Instead Of Swift Sim
+Continue only when the report contains `ok: true`. Then create a new invitation:
 
-For device builds, Safari hosts the secure handoff because random temporary tunnel hosts cannot all be universal-link domains. Tap **Open in Swift Sim to Install**. If iOS does not switch apps, use the page's copy-link action and paste the link into Swift Sim. **Install directly** remains available as a fallback, but that path cannot add the build to the companion's local history.
+```sh
+swift-sim pair --qr
+```
 
-For Simulator sessions, arbitrary private Tailscale hosts cannot all be declared as universal-link domains in a public companion build. Use the printed `swift-sim://session/...` fallback or paste it into the app.
+Scan it from **Mac Connection > Scan Pairing QR**.
 
-## Install Opened But Is Not Verified
+An invitation expires after five minutes by default. It can be consumed one time. If the app reports that it expired or was used, create a new invitation.
 
-**Install opened** means iOS showed the install prompt, so Swift Sim no longer leaves an endless progress state. It does not claim that iOS finished installing. The Mac helper upgrades the entry to **Installed** automatically after it verifies the exact version on a reachable iPhone. The iPhone can connect wirelessly over the local network after it has been paired once in Xcode; USB also works. Open Swift Sim again to sync the result.
+If camera access is denied, enable Camera for Swift Sim in **Settings > Privacy & Security > Camera**. You can also use **Open or Paste Pairing Link** with the normal `swift-sim pair` output.
 
-For troubleshooting, confirm the exact installed version from the Mac:
+If scanning succeeds but helper verification fails, start a new QR flow. A different client cannot reuse an invitation that was already claimed.
+
+## An HTTPS Link Opens Safari
+
+For device builds, Safari provides the secure handoff. Tap **Open in Swift Sim to Install**.
+
+If iOS does not switch apps, copy the link and paste it into Swift Sim. **Install directly** remains available, but it does not add the build to Swift Sim history.
+
+For Simulator sessions, use the printed `swift-sim://session/...` link or paste it into the companion.
+
+## Installation Is Not Verified
+
+Swift Sim uses distinct installation states:
+
+| State | Meaning | Action |
+| --- | --- | --- |
+| **Install opened** | iOS displayed the installation prompt. Installation is not verified. | Wait for helper verification or run the verification command. |
+| **Installed** | The Mac helper verified the exact bundle version on a reachable iPhone. | Test the app. |
+| `different-version` | The app is installed, but the requested version is not. | Install the requested build or verify the intended version. |
+| `not-installed` | A reachable iPhone does not contain the requested app. | Open the install link again. |
+| `unknown` | The iPhone could not be reached. | Connect the iPhone, then retry. |
+
+Verify the exact build from the Mac:
 
 ```sh
 swift-sim list-apps
 swift-sim verify-device-build --build-id "<opaque-build-id>"
 ```
 
-`verified` means Apple developer tooling found the exact bundle and version. `different-version` means the app is installed but the requested version is not. `not-installed` means a reachable iPhone did not contain the app. `unknown` means the phone could not be reached; it does not mean installation failed, and it does not erase a known installation request.
+`unknown` does not mean that installation failed. It does not erase a known installation request.
 
 ## The Same App Appears Twice
 
-Run `swift-sim list-apps` and compare the bundle identifier and signing team. Swift Sim intentionally separates builds when either changes because iOS treats that as a different update identity. Builds with the same bundle identifier and team are stored as one app history.
+Run `swift-sim list-apps`. Compare the bundle identifier and signing team.
 
-## Simulator Is Blank, Frozen, Or Falling Behind
+Swift Sim creates a separate app identity when either value changes. Builds with the same bundle identifier and team share one app history.
+
+## The Simulator Is Blank, Frozen, Or Behind
 
 Run:
 
@@ -258,14 +280,16 @@ tail -n 100 ~/.swift-sim/helper.log
 
 Check `transport.activeForPhone`:
 
-- `native-companion`: leave the session open for several seconds while the decoder requests a fresh keyframe. If recovery fails, create a fresh session.
-- `serve-sim`: this is the compatibility fallback and can be slower over cellular.
+- `native-companion`: keep the session open while the decoder requests a new keyframe. If recovery fails, create a new session.
+- `serve-sim`: this compatibility path can be slower on cellular networks.
 
-Never run an unscoped `serve-sim --kill`; Swift Sim stops only the tracked Simulator stream.
+Do not run an unscoped `serve-sim --kill`. Swift Sim stops only the tracked Simulator stream.
 
 ## Keyboard Input Is Delayed
 
-Current companion builds use **Live Keyboard** and forward individual USB HID events through one persistent control channel. If the old **Send Text** sheet appears, update the companion and restart the helper.
+Current companion builds use **Live Keyboard** and one persistent control channel.
+
+If the old **Send Text** sheet appears, update the companion. Then restart the helper.
 
 ## Reset Local State
 
@@ -275,4 +299,6 @@ Stop active delivery first:
 swift-sim device-delivery-stop
 ```
 
-Swift Sim stores local state under `~/.swift-sim`. Remove individual affected session/build records rather than deleting the whole directory unless a clean reset is intentional.
+Swift Sim stores local state under `~/.swift-sim`.
+
+Remove only the affected session or build records. Delete the complete directory only when you intentionally want a clean reset.

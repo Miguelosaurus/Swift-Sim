@@ -1,238 +1,231 @@
 # Setup
 
-Swift Sim has three components: the Mac package, a coding-agent integration, and the iPhone companion. The Mac package and every detected agent integration are installed together from one Homebrew release.
+Swift Sim has three components:
 
-## 1. Prepare A Local Coding Agent
+1. The Mac package contains the CLI and helper.
+2. The agent integration contains the Swift Sim workflow.
+3. The iPhone companion manages apps, builds, and optional remote features.
 
-Choose at least one supported agent and make sure it runs on the Mac that contains the iOS project:
+`swift-sim setup` installs the first two components from the same Homebrew release.
 
-| Agent | Mac requirement | Phone handoff |
-| --- | --- | --- |
-| Codex | Codex desktop app | Continue the Mac thread from the ChatGPT/Codex mobile app |
-| Cursor | Cursor 3.9+ with Remote Control enabled in the Agents Window | Continue the local agent from Cursor for iOS |
-| Claude Code | Claude Code 2.1.51+ signed in through claude.ai | Run `claude remote-control` and open the session from the Claude mobile app |
-| OpenCode | A local OpenCode installation | Use the local session through your preferred remote or mobile client |
-
-Keep the agent session local. Cloud agents cannot use the Xcode installation, signing credentials, helper, or Simulator state on your Mac.
-
-## 2. Install The Mac Package And Agent Integration
-
-Requirements:
+## Requirements
 
 - Apple silicon Mac
 - Xcode
 - Homebrew
-- at least one supported local coding agent
+- at least one supported coding agent running locally on the Mac
+- Apple Developer account configured in Xcode
+- iPhone included in the development or ad-hoc provisioning profile
+
+Tailscale is optional. It is required only for Mac pairing, **Build Current Code**, remote hot reload, and Simulator preview.
+
+## 1. Prepare A Local Coding Agent
+
+Choose a supported agent. Run it on the Mac that contains the iOS project.
+
+| Agent | Mac requirement | Phone handoff |
+| --- | --- | --- |
+| Codex | Codex desktop app | Continue the Mac task from the ChatGPT or Codex mobile app |
+| Cursor | Cursor 3.9 or newer with Remote Control enabled | Continue the local agent from Cursor for iOS |
+| Claude Code | Claude Code 2.1.51 or newer | Run `claude remote-control`, then open the session from the Claude mobile app |
+| OpenCode | Local OpenCode installation | Use the local session through a remote or mobile client that you trust |
+
+Keep the agent session on the Mac. A cloud agent cannot use the Mac's Xcode installation, signing credentials, helper, or Simulator state.
+
+## 2. Install The Mac Package
 
 Run:
 
 ```sh
 brew install miguelosaurus/tap/swift-sim
 swift-sim setup
-```
-
-`swift-sim setup` performs the complete Mac-side setup:
-
-- starts the helper with Homebrew services
-- installs the Codex plugin when Codex is detected
-- installs the Cursor skill when Cursor is detected
-- registers and installs the Claude Code plugin when Claude Code is detected
-- installs the shared skill in OpenCode's global skills directory when OpenCode is detected
-- checks Xcode and local signing readiness
-
-No repository clone or manual skill copy is required. Setup skips agents that are not installed.
-
-Remote **Build Current Code** and live Simulator preview use a private
-Tailscale connection. They can be enabled later without following a command
-checklist: in the iPhone companion, tap **Pair Now** and then
-**Set Up With My Agent**. Share the prepared request with your local coding
-agent. It will inspect the Mac, ask only for any missing iPhone action, and
-return the pairing link.
-
-For first-time pairing, install Tailscale on the Mac and iPhone, give both
-internet access, and sign in to the same Tailnet. They do not need the same
-Wi-Fi network; either device may use cellular. Keep the Mac awake with the
-Swift Sim helper running. Opening the pairing link outside Swift Sim brings up
-the app's **Mac Connection** screen and verifies the Mac before saving it.
-
-### QR pairing
-
-For an interactive handoff, verify the private route before creating an
-invitation:
-
-```sh
-swift-sim setup-status
-```
-
-Continue only when the report says `ok: true`, then run:
-
-```sh
-swift-sim pair --qr
-```
-
-Scan the displayed code in the companion at **Mac Connection → Scan Pairing
-QR**. Approve camera access when iOS asks. The QR contains a five-minute,
-one-time invitation by default; use `--ttl-minutes 1` through `--ttl-minutes 15`
-to change that window. Swift Sim exchanges the invitation for a durable pairing
-credential and verifies the helper before saving it.
-
-QR only bootstraps pairing. It does not install or configure Tailscale, and the
-Mac and iPhone must remain connected to the same private Tailnet. If camera
-access is unavailable, use the normal `swift-sim pair` JSON output and open its
-universal link or paste its custom-scheme link in **Open or Paste Pairing Link**.
-Opening a link alone is not proof that pairing succeeded.
-
-Do not connect the iPhone by cable for Swift Sim pairing. A cable is only a
-separate fallback if Xcode has never trusted or registered that iPhone for its
-first development-signed build.
-
-Check the result at any time:
-
-```sh
 swift-sim doctor
 ```
 
-The report has three sections:
+Setup performs these actions:
 
-- Xcode and signing
-- detected coding-agent integrations
-- optional live Simulator networking
+- starts the helper with Homebrew services
+- installs or refreshes each detected agent integration
+- checks Xcode and signing readiness
+- reports optional private features separately
 
-The iPhone-install workflow is ready when Xcode, the helper, and at least one agent integration are ready.
+The iPhone-build workflow is ready when the report shows that Xcode, the helper, and at least one agent integration are ready.
+
+You do not need a repository clone or a manual skill copy.
 
 ## 3. Install The iPhone Companion
 
-[Install the public Swift Sim TestFlight beta](https://testflight.apple.com/join/HMUUFYNK) and open it once.
+[Install the Swift Sim TestFlight beta](https://testflight.apple.com/join/HMUUFYNK). Open it one time.
 
 The companion provides:
 
-- one organized library entry per prototype app
+- one library entry for each app identity
 - build and update history
 - archive and restore controls
-- connected-device verification
-- optional live Simulator viewing and control
+- connected-device installation verification
+- Mac pairing and **Build Current Code**
+- optional Simulator viewing and control
 
-Device-build links can still install through Safari, but the companion is the management hub and the intended mobile experience.
+An install link can also work in Safari. The companion is the intended app-management experience.
 
 ## 4. Prepare Xcode Signing
 
-Open Xcode once and add your Apple Developer account under **Settings > Accounts**. The target must use a bundle identifier owned by that team, and the destination iPhone must be included by the provisioning profile.
+Open Xcode. Add your Apple Developer account under **Settings > Accounts**.
 
-Swift Sim never receives your Apple password or account session. It asks Xcode to perform normal archive, signing, and export operations.
+Configure the app target with a bundle identifier that belongs to the selected team. Make sure the provisioning profile includes the destination iPhone.
 
-## 5. Install Your First App
+Swift Sim does not receive your Apple password or account session. Xcode performs archive, signing, and export operations.
 
-From the local agent session working on the iOS project, ask:
+## 5. Build The First App
+
+Open the local agent session for the iOS project. Ask:
 
 ```text
 Build this app to my iPhone with Swift Sim
 ```
 
-The agent will:
+The agent performs these actions:
 
-1. Run `swift-sim doctor --json`.
+1. Check device-build readiness.
 2. Identify the project or workspace and scheme.
-3. Archive and export a development-signed IPA.
-4. Start a restricted temporary HTTPS delivery tunnel.
+3. Create a development-signed IPA.
+4. Start a restricted temporary delivery link.
 5. Return **Open in Swift Sim to Install**.
-6. Open Swift Sim, review the recorded version, and tap **Install**.
 
-The HTTPS handoff includes a clearly labeled **Install without Swift Sim** fallback for phones without the companion. That fallback is intentionally secondary because iOS does not notify Swift Sim about installs initiated outside the app.
+Open the link on the iPhone. Review the recorded version. Tap **Install**.
 
-Open the link on the iPhone and choose **Install**. It works over cellular or any network; Tailscale is not involved. The Mac must remain awake and online until installation finishes.
+The link works on cellular and other networks. Tailscale is not required. Keep the Mac awake and online until the installation request opens.
 
-## Updating An Existing App
+If the companion is not installed, the HTTPS page provides **Install directly**. That fallback does not add the build to the companion history.
 
-Ask the agent to build to the phone again. Keep the same bundle identifier, Apple Developer team, and compatible keychain/app-group entitlements. iOS installs over the existing app and preserves its app container.
+## Update An Existing App
 
-Swift Sim groups builds by bundle identifier plus team. Rebuilding the same app creates one new history row, not another app card.
+Ask the agent to build the app again.
+
+Keep these values compatible with the installed app:
+
+- bundle identifier
+- Apple Developer team
+- keychain access groups
+- app-group entitlements
+
+iOS then installs the build as an update and preserves the app container. Swift Sim adds the build to the existing app history.
+
+Do not uninstall the app before an update.
+
+## Pair The iPhone With The Mac
+
+Pairing enables **Build Current Code**, install verification, and Simulator diagnostics.
+
+Before you start, install Tailscale on the Mac and iPhone. Sign in to the same Tailnet. The devices do not need the same Wi-Fi network.
+
+In the iPhone companion, tap **Pair Now**, then **Set Up With My Agent**. Share the prepared request with the local coding agent.
+
+For the QR flow, first check the private route:
+
+```sh
+swift-sim setup-status
+```
+
+Continue only when the report contains `ok: true`. Then run:
+
+```sh
+swift-sim pair --qr
+```
+
+In the companion, open **Mac Connection > Scan Pairing QR**. Scan the displayed code.
+
+The invitation is valid for five minutes by default. It can be used one time. Use `--ttl-minutes 1` through `--ttl-minutes 15` to select another invitation window.
+
+If camera access is unavailable, run `swift-sim pair`. Open its universal link or paste its custom-scheme link into **Open or Paste Pairing Link**.
+
+Opening a pairing link is not proof of success. The companion verifies the helper before it saves the Mac.
+
+A USB cable is not used for Swift Sim pairing. Xcode can still require a cable when it registers a new development device for the first time.
+
+## Build Current Code From The iPhone
+
+Complete one successful device build and pair the Mac first. Then open the app in Swift Sim and tap **Build Current Code**.
+
+The paired Mac builds the working tree at its saved path. The build includes uncommitted changes. Swift Sim does not pull, commit, edit, or switch branches.
+
+The helper compares the current bundle identifier and signing team with the trusted prior build. It stops if either value changed.
+
+**Create New Install Link** does not build the project. It republishes a saved IPA.
 
 ## Optional Live Simulator Preview
 
-Only configure this lane when you want to control the Mac Simulator from Swift Sim:
+Use this feature only when you want to control the Mac Simulator from the iPhone.
 
-1. Install Tailscale on the Mac and iPhone.
-2. Sign in to the same Tailnet.
-3. Run on the Mac:
+1. Connect the Mac and iPhone to the same Tailnet.
+2. Run on the Mac:
 
    ```sh
    tailscale serve 47217
-   swift-sim doctor
+   swift-sim setup-status
    ```
 
-4. Ask the local agent:
+3. Continue only when `setup-status` reports `ok: true`.
+4. Ask the local coding agent:
 
    ```text
    Open a live Simulator preview in Swift Sim
    ```
 
-Same Wi-Fi is not required. Do not use Tailscale Funnel; Simulator controls should remain private to the Tailnet.
-
-`swift-sim setup-status` reports the exact Mac hostname, Tailnet URL, selected
-Tailscale backend, and any backend conflict. Do not generate a pairing link
-until it reports `ok: true`. `swift-sim pair` then uses that verified URL
-automatically and refuses a URL belonging to another active Mac identity.
-The interactive QR flow and its TTL options are documented in [QR pairing](#qr-pairing).
-The normal `swift-sim pair` command continues to return machine-readable JSON
-for agents.
+Do not use Tailscale Funnel. Simulator controls must remain private to the Tailnet.
 
 ## Optional Remote iPhone Hot Reload
 
-Remote hot reload is separate from Simulator preview. It keeps a regular development-signed Debug app on the iPhone and replaces compatible function implementations while it runs. Same Wi-Fi is not required, but the Mac and iPhone must be connected to the same private Tailnet.
+Remote hot reload updates compatible function implementations in a running Debug app. It is separate from Simulator preview.
 
-One-time setup:
+Same Wi-Fi is not required. The Mac and iPhone must be connected to the same private Tailnet.
 
-1. Run `swift-sim setup`. Swift Sim downloads its pinned, checksum-verified headless engine into `~/.swift-sim`; there is no separate app to install or configure.
-2. Ask the coding agent to enable Swift Sim live edits. It adds `https://github.com/Miguelosaurus/Swift-Sim`, links `SwiftSimLive`, and adds `.swiftSimLive()` once to the root SwiftUI view.
-3. Review that one-time project diff if desired; there is no separate injection app or per-view setup.
+Complete this setup one time:
+
+1. Run `swift-sim setup`.
+2. Ask the coding agent to enable Swift Sim live edits.
+3. Review the project change. It adds the `SwiftSimLive` package and one `.swiftSimLive()` modifier at the root SwiftUI view.
 4. Connect Tailscale on the Mac and iPhone.
-5. Run `swift-sim live-start --project "/absolute/App.xcodeproj/project.pbxproj"`. Swift Sim selects the matching development identity and configures the private route automatically.
+5. Start the live session:
 
-On the first development build, keep the target iPhone reachable. With `--allow-provisioning-updates`, Swift Sim selects that physical destination so Xcode can register the device and create the profile instead of failing a generic device build. If macOS asks whether `codesign` may use the matching development key, approve it once; **Always Allow** keeps later headless patches fast.
+   ```sh
+   swift-sim live-start \
+     --project "/absolute/App.xcodeproj/project.pbxproj"
+   ```
 
-Check the machine-readable setup state:
+6. Create the first live-enabled build:
 
-```sh
-swift-sim live-status \
-  --project "/absolute/App.xcodeproj/project.pbxproj"
-```
+   ```sh
+   swift-sim build-device \
+     --project "/absolute/App.xcodeproj" \
+     --scheme "App" \
+     --configuration Debug \
+     --allow-provisioning-updates
+   ```
 
-Build the first live-enabled app normally. Swift Sim supplies the host and manages the required Debug compiler/linker settings:
+Install the build through Swift Sim. Open it and keep it running during the edit loop.
 
-```sh
-swift-sim build-device \
-  --project "/absolute/App.xcodeproj" \
-  --scheme "App" \
-  --configuration Debug \
-  --allow-provisioning-updates
-```
+The agent runs `swift-sim deliver-change` once after each completed logical edit. Compatible edits use the private live lane. Structural, mixed, non-Swift, unavailable, and unproven edits use a signed build.
 
-Swift Sim captures the exact frontend commands from this baseline build. Later
-edits use `swift-sim deliver-change` exactly once per completed logical change;
-structural edits or any patch without a compiler, client, replacement, and
-root-revision acknowledgment automatically return to the normal signed-build
-lane. The agent does not run doctor, status checks, screenshots, or UI analysis
-before each warm edit. `route-change` remains available for compatibility,
-diagnostics, and benchmark tooling.
+Do not publish port 8887 through Funnel, Cloudflare Quick Tunnel, public DNS, router forwarding, or a public firewall rule.
 
-Install that build normally through Swift Sim, open it, and leave it running while editing. The shared agent skill routes compatible body changes through live injection and automatically returns to the normal signed-update workflow for structural changes.
+Do not add live loading to Release, TestFlight, or App Store configurations.
 
-Do not publish port 8887 through Funnel, Cloudflare Quick Tunnel, router port forwarding, or a public firewall rule. Do not add the live package or flags to Release/App Store configurations.
+## Update Swift Sim
 
-## Updating Swift Sim
+Run:
 
 ```sh
 swift-sim update
 ```
 
-This upgrades Homebrew and refreshes every detected agent integration from the
-same package. It does not rewrite an agent session that is already running:
-after an update, start a new Codex/Cursor/Claude/OpenCode session. If
-`swift-sim doctor --json` reports version drift, update before using the live
-reload lane so the CLI, helper, and skill share one contract.
+The command upgrades Homebrew and refreshes each detected agent integration. It does not change an agent session that is already running.
+
+After an update, start a new agent session. This lets the agent load the new workflow.
 
 ## Next
 
-- [Agent Workflows](AGENT_WORKFLOWS.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
+- [Agent Workflows](AGENT_WORKFLOWS.md)
 - [Security](SECURITY.md)
+- [Documentation Guide](README.md)

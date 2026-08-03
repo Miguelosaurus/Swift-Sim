@@ -15,6 +15,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 - Documented QR pairing, camera/link fallback, invitation lifecycle, route
   boundaries, privacy handling, and beta coverage.
+- Reworked the README as a product overview, added a documentation guide,
+  simplified setup and troubleshooting procedures, and separated engineering
+  evidence from internal plans and review history.
 
 ## 0.6.1 - 2026-08-02
 
