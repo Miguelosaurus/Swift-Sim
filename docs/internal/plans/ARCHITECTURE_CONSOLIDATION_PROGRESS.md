@@ -6,7 +6,7 @@ This file is the compact execution ledger for the architecture program. It is no
 
 | Phase | Scope | Status | PR | Base | Head | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | db6ccb9 validated implementation | Existing architecture debt is baselined; runtime behavior unchanged |
+| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 4e78a7f validated implementation | Existing architecture debt is baselined; runtime behavior unchanged |
 | 1 | TypeScript and package foundation | Not started | — | — | — | — |
 | 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
 | 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
@@ -65,7 +65,7 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 - Branch: `agent/architecture-consolidation-phase-0-guardrails`
 - PR: [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23)
 - Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
-- Validated implementation SHA: `db6ccb9` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
+- Validated implementation SHA: `4e78a7f3b037f6076d6a269d3342494bcc11b03b` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
 - Dates: 2026-08-04
 - Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
 
@@ -85,6 +85,9 @@ Create a generated architecture inventory and monotonic fitness gate that record
 - Added `scripts/architecture/inventory.js` with deterministic `--json` inventory, Git-history-backed baseline verification, decrease-only caps, and structured ADR/time-bounded allowlists.
 - Added `scripts/architecture/baseline-policy.json` with an immutable snapshot from `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`, current caps, and explicit empty exception lists.
 - Added excluded fixture resources and regression tests in `test/architectureInventory.test.js` for every reviewed bypass, including the real architecture-test path.
+- Made Git-history comparison event-safe: pull requests use `pull_request.base.sha`, pushes use `before`, both are validated against the checked HEAD, local fallback remains deterministic, and a self-resolving merge-base falls back to its parent.
+- Added neutral-filename regressions for CommonJS member extraction and direct `require` assignment, `defineProperty`/`defineProperties`, `Reflect.defineProperty`, and `Object.assign` mutations.
+- Made local preload/runtime import evidence respect static type-only imports while retaining runtime static and dynamic imports.
 - Extended Node risk analysis to `.ts`, `.mts`, and `.cts`; explicitly rejects `.tsx` in the Node production tree.
 - Normalized `node:child_process` and `child_process` across JavaScript and TypeScript ESM, CommonJS, side-effect, and TypeScript import-equals forms into one importer capability.
 - Replaced cross-statement import regexes with a statement-aware lexical scanner that masks comments, strings, and template text while preserving executable template expressions; static imports and requires no longer span unrelated statements.
@@ -132,8 +135,8 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 
 - Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`f5bef1075de9ff6531ca140af634b20d1f25951510013f6eb72c261ab8263f45`).
 - Local architecture gate: `node scripts/architecture/inventory.js --check` passed.
-- Focused architecture tests: `node --test --test-concurrency=1 test/architectureInventory.test.js` passed 21/21 using temporary fixture trees and the declared Git baseline.
-- Full Node/release suite: final `npm run check` passed 449/449 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files. An earlier parallel attempt had one existing process-timeout fixture race on `descendant.pid`; the final standard run passed.
+- Focused architecture tests: `node --test --test-concurrency=1 test/architectureInventory.test.js` passed 28/28 using temporary fixture trees and event-shaped Git history metadata.
+- Full Node/release suite: final `npm run check` passed 456/456 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files. An initial run exposed one timing-sensitive `descendant.pid` fixture race; its isolated test and the final standard run both passed.
 - Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
 - Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
 - iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
@@ -146,11 +149,11 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 5 | 5 | 0 |
-| P2 | 5 | 5 | 0 |
+| P1 | 7 | 7 | 0 |
+| P2 | 6 | 6 | 0 |
 | P3 | 1 | 1 | 0 |
 
-Self-review fixed the full review set: the original patch-evidence predicate was too broad, local preload imports were not initially included, the release-contract test expected the pre-gate `npm run check` string, the guard test self-matched, the policy baseline was editable authority, TypeScript was unscanned, fs-promises and aliases were missed, monkey-patch aliases bypassed detection, metadata used ambiguous head terminology, unprefixed child-process forms bypassed detection, segment-wide exclusions hid production paths, declarations/type-only imports were treated as runtime, imports could span statements and lexical lookalikes could influence capability evidence, and destructive analysis did not skip type-only bindings. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline inflation, immutable baseline authority, cap reductions, removed-debt reintroduction, allowlist expiry/ADR validation, TypeScript extensions, declaration and type-only semantics, one-capability enforcement, normalized child-process forms, path-aware fixture/build exclusions, neutral filenames, comments/strings/templates, semicolonless and multiline imports, template expressions, fixture exclusion, Git-history availability in CI, and accidental runtime changes.
+Self-review fixed the full review set: the original patch-evidence predicate was too broad, local preload imports were not initially included, the release-contract test expected the pre-gate `npm run check` string, the guard test self-matched, the policy baseline was editable authority, TypeScript was unscanned, fs-promises and aliases were missed, monkey-patch aliases bypassed detection, metadata used ambiguous head terminology, unprefixed child-process forms bypassed detection, segment-wide exclusions hid production paths, declarations/type-only imports were treated as runtime, imports could span statements and lexical lookalikes could influence capability evidence, destructive analysis did not skip type-only bindings, GitHub event comparison could select the wrong history, CommonJS member extraction and direct require mutations were incomplete, and type-only local preload/runtime imports were misclassified. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline inflation, immutable baseline authority, cap reductions, removed-debt reintroduction, allowlist expiry/ADR validation, event-shaped pull-request and push history, TypeScript extensions, declaration and type-only semantics, one-capability enforcement, normalized child-process forms, path-aware fixture/build exclusions, neutral filenames, comments/strings/templates, semicolonless and multiline imports, template expressions, fixture exclusion, Git-history availability in CI, direct CommonJS member/mutation forms, and accidental runtime changes.
 
 #### Migration and rollback
 
@@ -162,7 +165,7 @@ Self-review fixed the full review set: the original patch-evidence predicate was
 #### Residual risks
 
 - Existing preloads, direct infrastructure imports, writable JSON records, oversized files, and source-text tests remain intentionally capped for later phases; removed entries cannot be reintroduced without a new structured exception.
-- The inventory uses a documented statement-aware lexical scanner for ESM imports, TypeScript import-equals, and CommonJS `require` calls; comments, strings, and template text are ignored, executable template expressions are scanned, and dynamic imports/computed requires are not classified until a later AST-aware enforcement phase.
+- The inventory uses a documented statement-aware lexical scanner for ESM imports, TypeScript import-equals, and CommonJS `require` calls; comments, strings, and template text are ignored, executable template expressions are scanned, and dynamic imports/computed requires or computed CommonJS member chains are not classified until a later AST-aware enforcement phase. GitHub pull-request and push event metadata is preferred and validated; deterministic local Git fallback remains for local execution.
 - `.tsx` is explicitly prohibited in the Node production tree rather than treated as a supported runtime source.
 - No physical-device behavior gate is required because Phase 0 makes no product behavior change.
 
