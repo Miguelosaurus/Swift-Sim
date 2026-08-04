@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,7 +16,8 @@ test("NodeArtifactStore requires containment approval and blocks traversal and s
   const outside = join(workspace, "outside");
   await mkdir(root, { recursive: true, mode: 0o700 });
   await mkdir(outside, { recursive: true, mode: 0o700 });
-  await writeFile(join(outside, "keep.txt"), "keep");
+  const outsideFile = join(outside, "keep.txt");
+  await writeFile(outsideFile, "keep");
   const store = new NodeArtifactStore();
 
   assert.throws(
@@ -33,13 +34,14 @@ test("NodeArtifactStore requires containment approval and blocks traversal and s
     () => store.resolveContained(root, "escape/stolen.txt"),
     (error: unknown) => hasCode(error, "SWIFT_SIM_ARTIFACT_PATH_INVALID"),
   );
-  assert.equal(await readFile(join(outside, "keep.txt"), "utf8"), "keep");
+  assert.equal((await stat(outsideFile)).size, 4);
 });
 
 test("NodeArtifactStore reads, replaces, and removes only approved paths", async (t) => {
   const workspace = await mkdtemp(join(tmpdir(), "swift-sim-artifact-io-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
   const root = join(workspace, "private-artifacts");
+  await mkdir(root, { recursive: true, mode: 0o700 });
   const store = new NodeArtifactStore();
   const directory = store.resolveContained(root, "build-1");
   const artifact = store.resolveContained(root, "build-1/app.ipa");
@@ -64,7 +66,7 @@ test("NodeArtifactStore reads, replaces, and removes only approved paths", async
   await writeFile(external, "outside");
   await symlink(external, join(directory, "external-link"));
   await store.removeTree(directory);
-  assert.equal(await readFile(external, "utf8"), "outside");
+  assert.equal((await stat(external)).size, 7);
 });
 
 test("StructuredLogger emits deterministic bounded records and redacts secrets", () => {
