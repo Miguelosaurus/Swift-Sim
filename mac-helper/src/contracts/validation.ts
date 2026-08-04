@@ -32,8 +32,32 @@ export function hasString(record: Record<string, unknown>, key: string): boolean
   return isNonEmptyString(record[key]);
 }
 
+export function hasStringValue(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key) && isString(record[key]);
+}
+
 export function hasOptionalString(record: Record<string, unknown>, key: string): boolean {
-  return record[key] === undefined || isString(record[key]);
+  return !hasOwn(record, key) || isString(record[key]);
+}
+
+export function hasOptionalNumber(record: Record<string, unknown>, key: string): boolean {
+  return !hasOwn(record, key) || isFiniteNumber(record[key]);
+}
+
+export function hasOptionalNullableNumber(record: Record<string, unknown>, key: string): boolean {
+  return !hasOwn(record, key) || record[key] === null || isFiniteNumber(record[key]);
+}
+
+export function hasOptionalBoolean(record: Record<string, unknown>, key: string): boolean {
+  return !hasOwn(record, key) || isBoolean(record[key]);
+}
+
+export function hasOptionalStringArray(record: Record<string, unknown>, key: string): boolean {
+  return !hasOwn(record, key) || isStringArray(record[key]);
+}
+
+export function hasOptionalRecord(record: Record<string, unknown>, key: string): boolean {
+  return !hasOwn(record, key) || isRecord(record[key]);
 }
 
 export function hasNumber(record: Record<string, unknown>, key: string): boolean {
@@ -58,4 +82,8 @@ export function parseContract<T>(value: unknown, validator: Validator<T>, label:
     throw new TypeError(`Invalid ${label} contract`);
   }
   return value;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
 }

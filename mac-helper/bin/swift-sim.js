@@ -2,7 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
@@ -19,11 +19,15 @@ import {
 } from "../src/liveReload.js";
 import { deliverChange } from "../src/changeDelivery.js";
 
-const rootDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const helperPath = join(rootDirectory, "mac-helper", "bin", "swift-sim-helper.js");
-const helperEntryPath = join(rootDirectory, "mac-helper", "bin", "swift-sim-helper-entry.js");
+const runtimeRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const packageRoot = basename(runtimeRoot) === "dist" ? dirname(runtimeRoot) : runtimeRoot;
+const helperPath = join(runtimeRoot, "mac-helper", "bin", "swift-sim-helper.js");
+const helperEntryPath = join(runtimeRoot, "mac-helper", "bin", "swift-sim-helper-entry.js");
 const helperBaseURL = `http://127.0.0.1:${Number(process.env.SWIFT_SIM_PORT || 47217)}`;
-const marketplaceRoot = process.env.SWIFT_SIM_MARKETPLACE_ROOT || rootDirectory;
+// The npm package keeps compiled runtime under dist/ and integrations at the
+// package root. Homebrew may still override this for its libexec layout, but
+// npm-installed .bin/swift-sim is correct without that environment variable.
+const marketplaceRoot = process.env.SWIFT_SIM_MARKETPLACE_ROOT || packageRoot;
 const marketplaceName = "swift-sim";
 const pluginName = "swift-sim-companion";
 const skillName = "remote-simulator-companion";

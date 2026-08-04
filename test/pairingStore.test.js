@@ -78,7 +78,7 @@ test("concurrent first-use pairing readers converge on one credential", async ()
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-pairing-concurrent-"));
   try {
     const path = join(directory, "pairing.json");
-    const moduleURL = pathToFileURL(join(process.cwd(), "mac-helper/src/pairingStore.js")).href;
+    const moduleURL = new URL("../mac-helper/src/pairingStore.js", import.meta.url).href;
     const script = `
       import { PairingStore } from ${JSON.stringify(moduleURL)};
       process.stdout.write(JSON.stringify(new PairingStore({ path: process.argv[1] }).current()));

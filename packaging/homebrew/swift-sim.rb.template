@@ -1,7 +1,7 @@
 class SwiftSim < Formula
   desc "Install iOS builds from mobile-controlled coding agents"
   homepage "https://github.com/Miguelosaurus/Swift-Sim"
-  url "https://github.com/Miguelosaurus/Swift-Sim/releases/download/v@VERSION@/swift-sim-@VERSION@.tar.gz"
+  url "@ARCHIVE_URL@"
   sha256 "@SHA256@"
   license "Apache-2.0"
 
@@ -37,7 +37,6 @@ class SwiftSim < Formula
     (bin/name).write <<~SH
       #!/bin/bash
       export PATH="#{Formula["node@24"].opt_bin}:#{Formula["cloudflared"].opt_bin}:$PATH"
-      export SWIFT_SIM_MARKETPLACE_ROOT="#{opt_libexec}"
       exec "#{Formula["node@24"].opt_bin}/node" "#{libexec}/#{script}" "$@"
     SH
   end

@@ -1,66 +1,78 @@
-import {
-  hasBoolean,
-  hasLiteral,
-  hasString,
-  isRecord,
-  parseContract,
-  type Validator,
-} from "./validation.js";
+import * as canonicalDelivery from "../changeDeliveryContract.js";
+import { parseContract, type Validator } from "./validation.js";
 
-export interface LiveProof {
-  sessionID: string;
-  rootRevision: string;
-  acknowledgedAt: string;
+export const DELIVERY_SCHEMA_VERSION = 1 as const;
+export const DELIVERY_OUTCOMES = [
+  "hot-reloaded",
+  "install-link-ready",
+  "no-change",
+  "needs-user-action",
+  "failed",
+] as const;
+
+export interface LiveDelivery {
+  kind: "live";
+  revision: number;
 }
 
-export interface DeliverySuccess {
-  outcome: "livePatch" | "signedBuild";
-  requestID: string;
-  proof?: LiveProof;
-  fallbackUsed: boolean;
+export interface InstallDelivery {
+  kind: "install";
+  universalLink: string;
+  customScheme?: string;
+  state: string;
+  expiresAt?: string;
+  preserveData: boolean;
 }
 
-export interface DeliveryFailure {
-  outcome: "rejected" | "failed";
-  requestID: string;
-  reason: string;
-  fallbackUsed: boolean;
+export interface DeliveryEnvelope {
+  schemaVersion: 1;
+  outcome: (typeof DELIVERY_OUTCOMES)[number];
+  message: string;
+  reasonCode?: string;
+  delivery?: LiveDelivery | InstallDelivery;
+  timing?: { totalMs: number };
+  error?: { code: string; message: string };
+  warning?: { code: string; message: string };
+  diagnostics?: unknown;
 }
 
-export interface DeliveryPartial {
-  outcome: "partialApplication";
-  requestID: string;
-  reason: string;
-  fallbackUsed: boolean;
+export interface DeliveryEnvelopeInput {
+  outcome?: string;
+  message?: string;
+  reasonCode?: string;
+  delivery?: LiveDelivery | InstallDelivery;
+  timing?: { totalMs: number };
+  error?: { code: string; message: string };
+  warning?: { code: string; message: string };
+  diagnostics?: unknown;
 }
 
-export type DeliveryOutcome = DeliverySuccess | DeliveryFailure | DeliveryPartial;
+export const deliveryEnvelope = canonicalDelivery.deliveryEnvelope as unknown as (
+  input?: DeliveryEnvelopeInput,
+) => DeliveryEnvelope;
+export const validateDeliveryEnvelope = canonicalDelivery.validateDeliveryEnvelope as unknown as (
+  value: unknown,
+) => { valid: boolean; errors: string[] };
 
-const isLiveProof: Validator<LiveProof> = (value): value is LiveProof => {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return (
-    hasString(value, "sessionID") &&
-    hasString(value, "rootRevision") &&
-    hasString(value, "acknowledgedAt")
+export type DeliveryOutcome = DeliveryEnvelope["outcome"];
+
+export const isDeliveryEnvelope: Validator<DeliveryEnvelope> = (value): value is DeliveryEnvelope =>
+  validateDeliveryEnvelope(value).valid && !containsExplicitUndefined(value);
+
+// Kept as a compatibility name for callers of the Phase 1 scaffolding. The
+// runtime implementation is the canonical changeDeliveryContract validator.
+export const isDeliveryOutcome = isDeliveryEnvelope;
+
+export function parseDeliveryEnvelope(value: unknown): DeliveryEnvelope {
+  return parseContract(value, isDeliveryEnvelope, "delivery envelope");
+}
+
+export const parseDeliveryOutcome = parseDeliveryEnvelope;
+
+function containsExplicitUndefined(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(
+    ([key, child]) =>
+      key !== "diagnostics" && (child === undefined || containsExplicitUndefined(child)),
   );
-};
-
-export const isDeliveryOutcome: Validator<DeliveryOutcome> = (value): value is DeliveryOutcome => {
-  if (!isRecord(value) || !hasString(value, "requestID") || !hasBoolean(value, "fallbackUsed")) {
-    return false;
-  }
-  if (hasLiteral(value, "outcome", ["livePatch", "signedBuild"] as const)) {
-    return value.proof === undefined || isLiveProof(value.proof);
-  }
-  return (
-    hasString(value, "reason") &&
-    (hasLiteral(value, "outcome", ["rejected", "failed"] as const) ||
-      hasLiteral(value, "outcome", ["partialApplication"] as const))
-  );
-};
-
-export function parseDeliveryOutcome(value: unknown): DeliveryOutcome {
-  return parseContract(value, isDeliveryOutcome, "delivery outcome");
 }

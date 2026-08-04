@@ -1,76 +1,175 @@
 import {
-  hasLiteral,
-  hasNumber,
+  hasOptionalNullableNumber,
+  hasOptionalNumber,
+  hasOptionalRecord,
   hasOptionalString,
+  hasOptionalStringArray,
   hasString,
+  isInteger,
   isRecord,
   parseContract,
   type Validator,
 } from "./validation.js";
 
-export const SESSION_PHASES = ["starting", "ready", "stopping", "stopped", "failed"] as const;
-export type SessionPhase = (typeof SESSION_PHASES)[number];
+export const SESSION_STREAM_STATES = ["starting", "running", "stopped", "failed"] as const;
+export type SessionStreamState = (typeof SESSION_STREAM_STATES)[number];
 
-export interface StreamState {
-  streamID: string;
-  simulatorUDID: string;
-  port: number;
-  startedAt: string;
-  state: "starting" | "ready" | "stopping" | "stopped";
+export interface SessionBuildRecord {
+  state: string;
+  [key: string]: unknown;
 }
 
+export interface SessionStreamRecord {
+  state: SessionStreamState;
+  transport?: string;
+  quality?: string;
+  localUrl?: string;
+  previewUrl?: string;
+  wsUrl?: string;
+  port?: number | null;
+  pid?: number | null;
+  raw?: Record<string, unknown>;
+  limitations?: readonly string[];
+}
+
+/** The JSON record written by SessionStore. Optional fields are legacy fields. */
 export interface SessionRecord {
-  schemaVersion: number;
-  sessionID: string;
-  projectPath: string;
-  createdAt: string;
-  updatedAt: string;
-  phase: SessionPhase;
-  stream: StreamState;
-  remoteBaseURL?: string;
-  accessToken: string;
+  id: string;
+  token: string;
+  project?: string;
+  scheme?: string;
+  simulatorUDID?: string;
+  remoteBaseUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  revision?: number;
+  build: SessionBuildRecord;
+  stream: SessionStreamRecord;
+  logs: readonly string[];
 }
 
 export interface PublicSessionProjection {
-  sessionID: string;
-  projectPath: string;
-  phase: SessionPhase;
-  stream: Pick<StreamState, "streamID" | "simulatorUDID" | "port" | "state">;
+  id: string;
+  recentProjectID: string;
+  project: "set" | "";
+  scheme?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  build: SessionBuildRecord;
+  stream: {
+    state: SessionStreamState;
+    transport: string;
+    quality: string;
+    limitations: readonly string[];
+  };
+  links: {
+    universalLink: string;
+    customScheme: string;
+  };
 }
 
 export interface PrivateSessionProjection extends PublicSessionProjection {
-  accessToken: string;
-  remoteBaseURL?: string;
+  codex: {
+    localPreviewUrl: string;
+    simulatorUDID: string;
+    note: string;
+  };
 }
 
-const isStreamState: Validator<StreamState> = (value): value is StreamState => {
-  if (!isRecord(value) || !hasString(value, "streamID") || !hasString(value, "simulatorUDID")) {
+export const isSessionBuildRecord: Validator<SessionBuildRecord> = (
+  value,
+): value is SessionBuildRecord => isRecord(value) && hasString(value, "state");
+
+export const isSessionStreamRecord: Validator<SessionStreamRecord> = (
+  value,
+): value is SessionStreamRecord => {
+  if (
+    !isRecord(value) ||
+    !hasString(value, "state") ||
+    !SESSION_STREAM_STATES.includes(value.state as SessionStreamState)
+  ) {
     return false;
   }
   return (
-    hasNumber(value, "port") &&
-    hasString(value, "startedAt") &&
-    hasLiteral(value, "state", ["starting", "ready", "stopping", "stopped"] as const)
+    hasOptionalString(value, "transport") &&
+    hasOptionalString(value, "quality") &&
+    hasOptionalString(value, "localUrl") &&
+    hasOptionalString(value, "previewUrl") &&
+    hasOptionalString(value, "wsUrl") &&
+    hasOptionalNullableNumber(value, "port") &&
+    hasOptionalNullableNumber(value, "pid") &&
+    hasOptionalRecord(value, "raw") &&
+    hasOptionalStringArray(value, "limitations") &&
+    optionalNonNegativeInteger(value, "port") &&
+    optionalPositiveInteger(value, "pid")
   );
 };
 
 export const isSessionRecord: Validator<SessionRecord> = (value): value is SessionRecord => {
-  if (!isRecord(value)) {
+  if (
+    !isRecord(value) ||
+    !hasString(value, "id") ||
+    !hasString(value, "token") ||
+    !isSessionBuildRecord(value.build) ||
+    !isSessionStreamRecord(value.stream) ||
+    !Array.isArray(value.logs) ||
+    !value.logs.every((line) => typeof line === "string")
+  ) {
     return false;
   }
   return (
-    hasNumber(value, "schemaVersion") &&
-    hasString(value, "sessionID") &&
-    hasString(value, "projectPath") &&
-    hasString(value, "createdAt") &&
-    hasString(value, "updatedAt") &&
-    hasLiteral(value, "phase", SESSION_PHASES) &&
-    isStreamState(value.stream) &&
-    hasOptionalString(value, "remoteBaseURL") &&
-    hasString(value, "accessToken")
+    hasOptionalString(value, "project") &&
+    hasOptionalString(value, "scheme") &&
+    hasOptionalString(value, "simulatorUDID") &&
+    hasOptionalString(value, "remoteBaseUrl") &&
+    hasOptionalString(value, "createdAt") &&
+    hasOptionalString(value, "updatedAt") &&
+    hasOptionalNumber(value, "revision") &&
+    optionalNonNegativeInteger(value, "revision")
+  );
+};
+
+export const isPublicSessionProjection: Validator<PublicSessionProjection> = (
+  value,
+): value is PublicSessionProjection => {
+  if (
+    !isRecord(value) ||
+    !hasString(value, "id") ||
+    !hasString(value, "recentProjectID") ||
+    (value.project !== "set" && value.project !== "") ||
+    !isSessionBuildRecord(value.build) ||
+    !isRecord(value.stream) ||
+    !isSessionStreamRecord(value.stream) ||
+    !isRecord(value.links) ||
+    !hasOptionalString(value.links, "universalLink") ||
+    !hasString(value.links, "customScheme")
+  )
+    return false;
+  return (
+    hasOptionalString(value, "scheme") &&
+    hasOptionalString(value, "createdAt") &&
+    hasOptionalString(value, "updatedAt") &&
+    hasString(value.stream, "transport") &&
+    hasString(value.stream, "quality") &&
+    Array.isArray(value.stream.limitations) &&
+    value.stream.limitations.every((item) => typeof item === "string")
   );
 };
 
 export function parseSessionRecord(value: unknown): SessionRecord {
   return parseContract(value, isSessionRecord, "session record");
+}
+
+function optionalNonNegativeInteger(record: Record<string, unknown>, key: string): boolean {
+  return (
+    !Object.prototype.hasOwnProperty.call(record, key) ||
+    (isInteger(record[key]) && Number(record[key]) >= 0)
+  );
+}
+
+function optionalPositiveInteger(record: Record<string, unknown>, key: string): boolean {
+  return (
+    !Object.prototype.hasOwnProperty.call(record, key) ||
+    (isInteger(record[key]) && Number(record[key]) > 0)
+  );
 }

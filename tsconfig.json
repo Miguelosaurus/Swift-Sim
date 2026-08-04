@@ -19,7 +19,7 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": false
   },
   "include": [
     "mac-helper/**/*.js",
