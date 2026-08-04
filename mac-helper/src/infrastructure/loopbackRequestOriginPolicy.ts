@@ -1,9 +1,5 @@
 import { URL } from "node:url";
-import type {
-  RequestOriginDecision,
-  RequestOriginInput,
-  RequestOriginPolicy,
-} from "./ports.js";
+import type { RequestOriginDecision, RequestOriginInput, RequestOriginPolicy } from "./ports.js";
 
 export class LoopbackRequestOriginPolicy implements RequestOriginPolicy {
   evaluate(input: RequestOriginInput): RequestOriginDecision {
@@ -69,12 +65,14 @@ export function isLoopbackAddress(value: string): boolean {
 }
 
 function firstForwardedValue(value: string | undefined): string {
-  return String(value || "").split(",")[0]?.trim() || "";
+  return (
+    String(value || "")
+      .split(",")[0]
+      ?.trim() || ""
+  );
 }
 
-function normalizeForwardedProtocol(
-  value: string | undefined,
-): "http:" | "https:" | "" {
+function normalizeForwardedProtocol(value: string | undefined): "http:" | "https:" | "" {
   const protocol = firstForwardedValue(value).toLowerCase();
   if (protocol === "http") return "http:";
   if (protocol === "https") return "https:";
