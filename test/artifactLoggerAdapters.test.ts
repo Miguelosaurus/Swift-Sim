@@ -114,10 +114,12 @@ test("StructuredLogger emits deterministic bounded records and redacts secrets",
   });
   assert.throws(() => logger.log("info", "invalid event", {}));
   assert.doesNotThrow(() =>
-    new StructuredLogger({ writer: () => { throw new Error("sink failed"); }, clock }).log(
-      "error",
-      "logger.sink.failed",
-    ),
+    new StructuredLogger({
+      writer: () => {
+        throw new Error("sink failed");
+      },
+      clock,
+    }).log("error", "logger.sink.failed"),
   );
 });
 
