@@ -98,6 +98,36 @@ test("child-process capability normalizes node-prefixed and unprefixed JS and TS
   }
 });
 
+test("statement-aware scanning keeps separate imports and ignores lexical lookalikes", () => {
+  const fixture = createFixture({
+    "mac-helper/src/statement-aware-fs.ts": fixtureText("statementAwareFs"),
+    "mac-helper/src/statement-aware-child.ts": fixtureText("statementAwareChildProcess"),
+    "mac-helper/src/semicolonless.ts": fixtureText("semicolonlessImports"),
+    "mac-helper/src/multiline.ts": fixtureText("multilineImport"),
+    "mac-helper/src/lexical-fakes.ts": fixtureText("lexicalFakes"),
+    "mac-helper/src/fake-type-before-real.ts": fixtureText("fakeTypeBeforeReal"),
+    "mac-helper/src/template-expression.ts": fixtureText("templateExpressionRuntime"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), [
+      "mac-helper/src/statement-aware-child.ts",
+    ]);
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), [
+      "mac-helper/src/fake-type-before-real.ts",
+      "mac-helper/src/multiline.ts",
+      "mac-helper/src/semicolonless.ts",
+      "mac-helper/src/statement-aware-fs.ts",
+      "mac-helper/src/template-expression.ts",
+    ]);
+    assert.ok(inventory.destructiveFilesystemImports.every((entry) => entry.apis.includes("writeFile")));
+    assert.deepEqual(inventory.directGlobalFetchUses.map((entry) => entry.path), ["mac-helper/src/template-expression.ts"]);
+    assert.deepEqual(inventory.preloadRuntimePatchModules, []);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("production paths remain active inside fixtures and build directories", () => {
   const fixture = createFixture({
     "mac-helper/src/fixtures/risky.js": fixtureText("javascriptRisk"),
@@ -142,6 +172,22 @@ test("TypeScript declarations and type-only imports do not create runtime capabi
     assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), ["mac-helper/src/mixed.ts"]);
     assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), ["mac-helper/src/mixed.ts"]);
     assert.ok(!inventory.productionFiles.some((entry) => entry.path.endsWith(".d.ts") || entry.path.endsWith(".d.mts") || entry.path.endsWith(".d.cts")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("type-only destructive filesystem bindings are ignored while runtime bindings remain visible", () => {
+  const fixture = createFixture({
+    "mac-helper/src/type-only-destructive.ts": fixtureText("typeOnlyDestructiveFilesystem"),
+    "mac-helper/src/runtime-promises.ts": fixtureText("promisesVariants"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), [
+      "mac-helper/src/runtime-promises.ts",
+    ]);
+    assert.deepEqual(inventory.destructiveFilesystemImports[0].apis, ["mkdir", "rename", "rm", "writeFile"]);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }

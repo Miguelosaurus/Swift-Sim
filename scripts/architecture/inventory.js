@@ -42,10 +42,6 @@ const sourceTextTestExtensionPattern = /\.(?:js|mjs|cjs|ts|mts|cts|tsx|swift)$/;
 const markdownPattern = /(?:^|\/)README\.md$|\.md$/;
 const preloadRuntimeNamePattern = /(?:preload|runtimeboundary|hardenedruntime|childruntime|fetchboundary|artifactcleanupboundary|devicebuildcapabilityboundary|helperhttpboundary)/i;
 const monitoredModulePattern = /^(?:node:)?(?:child_process|fs|fs\/promises)$/;
-const importPattern = /\bimport\s+(?:(?<type>type)\s+)?(?:(?<clause>[\s\S]*?)\s+from\s+)?["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']/g;
-const sideEffectImportPattern = /\bimport\s+["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']/g;
-const requirePattern = /\brequire\s*\(\s*["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']\s*\)/g;
-const importEqualsPattern = /\bimport\s+(?:(?<type>type)\s+)?(?<local>[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']\s*\)/g;
 
 const pathRules = {
   productionJavaScript: "mac-helper/src/**/*.js and mac-helper/bin/**/*.js; tracked only",
@@ -55,7 +51,7 @@ const pathRules = {
   tests: "test/**, benchmarks/test/**, and Companion/SwiftSimCompanionTests/**; tracked only",
   documentation: "tracked Markdown files outside excluded generated/test fixture roots",
   excluded: "path-aware generated roots, dependencies, .git, benchmark results, and test fixture roots; declared production roots take precedence",
-  importScanner: "static ESM imports, TypeScript import-equals, and CommonJS require calls; declarations and type-only bindings are non-runtime; dynamic imports and computed requires are not classified",
+  importScanner: "statement-aware lexical scanning of static ESM imports, TypeScript import-equals, and CommonJS require calls; comments, strings, and templates are ignored; declarations and type-only bindings are non-runtime; dynamic imports and computed requires are not classified",
   enforcementUnit: "one capability/importer per production file; evidence lists APIs and lines without changing the enforcement count",
 };
 
@@ -393,7 +389,8 @@ function indexAllowlists(allowlists) {
 }
 
 function analyzeNodeModule(path, source) {
-  const imports = scanImports(path, source);
+  const lexical = lexSource(source);
+  const imports = scanImports(path, lexical);
   const childProcessEntries = imports.filter((entry) => entry.runtime && entry.module === "node:child_process");
   const childProcessImporter = childProcessEntries.length > 0 ? {
     path,
@@ -401,31 +398,32 @@ function analyzeNodeModule(path, source) {
     kind: "importer-capability",
     modules: [...new Set(childProcessEntries.map((entry) => entry.module))].sort(),
   } : null;
-  const destructiveFilesystemImporter = destructiveApisForImports(path, source, imports);
+  const destructiveFilesystemImporter = destructiveApisForImports(path, lexical.codeSource, imports, lexical.tokens);
   const directGlobalFetchUses = [];
-  for (const match of source.matchAll(/(?<![\w.$])fetch\s*\(/g)) {
+  for (const match of lexical.codeSource.matchAll(/(?<![\w.$])fetch\s*\(/g)) {
     directGlobalFetchUses.push({ path, line: lineNumber(source, match.index), kind: "global-fetch-call" });
   }
-  for (const match of source.matchAll(/\bglobal(?:This)?\.fetch\b/g)) {
+  for (const match of lexical.codeSource.matchAll(/\bglobal(?:This)?\.fetch\b/g)) {
     directGlobalFetchUses.push({ path, line: lineNumber(source, match.index), kind: match[0] });
   }
-  const jsonPathLiterals = [...source.matchAll(/["'`]([^"'`]*\.json)["'`]/g)]
-    .map((match) => match[1])
+  const jsonPathLiterals = lexical.tokens
+    .filter((token) => token.kind === "string" && token.value.endsWith(".json"))
+    .map((token) => token.value)
     .filter((value) => !value.endsWith("package.json"))
     .sort();
-  const writesJSON = destructiveFilesystemImporter && source.includes("JSON.stringify");
+  const writesJSON = destructiveFilesystemImporter && /\bJSON\s*\.\s*stringify\s*\(/.test(lexical.codeSource);
   const writableJSONDomainStateStores = writesJSON
-    ? [...new Set(jsonPathLiterals)].map((storePath) => ({ path, line: lineNumber(source, source.indexOf(storePath)), storePath, owner: path }))
+    ? [...new Set(jsonPathLiterals)].map((storePath) => {
+      const token = lexical.tokens.find((candidate) => candidate.kind === "string" && candidate.value === storePath);
+      return { path, line: lineNumber(source, token?.start), storePath, owner: path };
+    })
     : [];
   const preloadRuntimeReasons = [];
   if (preloadRuntimeNamePattern.test(basename(path))) preloadRuntimeReasons.push("module-name");
-  const localImports = [
-    ...source.matchAll(/\bimport\s+["'](?<module>\.{1,2}\/[^"']+)["']/g),
-    ...source.matchAll(/\bimport\s+[\s\S]*?\s+from\s+["'](?<module>\.{1,2}\/[^"']+)["']/g),
-    ...source.matchAll(/\bimport\s*\(\s*["'](?<module>\.{1,2}\/[^"']+)["']\s*\)/g),
-  ];
-  if (localImports.some((entry) => preloadRuntimeNamePattern.test(basename(entry.groups.module)))) preloadRuntimeReasons.push("imports-preload-or-runtime-boundary");
-  const patchEvidence = patchEvidenceFor(source, imports);
+  if (localImportModules(lexical.tokens).some((module) => /^\.{1,2}\//.test(module) && preloadRuntimeNamePattern.test(basename(module)))) {
+    preloadRuntimeReasons.push("imports-preload-or-runtime-boundary");
+  }
+  const patchEvidence = patchEvidenceFor(lexical.codeSource, imports);
   if (patchEvidence.length > 0) preloadRuntimeReasons.push(...patchEvidence);
   return {
     path,
@@ -437,50 +435,274 @@ function analyzeNodeModule(path, source) {
   };
 }
 
-function scanImports(path, source) {
+function scanImports(path, sourceOrLexical) {
+  const lexical = sourceOrLexical.tokens ? sourceOrLexical : lexSource(sourceOrLexical);
+  const { tokens } = lexical;
   const imports = [];
-  for (const match of source.matchAll(importPattern)) {
-    const typeOnly = Boolean(match.groups.type);
-    const bindings = parseESMBindings(match.groups.clause || "", typeOnly);
-    imports.push({
-      path,
-      line: lineNumber(source, match.index),
-      kind: "esm",
-      module: canonicalModule(match.groups.module),
-      bindings,
-      runtime: !typeOnly && (bindings.length === 0 || bindings.some((binding) => !binding.typeOnly)),
-    });
-  }
-  for (const match of source.matchAll(sideEffectImportPattern)) {
-    const module = canonicalModule(match.groups.module);
-    if (imports.some((entry) => entry.line === lineNumber(source, match.index) && entry.module === module)) continue;
-    imports.push({ path, line: lineNumber(source, match.index), kind: "esm-side-effect", module, bindings: [], runtime: true });
-  }
-  for (const match of source.matchAll(importEqualsPattern)) {
-    const typeOnly = Boolean(match.groups.type);
-    imports.push({
-      path,
-      line: lineNumber(source, match.index),
-      kind: "typescript-import-equals",
-      module: canonicalModule(match.groups.module),
-      bindings: [{ type: "namespace", local: match.groups.local, typeOnly }],
-      runtime: !typeOnly,
-    });
-  }
-  for (const match of source.matchAll(requirePattern)) {
-    const lineStart = source.lastIndexOf("\n", match.index) + 1;
-    const lineEnd = source.indexOf("\n", match.index);
-    const statement = source.slice(lineStart, lineEnd === -1 ? source.length : lineEnd);
-    imports.push({
-      path,
-      line: lineNumber(source, match.index),
-      kind: "commonjs-require",
-      module: canonicalModule(match.groups.module),
-      bindings: parseRequireBindings(statement, match[0]),
-      runtime: true,
-    });
+  const skippedRequireIndices = new Set();
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.kind !== "identifier") continue;
+    if (token.value === "import") {
+      const importEquals = parseImportEquals(tokens, index);
+      if (importEquals) {
+        if (monitoredModulePattern.test(importEquals.entry.module)) {
+          imports.push({ path, ...importEquals.entry, line: lineNumber(lexical.source, token.start) });
+        }
+        skippedRequireIndices.add(importEquals.requireIndex);
+        index = importEquals.endIndex;
+        continue;
+      }
+      if (tokens[index + 1]?.value === "(" || tokens[index + 1]?.value === ".") continue;
+      const parsedImport = parseStaticImport(tokens, index);
+      if (parsedImport && monitoredModulePattern.test(parsedImport.entry.module)) {
+        imports.push({ path, ...parsedImport.entry, line: lineNumber(lexical.source, token.start) });
+        index = parsedImport.endIndex;
+      }
+      continue;
+    }
+    if (token.value !== "require" || skippedRequireIndices.has(index)) continue;
+    const parsedRequire = parseCommonJSRequire(tokens, index);
+    if (parsedRequire && monitoredModulePattern.test(parsedRequire.module)) {
+      imports.push({
+        path,
+        line: lineNumber(lexical.source, token.start),
+        kind: "commonjs-require",
+        module: parsedRequire.module,
+        bindings: parseRequireBindings(tokens, index),
+        runtime: true,
+      });
+    }
   }
   return imports.sort((a, b) => a.line - b.line || a.module.localeCompare(b.module));
+}
+
+function lexSource(source) {
+  const tokens = [];
+  const masked = source.split("");
+  const mask = (start, end) => {
+    for (let index = start; index < end; index += 1) {
+      if (masked[index] !== "\n" && masked[index] !== "\r") masked[index] = " ";
+    }
+  };
+  let index = 0;
+  const lexString = () => {
+    const start = index;
+    const quote = source[index];
+    let value = "";
+    index += 1;
+    while (index < source.length) {
+      if (source[index] === "\\") {
+        if (index + 1 < source.length) value += source[index + 1];
+        index += 2;
+        continue;
+      }
+      if (source[index] === quote) {
+        index += 1;
+        break;
+      }
+      value += source[index];
+      index += 1;
+    }
+    tokens.push({ kind: "string", value, start, end: index });
+    mask(start, index);
+  };
+  const lexTemplate = () => {
+    mask(index, index + 1);
+    index += 1;
+    while (index < source.length) {
+      if (source[index] === "\\") {
+        mask(index, Math.min(source.length, index + 2));
+        index += 2;
+        continue;
+      }
+      if (source[index] === "`") {
+        mask(index, index + 1);
+        index += 1;
+        return;
+      }
+      if (source[index] === "$" && source[index + 1] === "{") {
+        mask(index, index + 1);
+        tokens.push({ kind: "punctuation", value: "{", start: index + 1, end: index + 2 });
+        index += 2;
+        lexCode(true);
+        continue;
+      }
+      mask(index, index + 1);
+      index += 1;
+    }
+  };
+  const lexCode = (stopAtClosingBrace) => {
+    let braceDepth = 0;
+    while (index < source.length) {
+      const character = source[index];
+      if (stopAtClosingBrace && character === "}") {
+        if (braceDepth === 0) {
+          tokens.push({ kind: "punctuation", value: character, start: index, end: index + 1 });
+          index += 1;
+          return;
+        }
+        braceDepth -= 1;
+      }
+      if (stopAtClosingBrace && character === "{") braceDepth += 1;
+      if (/\s/.test(character)) {
+        index += 1;
+        continue;
+      }
+      if (character === "/" && source[index + 1] === "/") {
+        const start = index;
+        index += 2;
+        while (index < source.length && source[index] !== "\n") index += 1;
+        mask(start, index);
+        continue;
+      }
+      if (character === "/" && source[index + 1] === "*") {
+        const start = index;
+        index += 2;
+        while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) index += 1;
+        index = Math.min(source.length, index + 2);
+        mask(start, index);
+        continue;
+      }
+      if (character === "'" || character === "\"") {
+        lexString();
+        continue;
+      }
+      if (character === "`") {
+        lexTemplate();
+        continue;
+      }
+      if (/[A-Za-z_$]/.test(character)) {
+        const start = index;
+        index += 1;
+        while (index < source.length && /[\w$]/.test(source[index])) index += 1;
+        tokens.push({ kind: "identifier", value: source.slice(start, index), start, end: index });
+        continue;
+      }
+      tokens.push({ kind: "punctuation", value: character, start: index, end: index + 1 });
+      index += 1;
+    }
+  };
+  lexCode(false);
+  return { source, tokens, codeSource: masked.join("") };
+}
+
+function parseStaticImport(tokens, importIndex) {
+  let index = importIndex + 1;
+  const typeOnly = tokens[index]?.value === "type";
+  if (typeOnly) index += 1;
+  if (tokens[index]?.kind === "string") {
+    return {
+      endIndex: index,
+      entry: {
+        kind: "esm-side-effect",
+        module: canonicalModule(tokens[index].value),
+        bindings: [],
+        runtime: true,
+      },
+    };
+  }
+  const clauseStart = index;
+  if (tokens[index]?.value === "*") {
+    index += 1;
+    if (tokens[index]?.value === "as") index += 2;
+  } else if (tokens[index]?.value === "{") {
+    index = consumeBalanced(tokens, index, "{", "}");
+    if (index < 0) return null;
+  } else if (tokens[index]?.kind === "identifier") {
+    index += 1;
+    if (tokens[index]?.value === ",") {
+      index += 1;
+      if (tokens[index]?.value === "*") {
+        index += 1;
+        if (tokens[index]?.value === "as") index += 2;
+      } else if (tokens[index]?.value === "{") {
+        index = consumeBalanced(tokens, index, "{", "}");
+        if (index < 0) return null;
+      } else {
+        return null;
+      }
+    }
+  } else {
+    return null;
+  }
+  if (tokens[index]?.value !== "from" || tokens[index + 1]?.kind !== "string") return null;
+  const moduleIndex = index + 1;
+  const clause = tokensToText(tokens.slice(clauseStart, index));
+  const bindings = parseESMBindings(clause, typeOnly);
+  return {
+    endIndex: moduleIndex,
+    entry: {
+      kind: "esm",
+      module: canonicalModule(tokens[moduleIndex].value),
+      bindings,
+      runtime: !typeOnly && (bindings.length === 0 || bindings.some((binding) => !binding.typeOnly)),
+    },
+  };
+}
+
+function consumeBalanced(tokens, startIndex, open, close) {
+  let depth = 0;
+  for (let index = startIndex; index < tokens.length; index += 1) {
+    if (tokens[index].value === open) depth += 1;
+    if (tokens[index].value === close) {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return -1;
+}
+
+function parseImportEquals(tokens, importIndex) {
+  let index = importIndex + 1;
+  const typeOnly = tokens[index]?.value === "type";
+  if (typeOnly) index += 1;
+  const local = tokens[index];
+  if (local?.kind !== "identifier" || tokens[index + 1]?.value !== "=" || tokens[index + 2]?.value !== "require") return null;
+  const parsedRequire = parseCommonJSRequire(tokens, index + 2);
+  if (!parsedRequire) return null;
+  return {
+    requireIndex: index + 2,
+    endIndex: parsedRequire.endIndex,
+    entry: {
+      kind: "typescript-import-equals",
+      module: parsedRequire.module,
+      bindings: [{ type: "namespace", local: local.value, typeOnly }],
+      runtime: !typeOnly,
+    },
+  };
+}
+
+function parseCommonJSRequire(tokens, requireIndex) {
+  if (tokens[requireIndex + 1]?.value !== "(" || tokens[requireIndex + 2]?.kind !== "string") return null;
+  const closeIndex = requireIndex + 3;
+  if (tokens[closeIndex]?.value !== ")") return null;
+  return {
+    module: canonicalModule(tokens[requireIndex + 2].value),
+    endIndex: closeIndex,
+  };
+}
+
+function localImportModules(tokens) {
+  const modules = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].kind !== "identifier" || tokens[index].value !== "import") continue;
+    if (tokens[index + 1]?.value === "(" && tokens[index + 2]?.kind === "string") {
+      modules.push(tokens[index + 2].value);
+      index += 2;
+      continue;
+    }
+    const parsedImport = parseStaticImport(tokens, index);
+    if (parsedImport) {
+      modules.push(parsedImport.entry.module);
+      index = parsedImport.endIndex;
+    }
+  }
+  return modules;
+}
+
+function tokensToText(tokens) {
+  return tokens.map((token) => token.value).join(" ");
 }
 
 function parseESMBindings(clause, typeOnly = false) {
@@ -504,20 +726,34 @@ function parseESMBindings(clause, typeOnly = false) {
   return bindings;
 }
 
-function parseRequireBindings(statement, requireExpression) {
-  const prefix = statement.slice(0, Math.max(0, statement.indexOf(requireExpression))).trim();
-  const destructured = prefix.match(/(?:const|let|var)\s*\{([^}]+)\}\s*=\s*$/);
-  if (destructured) {
-    return destructured[1].split(",").map((item) => {
-      const [imported, local] = item.trim().split(/\s*:\s*/);
-      return { type: "named", imported: imported.trim(), local: (local || imported).trim() };
-    }).filter((entry) => entry.imported);
+function parseRequireBindings(tokens, requireIndex) {
+  if (tokens[requireIndex - 1]?.value !== "=") return [];
+  const leftHandSide = tokens.slice(Math.max(0, requireIndex - 12), requireIndex - 1);
+  const openBrace = leftHandSide.map((token) => token.value).lastIndexOf("{");
+  const closeBrace = leftHandSide.map((token) => token.value).lastIndexOf("}");
+  if (openBrace >= 0 && closeBrace > openBrace) {
+    return leftHandSide.slice(openBrace + 1, closeBrace)
+      .reduce((items, token) => {
+        if (token.value === ",") items.push([]);
+        else items[items.length - 1].push(token);
+        return items;
+      }, [[]])
+      .map((item) => {
+        const identifiers = item.filter((token) => token.kind === "identifier");
+        if (identifiers.length === 0) return null;
+        const colon = item.findIndex((token) => token.value === ":");
+        const imported = identifiers[0].value;
+        const local = colon >= 0 ? identifiers[identifiers.length - 1].value : imported;
+        return { type: "named", imported, local };
+      })
+      .filter(Boolean);
   }
-  const namespace = prefix.match(/(?:const|let|var|import)\s+([A-Za-z_$][\w$]*)\s*(?:=\s*)?$/);
-  return namespace ? [{ type: "namespace", local: namespace[1] }] : [];
+  const identifiers = leftHandSide.filter((token) => token.kind === "identifier");
+  const local = identifiers.at(-1);
+  return local ? [{ type: "namespace", local: local.value }] : [];
 }
 
-function destructiveApisForImports(path, source, imports) {
+function destructiveApisForImports(path, source, imports, tokens) {
   const apis = new Set();
   const lines = [];
   const modules = new Set();
@@ -525,6 +761,7 @@ function destructiveApisForImports(path, source, imports) {
     const promisesModule = entry.module.endsWith("/promises");
     modules.add(entry.module);
     for (const binding of entry.bindings) {
+      if (binding.typeOnly) continue;
       if (binding.type === "named" && destructiveFilesystemApis.has(binding.imported)) {
         apis.add(binding.imported);
         lines.push(entry.line);
@@ -537,7 +774,7 @@ function destructiveApisForImports(path, source, imports) {
       }
     }
     if (entry.bindings.length === 0) {
-      collectDirectRequireApis(source, entry.module, apis, lines);
+      collectDirectRequireApis(tokens, entry.module, apis, lines, source);
     }
   }
   if (apis.size === 0) return null;
@@ -568,12 +805,20 @@ function collectNamespaceApis(source, local, apis, lines, promisesModule) {
   }
 }
 
-function collectDirectRequireApis(source, module, apis, lines) {
-  const apiPattern = [...destructiveFilesystemApis].map(escapeRegExp).join("|");
-  const directPattern = new RegExp(`require\\s*\\(\\s*["']${escapeRegExp(module)}["']\\s*\\)\\s*(?:\\.\\s*promises\\s*\\.\\s*)?(?<api>${apiPattern})\\s*\\(`, "g");
-  for (const match of source.matchAll(directPattern)) {
-    apis.add(match.groups.api);
-    lines.push(lineNumber(source, match.index));
+function collectDirectRequireApis(tokens, module, apis, lines, source) {
+  for (let index = 0; index < tokens.length; index += 1) {
+    const parsedRequire = parseCommonJSRequire(tokens, index);
+    if (!parsedRequire || parsedRequire.module !== module) continue;
+    let apiIndex = parsedRequire.endIndex + 1;
+    if ((module === "node:fs" || module === "fs") && tokens[apiIndex]?.value === "." && tokens[apiIndex + 1]?.value === "promises") {
+      apiIndex += 2;
+    }
+    if (tokens[apiIndex]?.value !== ".") continue;
+    const api = tokens[apiIndex + 1];
+    if (api?.kind === "identifier" && destructiveFilesystemApis.has(api.value) && tokens[apiIndex + 2]?.value === "(") {
+      apis.add(api.value);
+      lines.push(lineNumber(source, tokens[index].start));
+    }
   }
 }
 

@@ -21,6 +21,14 @@
   "typescriptDeclaration": "import { spawn } from \"node:child_process\";\nimport { writeFile } from \"node:fs/promises\";\n",
   "typeOnlyImports": "import type { spawn } from \"child_process\";\nimport type * as fs from \"node:fs\";\nimport { type promises as typedPromises } from \"node:fs\";\n",
   "mixedTypeRuntimeImports": "import { type SpawnOptions, spawn } from \"child_process\";\nimport { type promises as TypePromises, promises as fsPromises } from \"node:fs\";\nfsPromises.writeFile(\"state.json\", \"ready\");\nspawn(process.execPath, []);\n",
+  "statementAwareFs": "import type { Config } from \"./types.js\";\nimport { writeFile } from \"node:fs\";\nwriteFile(\"state.json\", \"ready\");\n",
+  "statementAwareChildProcess": "import type { Config } from \"./types.js\";\nimport { spawn } from \"child_process\";\nspawn(process.execPath, []);\n",
+  "semicolonlessImports": "import { readFile } from \"node:fs\"\nimport { writeFile } from \"node:fs\"\nwriteFile(\"state.json\", \"ready\")\n",
+  "multilineImport": "import {\n  type FileHandle,\n  writeFile,\n} from \"node:fs/promises\";\nwriteFile(\"state.json\", \"ready\");\n",
+  "lexicalFakes": "// import { writeFile } from \"node:fs\"; require(\"child_process\"); fetch(\"fake\");\n/* import { spawn } from \"node:child_process\"; require(\"node:fs\"); global.fetch(\"fake\"); */\nconst string = \"import type { writeFile } from 'node:fs'; require('node:child_process'); Object.defineProperty(nodeFs, 'writeFile', {});\";\nconst template = `import type { spawn } from \"child_process\"; require(\"node:fs\"); fetch(\"fake\");`;\n",
+  "fakeTypeBeforeReal": "// import type { Fake } from \"node:fs\";\nconst string = \"import type { Fake } from 'child_process'; require('node:fs');\";\nconst template = `import type { Fake } from \"node:child_process\";`;\nimport { writeFile } from \"node:fs\";\nwriteFile(\"state.json\", \"ready\");\n",
+  "templateExpressionRuntime": "const value = `${require(\"node:fs\").promises.writeFile(\"state.json\", \"ready\")}`;\nconst remote = `${fetch(\"https://example.test\")}`;\n",
+  "typeOnlyDestructiveFilesystem": "import { type writeFile, readFile } from \"node:fs\";\nreadFile(\"state.json\", () => {});\n",
   "sourceTextJavaScript": "import { readFileSync } from \"node:fs\";\nconst source = readFileSync(\"../mac-helper/src/app.js\", \"utf8\");\nassert.match(source, /value/);\n",
   "sourceTextTypeScript": "import { readFileSync } from \"node:fs\";\nconst source = readFileSync(\"../mac-helper/src/app.ts\", \"utf8\");\nexpect(source).toContain(\"value\");\n"
 }
