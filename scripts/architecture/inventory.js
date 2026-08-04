@@ -27,12 +27,14 @@ const destructiveFilesystemApis = new Set([
   "truncate", "truncateSync", "unlink", "unlinkSync", "utimes", "utimesSync", "write", "writeFile",
   "writeFileSync", "writev", "writevSync",
 ]);
-const excludedDirectories = new Set([
-  ".build", ".git", "DerivedData", "build", "dist", "node_modules", "coverage", "fixtures",
-  "__fixtures__", "results",
-]);
+const excludedRootPatterns = [
+  /^(?:\.build|\.git|DerivedData|build|dist|node_modules|coverage|fixtures|__fixtures__|results)(?:\/|$)/,
+  /^(?:test|benchmarks)\/(?:fixtures|__fixtures__)(?:\/|$)/,
+  /^benchmarks\/results(?:\/|$)/,
+];
 const productionJavaScriptPattern = /^(?:mac-helper\/(?:src|bin)\/).+\.(?:js|mjs|cjs)$/;
 const productionTypeScriptPattern = /^(?:mac-helper\/(?:src|bin)\/).+\.(?:ts|mts|cts)$/;
+const typescriptDeclarationPattern = /\.d\.(?:ts|mts|cts)$/;
 const unsupportedNodeTypeScriptPattern = /^(?:mac-helper\/(?:src|bin)\/)\S+\.tsx$/;
 const productionSwiftPattern = /^(?:Companion\/SwiftSimCompanion|Sources)\/.+\.swift$/;
 const testPattern = /^(?:test|benchmarks\/test|Companion\/SwiftSimCompanionTests)\/.+/;
@@ -40,20 +42,20 @@ const sourceTextTestExtensionPattern = /\.(?:js|mjs|cjs|ts|mts|cts|tsx|swift)$/;
 const markdownPattern = /(?:^|\/)README\.md$|\.md$/;
 const preloadRuntimeNamePattern = /(?:preload|runtimeboundary|hardenedruntime|childruntime|fetchboundary|artifactcleanupboundary|devicebuildcapabilityboundary|helperhttpboundary)/i;
 const monitoredModulePattern = /^(?:node:)?(?:child_process|fs|fs\/promises)$/;
-const importPattern = /\bimport\s+(?:(?<clause>[\s\S]*?)\s+from\s+)?["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']/g;
-const sideEffectImportPattern = /\bimport\s+["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']/g;
-const requirePattern = /\brequire\s*\(\s*["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']\s*\)/g;
-const importEqualsPattern = /\bimport\s+(?<local>[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']\s*\)/g;
+const importPattern = /\bimport\s+(?:(?<type>type)\s+)?(?:(?<clause>[\s\S]*?)\s+from\s+)?["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']/g;
+const sideEffectImportPattern = /\bimport\s+["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']/g;
+const requirePattern = /\brequire\s*\(\s*["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']\s*\)/g;
+const importEqualsPattern = /\bimport\s+(?:(?<type>type)\s+)?(?<local>[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["'](?<module>(?:node:)?(?:child_process|fs|fs\/promises))["']\s*\)/g;
 
 const pathRules = {
   productionJavaScript: "mac-helper/src/**/*.js and mac-helper/bin/**/*.js; tracked only",
-  productionTypeScript: "mac-helper/src/**/*.ts, *.mts, and *.cts; tracked only",
+  productionTypeScript: "mac-helper/src/**/*.ts, *.mts, and *.cts; tracked only, with .d.ts/.d.mts/.d.cts inventoried but excluded from runtime analysis",
   unsupportedNodeTypeScript: "mac-helper/src/**/*.tsx and mac-helper/bin/**/*.tsx are explicitly prohibited",
   productionSwift: "Companion/SwiftSimCompanion/**/*.swift and Sources/**/*.swift; tracked only",
   tests: "test/**, benchmarks/test/**, and Companion/SwiftSimCompanionTests/**; tracked only",
-  documentation: "tracked Markdown files outside excluded directories",
-  excluded: "generated output, dependencies, .git, build products, benchmark results, and fixture directories",
-  importScanner: "static ESM imports, TypeScript import-equals, and CommonJS require calls; dynamic imports and computed requires are not classified",
+  documentation: "tracked Markdown files outside excluded generated/test fixture roots",
+  excluded: "path-aware generated roots, dependencies, .git, benchmark results, and test fixture roots; declared production roots take precedence",
+  importScanner: "static ESM imports, TypeScript import-equals, and CommonJS require calls; declarations and type-only bindings are non-runtime; dynamic imports and computed requires are not classified",
   enforcementUnit: "one capability/importer per production file; evidence lists APIs and lines without changing the enforcement count",
 };
 
@@ -82,9 +84,11 @@ export function collectInventory(root, options = {}) {
   const sourceFiles = trackedFiles.filter((file) => !isExcluded(file));
   const productionJavaScriptFiles = sourceFiles.filter((file) => productionJavaScriptPattern.test(file));
   const productionTypeScriptFiles = sourceFiles.filter((file) => productionTypeScriptPattern.test(file));
+  const typescriptDeclarationFiles = productionTypeScriptFiles.filter((file) => typescriptDeclarationPattern.test(file));
+  const productionRuntimeTypeScriptFiles = productionTypeScriptFiles.filter((file) => !typescriptDeclarationPattern.test(file));
   const unsupportedNodeFiles = sourceFiles.filter((file) => unsupportedNodeTypeScriptPattern.test(file));
   const productionSwiftFiles = sourceFiles.filter((file) => productionSwiftPattern.test(file));
-  const productionNodeFiles = [...productionJavaScriptFiles, ...productionTypeScriptFiles].sort();
+  const productionNodeFiles = [...productionJavaScriptFiles, ...productionRuntimeTypeScriptFiles].sort();
   const productionSourceFiles = [...productionNodeFiles, ...productionSwiftFiles].sort();
   const fileReader = options.readFile || ((file) => readFileSync(join(root, file), "utf8"));
   const contents = new Map();
@@ -123,10 +127,12 @@ export function collectInventory(root, options = {}) {
     productionFileCounts: {
       javascript: productionJavaScriptFiles.length,
       typescript: productionTypeScriptFiles.length,
+      typescriptDeclarations: typescriptDeclarationFiles.length,
       swift: productionSwiftFiles.length,
       total: productionSourceFiles.length,
     },
     productionFiles: productionFileDetails.sort((a, b) => a.path.localeCompare(b.path)),
+    typescriptDeclarationFiles: typescriptDeclarationFiles.sort(),
     unsupportedNodeFiles: unsupportedNodeFiles.sort(),
     largestProductionFiles: [...productionFileDetails]
       .sort((a, b) => b.lines - a.lines || a.path.localeCompare(b.path))
@@ -388,7 +394,7 @@ function indexAllowlists(allowlists) {
 
 function analyzeNodeModule(path, source) {
   const imports = scanImports(path, source);
-  const childProcessEntries = imports.filter((entry) => entry.module === "node:child_process");
+  const childProcessEntries = imports.filter((entry) => entry.runtime && entry.module === "node:child_process");
   const childProcessImporter = childProcessEntries.length > 0 ? {
     path,
     line: Math.min(...childProcessEntries.map((entry) => entry.line)),
@@ -434,25 +440,31 @@ function analyzeNodeModule(path, source) {
 function scanImports(path, source) {
   const imports = [];
   for (const match of source.matchAll(importPattern)) {
+    const typeOnly = Boolean(match.groups.type);
+    const bindings = parseESMBindings(match.groups.clause || "", typeOnly);
     imports.push({
       path,
       line: lineNumber(source, match.index),
       kind: "esm",
-      module: match.groups.module,
-      bindings: parseESMBindings(match.groups.clause || ""),
+      module: canonicalModule(match.groups.module),
+      bindings,
+      runtime: !typeOnly && (bindings.length === 0 || bindings.some((binding) => !binding.typeOnly)),
     });
   }
   for (const match of source.matchAll(sideEffectImportPattern)) {
-    if (imports.some((entry) => entry.line === lineNumber(source, match.index) && entry.module === match.groups.module)) continue;
-    imports.push({ path, line: lineNumber(source, match.index), kind: "esm-side-effect", module: match.groups.module, bindings: [] });
+    const module = canonicalModule(match.groups.module);
+    if (imports.some((entry) => entry.line === lineNumber(source, match.index) && entry.module === module)) continue;
+    imports.push({ path, line: lineNumber(source, match.index), kind: "esm-side-effect", module, bindings: [], runtime: true });
   }
   for (const match of source.matchAll(importEqualsPattern)) {
+    const typeOnly = Boolean(match.groups.type);
     imports.push({
       path,
       line: lineNumber(source, match.index),
       kind: "typescript-import-equals",
-      module: match.groups.module,
-      bindings: [{ type: "namespace", local: match.groups.local }],
+      module: canonicalModule(match.groups.module),
+      bindings: [{ type: "namespace", local: match.groups.local, typeOnly }],
+      runtime: !typeOnly,
     });
   }
   for (const match of source.matchAll(requirePattern)) {
@@ -463,28 +475,32 @@ function scanImports(path, source) {
       path,
       line: lineNumber(source, match.index),
       kind: "commonjs-require",
-      module: match.groups.module,
+      module: canonicalModule(match.groups.module),
       bindings: parseRequireBindings(statement, match[0]),
+      runtime: true,
     });
   }
   return imports.sort((a, b) => a.line - b.line || a.module.localeCompare(b.module));
 }
 
-function parseESMBindings(clause) {
+function parseESMBindings(clause, typeOnly = false) {
   const bindings = [];
   const trimmed = clause.trim();
   if (!trimmed) return bindings;
   const namespace = trimmed.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
-  if (namespace) bindings.push({ type: "namespace", local: namespace[1] });
+  if (namespace) bindings.push({ type: "namespace", local: namespace[1], typeOnly });
   const named = trimmed.match(/\{([\s\S]*)\}/);
   if (named) {
     for (const item of named[1].split(",")) {
-      const [imported, local] = item.trim().split(/\s+as\s+/);
-      if (imported) bindings.push({ type: "named", imported: imported.trim(), local: (local || imported).trim() });
+      const trimmedItem = item.trim();
+      const itemTypeOnly = typeOnly || /^type\s+/.test(trimmedItem);
+      const normalizedItem = trimmedItem.replace(/^type\s+/, "");
+      const [imported, local] = normalizedItem.split(/\s+as\s+/);
+      if (imported) bindings.push({ type: "named", imported: imported.trim(), local: (local || imported).trim(), typeOnly: itemTypeOnly });
     }
   }
   const defaultBinding = trimmed.split(",")[0].trim();
-  if (defaultBinding && /^[A-Za-z_$][\w$]*$/.test(defaultBinding)) bindings.push({ type: "namespace", local: defaultBinding });
+  if (defaultBinding && /^[A-Za-z_$][\w$]*$/.test(defaultBinding)) bindings.push({ type: "namespace", local: defaultBinding, typeOnly });
   return bindings;
 }
 
@@ -505,7 +521,7 @@ function destructiveApisForImports(path, source, imports) {
   const apis = new Set();
   const lines = [];
   const modules = new Set();
-  for (const entry of imports.filter((candidate) => candidate.module === "node:fs" || candidate.module === "fs" || candidate.module === "node:fs/promises" || candidate.module === "fs/promises")) {
+  for (const entry of imports.filter((candidate) => candidate.runtime && (candidate.module === "node:fs" || candidate.module === "fs" || candidate.module === "node:fs/promises" || candidate.module === "fs/promises"))) {
     const promisesModule = entry.module.endsWith("/promises");
     modules.add(entry.module);
     for (const binding of entry.bindings) {
@@ -566,8 +582,9 @@ function patchEvidenceFor(source, imports) {
   if (/\bglobal(?:This)?\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\])\s*=\s*(?!=)/.test(source)) reasons.push("global-assignment");
   if (/\b[A-Za-z_$][\w$]*\s*\.\s*prototype\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\])\s*=\s*(?!=)/.test(source)) reasons.push("prototype-assignment");
   const aliases = new Set();
-  for (const entry of imports.filter((candidate) => monitoredModulePattern.test(candidate.module))) {
+  for (const entry of imports.filter((candidate) => candidate.runtime && monitoredModulePattern.test(candidate.module))) {
     for (const binding of entry.bindings) {
+      if (binding.typeOnly) continue;
       if (binding.type === "namespace" || (binding.type === "named" && binding.imported === "promises")) aliases.add(binding.local);
     }
   }
@@ -663,8 +680,20 @@ function gitOutput(root, args) {
   return result.stdout;
 }
 
+function canonicalModule(module) {
+  return module === "child_process" ? "node:child_process" : module;
+}
+
+function isDeclaredProductionPath(file) {
+  return productionJavaScriptPattern.test(file)
+    || productionTypeScriptPattern.test(file)
+    || unsupportedNodeTypeScriptPattern.test(file)
+    || productionSwiftPattern.test(file);
+}
+
 function isExcluded(file) {
-  return file.split("/").some((segment) => excludedDirectories.has(segment)) || file.startsWith("benchmarks/results/");
+  if (isDeclaredProductionPath(file)) return false;
+  return excludedRootPatterns.some((pattern) => pattern.test(file));
 }
 
 function languageFor(file) {

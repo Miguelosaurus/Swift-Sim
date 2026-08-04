@@ -71,6 +71,82 @@ test("architecture fitness detects TypeScript child process, filesystem, fetch, 
   }
 });
 
+test("child-process capability normalizes node-prefixed and unprefixed JS and TS forms", () => {
+  const variants = [
+    ["mac-helper/src/js-esm-node.js", "childProcessJsESMNode"],
+    ["mac-helper/src/js-esm-plain.js", "childProcessJsESMPlain"],
+    ["mac-helper/src/js-require-node.js", "childProcessJsRequireNode"],
+    ["mac-helper/src/js-require-plain.js", "childProcessJsRequirePlain"],
+    ["mac-helper/src/js-side-effect-node.js", "childProcessJsSideEffectNode"],
+    ["mac-helper/src/js-side-effect-plain.js", "childProcessJsSideEffectPlain"],
+    ["mac-helper/src/ts-esm-node.ts", "childProcessTsESMNode"],
+    ["mac-helper/src/ts-esm-plain.ts", "childProcessTsESMPlain"],
+    ["mac-helper/src/ts-import-equals-node.ts", "childProcessTsImportEqualsNode"],
+    ["mac-helper/src/ts-import-equals-plain.ts", "childProcessTsImportEqualsPlain"],
+    ["mac-helper/src/ts-require-node.ts", "childProcessTsRequireNode"],
+    ["mac-helper/src/ts-require-plain.ts", "childProcessTsRequirePlain"],
+    ["mac-helper/src/ts-side-effect-node.ts", "childProcessTsSideEffectNode"],
+    ["mac-helper/src/ts-side-effect-plain.ts", "childProcessTsSideEffectPlain"],
+  ];
+  const fixture = createFixture(Object.fromEntries(variants.map(([path, fixtureName]) => [path, fixtureText(fixtureName)])));
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), variants.map(([path]) => path).sort());
+    assert.ok(inventory.childProcessImports.every((entry) => entry.modules.length === 1 && entry.modules[0] === "node:child_process"));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("production paths remain active inside fixtures and build directories", () => {
+  const fixture = createFixture({
+    "mac-helper/src/fixtures/risky.js": fixtureText("javascriptRisk"),
+    "mac-helper/src/build/risky.ts": fixtureText("typescriptRisk"),
+    "test/fixtures/not-production.js": fixtureText("javascriptRisk"),
+    "benchmarks/results/not-production.js": fixtureText("javascriptRisk"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.productionFileCounts.javascript, 1);
+    assert.equal(inventory.productionFileCounts.typescript, 1);
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), [
+      "mac-helper/src/build/risky.ts",
+      "mac-helper/src/fixtures/risky.js",
+    ]);
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), [
+      "mac-helper/src/build/risky.ts",
+      "mac-helper/src/fixtures/risky.js",
+    ]);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("TypeScript declarations and type-only imports do not create runtime capabilities", () => {
+  const fixture = createFixture({
+    "mac-helper/src/contracts.d.ts": fixtureText("typescriptDeclaration"),
+    "mac-helper/src/contracts.d.mts": fixtureText("typescriptDeclaration"),
+    "mac-helper/src/contracts.d.cts": fixtureText("typescriptDeclaration"),
+    "mac-helper/src/type-only.ts": fixtureText("typeOnlyImports"),
+    "mac-helper/src/mixed.ts": fixtureText("mixedTypeRuntimeImports"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.productionFileCounts.typescript, 5);
+    assert.equal(inventory.productionFileCounts.typescriptDeclarations, 3);
+    assert.deepEqual(inventory.typescriptDeclarationFiles, [
+      "mac-helper/src/contracts.d.cts",
+      "mac-helper/src/contracts.d.mts",
+      "mac-helper/src/contracts.d.ts",
+    ]);
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), ["mac-helper/src/mixed.ts"]);
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), ["mac-helper/src/mixed.ts"]);
+    assert.ok(!inventory.productionFiles.some((entry) => entry.path.endsWith(".d.ts") || entry.path.endsWith(".d.mts") || entry.path.endsWith(".d.cts")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("architecture fitness rejects .tsx in the Node production tree", () => {
   const fixture = createFixture({ "mac-helper/src/component.tsx": fixtureText("tsxRisk") });
   try {
