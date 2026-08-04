@@ -6,7 +6,7 @@ This file is the compact execution ledger for the architecture program. It is no
 
 | Phase | Scope | Status | PR | Base | Head | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 8a6c1b9 validated implementation | Existing architecture debt is baselined; runtime behavior unchanged |
+| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | db6ccb9 validated implementation | Existing architecture debt is baselined; runtime behavior unchanged |
 | 1 | TypeScript and package foundation | Not started | — | — | — | — |
 | 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
 | 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
@@ -56,7 +56,7 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 | Direct destructive filesystem importer files | 26 | 26 | Approved stores only |
 | Largest Node production file | 2,821 (`mac-helper/src/liveReload.js`) | 2,821 | <= 800 lines or ADR |
 | Largest Swift production file | 2,562 (`Companion/SwiftSimCompanion/SessionStore.swift`) | 2,562 | <= 800 lines or ADR |
-| Writable JSON state-store candidates | 37 | 37 | 0 writable stores after migration window |
+| Writable JSON state-store candidates | 29 | 29 | 0 writable stores after migration window |
 | Node minimum version | >=20 | >=20 | Supported pinned LTS |
 
 ### Phase 0 — Baseline and architectural guardrails
@@ -65,7 +65,7 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 - Branch: `agent/architecture-consolidation-phase-0-guardrails`
 - PR: [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23)
 - Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
-- Validated implementation SHA: `8a6c1b9` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
+- Validated implementation SHA: `db6ccb9` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
 - Dates: 2026-08-04
 - Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
 
@@ -87,6 +87,8 @@ Create a generated architecture inventory and monotonic fitness gate that record
 - Added excluded fixture resources and regression tests in `test/architectureInventory.test.js` for every reviewed bypass, including the real architecture-test path.
 - Extended Node risk analysis to `.ts`, `.mts`, and `.cts`; explicitly rejects `.tsx` in the Node production tree.
 - Normalized `node:child_process` and `child_process` across JavaScript and TypeScript ESM, CommonJS, side-effect, and TypeScript import-equals forms into one importer capability.
+- Replaced cross-statement import regexes with a statement-aware lexical scanner that masks comments, strings, and template text while preserving executable template expressions; static imports and requires no longer span unrelated statements.
+- Ignored `typeOnly` bindings during destructive filesystem analysis while retaining runtime promises and write evidence.
 - Made exclusions path-aware so declared production roots remain production inside `fixtures`, `build`, and similar segments while actual generated/test fixture roots remain excluded.
 - Inventoried `.d.ts`, `.d.mts`, and `.d.cts` separately from runtime TypeScript and ignored declaration/type-only imports while preserving mixed runtime imports.
 - Unified child-process and destructive-filesystem enforcement at one capability per production file, including fs-promises variants and imported aliases.
@@ -123,15 +125,15 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 | Source-text implementation tests | 28 | 28 |
 | Direct process importer files | 28 | 28 |
 | Direct destructive filesystem importer files | 26 | 26 |
-| Writable JSON state-store candidates | 37 | 37 |
+| Writable JSON state-store candidates | 29 | 29 |
 | Largest production file | 2,821 lines (`mac-helper/src/liveReload.js`) | 2,821 lines |
 
 #### Validation
 
-- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`13068333b9313b677f7ebbb64b2db67e366115404fafe40d8bb04d241aa316c6`).
+- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`f5bef1075de9ff6531ca140af634b20d1f25951510013f6eb72c261ab8263f45`).
 - Local architecture gate: `node scripts/architecture/inventory.js --check` passed.
-- Focused architecture tests: `node --test test/architectureInventory.test.js` passed 19/19 using temporary fixture trees and the declared Git baseline.
-- Full Node/release suite: final `npm run check` passed 447/447 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files. An earlier parallel attempt had one existing process-timeout fixture race on `descendant.pid`; the final standard run passed.
+- Focused architecture tests: `node --test --test-concurrency=1 test/architectureInventory.test.js` passed 21/21 using temporary fixture trees and the declared Git baseline.
+- Full Node/release suite: final `npm run check` passed 449/449 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files. An earlier parallel attempt had one existing process-timeout fixture race on `descendant.pid`; the final standard run passed.
 - Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
 - Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
 - iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
@@ -144,11 +146,11 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 4 | 4 | 0 |
-| P2 | 4 | 4 | 0 |
+| P1 | 5 | 5 | 0 |
+| P2 | 5 | 5 | 0 |
 | P3 | 1 | 1 | 0 |
 
-Self-review fixed the full review set: the original patch-evidence predicate was too broad, local preload imports were not initially included, the release-contract test expected the pre-gate `npm run check` string, the guard test self-matched, the policy baseline was editable authority, TypeScript was unscanned, fs-promises and aliases were missed, monkey-patch aliases bypassed detection, metadata used ambiguous head terminology, unprefixed child-process forms bypassed detection, segment-wide exclusions hid production paths, and declarations/type-only imports were treated as runtime. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline inflation, immutable baseline authority, cap reductions, removed-debt reintroduction, allowlist expiry/ADR validation, TypeScript extensions, declaration and type-only semantics, one-capability enforcement, normalized child-process forms, path-aware fixture/build exclusions, neutral filenames, fixture exclusion, Git-history availability in CI, and accidental runtime changes.
+Self-review fixed the full review set: the original patch-evidence predicate was too broad, local preload imports were not initially included, the release-contract test expected the pre-gate `npm run check` string, the guard test self-matched, the policy baseline was editable authority, TypeScript was unscanned, fs-promises and aliases were missed, monkey-patch aliases bypassed detection, metadata used ambiguous head terminology, unprefixed child-process forms bypassed detection, segment-wide exclusions hid production paths, declarations/type-only imports were treated as runtime, imports could span statements and lexical lookalikes could influence capability evidence, and destructive analysis did not skip type-only bindings. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline inflation, immutable baseline authority, cap reductions, removed-debt reintroduction, allowlist expiry/ADR validation, TypeScript extensions, declaration and type-only semantics, one-capability enforcement, normalized child-process forms, path-aware fixture/build exclusions, neutral filenames, comments/strings/templates, semicolonless and multiline imports, template expressions, fixture exclusion, Git-history availability in CI, and accidental runtime changes.
 
 #### Migration and rollback
 
@@ -160,7 +162,7 @@ Self-review fixed the full review set: the original patch-evidence predicate was
 #### Residual risks
 
 - Existing preloads, direct infrastructure imports, writable JSON records, oversized files, and source-text tests remain intentionally capped for later phases; removed entries cannot be reintroduced without a new structured exception.
-- The inventory uses a documented static scanner for ESM imports, TypeScript import-equals, and CommonJS `require` calls; dynamic imports and computed requires are not classified until a later AST-aware enforcement phase.
+- The inventory uses a documented statement-aware lexical scanner for ESM imports, TypeScript import-equals, and CommonJS `require` calls; comments, strings, and template text are ignored, executable template expressions are scanned, and dynamic imports/computed requires are not classified until a later AST-aware enforcement phase.
 - `.tsx` is explicitly prohibited in the Node production tree rather than treated as a supported runtime source.
 - No physical-device behavior gate is required because Phase 0 makes no product behavior change.
 
