@@ -29,6 +29,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Run isolated clean Homebrew installation gate
+        run: SWIFT_SIM_RUN_CLEAN_HOMEBREW=1 bash scripts/verify-homebrew-package.sh
       - run: |
           ruby -e 'require "yaml"; Dir[".github/**/*.{yml,yaml}"].each { |file| YAML.load_file(file); puts "Verified #{file}" }'
       - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh scripts/release/create-archive.sh scripts/check-node-version.sh scripts/build-dist.sh scripts/verify-compiled-runtime.sh scripts/verify-package-content.sh scripts/verify-package-install.sh scripts/verify-homebrew-package.sh

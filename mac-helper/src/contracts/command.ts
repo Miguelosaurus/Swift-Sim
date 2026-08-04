@@ -1,5 +1,4 @@
 import {
-  hasBoolean,
   hasOptionalString,
   hasString,
   isString,
@@ -17,7 +16,7 @@ export interface CommandResult {
   error?: string;
   timedOut?: boolean;
   signal?: string;
-  cancellationError?: string;
+  cancellationError?: { message: string; code?: string };
 }
 
 /** Input identity retained separately from the result produced by a command. */
@@ -38,8 +37,8 @@ export const isCommandResult: Validator<CommandResult> = (value): value is Comma
   return (
     hasOptionalString(value, "error") &&
     hasOptionalString(value, "signal") &&
-    (value.timedOut === undefined || hasBoolean(value, "timedOut")) &&
-    (value.cancellationError === undefined || hasString(value, "cancellationError"))
+    hasOptionalBoolean(value, "timedOut") &&
+    optionalCancellationError(value)
   );
 };
 
@@ -57,4 +56,14 @@ function hasNumberOrNull(record: Record<string, unknown>, key: string): boolean 
     Object.prototype.hasOwnProperty.call(record, key) &&
     (record[key] === null || (typeof record[key] === "number" && Number.isFinite(record[key])))
   );
+}
+
+function hasOptionalBoolean(record: Record<string, unknown>, key: string): boolean {
+  return !Object.prototype.hasOwnProperty.call(record, key) || typeof record[key] === "boolean";
+}
+
+function optionalCancellationError(record: Record<string, unknown>): boolean {
+  if (!Object.prototype.hasOwnProperty.call(record, "cancellationError")) return true;
+  const error = record.cancellationError;
+  return isRecord(error) && hasString(error, "message") && hasOptionalString(error, "code");
 }

@@ -21,7 +21,10 @@ class SwiftSim < Formula
   end
 
   service do
-    run [Formula["node@24"].opt_bin/"node", opt_libexec/"dist/mac-helper/bin/swift-sim-helper-entry.js", "serve"]
+    run ["/usr/bin/env", "SWIFT_SIM_PORT=47217", Formula["node@24"].opt_bin/"node", opt_libexec/"dist/mac-helper/bin/swift-sim-helper-entry.js", "serve"]
+    environment_variables(
+      HOME: ENV.fetch("SWIFT_SIM_SERVICE_HOME", Dir.home),
+    )
     keep_alive true
     log_path var/"log/swift-sim.log"
     error_log_path var/"log/swift-sim.log"

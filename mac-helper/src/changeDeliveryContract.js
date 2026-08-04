@@ -53,9 +53,11 @@ export function validateDeliveryEnvelope(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { valid: false, errors: ["Envelope must be an object."] };
   }
+  if (containsExplicitUndefined(value)) errors.push("Explicit undefined fields are not allowed.");
   if (value.schemaVersion !== DELIVERY_SCHEMA_VERSION) errors.push("Unsupported schemaVersion.");
   if (!DELIVERY_OUTCOMES.includes(value.outcome)) errors.push("Unsupported outcome.");
   if (typeof value.message !== "string" || value.message.length === 0) errors.push("message is required.");
+  if (value.reasonCode !== undefined && typeof value.reasonCode !== "string") errors.push("reasonCode must be a string.");
   collectForbiddenKeys(value, errors);
 
   if (value.outcome === "hot-reloaded") {
@@ -67,23 +69,35 @@ export function validateDeliveryEnvelope(value) {
   if (value.outcome === "install-link-ready") {
     if (value.delivery?.kind !== "install") errors.push("install-link-ready requires install delivery.");
     if (!isUserFacingLink(value.delivery?.universalLink)) errors.push("install delivery requires a universal link.");
+    if (typeof value.delivery?.state !== "string") errors.push("install delivery requires state.");
+    if (typeof value.delivery?.preserveData !== "boolean") errors.push("install delivery requires preserveData.");
     if (value.delivery?.customScheme !== undefined && !isUserFacingLink(value.delivery.customScheme)) {
       errors.push("install custom scheme must be a user-facing link.");
     }
+    if (value.delivery?.expiresAt !== undefined && typeof value.delivery.expiresAt !== "string") {
+      errors.push("install delivery expiresAt must be a string.");
+    }
   }
-  if (value.outcome === "no-change" && value.delivery !== undefined) {
-    errors.push("no-change must not include delivery.");
+  if (["no-change", "needs-user-action", "failed"].includes(value.outcome) && value.delivery !== undefined) {
+    errors.push(`${value.outcome} must not include delivery.`);
   }
   if (value.outcome === "needs-user-action" && typeof value.error?.code !== "string") {
     errors.push("needs-user-action requires a typed error code.");
   }
+  if (value.error !== undefined && !isMessage(value.error)) errors.push("error requires a typed code and message.");
   if (value.warning !== undefined && (
-    typeof value.warning !== "object"
-    || typeof value.warning.code !== "string"
-    || typeof value.warning.message !== "string"
+    !isMessage(value.warning)
   )) {
     errors.push("warning requires a typed code and message.");
   }
+  if (value.timing !== undefined && (
+    !value.timing || typeof value.timing !== "object" || Array.isArray(value.timing)
+    || !isNonNegativeNumber(value.timing.totalMs)
+    || (value.timing.classificationMs !== undefined && !isNonNegativeNumber(value.timing.classificationMs))
+  )) errors.push("timing requires finite non-negative millisecond values.");
+  if (value.diagnostics !== undefined && (
+    !value.diagnostics || typeof value.diagnostics !== "object" || Array.isArray(value.diagnostics)
+  )) errors.push("diagnostics must be an object.");
   return { valid: errors.length === 0, errors };
 }
 
@@ -99,4 +113,21 @@ function isUserFacingLink(value) {
   return typeof value === "string"
     && (/^https:\/\//.test(value) || /^swift-sim:\/\//.test(value))
     && !/[\r\n]/.test(value);
+}
+
+function isMessage(value) {
+  return Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && typeof value.code === "string"
+    && typeof value.message === "string";
+}
+
+function isNonNegativeNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function containsExplicitUndefined(value) {
+  if (!value || typeof value !== "object") return false;
+  return Object.values(value).some((child) => child === undefined || containsExplicitUndefined(child));
 }

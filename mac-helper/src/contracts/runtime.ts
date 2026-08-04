@@ -1,6 +1,8 @@
 import {
+  hasOptionalStringArray,
   hasOptionalString,
   hasString,
+  hasStringValue,
   isInteger,
   isRecord,
   parseContract,
@@ -54,14 +56,22 @@ export interface DeliveryReferenceCleanupJob {
 
 export interface DeviceBuildCancellationJournal {
   buildId: string;
-  reason: string;
   cancelledAt: string;
 }
 
-export interface RenewalCancellationJournal extends DeviceBuildCancellationJournal {
+/** Legacy core cancellation records may carry a reason, but it is not part of
+ * the marker written by DeviceBuildStore.deleteApp(). */
+export interface LegacyDeviceBuildCancellationJournal extends DeviceBuildCancellationJournal {
+  reason: string;
+}
+
+export interface RenewalCancellationJournal {
+  buildId: string;
+  reason: string;
   scope: "renewal";
   renewalID: string;
   owner: { pid: number; startedAt: string };
+  cancelledAt: string;
 }
 
 export interface LockOwnerRecord {
@@ -72,7 +82,10 @@ export interface LockOwnerRecord {
 }
 
 export type RuntimeLease = DeliveryGenerationState;
-export type RuntimeJournal = DeviceBuildCancellationJournal | RenewalCancellationJournal;
+export type RuntimeJournal =
+  | DeviceBuildCancellationJournal
+  | LegacyDeviceBuildCancellationJournal
+  | RenewalCancellationJournal;
 
 export const isDeliveryGenerationState: Validator<DeliveryGenerationState> = (
   value,
@@ -92,12 +105,7 @@ export const isDeliveryGenerationState: Validator<DeliveryGenerationState> = (
     ])
   )
     return false;
-  if (
-    value.references !== undefined &&
-    (!Array.isArray(value.references) ||
-      !value.references.every((item) => typeof item === "string"))
-  )
-    return false;
+  if (!hasOptionalStringArray(value, "references")) return false;
   if (
     !optionalIdentity(value, "managerIdentity") ||
     !optionalIdentity(value, "gatewayIdentity") ||
@@ -122,7 +130,7 @@ export const isArtifactCleanupJob: Validator<ArtifactCleanupJob> = (
   hasString(value, "createdAt") &&
   isInteger(value.attempts) &&
   value.attempts >= 0 &&
-  hasString(value, "lastError") &&
+  hasStringValue(value, "lastError") &&
   optionalStrings(value, ["buildId", "notBefore", "nextAttemptAt", "updatedAt"]);
 
 export const isDeliveryReferenceCleanupJob: Validator<DeliveryReferenceCleanupJob> = (
@@ -137,21 +145,45 @@ export const isDeliveryReferenceCleanupJob: Validator<DeliveryReferenceCleanupJo
   hasString(value, "nextAttemptAt") &&
   isInteger(value.attempts) &&
   value.attempts >= 0 &&
-  hasString(value, "lastError") &&
+  hasStringValue(value, "lastError") &&
   optionalStrings(value, ["updatedAt"]);
 
-export const isRuntimeJournal: Validator<RuntimeJournal> = (value): value is RuntimeJournal =>
+export const isDeviceBuildCancellationJournal: Validator<DeviceBuildCancellationJournal> = (
+  value,
+): value is DeviceBuildCancellationJournal =>
   isRecord(value) &&
+  !Object.prototype.hasOwnProperty.call(value, "scope") &&
+  !Object.prototype.hasOwnProperty.call(value, "reason") &&
+  hasString(value, "buildId") &&
+  hasString(value, "cancelledAt");
+
+export const isLegacyDeviceBuildCancellationJournal: Validator<
+  LegacyDeviceBuildCancellationJournal
+> = (value): value is LegacyDeviceBuildCancellationJournal =>
+  isRecord(value) &&
+  !Object.prototype.hasOwnProperty.call(value, "scope") &&
   hasString(value, "buildId") &&
   hasString(value, "reason") &&
+  hasString(value, "cancelledAt");
+
+export const isRenewalCancellationJournal: Validator<RenewalCancellationJournal> = (
+  value,
+): value is RenewalCancellationJournal =>
+  isRecord(value) &&
+  value.scope === "renewal" &&
+  hasString(value, "buildId") &&
+  hasString(value, "reason") &&
+  hasString(value, "renewalID") &&
   hasString(value, "cancelledAt") &&
-  (value.scope === undefined ||
-    (value.scope === "renewal" &&
-      hasString(value, "renewalID") &&
-      isRecord(value.owner) &&
-      isInteger(value.owner.pid) &&
-      value.owner.pid > 0 &&
-      hasString(value.owner, "startedAt")));
+  isRecord(value.owner) &&
+  isInteger(value.owner.pid) &&
+  value.owner.pid > 0 &&
+  hasString(value.owner, "startedAt");
+
+export const isRuntimeJournal: Validator<RuntimeJournal> = (value): value is RuntimeJournal =>
+  isDeviceBuildCancellationJournal(value) ||
+  isLegacyDeviceBuildCancellationJournal(value) ||
+  isRenewalCancellationJournal(value);
 
 export const isLockOwnerRecord: Validator<LockOwnerRecord> = (value): value is LockOwnerRecord =>
   isRecord(value) &&

@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
-import { closeSync, mkdtempSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
+import { spawn as spawnProcess } from "node:child_process";
+import {
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { publicDeviceBuild, publicDeviceApp } from "../mac-helper/src/deviceBuilderCore.js";
 import { DeviceBuildStore } from "../mac-helper/src/deviceBuildStore.js";
+import { requestDeviceBuildCancellation } from "../mac-helper/src/deviceBuilder.js";
+import { requiredOwnedWorkerProcessRecord } from "../mac-helper/src/ownedWorkerIdentity.js";
+import {
+  installLiveEngineOwnershipBoundary,
+  readPublishedLiveEngineRecord,
+} from "../mac-helper/src/liveEngineOwnershipPreload.js";
 import {
   publishDeliveryGenerationState,
   readDeliveryGenerationState,
@@ -26,8 +43,18 @@ import {
   isDeliveryOutcome,
 } from "../mac-helper/src/contracts/delivery.js";
 import { isPairingCredential, isPairingInvitation } from "../mac-helper/src/contracts/pairing.js";
-import { isDeliveryProcessIdentity } from "../mac-helper/src/contracts/process.js";
-import { isDeliveryGenerationState } from "../mac-helper/src/contracts/runtime.js";
+import {
+  isDeliveryProcessIdentity,
+  isLiveEngineProcessRecord,
+  isOwnedWorkerProcessRecord,
+} from "../mac-helper/src/contracts/process.js";
+import {
+  isDeviceBuildCancellationJournal,
+  isLegacyDeviceBuildCancellationJournal,
+  isDeliveryGenerationState,
+  isRenewalCancellationJournal,
+  isRuntimeJournal,
+} from "../mac-helper/src/contracts/runtime.js";
 import { isPublicSessionProjection, isSessionRecord } from "../mac-helper/src/contracts/session.js";
 
 test("contracts characterize the canonical delivery envelope", () => {
@@ -42,6 +69,47 @@ test("contracts characterize the canonical delivery envelope", () => {
   assert.equal(isDeliveryEnvelope({ ...envelope, delivery: undefined }), false);
   assert.equal(isDeliveryEnvelope({ ...envelope, diagnostics: undefined }), false);
   assert.equal(isDeliveryEnvelope({ ...envelope, outcome: "livePatch" }), false);
+  assert.throws(() =>
+    deliveryEnvelope({
+      outcome: "install-link-ready",
+      message: "missing state",
+      delivery: {
+        kind: "install",
+        universalLink: "https://example.test/install",
+        preserveData: true,
+      } as never,
+    }),
+  );
+  assert.equal(
+    isDeliveryEnvelope({
+      ...envelope,
+      timing: { totalMs: undefined },
+    }),
+    false,
+  );
+  assert.equal(
+    isDeliveryEnvelope({
+      schemaVersion: 1,
+      outcome: "install-link-ready",
+      message: "bad install",
+      delivery: {
+        kind: "install",
+        universalLink: "https://example.test/install",
+        state: "verified",
+        preserveData: undefined,
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    isDeliveryEnvelope({
+      schemaVersion: 1,
+      outcome: "needs-user-action",
+      message: "bad error",
+      error: { code: "ERR", message: undefined },
+    }),
+    false,
+  );
 });
 
 test("contracts validate real SessionStore, route projection, and legacy normalization", () => {
@@ -110,6 +178,15 @@ test("contracts characterize real DeviceBuildStore records and route projections
   );
   assert.equal(isDeviceBuildRecord({ ...persisted, revision: 1.5 }), false);
   assert.equal(isDeviceBuildRecord({ ...persisted, installTTLMinutes: 4, ttlMinutes: 4 }), false);
+  assert.equal(isDeviceBuildRecord({ ...persisted, allowProvisioningUpdates: undefined }), false);
+  assert.equal(isDeviceBuildRecord({ ...persisted, capabilities: [{ token: "bad" }] }), false);
+  assert.equal(
+    isPublicDeviceBuildProjection({
+      ...publicDeviceBuild(build),
+      links: { ...publicDeviceBuild(build).links, installURL: undefined },
+    }),
+    false,
+  );
 });
 
 test("contracts characterize real command and process records", async () => {
@@ -123,7 +200,122 @@ test("contracts characterize real command and process records", async () => {
   };
   assert.equal(isDeliveryProcessIdentity(identity), true);
   assert.equal(isDeliveryProcessIdentity({ ...identity, pid: 0 }), false);
+  const ownedChild = spawnProcess(process.execPath, ["-e", "setInterval(() => {}, 30_000)"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  try {
+    const owned = requiredOwnedWorkerProcessRecord(ownedChild.pid, "contracts");
+    assert.equal(isOwnedWorkerProcessRecord(owned), true);
+    const liveShape = { ...owned } as Record<string, unknown>;
+    delete liveShape.command;
+    assert.equal(
+      isLiveEngineProcessRecord({
+        ...liveShape,
+        instanceNonce: "instance",
+        recordNonce: "record",
+      }),
+      true,
+    );
+  } finally {
+    try {
+      process.kill(-Number(ownedChild.pid), "SIGKILL");
+    } catch {}
+  }
 });
+
+test("contracts characterize the actual live-engine process writer", async () => {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-contract-live-engine-"));
+  const pidPath = join(root, "engine.pid");
+  installLiveEngineOwnershipBoundary({ engineExecutable: process.execPath, pidPath });
+  const child = spawnProcess(process.execPath, ["-e", "setInterval(() => {}, 30_000)"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  try {
+    writeFileSync(pidPath, `${child.pid}\n`);
+    const persisted = readPublishedLiveEngineRecord(pidPath);
+    assert.ok(persisted);
+    assert.equal(isLiveEngineProcessRecord(persisted), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(persisted, "command"), false);
+  } finally {
+    try {
+      process.kill(-Number(child.pid), "SIGKILL");
+    } catch {}
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("contracts characterize actual build and renewal cancellation writers", () => {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-contract-cancellation-"));
+  try {
+    const path = join(root, "device-builds.json");
+    const store = new DeviceBuildStore({ path, maintenance: false });
+    const build = store.create({ scheme: "Demo" });
+    build.app = {
+      identity: "app-identity",
+      name: "Demo",
+      bundleIdentifier: "com.example.demo",
+      version: "1",
+      build: "1",
+      teamID: "TEAM",
+    };
+    build.state = "validating";
+    store.save(build);
+    const appID = build.app.identity;
+    assert.equal(store.deleteApp(appID, { deleteArtifacts: false }), true);
+    const normal = readJSON<unknown>(build.control!.cancelPath);
+    assert.equal(isDeviceBuildCancellationJournal(normal), true);
+    assert.equal(isRuntimeJournal(normal), true);
+    assert.equal(isRuntimeJournal({ ...(normal as object), reason: undefined }), false);
+
+    const renewalStore = new DeviceBuildStore({
+      path: join(root, "renewal-builds.json"),
+      maintenance: false,
+    });
+    const renewalBuild = renewalStore.create({ scheme: "Demo" });
+    renewalBuild.app = { ...build.app };
+    renewalBuild.state = "ready";
+    renewalStore.save(renewalBuild);
+    const candidate = renewalStore.renewInstallLink(renewalBuild.id);
+    assert.ok(candidate?.pendingRenewal?.id);
+    assert.equal(requestDeviceBuildCancellation(candidate, "shutdown"), true);
+    const markerFiles = [candidate.control!.cancelPath, ...listFiles(root)].filter((file) =>
+      file.includes(".renewal-"),
+    );
+    assert.equal(markerFiles.length, 1);
+    const renewal = readJSON<unknown>(markerFiles[0]);
+    assert.equal(isRenewalCancellationJournal(renewal), true);
+    assert.equal(isRuntimeJournal(renewal), true);
+
+    const legacyRoot = join(root, "legacy");
+    mkdirSync(legacyRoot, { recursive: true });
+    const legacyStore = new DeviceBuildStore({
+      path: join(legacyRoot, "builds.json"),
+      maintenance: false,
+    });
+    const legacyBuild = legacyStore.create({ scheme: "Demo" });
+    legacyBuild.app = { ...build.app };
+    legacyBuild.state = "ready";
+    legacyStore.save(legacyBuild);
+    assert.equal(requestDeviceBuildCancellation(legacyBuild, "legacy"), true);
+    const legacy = readJSON<unknown>(legacyBuild.control!.cancelPath);
+    assert.equal(isLegacyDeviceBuildCancellationJournal(legacy), true);
+    assert.equal(isRuntimeJournal(legacy), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function listFiles(root: string): string[] {
+  const result: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) result.push(...listFiles(path));
+    else result.push(path);
+  }
+  return result;
+}
 
 test("contracts characterize the persisted delivery generation state and journal semantics", () => {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-contract-delivery-"));

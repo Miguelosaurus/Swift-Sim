@@ -61,11 +61,18 @@ export const isOwnedWorkerProcessRecord: Validator<OwnedWorkerProcessRecord> = (
 
 export const isLiveEngineProcessRecord: Validator<LiveEngineProcessRecord> = (
   value,
-): value is LiveEngineProcessRecord => {
-  if (!isOwnedWorkerProcessRecord(value)) return false;
-  const record = value as unknown as Record<string, unknown>;
-  return hasString(record, "instanceNonce") && hasString(record, "recordNonce");
-};
+): value is LiveEngineProcessRecord =>
+  isRecord(value) &&
+  value.version === 2 &&
+  isInteger(value.pid) &&
+  value.pid > 1 &&
+  isInteger(value.processGroup) &&
+  value.processGroup === value.pid &&
+  hasString(value, "startToken") &&
+  hasString(value, "executable") &&
+  hasString(value, "instanceNonce") &&
+  hasString(value, "recordNonce") &&
+  hasString(value, "createdAt");
 
 export function parseProcessIdentity(value: unknown): ProcessIdentity {
   return parseContract(value, isProcessIdentity, "delivery process identity");

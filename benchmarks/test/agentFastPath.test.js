@@ -115,7 +115,12 @@ test("delivery contract rejects unsafe or incomplete compact envelopes", () => {
   const install = deliveryEnvelope({
     outcome: "install-link-ready",
     message: "This change needs a new signed build.",
-    delivery: { kind: "install", universalLink: "https://example.test/d/build/opaque-placeholder" },
+    delivery: {
+      kind: "install",
+      universalLink: "https://example.test/d/build/opaque-placeholder",
+      state: "unknown",
+      preserveData: true,
+    },
   });
   assert.deepEqual(validateDeliveryEnvelope(install), { valid: true, errors: [] });
 
@@ -125,6 +130,8 @@ test("delivery contract rejects unsafe or incomplete compact envelopes", () => {
     delivery: {
       kind: "install",
       universalLink: "https://example.test/d/build/opaque-placeholder",
+      state: "unknown",
+      preserveData: true,
       customScheme: "swift-sim://install/opaque-placeholder",
     },
     warning: { code: "PROVISIONING_WARNING", message: "The device profile may need renewal." },
@@ -136,7 +143,7 @@ test("delivery contract rejects unsafe or incomplete compact envelopes", () => {
     outcome: "needs-user-action",
     message: "Update Swift Sim, then start a new agent session.",
     reasonCode: "PROTOCOL_MISMATCH",
-    error: { code: "PROTOCOL_MISMATCH", action: "update" },
+    error: { code: "PROTOCOL_MISMATCH", message: "Update Swift Sim, then start a new agent session." },
   });
   assert.deepEqual(validateDeliveryEnvelope(userAction), { valid: true, errors: [] });
   const untypedAction = deliveryEnvelope({

@@ -1,6 +1,7 @@
 import {
   hasBoolean,
-  hasOptionalNullableNumber,
+  hasOptionalBoolean,
+  hasOptionalNumber,
   hasOptionalRecord,
   hasOptionalString,
   hasOptionalStringArray,
@@ -92,22 +93,26 @@ export interface DeviceBuildCapability {
   createdAt: string;
 }
 
+interface PendingRenewalPrevious {
+  expiresAt: string;
+  remoteBaseUrl: string;
+  delivery: DeviceBuildDelivery | null;
+  installTTLMinutes?: number;
+}
+
+interface PendingRenewalTarget {
+  ttlMinutes: number;
+  remoteBaseUrl: string;
+  deliveryMode: "custom" | "quick-tunnel";
+}
+
 export interface DeviceBuildPendingRenewal {
-  id: string;
+  id?: string;
   token: string;
   createdAt: string;
-  deadlineAt: string;
-  previous: {
-    expiresAt: string;
-    remoteBaseUrl: string;
-    delivery: DeviceBuildDelivery | null;
-    installTTLMinutes: number;
-  };
-  target: {
-    ttlMinutes: number;
-    remoteBaseUrl: string;
-    deliveryMode: "custom" | "quick-tunnel";
-  };
+  deadlineAt?: string;
+  previous: PendingRenewalPrevious;
+  target?: PendingRenewalTarget;
 }
 
 export interface DeviceBuildRecord {
@@ -152,6 +157,7 @@ export interface DeviceBuildRecord {
     compilerReady?: boolean;
     capturedCompilations?: number;
     error?: string;
+    host?: string;
   };
 }
 
@@ -224,6 +230,13 @@ const isSigning: Validator<DeviceBuildSigning> = (value): value is DeviceBuildSi
   Array.isArray(value.warnings) &&
   value.warnings.every((warning) => typeof warning === "string");
 
+const isInstallationDevice: Validator<InstallationDevice> = (value): value is InstallationDevice =>
+  isRecord(value) &&
+  hasStringValue(value, "name") &&
+  hasStringValue(value, "state") &&
+  hasStringValue(value, "version") &&
+  hasStringValue(value, "build");
+
 const isInstallation: Validator<DeviceBuildInstallation> = (
   value,
 ): value is DeviceBuildInstallation =>
@@ -234,14 +247,78 @@ const isInstallation: Validator<DeviceBuildInstallation> = (
   hasStringValue(value, "updatedAt") &&
   hasStringValue(value, "verificationDeadlineAt") &&
   Array.isArray(value.devices) &&
-  value.devices.every(
-    (device) =>
-      isRecord(device) &&
-      hasStringValue(device, "name") &&
-      hasStringValue(device, "state") &&
-      hasStringValue(device, "version") &&
-      hasStringValue(device, "build"),
-  );
+  value.devices.every(isInstallationDevice);
+
+const isArtifacts: Validator<DeviceBuildArtifacts> = (value): value is DeviceBuildArtifacts =>
+  isRecord(value) &&
+  hasStringValue(value, "root") &&
+  hasStringValue(value, "archivePath") &&
+  hasStringValue(value, "exportPath") &&
+  hasStringValue(value, "ipaPath") &&
+  hasStringValue(value, "manifestPath") &&
+  hasOptionalString(value, "resultBundlePath");
+
+const isCapability: Validator<DeviceBuildCapability> = (value): value is DeviceBuildCapability =>
+  isRecord(value) &&
+  hasString(value, "token") &&
+  hasStringValue(value, "expiresAt") &&
+  hasStringValue(value, "remoteBaseUrl") &&
+  (value.delivery === null || isDeviceBuildDelivery(value.delivery)) &&
+  isInteger(value.installTTLMinutes) &&
+  value.installTTLMinutes >= 5 &&
+  value.installTTLMinutes <= 120 &&
+  hasStringValue(value, "createdAt");
+
+const isPendingRenewalPrevious = (value: unknown): value is PendingRenewalPrevious =>
+  isRecord(value) &&
+  hasStringValue(value, "expiresAt") &&
+  hasStringValue(value, "remoteBaseUrl") &&
+  (value.delivery === null || isDeviceBuildDelivery(value.delivery)) &&
+  (!Object.prototype.hasOwnProperty.call(value, "installTTLMinutes") ||
+    (isInteger(value.installTTLMinutes) &&
+      value.installTTLMinutes >= 5 &&
+      value.installTTLMinutes <= 120));
+
+const isPendingRenewalTarget = (value: unknown): value is PendingRenewalTarget =>
+  isRecord(value) &&
+  isInteger(value.ttlMinutes) &&
+  value.ttlMinutes >= 5 &&
+  value.ttlMinutes <= 120 &&
+  hasStringValue(value, "remoteBaseUrl") &&
+  (value.deliveryMode === "custom" || value.deliveryMode === "quick-tunnel");
+
+const isPendingRenewal: Validator<DeviceBuildPendingRenewal> = (
+  value,
+): value is DeviceBuildPendingRenewal =>
+  isRecord(value) &&
+  hasOptionalString(value, "id") &&
+  hasString(value, "token") &&
+  hasStringValue(value, "createdAt") &&
+  hasOptionalString(value, "deadlineAt") &&
+  isPendingRenewalPrevious(value.previous) &&
+  (!Object.prototype.hasOwnProperty.call(value, "target") || isPendingRenewalTarget(value.target));
+
+const isControl = (value: unknown): value is { cancelPath: string } =>
+  isRecord(value) && hasStringValue(value, "cancelPath");
+
+const isRebuild = (value: unknown): boolean =>
+  isRecord(value) &&
+  hasStringValue(value, "appID") &&
+  hasStringValue(value, "sourceBuildID") &&
+  hasStringValue(value, "idempotencyKey") &&
+  hasStringValue(value, "expectedBundleIdentifier") &&
+  hasStringValue(value, "expectedTeamID");
+
+const isLiveReload = (value: unknown): boolean =>
+  isRecord(value) &&
+  hasOptionalBoolean(value, "eligible") &&
+  hasOptionalBoolean(value, "engineReady") &&
+  hasOptionalBoolean(value, "compilerReady") &&
+  hasOptionalString(value, "error") &&
+  hasOptionalString(value, "host") &&
+  hasOptionalNumber(value, "capturedCompilations") &&
+  (!Object.prototype.hasOwnProperty.call(value, "capturedCompilations") ||
+    (isInteger(value.capturedCompilations) && value.capturedCompilations >= 0));
 
 export const isDeviceBuildRecord: Validator<DeviceBuildRecord> = (
   value,
@@ -250,118 +327,113 @@ export const isDeviceBuildRecord: Validator<DeviceBuildRecord> = (
     !isRecord(value) ||
     !hasString(value, "id") ||
     !hasString(value, "token") ||
-    !hasOptionalString(value, "tokenExpiredAt") ||
+    !hasStringValue(value, "tokenExpiredAt") ||
     !isInteger(value.revision) ||
     value.revision < 0 ||
-    !hasOptionalString(value, "remoteBaseUrl") ||
+    !hasStringValue(value, "remoteBaseUrl") ||
     !isDeviceBuildDelivery(value.delivery) ||
     !hasStringValue(value, "project") ||
     !hasStringValue(value, "workspace") ||
     !hasStringValue(value, "scheme") ||
     !hasStringValue(value, "configuration") ||
     !hasStringValue(value, "exportMethod") ||
-    typeof value.preserveData !== "boolean" ||
+    !hasBoolean(value, "preserveData") ||
     !hasStringValue(value, "createdAt") ||
     !hasStringValue(value, "updatedAt") ||
-    typeof value.installTTLMinutes !== "number" ||
-    !Number.isFinite(value.installTTLMinutes) ||
+    !isInteger(value.installTTLMinutes) ||
     value.installTTLMinutes < 5 ||
     value.installTTLMinutes > 120 ||
-    typeof value.ttlMinutes !== "number" ||
+    !isInteger(value.ttlMinutes) ||
     value.ttlMinutes !== value.installTTLMinutes ||
-    !hasOptionalString(value, "expiresAt") ||
+    !hasStringValue(value, "expiresAt") ||
     !DEVICE_BUILD_STATES.includes(value.state as DeviceBuildState) ||
     !isDeviceBuildApp(value.app) ||
     !isSigning(value.signing) ||
     !isInstallation(value.installation) ||
-    !isRecord(value.artifacts) ||
+    !isArtifacts(value.artifacts) ||
     !Array.isArray(value.logs) ||
-    !value.logs.every((line) => typeof line === "string")
-  )
+    !value.logs.every((line) => typeof line === "string") ||
+    !hasOptionalStringArray(value, "buildSettings") ||
+    !hasOptionalBoolean(value, "allowProvisioningUpdates") ||
+    !hasOptionalRecord(value, "control") ||
+    (Object.prototype.hasOwnProperty.call(value, "control") && !isControl(value.control)) ||
+    !hasOptionalRecord(value, "rebuild") ||
+    (Object.prototype.hasOwnProperty.call(value, "rebuild") && !isRebuild(value.rebuild)) ||
+    !hasOptionalRecord(value, "liveReload") ||
+    (Object.prototype.hasOwnProperty.call(value, "liveReload") &&
+      !isLiveReload(value.liveReload)) ||
+    !hasOptionalRecord(value, "pendingRenewal") ||
+    (Object.prototype.hasOwnProperty.call(value, "pendingRenewal") &&
+      !isPendingRenewal(value.pendingRenewal))
+  ) {
     return false;
+  }
   return (
-    hasStringValue(value.artifacts, "root") &&
-    hasStringValue(value.artifacts, "archivePath") &&
-    hasStringValue(value.artifacts, "exportPath") &&
-    hasStringValue(value.artifacts, "ipaPath") &&
-    hasStringValue(value.artifacts, "manifestPath") &&
-    hasOptionalString(value.artifacts, "resultBundlePath") &&
-    hasOptionalStringArray(value, "buildSettings") &&
-    (value.allowProvisioningUpdates === undefined ||
-      typeof value.allowProvisioningUpdates === "boolean") &&
-    hasOptionalRecord(value, "control") &&
-    hasOptionalRecord(value, "rebuild") &&
-    hasOptionalRecord(value, "liveReload") &&
-    hasOptionalNullableNumber(value, "revision")
+    !Object.prototype.hasOwnProperty.call(value, "capabilities") ||
+    (Array.isArray(value.capabilities) && value.capabilities.every(isCapability))
   );
 };
 
 export const isAppRecord: Validator<AppRecord> = (value): value is AppRecord =>
   isRecord(value) &&
   hasString(value, "id") &&
-  hasString(value, "name") &&
+  hasStringValue(value, "name") &&
   hasStringValue(value, "bundleIdentifier") &&
   hasStringValue(value, "teamID") &&
   hasStringValue(value, "archivedAt") &&
   Array.isArray(value.builds) &&
   value.builds.every(isDeviceBuildRecord);
 
+const isPublicInstallation = (value: unknown): boolean =>
+  isRecord(value) &&
+  INSTALLATION_STATES.includes(value.state as InstallationState) &&
+  hasStringValue(value, "requestedAt") &&
+  hasStringValue(value, "verifiedAt") &&
+  Array.isArray(value.devices) &&
+  value.devices.every(isInstallationDevice);
+
+const isPublicSigning = (value: unknown): boolean =>
+  isRecord(value) &&
+  hasStringValue(value, "method") &&
+  hasBoolean(value, "deviceInstallable") &&
+  hasStringValue(value, "updateSafe") &&
+  Array.isArray(value.warnings) &&
+  value.warnings.every((warning) => typeof warning === "string");
+
 export const isPublicDeviceBuildProjection: Validator<PublicDeviceBuildProjection> = (
   value,
 ): value is PublicDeviceBuildProjection =>
   isRecord(value) &&
   hasString(value, "id") &&
-  hasString(value, "createdAt") &&
-  hasString(value, "updatedAt") &&
+  hasStringValue(value, "createdAt") &&
+  hasStringValue(value, "updatedAt") &&
   hasStringValue(value, "expiresAt") &&
   DEVICE_BUILD_STATES.includes(value.state as DeviceBuildState) &&
-  hasString(value, "configuration") &&
+  hasStringValue(value, "configuration") &&
   isRecord(value.liveReload) &&
-  typeof value.liveReload.eligible === "boolean" &&
+  hasBoolean(value.liveReload, "eligible") &&
   value.liveReload.mode === "debug-only" &&
-  typeof value.liveReload.engineReady === "boolean" &&
-  typeof value.liveReload.compilerReady === "boolean" &&
+  hasBoolean(value.liveReload, "engineReady") &&
+  hasBoolean(value.liveReload, "compilerReady") &&
   isInteger(value.liveReload.capturedCompilations) &&
   value.liveReload.capturedCompilations >= 0 &&
   hasStringValue(value.liveReload, "error") &&
   isDeviceBuildApp(value.app) &&
-  isRecord(value.signing) &&
-  hasStringValue(value.signing, "method") &&
-  hasBoolean(value.signing, "deviceInstallable") &&
-  hasStringValue(value.signing, "updateSafe") &&
-  Array.isArray(value.signing.warnings) &&
+  isPublicSigning(value.signing) &&
   isDeviceBuildDelivery(value.delivery) &&
-  typeof value.preserveData === "boolean" &&
+  hasBoolean(value, "preserveData") &&
   isPublicInstallation(value.installation) &&
   isRecord(value.links) &&
-  hasOptionalString(value.links, "universalLink") &&
-  hasString(value.links, "customScheme") &&
-  hasOptionalString(value.links, "installURL");
-
-function isPublicInstallation(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    INSTALLATION_STATES.includes(value.state as InstallationState) &&
-    hasStringValue(value, "requestedAt") &&
-    hasStringValue(value, "verifiedAt") &&
-    Array.isArray(value.devices) &&
-    value.devices.every(
-      (device) =>
-        isRecord(device) &&
-        hasStringValue(device, "name") &&
-        hasStringValue(device, "state") &&
-        hasStringValue(device, "version") &&
-        hasStringValue(device, "build"),
-    )
-  );
-}
+  hasStringValue(value.links, "universalLink") &&
+  hasStringValue(value.links, "customScheme") &&
+  hasStringValue(value.links, "installURL");
 
 export const isPublicAppProjection: Validator<PublicAppProjection> = (
   value,
 ): value is PublicAppProjection =>
   isRecord(value) &&
   hasString(value, "id") &&
-  hasString(value, "name") &&
+  hasStringValue(value, "name") &&
   hasStringValue(value, "bundleIdentifier") &&
   hasStringValue(value, "archivedAt") &&
   (value.latestBuild === null || isPublicDeviceBuildProjection(value.latestBuild)) &&

@@ -141,7 +141,8 @@ export const isPublicSessionProjection: Validator<PublicSessionProjection> = (
     !isRecord(value.stream) ||
     !isSessionStreamRecord(value.stream) ||
     !isRecord(value.links) ||
-    !hasOptionalString(value.links, "universalLink") ||
+    !Object.prototype.hasOwnProperty.call(value.links, "universalLink") ||
+    typeof value.links.universalLink !== "string" ||
     !hasString(value.links, "customScheme")
   )
     return false;
