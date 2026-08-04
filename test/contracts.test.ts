@@ -40,6 +40,7 @@ test("contracts characterize the canonical delivery envelope", () => {
   assert.equal(isDeliveryEnvelope(envelope), true);
   assert.equal(isDeliveryOutcome(envelope), true);
   assert.equal(isDeliveryEnvelope({ ...envelope, delivery: undefined }), false);
+  assert.equal(isDeliveryEnvelope({ ...envelope, diagnostics: undefined }), false);
   assert.equal(isDeliveryEnvelope({ ...envelope, outcome: "livePatch" }), false);
 });
 

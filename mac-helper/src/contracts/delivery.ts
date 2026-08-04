@@ -72,7 +72,6 @@ export const parseDeliveryOutcome = parseDeliveryEnvelope;
 function containsExplicitUndefined(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   return Object.entries(value).some(
-    ([key, child]) =>
-      key !== "diagnostics" && (child === undefined || containsExplicitUndefined(child)),
+    ([, child]) => child === undefined || containsExplicitUndefined(child),
   );
 }
