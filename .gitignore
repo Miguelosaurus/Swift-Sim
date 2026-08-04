@@ -1,6 +1,8 @@
 .DS_Store
 .build/
 node_modules/
+dist/
+*.tsbuildinfo
 npm-debug.log*
 DerivedData/
 *.xcuserstate

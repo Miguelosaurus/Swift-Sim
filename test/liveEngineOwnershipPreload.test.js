@@ -4,15 +4,15 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   abortPendingLiveEngine,
   liveEngineProcessRecordIsCurrent,
   parseLiveEngineProcessRecord,
 } from "../mac-helper/src/liveEngineOwnershipPreload.js";
 
-const preloadURL = pathToFileURL(resolve("mac-helper/src/liveEngineOwnershipPreload.js")).href;
-const childBoundaryURL = pathToFileURL(resolve("mac-helper/src/swiftSimChildRuntimeBoundary.js")).href;
+const preloadURL = pathToFileURL(fileURLToPath(new URL("../mac-helper/src/liveEngineOwnershipPreload.js", import.meta.url))).href;
+const childBoundaryURL = pathToFileURL(fileURLToPath(new URL("../mac-helper/src/swiftSimChildRuntimeBoundary.js", import.meta.url))).href;
 
 test("live engine records require the exact kernel start, executable, group, and nonce", () => {
   const executable = resolve(process.execPath);

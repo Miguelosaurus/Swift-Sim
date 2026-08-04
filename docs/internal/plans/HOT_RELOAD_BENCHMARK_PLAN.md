@@ -309,7 +309,7 @@ a hot-reload reliability denominator.
 
 The current scoped core-device evidence is recorded in
 [`CORE_HOT_RELOAD_PHYSICAL_RESULTS.md`](../../evidence/CORE_HOT_RELOAD_PHYSICAL_RESULTS.md).
-The implementation uses Node 20 built-ins and the existing Swift/Xcode tools;
+The implementation uses Node 24 built-ins and the existing Swift/Xcode tools;
 do not add a runtime dependency merely for argument parsing, statistics, JSONL,
 or patch orchestration.
 

@@ -6,8 +6,8 @@ This file is the compact execution ledger for the architecture program. It is no
 
 | Phase | Scope | Status | PR | Base | Head | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 2a2239c validated implementation | Existing architecture debt is baselined; runtime behavior unchanged |
-| 1 | TypeScript and package foundation | Not started | — | — | — | — |
+| 0 | Baseline and guardrails | Merged | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 6f356df merge commit | Existing architecture debt is baselined; runtime behavior unchanged |
+| 1 | TypeScript and package foundation | Draft PR | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | 6f356df | 5d778eb validated implementation | Existing JavaScript remains canonical during the mixed-source transition; Phase 2 ports not started |
 | 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
 | 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
 | 4 | Repository interfaces and SQLite migration | Not started | — | — | — | — |
@@ -47,7 +47,7 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 | Metric | Baseline | Current | Target |
 | --- | ---: | ---: | ---: |
 | Production JavaScript files | 67 | 67 | 0 canonical JS files after migration, excluding intentional wrappers |
-| Production TypeScript files | 0 | 0 | Canonical Node implementation |
+| Production TypeScript files | 0 | 8 | Canonical Node implementation |
 | Production Swift files | 7 | 7 | Feature-organized |
 | Preload/runtime patch modules | 30 | 30 | 0 |
 | Built-in monkey-patch evidence modules | 10 | 10 | 0 |
@@ -57,14 +57,15 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 | Largest Node production file | 2,821 (`mac-helper/src/liveReload.js`) | 2,821 | <= 800 lines or ADR |
 | Largest Swift production file | 2,562 (`Companion/SwiftSimCompanion/SessionStore.swift`) | 2,562 | <= 800 lines or ADR |
 | Writable JSON state-store candidates | 29 | 29 | 0 writable stores after migration window |
-| Node minimum version | >=20 | >=20 | Supported pinned LTS |
+| Node minimum version | >=20 | 24.x | Supported pinned LTS |
 
 ### Phase 0 — Baseline and architectural guardrails
 
-- Status: Draft PR; implementation and validation complete, unmerged
+- Status: Merged
 - Branch: `agent/architecture-consolidation-phase-0-guardrails`
 - PR: [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23)
 - Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
+- Merge commit SHA: `6f356df3c1e1e91499b3d05efe4308337cc7ff6b`
 - Validated implementation SHA: `2a2239c1e49df83b8b75ddc42a363e73a11f0655` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
 - Dates: 2026-08-04
 - Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
@@ -142,6 +143,7 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 - iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
 - GitHub Actions follow-up: the initial `verify` run exposed a self-match from `test/architectureInventory.test.js`; fixture text now lives under the excluded fixture directory, the whole-file exemption is removed, and the architecture path is explicitly regression-tested.
 - Whitespace: `git diff --check` passed.
+- Post-merge GitHub Verify: run `30920938939` on `main` at merge commit `6f356df3c1e1e91499b3d05efe4308337cc7ff6b` passed checkout, Node setup, `npm ci`, `npm run check`, YAML validation, release-shell validation, and iOS app tests.
 - CI, Homebrew clean-install, physical-device, and release-archive gates were not required or changed by this behavior-preserving guardrail phase; they remain external residuals.
 
 #### Self-review findings
@@ -171,7 +173,114 @@ Self-review fixed the full review set: the original patch-evidence predicate was
 
 #### Next phase
 
-After this draft PR is reviewed and merged, create a fresh Phase 1 branch from current `main` for the TypeScript/compiler/package foundation. Do not begin Phase 1 in this turn.
+Phase 0 is merged. Phase 1 is executed on the fresh branch recorded below; do not begin Phase 2 from this entry.
+
+### Phase 1 — TypeScript and package foundation
+
+- Status: Draft PR; implementation and validation complete, unmerged
+- Branch: `agent/architecture-consolidation-phase-1-typescript-foundation`
+- PR: [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24)
+- Base SHA: `6f356df3c1e1e91499b3d05efe4308337cc7ff6b`
+- Validated implementation SHA: `3ca6d23ae322822f6fee538739ab97cf50d02d1d` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after the metadata commit)
+- Dates: 2026-08-04
+- Checkpoint relationship: None; Checkpoint 1 is scheduled only after Phase 2
+
+#### Objective
+
+Establish the Node 24, NodeNext TypeScript, emitted-JavaScript, and clean-package foundation required for incremental production migration without changing helper, CLI, pairing, process-ownership, live-reload, storage, or companion behavior.
+
+#### Invariants touched
+
+- Runtime and packaging compatibility
+- Untrusted-boundary contracts
+- Test integrity
+- Maintainability and architecture ratchets
+
+#### Mechanical changes
+
+- Pinned Node.js 24.x in `package.json`, CI, Homebrew/release packaging, installation checks, and contributor documentation.
+- Added exact TypeScript 5.9.3, `@types/node` 24.13.3, ESLint 9.39.1, `typescript-eslint` 8.46.2, and Prettier 3.7.0 pins with a Node ESM/NodeNext configuration.
+- Added mixed JavaScript/TypeScript compilation with `allowJs`, `checkJs: false`, source maps, strict TypeScript, consistent casing, and the required control-flow/error options. `.tsx` remains excluded and prohibited in the Node production tree.
+- Added ignored `dist/` output and shell build/verification scripts. Production package bins, `npm start`, Homebrew launchers, service startup, and contributor wrappers execute emitted JavaScript from `dist/`; no runtime TypeScript loader was added.
+- Added runtime-validated typed contracts grounded in the current `SessionStore`, `PairingStore`, `PairingInviteStore`, `DeviceBuildStore`, `deviceDeliveryState`, `runBuffered`, and ownership-record outputs. Pairing credentials and invitations are separate, public/private projections are explicit, delivery envelopes delegate to the canonical `changeDeliveryContract.js` outcomes and validator, and owned-worker/live-engine records are independent. Normal build cancellation markers, legacy reason-bearing markers, and renewal cancellation records are modeled separately. Validators consume `unknown` at the boundary and reject explicitly present `undefined` under `exactOptionalPropertyTypes`.
+- Added characterization tests that invoke the real owned-worker/live-engine and cancellation writers, plus negative and compile-time delivery-contract tests for malformed nested records, required projection fields, and invalid builder input.
+- Added narrow flat ESLint and Prettier configuration scoped to the new contracts, TypeScript tests, and foundation configuration; existing JavaScript was not reformatted.
+- Added package whitelist inspection, clean tarball installation in isolated HOME/config directories with fake Codex/Cursor/Claude/OpenCode commands, package entrypoint resolution, source/compiled CLI/helper equivalence, an isolated compiled-only lifecycle subset, and release-archive assembly from the package whitelist.
+- Fixed package-root discovery so npm-installed `.bin/swift-sim` resolves top-level marketplace and plugin assets without `SWIFT_SIM_MARKETPLACE_ROOT`; Homebrew launchers remain compatible with the same layout.
+- Added a real isolated Homebrew gate that builds an archive, renders a temporary unique-name formula with its actual SHA, uses isolated HOME/config state and a unique non-production port, verifies Node 24 launchers, service health/protocol, exact listening PID/prefix identity across restart, assets, setup, and doctor, then cleans up. The normal local gate is a safe formula preflight; CI opts into the clean installation gate explicitly.
+- Removed `skipLibCheck`; the full tree typechecks with first-party and dependency declarations checked.
+- Updated release/development documentation and the existing source-runtime assertion for the expanded authoritative `npm run check` path.
+
+#### Behavioral changes
+
+`None` expected for helper, CLI, pairing, process ownership, persistence, live reload, storage, and companion behavior. The supported production execution boundary intentionally changes from source entrypoints to equivalent emitted `dist/` JavaScript, with source/compiled CLI and helper entrypoint output compared by validation.
+
+#### Old architecture removed
+
+None. Phase 1 does not port infrastructure, remove preloads, migrate storage, split the helper/live-reload/iOS architecture, or change product behavior.
+
+#### Compatibility layer remaining
+
+- Existing JavaScript remains the canonical production implementation while `allowJs: true` and the single `dist/` build enable bounded TypeScript migration.
+- Source-tree entrypoints remain available for source/compiled equivalence tests; shipped package bins and release/Homebrew launchers resolve only to emitted `dist/` files.
+- The new contracts are declaration/validation boundaries only in this phase. Existing modules do not consume them until later infrastructure and decomposition phases.
+
+#### Metrics
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Production JavaScript files | 67 | 67 |
+| Production TypeScript files | 0 | 8 |
+| Preloads | 30 | 30 |
+| Source-text tests | 28 | 28 |
+| Direct child-process importer files | 28 | 28 |
+| Direct destructive filesystem importer files | 26 | 26 |
+| Largest touched production file | 2,821 (`mac-helper/src/liveReload.js`) | 2,821 (`mac-helper/src/liveReload.js`) |
+| Supported Node line | >=20 | 24.x |
+| Clean package files | Not established | 181 |
+
+#### Validation
+
+- Runtime/install baseline: Homebrew Node `v24.19.0`; npm `11.17.0`; `npm ci` passed with no vulnerabilities.
+- Complete local gate: `PATH=/opt/homebrew/opt/node@24/bin:$PATH npm run check` passed under Node `v24.19.0`. It syntax-checked 344 JavaScript files, passed architecture inventory for 82 production source files, verified 54 Markdown files, passed strict TypeScript typecheck with `skipLibCheck: false`, Prettier, ESLint, the source suite at 457/457, the hermetic compiled subset at 1/1, source/compiled CLI/helper equivalence, clean package archive installation, package entrypoint resolution, and the safe local Homebrew formula preflight. The explicit clean gate `HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 SWIFT_SIM_RUN_CLEAN_HOMEBREW=1 bash scripts/verify-homebrew-package.sh` also passed with isolated service identity and cleanup.
+- TypeScript foundation: `npm run check:types`, `npm run build`, and the compiled characterization suite `node --test --test-concurrency=1 dist/test/contracts.test.js` passed 8/8; `dist/` is ignored and no generated output is committed.
+- Package validation: `npm pack --dry-run --json` inspected 181 intended files; a clean archive install in isolated HOME/config directories executed both the compiled CLI and package bin at version `0.6.1`, ran setup and `doctor --json` against fake agent commands, verified exact marketplace/copied-skill paths, and resolved `swift-sim/dist/mac-helper/bin/swift-sim-entry.js` through the installed package.
+- Architecture inventory and ratchet: `node scripts/architecture/inventory.js --json` and `npm run check:architecture` passed. Counts remained 30 preloads, 28 child-process importers, 26 destructive filesystem importers, and 28 source-text tests; no policy cap increased.
+- Hermetic compiled/package validation: `scripts/verify-hermetic-compiled.sh` extracted only `dist`, `node_modules`, package integration assets, and the compiled test subset; source `mac-helper`, source tests, and source-only assets were unavailable. The subset covered CLI dispatch, helper health/start/stop/restart, process ownership state, setup/doctor, runtime asset discovery, and package entrypoint behavior. Source-path reconstruction in subprocess tests now uses module URLs.
+- Helper/process ownership: the complete source suite and hermetic compiled subset passed helper setup/start/restart, deadline, owned-worker, lock-ownership, lifecycle, and process-group tests; the sequential runner avoids the previously observed fixture race.
+- Homebrew/release: the explicit clean gate built the local release archive, rendered a temporary unique-name formula with the archive SHA, installed it through an isolated local tap/prefix without linking or moving user launchers, verified Node 24 launchers, package assets, setup/doctor, unique-port service health/protocol, exact pre/post-restart PIDs under the formula prefix, and cleanup. The Ruby/static check remains the safe fast preflight used by normal local `npm run check`. The complete release-shell syntax command also passed for all build, package, Homebrew, and release scripts.
+- iOS companion: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase1-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on the configured iPhone 17 Pro simulator. The same command is rerun at the exact final head before push.
+- YAML and release validation: Ruby parsed all workflow YAML files; `bash -n` passed the build, package, Homebrew, and release shell scripts. `git diff --check` passed.
+- GitHub Verify: the exact final-head run is recorded in the PR body and final handoff after the metadata commit. It must include checkout, Node 24 setup, `npm ci`, full `npm run check`, the explicit clean Homebrew gate, YAML validation, release-shell validation, and iOS app tests.
+
+#### Self-review findings
+
+| Severity | Found | Fixed | Remaining |
+| --- | ---: | ---: | ---: |
+| P0 | 0 | 0 | 0 |
+| P1 | 5 | 5 | 0 |
+| P2 | 3 | 3 | 0 |
+| P3 | 0 | 0 | 0 |
+
+The self-review found and fixed the blocking review findings: invented contract shapes were replaced with characterization-backed current records and canonical delivery outcomes; owned-worker/live-engine and normal/renewal cancellation records are separated; every exported validator now narrows only soundly; package root discovery was separated from compiled runtime discovery; compiled validation was made hermetic; the Homebrew check became an isolated clean archive/service proof with a safe local default; and `skipLibCheck` was removed. It also fixed bounded validation defects found during implementation: the default parallel runner made one existing process-group fixture timing-sensitive, the package-content assertion incorrectly required a lockfile npm omits, the initial command-result fixture rejected valid empty stderr, and the delivery validator briefly exempted explicit `diagnostics: undefined`. No introduced or exposed P0/P1/P2 issue remains; no product behavior or architecture cap was weakened.
+
+#### Migration and rollback
+
+- Migration performed: None; no user state, schema, pairing record, process journal, lease, artifact, or live session was changed.
+- Backup location/format: Not applicable.
+- Rollback procedure: revert the Phase 1 PR or run the previous source entrypoints from the prior release; no data migration is involved.
+- Irreversible changes: None.
+
+#### Residual risks
+
+- Existing JavaScript remains canonical and the direct infrastructure/preload/oversized-file/source-text-test debt remains intentionally unchanged for later phases.
+- The package archive contains emitted runtime JavaScript and deliberate source maps; source maps reference source paths that are not shipped, and no runtime loader is required.
+- Local source entrypoints remain for equivalence testing, while normal package/Homebrew execution resolves `dist/`. A contributor must build before using source-checkout wrappers or `npm link`.
+- The clean Homebrew proof uses a temporary local archive/formula and isolated tap/prefix; a public tagged release upgrade remains a later release gate.
+
+#### Next phase
+
+After this draft PR is reviewed and merged, create a fresh Phase 2 branch for explicit `CommandRunner`, `ProcessSupervisor`, `LockManager`, `AtomicFileStore`, `ArtifactStore`, and request-policy infrastructure ports. Do not begin Phase 2 in this turn, and do not create Checkpoint 1 materials until Phase 2 is complete.
 
 ## Phase entry template
 
