@@ -14,16 +14,40 @@
     "url": "https://github.com/Miguelosaurus/Swift-Sim/issues"
   },
   "bin": {
-    "swift-sim": "./mac-helper/bin/swift-sim-entry.js",
-    "swift-sim-helper": "./mac-helper/bin/swift-sim-helper-entry.js"
+    "swift-sim": "./dist/mac-helper/bin/swift-sim-entry.js",
+    "swift-sim-helper": "./dist/mac-helper/bin/swift-sim-helper-entry.js"
   },
+  "files": [
+    "dist/mac-helper",
+    "dist/package.json",
+    "plugins",
+    ".agents",
+    ".claude-plugin",
+    ".cursor-plugin",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "SECURITY.md",
+    "docs/README.md",
+    "docs/SETUP.md",
+    "docs/TROUBLESHOOTING.md",
+    "docs/AGENT_WORKFLOWS.md"
+  ],
   "scripts": {
-    "start": "node mac-helper/bin/swift-sim-entry.js serve",
-    "check": "node scripts/check-js-syntax.js && npm run check:architecture && npm run check:docs && npm test",
+    "start": "node dist/mac-helper/bin/swift-sim-entry.js serve",
+    "build": "bash scripts/build-dist.sh",
+    "check:node": "bash scripts/check-node-version.sh",
+    "check:source": "node scripts/check-js-syntax.js && npm run check:architecture && npm run check:docs",
+    "check:types": "tsc --noEmit --project tsconfig.json",
+    "check:format": "prettier --check eslint.config.js tsconfig.json package.json \"mac-helper/src/contracts/**/*.ts\" \"test/**/*.ts\"",
+    "check:lint": "eslint eslint.config.js mac-helper/src/contracts test --ext .js,.ts",
+    "check:package": "npm run build && bash scripts/verify-package-content.sh && bash scripts/verify-package-install.sh && bash scripts/verify-homebrew-package.sh",
+    "check:compiled": "npm run build && node --test --test-concurrency=1 dist/test/*.test.js dist/benchmarks/test/*.test.js && bash scripts/verify-compiled-runtime.sh",
+    "check": "npm run check:node && npm run check:source && npm run check:types && npm run check:format && npm run check:lint && npm test && npm run check:compiled && npm run check:package",
     "check:architecture": "node scripts/architecture/inventory.js --check",
     "check:docs": "node scripts/verify-docs.js",
-    "test": "node --test test/*.test.js benchmarks/test/*.test.js",
-    "test:benchmarks": "node --test benchmarks/test/*.test.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js benchmarks/test/*.test.js",
+    "test:benchmarks": "node --test --test-concurrency=1 benchmarks/test/*.test.js",
     "benchmark:generate": "node benchmarks/src/generateCoreCorpus.js && node benchmarks/src/generateLiquidGlassCorpus.js && node benchmarks/src/generateNativeSurfaceCorpus.js && node benchmarks/src/generateMechanismCorpus.js",
     "benchmark:generate:liquid-glass": "node benchmarks/src/generateLiquidGlassCorpus.js",
     "benchmark:generate:native-surfaces": "node benchmarks/src/generateNativeSurfaceCorpus.js",
@@ -41,7 +65,14 @@
     "benchmark:report": "node benchmarks/src/cli.js report"
   },
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "eslint": "9.39.1",
+    "prettier": "3.7.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.46.2"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0",

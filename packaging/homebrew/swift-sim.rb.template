@@ -6,22 +6,22 @@ class SwiftSim < Formula
   license "Apache-2.0"
 
   depends_on "cloudflared"
-  depends_on "node@22"
+  depends_on "node@24"
 
   def install
     libexec.install Dir["*"]
     libexec.install ".agents", ".claude-plugin", ".cursor-plugin"
 
     cd libexec do
-      system Formula["node@22"].opt_bin/"npm", "install", "--omit=dev", "--ignore-scripts"
+      system Formula["node@24"].opt_bin/"npm", "install", "--omit=dev", "--ignore-scripts"
     end
 
-    write_launcher "swift-sim", "mac-helper/bin/swift-sim-entry.js"
-    write_launcher "swift-sim-helper", "mac-helper/bin/swift-sim-helper-entry.js"
+    write_launcher "swift-sim", "dist/mac-helper/bin/swift-sim-entry.js"
+    write_launcher "swift-sim-helper", "dist/mac-helper/bin/swift-sim-helper-entry.js"
   end
 
   service do
-    run [Formula["node@22"].opt_bin/"node", opt_libexec/"mac-helper/bin/swift-sim-helper-entry.js", "serve"]
+    run [Formula["node@24"].opt_bin/"node", opt_libexec/"dist/mac-helper/bin/swift-sim-helper-entry.js", "serve"]
     keep_alive true
     log_path var/"log/swift-sim.log"
     error_log_path var/"log/swift-sim.log"
@@ -36,9 +36,9 @@ class SwiftSim < Formula
   def write_launcher(name, script)
     (bin/name).write <<~SH
       #!/bin/bash
-      export PATH="#{Formula["node@22"].opt_bin}:#{Formula["cloudflared"].opt_bin}:$PATH"
+      export PATH="#{Formula["node@24"].opt_bin}:#{Formula["cloudflared"].opt_bin}:$PATH"
       export SWIFT_SIM_MARKETPLACE_ROOT="#{opt_libexec}"
-      exec "#{Formula["node@22"].opt_bin}/node" "#{libexec}/#{script}" "$@"
+      exec "#{Formula["node@24"].opt_bin}/node" "#{libexec}/#{script}" "$@"
     SH
   end
 end

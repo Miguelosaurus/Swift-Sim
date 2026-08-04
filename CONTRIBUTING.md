@@ -10,7 +10,8 @@ Thanks for helping improve Swift Sim. The project spans a Node.js Mac helper, a 
 
 ## Local Setup
 
-You need an Apple silicon Mac, Xcode, Node.js 20 or newer, and Homebrew.
+You need an Apple silicon Mac, Xcode, Node.js 24.x, and Homebrew. Node 24 is the
+supported and CI-tested runtime for the shipped helper and release package.
 
 ```sh
 npm ci

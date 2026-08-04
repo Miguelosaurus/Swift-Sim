@@ -8,11 +8,12 @@ Run:
 
 ```sh
 npm ci
+npm run build
 npm run check
 npm link
 ```
 
-`npm link` exposes the same `swift-sim` CLI shipped by Homebrew. Contributor testing must use that command so setup behavior cannot drift from releases.
+`npm link` exposes the same compiled `dist/` CLI shipped by Homebrew. Contributor testing must use Node.js 24.x and that command so setup behavior cannot drift from releases.
 
 ## Build The iOS Companion For Simulator
 
@@ -154,7 +155,7 @@ Tagged releases use an explicit repository bundle instead of GitHub's regenerate
 2. Run `npm run check`, `swift test`, the native companion `xcodebuild test`
    gate (including pairing-invitation coverage), the unsigned Simulator build,
    and both plugin validators.
-3. Commit and push `main`, create the immutable `v<version>` tag, then build `swift-sim-<version>.tar.gz` with `git archive --prefix=swift-sim-<version>/`.
+3. Commit and push `main`, create the immutable `v<version>` tag, run `npm run build`, then build `swift-sim-<version>.tar.gz` with `scripts/release/create-archive.sh`. The release archive is assembled from the npm package whitelist so it contains emitted `dist/` runtime JavaScript rather than an unbuilt source checkout.
 4. Publish that bundle and its SHA-256 file on the GitHub release.
 5. Run `scripts/release/render-homebrew-formula.sh <version>` only after the assets are public. Commit the resulting formula to `Miguelosaurus/homebrew-tap` and verify a clean Homebrew install.
 6. Run `swift-sim setup` so the installed Codex, Cursor, Claude Code, and OpenCode integrations match the tagged package.

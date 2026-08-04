@@ -48,6 +48,6 @@ test("helper entrypoint composes child hardening after owned-worker supervision"
 test("release check syntax-validates the complete JavaScript tree", () => {
   assert.equal(
     packageJSON.scripts.check,
-    "node scripts/check-js-syntax.js && npm run check:architecture && npm run check:docs && npm test"
+    "npm run check:node && npm run check:source && npm run check:types && npm run check:format && npm run check:lint && npm test && npm run check:compiled && npm run check:package"
   );
 });
