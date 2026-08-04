@@ -9,7 +9,8 @@ import { SystemClock } from "./systemClock.js";
 
 const LEVELS = new Set(["debug", "info", "warn", "error"]);
 const EVENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const SENSITIVE_FIELD_PATTERN = /(?:authorization|cookie|credential|invite|password|private.?key|secret|token)/i;
+const SENSITIVE_FIELD_PATTERN =
+  /(?:authorization|cookie|credential|invite|password|private.?key|secret|token)/i;
 const MAX_DEPTH = 6;
 const MAX_COLLECTION_ENTRIES = 100;
 const MAX_STRING_LENGTH = 4_096;
@@ -20,11 +21,7 @@ export class StructuredLogger {
   /**
    * @param {{ writer?: LogWriter, clock?: Clock, fields?: LogFields }} [options]
    */
-  constructor({
-    writer = defaultWriter,
-    clock = new SystemClock(),
-    fields = {},
-  } = {}) {
+  constructor({ writer = defaultWriter, clock = new SystemClock(), fields = {} } = {}) {
     if (typeof writer !== "function") throw new TypeError("Logger writer must be a function.");
     this.writer = writer;
     this.clock = clock;
@@ -81,7 +78,8 @@ function sanitizeValue(value, key, depth, seen) {
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "undefined") return "[undefined]";
   if (typeof value === "function" || typeof value === "symbol") return `[${typeof value}]`;
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "[invalid date]" : value.toISOString();
+  if (value instanceof Date)
+    return Number.isNaN(value.getTime()) ? "[invalid date]" : value.toISOString();
   if (value instanceof Error) {
     const code = errorCode(value);
     return code ? { name: value.name, code } : { name: value.name };
