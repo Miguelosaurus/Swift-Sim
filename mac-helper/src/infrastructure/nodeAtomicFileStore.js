@@ -11,14 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import {
-  link,
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
 /** @typedef {import("./ports.js").AtomicFileStore} AtomicFileStore */
@@ -70,7 +63,7 @@ export class NodeAtomicFileStore {
    * @param {AtomicWriteOptions} options
    */
   async writeJSON(path, value, options) {
-    await this.writeText(path, JSON.stringify(value, null, 2), options);
+    await this.writeText(path, serializeJSON(value), options);
   }
 
   /**
@@ -79,7 +72,7 @@ export class NodeAtomicFileStore {
    * @param {AtomicWriteOptions} options
    */
   writeJSONSync(path, value, options) {
-    this.writeTextSync(path, JSON.stringify(value, null, 2), options);
+    this.writeTextSync(path, serializeJSON(value), options);
   }
 
   /** @param {string} path */
@@ -117,7 +110,7 @@ async function writeAtomic(path, value, options) {
       await rename(temporaryPath, path);
     } else {
       await link(temporaryPath, path);
-      await rm(temporaryPath, { force: true });
+      await removeTemporaryFile(temporaryPath);
     }
     if (normalized.syncDirectory) await syncDirectory(normalized.parent);
   } catch (error) {
@@ -126,7 +119,7 @@ async function writeAtomic(path, value, options) {
         await handle.close();
       } catch {}
     }
-    await rm(temporaryPath, { force: true });
+    await removeTemporaryFile(temporaryPath);
     throw error;
   }
 }
@@ -155,7 +148,7 @@ function writeAtomicSync(path, value, options) {
       renameSync(temporaryPath, path);
     } else {
       linkSync(temporaryPath, path);
-      rmSync(temporaryPath, { force: true });
+      removeTemporaryFileSync(temporaryPath);
     }
     if (normalized.syncDirectory) syncDirectorySync(normalized.parent);
   } catch (error) {
@@ -164,7 +157,7 @@ function writeAtomicSync(path, value, options) {
         closeSync(descriptor);
       } catch {}
     }
-    rmSync(temporaryPath, { force: true });
+    removeTemporaryFileSync(temporaryPath);
     throw error;
   }
 }
@@ -180,12 +173,15 @@ function normalizeWrite(path, options) {
   if (!options || typeof options !== "object") {
     throw new TypeError("Atomic write options are required.");
   }
+  if (typeof options.replace !== "boolean" || typeof options.syncDirectory !== "boolean") {
+    throw new TypeError("Atomic replace and syncDirectory options must be booleans.");
+  }
   return {
     parent: dirname(path),
     mode: normalizeMode(options.mode, "file"),
     createParentMode: normalizeMode(options.createParentMode, "parent directory"),
-    replace: Boolean(options.replace),
-    syncDirectory: Boolean(options.syncDirectory),
+    replace: options.replace,
+    syncDirectory: options.syncDirectory,
   };
 }
 
@@ -197,9 +193,38 @@ function normalizeMode(mode, label) {
   return mode;
 }
 
+/** @param {unknown} value */
+function serializeJSON(value) {
+  const serialized = JSON.stringify(value, null, 2);
+  if (serialized === undefined) {
+    throw new TypeError("Atomic JSON value must be serializable.");
+  }
+  return serialized;
+}
+
 /** @param {string} path */
 function temporaryPathFor(path) {
   return `${path}.${process.pid}.${randomUUID()}.tmp`;
+}
+
+/** @param {string} path */
+async function removeTemporaryFile(path) {
+  try {
+    await rm(path, { force: true });
+  } catch {
+    // Publication may already have succeeded through a hard link. A leftover
+    // randomized temporary name is safer than reporting a false write failure.
+  }
+}
+
+/** @param {string} path */
+function removeTemporaryFileSync(path) {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // Publication may already have succeeded through a hard link. A leftover
+    // randomized temporary name is safer than reporting a false write failure.
+  }
 }
 
 /** @param {string} path */
