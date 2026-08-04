@@ -246,7 +246,7 @@ None. Phase 1 does not port infrastructure, remove preloads, migrate storage, sp
 - Homebrew/release: `bash scripts/verify-homebrew-package.sh` passed Ruby formula syntax and Node 24 compiled-entrypoint checks. The complete release-shell syntax command also passed for all build, package, Homebrew, and release scripts.
 - iOS companion: XcodeBuildMCP `test_sim` passed 30/30 tests on the configured iPhone 17 Pro simulator (`FB2F4110-E68D-4D29-8665-D6070AC3BEC3`).
 - Whitespace: `git diff --cached --check` passed before the implementation commit.
-- GitHub Verify: pending final draft-PR push; it must run against the exact final PR head recorded in the PR body.
+- GitHub Verify: run `30924208119` passed at the pre-ledger-update head `bfbc50ecd52f4eb3a13d9575bc94ad55b83b64b4`, including checkout, Node 24 setup, `npm ci`, full `npm run check`, YAML validation, release-shell validation, and iOS app tests. The exact final PR head after this ledger update is recorded in the PR body and final handoff.
 
 #### Self-review findings
 
