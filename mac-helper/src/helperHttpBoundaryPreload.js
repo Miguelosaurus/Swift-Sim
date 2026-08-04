@@ -7,6 +7,7 @@ import { buildPairingLinks } from "./links.js";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
 import { sanitizePublicBuildLogs } from "./publicBuildLogs.js";
+import { LoopbackRequestOriginPolicy } from "./infrastructure/loopbackRequestOriginPolicy.js";
 
 const require = createRequire(import.meta.url);
 const http = require("node:http");
@@ -25,6 +26,7 @@ let defaultPairingStore;
 let defaultPairingInviteStore;
 let defaultDeviceBuildStore;
 let defaultDeviceDelivery;
+let defaultRequestOriginPolicy;
 let deliveryCleanupPromise;
 let deliveryReconciliationPromise;
 let boundaryMaintenancePromise;
@@ -65,7 +67,13 @@ export function installHelperHttpBoundary() {
   syncBuiltinESMExports();
 }
 
-export function handlePairingFallback(req, res, store = pairingStore(), invites = pairingInviteStore()) {
+export function handlePairingFallback(
+  req,
+  res,
+  store = pairingStore(),
+  invites = pairingInviteStore(),
+  originPolicy = requestOriginPolicy(),
+) {
   if (req?.method !== "GET") return false;
   let url;
   try {
@@ -83,7 +91,7 @@ export function handlePairingFallback(req, res, store = pairingStore(), invites 
       writeJson(res, 410, { error: "Pairing invitation expired or already used." });
       return true;
     }
-    const base = externalBaseURL(req, url);
+    const base = externalBaseURL(req, url, originPolicy);
     const customScheme = buildPairingLinks({
       ...pairing,
       invite,
@@ -98,7 +106,7 @@ export function handlePairingFallback(req, res, store = pairingStore(), invites 
     writeJson(res, 401, { error: "Unauthorized." });
     return true;
   }
-  const base = externalBaseURL(req, url);
+  const base = externalBaseURL(req, url, originPolicy);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHtml(res, pairingPage(customScheme, pairing.macName));
   return true;
@@ -287,6 +295,11 @@ function pairingInviteStore() {
   return defaultPairingInviteStore;
 }
 
+function requestOriginPolicy() {
+  defaultRequestOriginPolicy ||= new LoopbackRequestOriginPolicy();
+  return defaultRequestOriginPolicy;
+}
+
 function buildStore() {
   defaultDeviceBuildStore ||= new DeviceBuildStore({ maintenance: false });
   return defaultDeviceBuildStore;
@@ -297,64 +310,24 @@ function deliveryStore() {
   return defaultDeviceDelivery;
 }
 
-function externalBaseURL(req, url) {
-  const requestHost = normalizedHost(req.headers?.host || url.host);
-  const trustForwarded = forwardedHeadersAreTrusted(req);
-  const proxyHost = trustForwarded
-    ? normalizedForwardedHost(req.headers?.["x-forwarded-host"])
-    : "";
-  const allowedHosts = new Set([requestHost, proxyHost].filter(Boolean));
-  const explicit = normalizedExternalOrigin(url.searchParams.get("base"));
-  if (explicit && allowedHosts.has(normalizedHost(new URL(explicit).host))) return explicit;
-
-  const forwarded = trustForwarded
-    ? String(req.headers?.["x-forwarded-proto"] || "")
-      .split(",")[0]
-      .trim()
-      .toLowerCase()
-    : "";
-  const protocol = forwarded === "https" || forwarded === "http"
-    ? `${forwarded}:`
-    : url.protocol;
-  const host = proxyHost || requestHost || normalizedHost(url.host);
-  return normalizedExternalOrigin(`${protocol}//${host}`)
-    || `${url.protocol}//${url.host}`;
-}
-
-function forwardedHeadersAreTrusted(req) {
-  const address = String(req?.socket?.remoteAddress || "").toLowerCase();
-  return address === "::1"
-    || /^127(?:\.\d{1,3}){3}$/.test(address)
-    || /^::ffff:127(?:\.\d{1,3}){3}$/.test(address);
-}
-
-function normalizedForwardedHost(value) {
-  const candidate = String(value || "").split(",")[0].trim();
-  return normalizedHost(candidate);
-}
-
-function normalizedHost(value) {
-  const candidate = String(value || "").trim();
-  if (!candidate || /[\s/@\\]/.test(candidate)) return "";
-  try {
-    return new URL(`http://${candidate}`).host.toLowerCase();
-  } catch {
-    return "";
+function externalBaseURL(req, url, originPolicy) {
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return `${url.protocol}//${url.host}`;
   }
+  const decision = originPolicy.evaluate({
+    socketRemoteAddress: String(req?.socket?.remoteAddress || ""),
+    requestProtocol: url.protocol,
+    hostHeader: String(req?.headers?.host || url.host || ""),
+    forwardedHostHeader: headerValue(req?.headers?.["x-forwarded-host"]),
+    forwardedProtoHeader: headerValue(req?.headers?.["x-forwarded-proto"]),
+    requestedExternalBaseURL: url.searchParams.get("base") || undefined,
+  });
+  return decision.valid ? decision.externalBaseURL : `${url.protocol}//${url.host}`;
 }
 
-function normalizedExternalOrigin(value) {
-  if (!value) return "";
-  try {
-    const parsed = new URL(String(value));
-    if (!["http:", "https:"].includes(parsed.protocol)
-        || !parsed.host
-        || parsed.username
-        || parsed.password) return "";
-    return parsed.origin;
-  } catch {
-    return "";
-  }
+function headerValue(value) {
+  if (Array.isArray(value)) return value.join(",");
+  return value == null ? undefined : String(value);
 }
 
 installHelperHttpBoundary();
