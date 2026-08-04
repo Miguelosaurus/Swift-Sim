@@ -18,6 +18,28 @@ This file is the compact execution ledger for the architecture program. It is no
 | 9 | Test, docs, and release consolidation | Not started | — | — | — | — |
 | 10 | Product reliability proof | Not started | — | — | — | — |
 
+## Mandatory architecture checkpoints
+
+The checkpoint rules in `ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md` are hard continuation gates. Passing CI or completing self-review does not satisfy them.
+
+| Checkpoint | Trigger | Checkpoint PR/head | Review received | Required corrections complete | Miguel continuation approval | Authorized next phase | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Phase 2 complete; before Phase 2 merge or Phase 3 work | — | No | No | No | Phase 3 | Pending |
+| 2 | Phase 5 complete; before Phase 5 merge or Phase 6 work | — | No | No | No | Phase 6 | Pending |
+| 3 | Phase 8 complete; before Phase 8 merge or Phase 9 work | — | No | No | No | Phase 9 | Pending |
+
+At each checkpoint, add beneath this table:
+
+- the state-report path;
+- the current-state review-prompt path;
+- review date;
+- concise reviewer decision;
+- correction commits;
+- explicit approval evidence;
+- any re-review requirement.
+
+Do not mark `Miguel continuation approval` as `Yes` based on implication, elapsed time, CI, the implementing agent's judgment, or another automated reviewer.
+
 ## Baseline metrics
 
 Populate these in Phase 0 from generated repository inspection rather than memory.
@@ -49,6 +71,7 @@ Copy this section for each completed phase.
 - Base SHA:
 - Head SHA:
 - Dates:
+- Checkpoint relationship: None | Leads to Checkpoint 1 | Leads to Checkpoint 2 | Leads to Checkpoint 3 | Blocked pending checkpoint
 
 #### Objective
 
@@ -122,7 +145,7 @@ List only real bounded residuals, their triggers, and why they are outside the p
 
 #### Next phase
 
-State the next smallest safe step and the dependency this phase resolved.
+State the next smallest safe step and the dependency this phase resolved. When a checkpoint follows this phase, state only the checkpoint preparation and stop; do not recommend beginning the next implementation phase before authorization.
 
 ## Decision log index
 
