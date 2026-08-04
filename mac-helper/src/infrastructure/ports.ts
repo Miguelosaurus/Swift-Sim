@@ -30,39 +30,53 @@ export interface CommandRunner {
   runSync(request: CommandRequest): CommandResult;
 }
 
-export type SupervisedProcessRecord =
-  | DeliveryProcessIdentity
-  | OwnedWorkerProcessRecord
-  | LiveEngineProcessRecord;
+export type ProcessRole = "worker" | "live-engine" | "gateway" | "manager" | "tunnel";
+export type GroupOwnedProcessRecord = OwnedWorkerProcessRecord | LiveEngineProcessRecord;
+export type SupervisedProcessRecord = DeliveryProcessIdentity | GroupOwnedProcessRecord;
 
-export interface SpawnRequest {
+export type ProcessRecordForRole<Role extends ProcessRole> = Role extends "worker"
+  ? OwnedWorkerProcessRecord
+  : Role extends "live-engine"
+    ? LiveEngineProcessRecord
+    : DeliveryProcessIdentity;
+
+export interface SpawnRequest<Role extends ProcessRole = ProcessRole> {
   executable: string;
   args: readonly string[];
   cwd?: string;
   environment?: CommandEnvironment;
   processGroup: "inherit" | "new";
   journalPath: string;
-  role: "worker" | "live-engine" | "gateway" | "manager" | "tunnel";
+  role: Role;
 }
 
-export interface SupervisedProcess {
+export interface SupervisedProcess<Role extends ProcessRole = ProcessRole> {
   pid: number;
-  record: SupervisedProcessRecord;
+  role: Role;
+  record: ProcessRecordForRole<Role>;
 }
 
 export type ProcessInspection =
   | { state: "current"; record: SupervisedProcessRecord }
   | { state: "missing" | "dead" | "replaced" | "unverifiable" | "invalid" };
 
-export interface TerminationRequest {
-  record: SupervisedProcessRecord;
+interface TerminationRequestCommon {
   signal: "SIGTERM" | "SIGKILL";
   graceMs: number;
-  terminateGroup: boolean;
 }
 
+export type TerminationRequest =
+  | (TerminationRequestCommon & {
+      record: GroupOwnedProcessRecord;
+      terminateGroup: true;
+    })
+  | (TerminationRequestCommon & {
+      record: SupervisedProcessRecord;
+      terminateGroup: false;
+    });
+
 export interface ProcessSupervisor {
-  spawn(request: SpawnRequest): SupervisedProcess;
+  spawn<Role extends ProcessRole>(request: SpawnRequest<Role>): SupervisedProcess<Role>;
   inspect(record: SupervisedProcessRecord): ProcessInspection;
   terminate(request: TerminationRequest): void;
   waitForExit(
@@ -114,7 +128,7 @@ export interface LockManager {
   withLockSync<T>(request: LockRequest, operation: (lease: LockLease) => T): T;
 }
 
-export type RuntimeJournalRecord = SupervisedProcessRecord | RuntimeJournal;
+export type RuntimeJournalRecord = GroupOwnedProcessRecord | RuntimeJournal;
 
 export interface RuntimeJournalStore {
   publish(path: string, record: RuntimeJournalRecord): Promise<void>;
