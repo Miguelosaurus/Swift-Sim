@@ -69,7 +69,9 @@ export function createInfrastructureContainer(
     const record = candidate as Readonly<Record<string, unknown>>;
     for (const method of definition.methods) {
       if (typeof record[method] !== "function") {
-        throw new TypeError(`Infrastructure port ${definition.name} is missing method: ${method}`);
+        throw new TypeError(
+          `Infrastructure port ${definition.name} is missing method: ${method}`,
+        );
       }
     }
   }
