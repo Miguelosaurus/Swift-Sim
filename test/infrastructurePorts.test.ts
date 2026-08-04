@@ -90,7 +90,12 @@ function fixturePorts(): InfrastructurePorts {
       removeTreeSync: () => undefined,
     },
     requestOriginPolicy: {
-      evaluate: () => ({ allowed: false, reason: "invalid-host" }),
+      evaluate: () => ({
+        accepted: false,
+        requestIsLoopback: true,
+        forwardedHeadersTrusted: false,
+        reason: "invalid-host",
+      }),
     },
     clock: {
       now: () => new Date(0),
