@@ -1,12 +1,12 @@
 # Architecture Consolidation Progress
 
-This file is the compact execution ledger for the architecture program. It is not a substitute for pull-request descriptions or durable ADRs.
+This file is the compact execution ledger for the architecture program. It is not a substitute for pull-request descriptions or durable ADRs. Phase rows record the validated implementation commit, not the final PR head; the exact final PR head is recorded in the PR body and final handoff after the last metadata commit.
 
 ## Program status
 
 | Phase | Scope | Status | PR | Base | Head | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 2ea815c | Existing architecture debt is baselined; runtime behavior unchanged |
+| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 1cabd6b validated implementation | Existing architecture debt is baselined; runtime behavior unchanged |
 | 1 | TypeScript and package foundation | Not started | — | — | — | — |
 | 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
 | 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
@@ -65,7 +65,7 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 - Branch: `agent/architecture-consolidation-phase-0-guardrails`
 - PR: [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23)
 - Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
-- Head SHA: `2ea815ce7d64a917c8223244dc4785b8f0275cc3` (implementation commit; ledger metadata follows in this PR)
+- Validated implementation SHA: `1cabd6b` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
 - Dates: 2026-08-04
 - Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
 
@@ -82,9 +82,13 @@ Create a generated architecture inventory and monotonic fitness gate that record
 
 #### Mechanical changes
 
-- Added `scripts/architecture/inventory.js` with deterministic `--json` inventory and `--check` policy enforcement.
-- Added `scripts/architecture/baseline-policy.json` containing the generated current-debt baseline and empty future allowlists.
-- Added temporary-tree fixture tests in `test/architectureInventory.test.js` for every required fitness gate.
+- Added `scripts/architecture/inventory.js` with deterministic `--json` inventory, Git-history-backed baseline verification, decrease-only caps, and structured ADR/time-bounded allowlists.
+- Added `scripts/architecture/baseline-policy.json` with an immutable snapshot from `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`, current caps, and explicit empty exception lists.
+- Added excluded fixture resources and regression tests in `test/architectureInventory.test.js` for every reviewed bypass, including the real architecture-test path.
+- Extended Node risk analysis to `.ts`, `.mts`, and `.cts`; explicitly rejects `.tsx` in the Node production tree.
+- Unified child-process and destructive-filesystem enforcement at one capability per production file, including fs-promises variants and imported aliases.
+- Strengthened aliased built-in monkey-patch detection for arbitrary assignments, arrows, prototypes, `defineProperty`/`defineProperties`, `Reflect`, and `Object.assign`.
+- Configured CI checkout with full history so the immutable baseline commit is available to the gate.
 - Added ADR-0001 through ADR-0005 and an ADR index under `docs/internal/adr/`.
 - Linked ADR navigation from `docs/internal/README.md`.
 - Added `npm run check:architecture` to the authoritative `npm run check` path.
@@ -121,14 +125,14 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 
 #### Validation
 
-- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`a1a65ad73cbaa806ccbe40b866c4135579a521b8f685216be2cd32de4f711e75`).
+- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs after the final metadata update (record the final hash at handoff).
 - Local architecture gate: `node scripts/architecture/inventory.js --check` passed.
-- Focused architecture tests: `node --test test/architectureInventory.test.js` passed 8/8 using temporary fixture trees.
-- Full Node/release suite: `npm run check` passed 436/436 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files.
+- Focused architecture tests: `node --test test/architectureInventory.test.js` passed 16/16 using temporary fixture trees and the declared Git baseline.
+- Full Node/release suite: the first parallel run passed 442/443 because an existing process-timeout fixture raced on `descendant.pid`; the sequential rerun passed 443/443 before the final baseline-Git regression was added. Re-run `npm run check` after this metadata update and record its final result at handoff.
 - Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
 - Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
 - iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
-- GitHub Actions follow-up: the initial `verify` run exposed a self-match from `test/architectureInventory.test.js`; the inventory now excludes that intentional scanner-fixture test from the source-text implementation metric while retaining fixture coverage for real implementation tests.
+- GitHub Actions follow-up: the initial `verify` run exposed a self-match from `test/architectureInventory.test.js`; fixture text now lives under the excluded fixture directory, the whole-file exemption is removed, and the architecture path is explicitly regression-tested.
 - Whitespace: `git diff --check` passed.
 - CI, Homebrew clean-install, physical-device, and release-archive gates were not required or changed by this behavior-preserving guardrail phase; they remain external residuals.
 
@@ -137,11 +141,11 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 1 | 1 | 0 |
+| P1 | 2 | 2 | 0 |
 | P2 | 3 | 3 | 0 |
-| P3 | 0 | 0 | 0 |
+| P3 | 1 | 1 | 0 |
 
-Self-review fixed four bounded issues before publication: the initial patch-evidence predicate was too broad, local preload imports were not initially included in the module inventory, the existing release-contract test expected the pre-gate `npm run check` string, and the architecture guard test was self-counted as a new source-text implementation test in CI. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline gaming, path-order determinism, package-entrypoint normalization, stale-link detection, generated-file exclusion, guard-test exclusions, and accidental package/runtime changes.
+Self-review fixed the full review set: the original patch-evidence predicate was too broad, local preload imports were not initially included, the release-contract test expected the pre-gate `npm run check` string, the guard test self-matched, the policy baseline was editable authority, TypeScript was unscanned, fs-promises and aliases were missed, monkey-patch aliases bypassed detection, and metadata used ambiguous head terminology. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline inflation, immutable baseline authority, cap reductions, removed-debt reintroduction, allowlist expiry/ADR validation, TypeScript extensions, one-capability enforcement, neutral filenames, fixture exclusion, Git-history availability in CI, and accidental runtime changes.
 
 #### Migration and rollback
 
@@ -152,8 +156,9 @@ Self-review fixed four bounded issues before publication: the initial patch-evid
 
 #### Residual risks
 
-- Existing preloads, direct infrastructure imports, writable JSON records, oversized files, and source-text tests remain intentionally baselined for later phases.
-- The inventory uses a documented static scanner for ESM imports and CommonJS `require` calls; dynamic imports and computed requires are not classified until a later AST-aware enforcement phase.
+- Existing preloads, direct infrastructure imports, writable JSON records, oversized files, and source-text tests remain intentionally capped for later phases; removed entries cannot be reintroduced without a new structured exception.
+- The inventory uses a documented static scanner for ESM imports, TypeScript import-equals, and CommonJS `require` calls; dynamic imports and computed requires are not classified until a later AST-aware enforcement phase.
+- `.tsx` is explicitly prohibited in the Node production tree rather than treated as a supported runtime source.
 - No physical-device behavior gate is required because Phase 0 makes no product behavior change.
 
 #### Next phase
