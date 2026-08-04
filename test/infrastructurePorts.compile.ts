@@ -1,11 +1,18 @@
-import type { ProcessSupervisor, SpawnRequest } from "../mac-helper/src/infrastructure/ports.js";
+import type {
+  ProcessSupervisor,
+  RequestOriginPolicy,
+  SpawnRequest,
+} from "../mac-helper/src/infrastructure/ports.js";
 import type { DeliveryProcessIdentity } from "../mac-helper/src/contracts/process.js";
 
 declare const supervisor: ProcessSupervisor;
+declare const originPolicy: RequestOriginPolicy;
 
+const emptyEnvironment = { inherit: [], overrides: {}, unset: [] } as const;
 const workerRequest: SpawnRequest<"worker"> = {
   executable: "/usr/bin/true",
   args: [],
+  environment: emptyEnvironment,
   processGroup: "new",
   journalPath: "/tmp/worker.json",
   role: "worker",
@@ -16,6 +23,7 @@ worker.record.command;
 const manager = supervisor.spawn({
   executable: "/usr/bin/true",
   args: [],
+  environment: emptyEnvironment,
   processGroup: "inherit",
   journalPath: "/tmp/manager.json",
   role: "manager",
@@ -42,4 +50,18 @@ supervisor.terminate({
   signal: "SIGTERM",
   graceMs: 1_000,
   terminateGroup: false,
+});
+
+originPolicy.evaluate({
+  socketRemoteAddress: "127.0.0.1",
+  requestProtocol: "http:",
+  hostHeader: "127.0.0.1:47217",
+});
+
+originPolicy.evaluate({
+  socketRemoteAddress: "127.0.0.1",
+  requestProtocol: "http:",
+  hostHeader: "127.0.0.1:47217",
+  // @ts-expect-error Proxy trust is derived from the socket identity, never supplied by callers.
+  trustProxy: true,
 });
