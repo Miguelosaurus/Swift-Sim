@@ -23,6 +23,22 @@ import { SystemIdGenerator } from "./systemIdGenerator.js";
  * @typedef {(pid: number) => ProcessStartIdentity} ProcessIdentityProvider
  * @typedef {{ device: string, inode: string, mtimeMs: number }} PathObservation
  * @typedef {{ version: number, pid: number, startToken: string, nonce: string, createdAt: string }} LockOwner
+ * @typedef {{
+ *   version?: unknown,
+ *   pid: number,
+ *   startToken?: string,
+ *   startedAt?: string,
+ *   nonce: string,
+ *   createdAt?: unknown,
+ * }} StoredLockOwner
+ * @typedef {{
+ *   version?: unknown,
+ *   pid?: unknown,
+ *   startToken?: unknown,
+ *   startedAt?: unknown,
+ *   nonce?: unknown,
+ *   createdAt?: unknown,
+ * }} OwnerRecord
  */
 
 const LOCK_DIRECTORY_MODE = 0o700;
@@ -141,21 +157,21 @@ export class NodeLockManager {
       const observedOwner = readOwner(ownerPath, this.fileStore);
       const ownerlessObservation = observedOwner ? null : observePath(request.path);
       if (
-        (observedOwner && !lockOwnerIsAlive(observedOwner, { identity: this.identity(observedOwner.pid) }))
+        (observedOwner
+          && !lockOwnerIsAlive(observedOwner, {
+            identity: this.identity(observedOwner.pid),
+          }))
         || (!observedOwner
           && ownerlessObservation
           && observationIsStale(ownerlessObservation, request.staleAfterMs, this.clock))
       ) {
-        this.claimAndQuarantineStaleLock(
-          request,
-          observedOwner,
-          ownerlessObservation,
-        );
+        this.claimAndQuarantineStaleLock(request, observedOwner, ownerlessObservation);
       }
       return null;
     }
   }
 
+  /** @returns {LockOwner} */
   newOwner() {
     return {
       version: 2,
@@ -189,7 +205,7 @@ export class NodeLockManager {
 
   /**
    * @param {LockRequest} request
-   * @param {LockOwner | null} observedOwner
+   * @param {StoredLockOwner | null} observedOwner
    * @param {PathObservation | null} ownerlessObservation
    */
   claimAndQuarantineStaleLock(request, observedOwner, ownerlessObservation) {
@@ -202,10 +218,7 @@ export class NodeLockManager {
       });
     } catch (error) {
       if (hasCode(error, "EEXIST")) {
-        this.quarantineAbandonedReclaimClaim(
-          claimPath,
-          request.staleAfterMs,
-        );
+        this.quarantineAbandonedReclaimClaim(claimPath, request.staleAfterMs);
         return;
       }
       if (hasCode(error, "ENOENT")) return;
@@ -359,8 +372,10 @@ export function cleanupCreatedLockDirectory(
  * @param {{ identity?: ProcessStartIdentity }} [options]
  */
 export function lockOwnerIsAlive(owner, { identity = null } = {}) {
-  const pid = Number(owner?.pid);
-  const startToken = String(owner?.startToken || "");
+  const record = ownerRecord(owner);
+  if (!record) return false;
+  const pid = Number(record.pid);
+  const startToken = String(record.startToken || "");
   if (!Number.isInteger(pid) || pid <= 1 || !startToken) return false;
   try {
     process.kill(pid, 0);
@@ -380,36 +395,44 @@ function readOwner(path, fileStore) {
   }
 }
 
-/** @param {unknown} value @returns {value is LockOwner} */
+/** @param {unknown} value @returns {value is StoredLockOwner} */
 function completeOwnerRecord(value) {
-  const pid = Number(value?.pid);
-  const startToken = ownerStartToken(value);
+  const record = ownerRecord(value);
+  if (!record) return false;
+  const pid = Number(record.pid);
+  const startToken = ownerStartToken(record);
   return Boolean(
-    value
-      && typeof value === "object"
-      && !Array.isArray(value)
-      && Number.isInteger(pid)
+    Number.isInteger(pid)
       && pid > 1
       && startToken
-      && typeof value.nonce === "string"
-      && value.nonce.length > 0,
+      && typeof record.nonce === "string"
+      && record.nonce.length > 0,
   );
 }
 
 /** @param {unknown} left @param {unknown} right */
 function sameOwner(left, right) {
+  const leftRecord = ownerRecord(left);
+  const rightRecord = ownerRecord(right);
   return Boolean(
-    left
-      && right
-      && Number(left.pid) === Number(right.pid)
-      && ownerStartToken(left) === ownerStartToken(right)
-      && left.nonce === right.nonce,
+    leftRecord
+      && rightRecord
+      && Number(leftRecord.pid) === Number(rightRecord.pid)
+      && ownerStartToken(leftRecord) === ownerStartToken(rightRecord)
+      && leftRecord.nonce === rightRecord.nonce,
   );
 }
 
 /** @param {unknown} owner */
 function ownerStartToken(owner) {
-  return String(owner?.startToken || owner?.startedAt || "");
+  const record = ownerRecord(owner);
+  return String(record?.startToken || record?.startedAt || "");
+}
+
+/** @param {unknown} value @returns {OwnerRecord | null} */
+function ownerRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return /** @type {OwnerRecord} */ (value);
 }
 
 /** @param {string} path */
@@ -441,7 +464,12 @@ function samePath(left, right) {
   );
 }
 
-/** @param {string} lockPath @param {string} ownerPath @param {LockOwner} owner @param {AtomicFileStore} fileStore */
+/**
+ * @param {string} lockPath
+ * @param {string} ownerPath
+ * @param {LockOwner} owner
+ * @param {AtomicFileStore} fileStore
+ */
 function releaseOwnedLock(lockPath, ownerPath, owner, fileStore) {
   try {
     const current = readOwner(ownerPath, fileStore);
@@ -481,12 +509,16 @@ function normalizeMode(value) {
 
 /** @param {string} path */
 function lockBusyError(path) {
-  const error = new Error(`Timed out waiting for lock ${path}.`);
+  const error = /** @type {Error & { code: string }} */ (
+    new Error(`Timed out waiting for lock ${path}.`)
+  );
   error.code = "SWIFT_SIM_LOCK_BUSY";
   return error;
 }
 
 /** @param {unknown} error @param {string} code */
 function hasCode(error, code) {
-  return Boolean(error && typeof error === "object" && error.code === code);
+  if (!error || typeof error !== "object") return false;
+  const record = /** @type {{ code?: unknown }} */ (error);
+  return record.code === code;
 }
