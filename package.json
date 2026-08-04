@@ -42,7 +42,7 @@
     "check:format": "prettier --check eslint.config.js tsconfig.json package.json \"mac-helper/src/contracts/**/*.ts\" \"mac-helper/src/infrastructure/**/*.{js,ts}\" \"test/**/*.ts\"",
     "check:lint": "eslint eslint.config.js mac-helper/src/contracts mac-helper/src/infrastructure test --ext .js,.ts",
     "check:package": "npm run build && bash scripts/verify-package-content.sh && bash scripts/verify-package-install.sh && bash scripts/verify-homebrew-package.sh",
-    "check:compiled": "npm run build && node --test --test-concurrency=1 dist/test/contracts.test.js dist/test/infrastructurePorts.test.js dist/test/foundationAdapters.test.js dist/test/originDelegation.test.js dist/test/persistenceAdapters.test.js dist/test/lockManagerAdapter.test.js dist/test/artifactLoggerAdapters.test.js && bash scripts/verify-hermetic-compiled.sh && bash scripts/verify-compiled-runtime.sh",
+    "check:compiled": "npm run build && node --test --test-concurrency=1 dist/test/contracts.test.js dist/test/infrastructurePorts.test.js dist/test/foundationAdapters.test.js dist/test/originDelegation.test.js dist/test/persistenceAdapters.test.js dist/test/lockManagerAdapter.test.js dist/test/artifactLoggerAdapters.test.js dist/test/commandRunnerAdapter.test.js && bash scripts/verify-hermetic-compiled.sh && bash scripts/verify-compiled-runtime.sh",
     "check": "npm run check:node && npm run check:source && npm run check:types && npm run check:format && npm run check:lint && npm test && npm run check:compiled && npm run check:package",
     "check:architecture": "node scripts/architecture/inventory.js --check",
     "check:docs": "node scripts/verify-docs.js",
@@ -59,7 +59,7 @@
     "benchmark:static": "node benchmarks/src/cli.js static",
     "benchmark:static:liquid-glass": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/liquid-glass/corpus.json",
     "benchmark:static:native-surfaces": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/native-surfaces/corpus.json",
-    "benchmark:static:mechanisms": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/mechanisms/corpus.json",
+    "benchmark:static:mechanisms": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/native-surfaces/corpus.json",
     "benchmark:agent-fast-path": "node benchmarks/src/agentFastPath.js",
     "benchmark:device": "node benchmarks/src/cli.js device",
     "benchmark:report": "node benchmarks/src/cli.js report"
