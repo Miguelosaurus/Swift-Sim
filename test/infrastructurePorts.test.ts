@@ -91,7 +91,7 @@ function fixturePorts(): InfrastructurePorts {
     },
     requestOriginPolicy: {
       evaluate: () => ({
-        accepted: false,
+        valid: false,
         requestIsLoopback: true,
         forwardedHeadersTrusted: false,
         reason: "invalid-host",
