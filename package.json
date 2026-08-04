@@ -59,7 +59,7 @@
     "benchmark:static": "node benchmarks/src/cli.js static",
     "benchmark:static:liquid-glass": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/liquid-glass/corpus.json",
     "benchmark:static:native-surfaces": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/native-surfaces/corpus.json",
-    "benchmark:static:mechanisms": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/native-surfaces/corpus.json",
+    "benchmark:static:mechanisms": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/mechanisms/corpus.json",
     "benchmark:agent-fast-path": "node benchmarks/src/agentFastPath.js",
     "benchmark:device": "node benchmarks/src/cli.js device",
     "benchmark:report": "node benchmarks/src/cli.js report"
