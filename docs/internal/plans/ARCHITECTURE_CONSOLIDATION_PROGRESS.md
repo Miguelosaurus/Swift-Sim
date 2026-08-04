@@ -6,7 +6,7 @@ This file is the compact execution ledger for the architecture program. It is no
 
 | Phase | Scope | Status | PR | Base | Head | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | Not started | — | — | — | — |
+| 0 | Baseline and guardrails | In progress | Draft PR pending | 4dfa15f | pending | Existing architecture debt is baselined; runtime behavior unchanged |
 | 1 | TypeScript and package foundation | Not started | — | — | — | — |
 | 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
 | 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
@@ -46,18 +46,118 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 
 | Metric | Baseline | Current | Target |
 | --- | ---: | ---: | ---: |
-| Production JavaScript files | TBD | TBD | 0 canonical JS files after migration, excluding intentional wrappers |
-| Production TypeScript files | TBD | TBD | Canonical Node implementation |
-| Production Swift files | TBD | TBD | Feature-organized |
-| Preload modules | TBD | TBD | 0 |
-| Built-in monkey patches | TBD | TBD | 0 |
-| Source-text implementation tests | TBD | TBD | 0 |
-| Direct `child_process` production importers | TBD | TBD | Approved infrastructure only |
-| Direct destructive filesystem production importers | TBD | TBD | Approved stores only |
-| Largest Node production file | TBD | TBD | <= 800 lines or ADR |
-| Largest Swift production file | TBD | TBD | <= 800 lines or ADR |
-| Domain JSON stores | TBD | TBD | 0 writable stores after migration window |
-| Node minimum version | TBD | TBD | Supported pinned LTS |
+| Production JavaScript files | 67 | 67 | 0 canonical JS files after migration, excluding intentional wrappers |
+| Production TypeScript files | 0 | 0 | Canonical Node implementation |
+| Production Swift files | 7 | 7 | Feature-organized |
+| Preload/runtime patch modules | 30 | 30 | 0 |
+| Built-in monkey-patch evidence modules | 10 | 10 | 0 |
+| Source-text implementation tests | 28 | 28 | 0 |
+| Direct `child_process` production importer files | 28 | 28 | Approved infrastructure only |
+| Direct destructive filesystem importer files | 26 | 26 | Approved stores only |
+| Largest Node production file | 2,821 (`mac-helper/src/liveReload.js`) | 2,821 | <= 800 lines or ADR |
+| Largest Swift production file | 2,562 (`Companion/SwiftSimCompanion/SessionStore.swift`) | 2,562 | <= 800 lines or ADR |
+| Writable JSON state-store candidates | 37 | 37 | 0 writable stores after migration window |
+| Node minimum version | >=20 | >=20 | Supported pinned LTS |
+
+### Phase 0 — Baseline and architectural guardrails
+
+- Status: Draft PR preparation; implementation and validation complete
+- Branch: `agent/architecture-consolidation-phase-0-guardrails`
+- PR: Draft PR pending creation
+- Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
+- Head SHA: Pending final commit; the final handoff will record the exact branch head
+- Dates: 2026-08-04
+- Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
+
+#### Objective
+
+Create a generated architecture inventory and monotonic fitness gate that records existing debt and prevents new preload/runtime-patch modules, direct process/filesystem access, source-text implementation tests, unapproved oversized files, and stale workflow badges. Capture the settled architecture decisions in ADRs and make the internal navigation durable.
+
+#### Invariants touched
+
+- Test integrity
+- Maintainability gates
+- Packaging and release
+- HTTP and contract compatibility (documentation-only verification)
+
+#### Mechanical changes
+
+- Added `scripts/architecture/inventory.js` with deterministic `--json` inventory and `--check` policy enforcement.
+- Added `scripts/architecture/baseline-policy.json` containing the generated current-debt baseline and empty future allowlists.
+- Added temporary-tree fixture tests in `test/architectureInventory.test.js` for every required fitness gate.
+- Added ADR-0001 through ADR-0005 and an ADR index under `docs/internal/adr/`.
+- Linked ADR navigation from `docs/internal/README.md`.
+- Added `npm run check:architecture` to the authoritative `npm run check` path.
+- Corrected the verified README workflow badge target from the absent `release.yml` to `.github/workflows/verify.yml`.
+- Preserved all existing historical review records and the three mandatory checkpoint rows.
+
+#### Behavioral changes
+
+`None` expected. The workflow badge target is documentation metadata only; the helper, CLI, companion, storage, pairing, process, and live-reload behavior were not changed.
+
+#### Old architecture removed
+
+None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migrate storage, remove preloads, replace the analyzer, or refactor the companion.
+
+#### Compatibility layer remaining
+
+- The baseline policy explicitly permits current debt so this phase is behavior-preserving. Its path/count entries are generated from the current tree and may only decrease or be narrowed by later phase PRs.
+- No runtime compatibility layer was added.
+
+#### Metrics
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| JavaScript production files | 67 | 67 |
+| TypeScript production files | 0 | 0 |
+| Swift production files | 7 | 7 |
+| Preload/runtime patch modules | 30 | 30 |
+| Built-in monkey-patch evidence modules | 10 | 10 |
+| Source-text implementation tests | 28 | 28 |
+| Direct process importer files | 28 | 28 |
+| Direct destructive filesystem importer files | 26 | 26 |
+| Writable JSON state-store candidates | 37 | 37 |
+| Largest production file | 2,821 lines (`mac-helper/src/liveReload.js`) | 2,821 lines |
+
+#### Validation
+
+- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`a1a65ad73cbaa806ccbe40b866c4135579a521b8f685216be2cd32de4f711e75`).
+- Local architecture gate: `node scripts/architecture/inventory.js --check` passed.
+- Focused architecture tests: `node --test test/architectureInventory.test.js` passed 8/8 using temporary fixture trees.
+- Full Node/release suite: `npm run check` passed 436/436 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files.
+- Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
+- Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
+- iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
+- Whitespace: `git diff --check` passed.
+- CI, Homebrew clean-install, physical-device, and release-archive gates were not required or changed by this behavior-preserving guardrail phase; they remain external residuals.
+
+#### Self-review findings
+
+| Severity | Found | Fixed | Remaining |
+| --- | ---: | ---: | ---: |
+| P0 | 0 | 0 | 0 |
+| P1 | 0 | 0 | 0 |
+| P2 | 3 | 3 | 0 |
+| P3 | 0 | 0 | 0 |
+
+Self-review fixed three bounded issues before publication: the initial patch-evidence predicate was too broad, local preload imports were not initially included in the module inventory, and the existing release-contract test expected the pre-gate `npm run check` string. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline gaming, path-order determinism, package-entrypoint normalization, stale-link detection, generated-file exclusion, and accidental package/runtime changes.
+
+#### Migration and rollback
+
+- Migration performed: None.
+- Backup location/format: Not applicable.
+- Rollback procedure: revert the Phase 0 PR; no user state or runtime data is touched.
+- Irreversible changes: None.
+
+#### Residual risks
+
+- Existing preloads, direct infrastructure imports, writable JSON records, oversized files, and source-text tests remain intentionally baselined for later phases.
+- The inventory uses a documented static scanner for ESM imports and CommonJS `require` calls; dynamic imports and computed requires are not classified until a later AST-aware enforcement phase.
+- No physical-device behavior gate is required because Phase 0 makes no product behavior change.
+
+#### Next phase
+
+After this draft PR is reviewed and merged, create a fresh Phase 1 branch from current `main` for the TypeScript/compiler/package foundation. Do not begin Phase 1 in this turn.
 
 ## Phase entry template
 
@@ -153,11 +253,11 @@ Durable architecture decisions belong in ADR files. Add links here when created.
 
 | ADR | Decision | Status |
 | --- | --- | --- |
-| TBD | TypeScript build and runtime model | Planned |
-| TBD | Explicit process and filesystem infrastructure ports | Planned |
-| TBD | SQLite domain state / filesystem runtime journal split | Planned |
-| TBD | SwiftSyntax analyzer boundary | Planned |
-| TBD | Companion feature-state architecture | Planned |
+| [ADR-0001](../adr/ADR-0001-typescript-compile-to-dist.md) | TypeScript build and runtime model | Accepted |
+| [ADR-0002](../adr/ADR-0002-explicit-infrastructure-ports.md) | Explicit process and filesystem infrastructure ports | Accepted |
+| [ADR-0003](../adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md) | SQLite domain state / filesystem runtime journal split | Accepted |
+| [ADR-0004](../adr/ADR-0004-swift-analyzer-boundary.md) | SwiftSyntax analyzer boundary | Accepted |
+| [ADR-0005](../adr/ADR-0005-companion-feature-architecture.md) | Companion feature-state architecture | Accepted |
 
 ## Final completion record
 

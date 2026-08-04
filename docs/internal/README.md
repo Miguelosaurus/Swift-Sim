@@ -10,6 +10,7 @@ These documents preserve implementation decisions and completed engineering reco
 - [Mandatory Checkpoint Protocol](plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md)
 - [Architecture Consolidation Progress](plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md)
 - [Next Agent Prompt — Phase 0](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_PHASE0.md)
+- [Architecture Decision Records](adr/README.md)
 
 ### Mandatory checkpoint templates
 
