@@ -1,11 +1,5 @@
 // @ts-check
-import {
-  existsSync,
-  mkdirSync,
-  renameSync,
-  rmSync,
-  statSync,
-} from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { NodeAtomicFileStore } from "./nodeAtomicFileStore.js";
 import { SystemClock } from "./systemClock.js";
@@ -157,13 +151,13 @@ export class NodeLockManager {
       const observedOwner = readOwner(ownerPath, this.fileStore);
       const ownerlessObservation = observedOwner ? null : observePath(request.path);
       if (
-        (observedOwner
-          && !lockOwnerIsAlive(observedOwner, {
+        (observedOwner &&
+          !lockOwnerIsAlive(observedOwner, {
             identity: this.identity(observedOwner.pid),
-          }))
-        || (!observedOwner
-          && ownerlessObservation
-          && observationIsStale(ownerlessObservation, request.staleAfterMs, this.clock))
+          })) ||
+        (!observedOwner &&
+          ownerlessObservation &&
+          observationIsStale(ownerlessObservation, request.staleAfterMs, this.clock))
       ) {
         this.claimAndQuarantineStaleLock(request, observedOwner, ownerlessObservation);
       }
@@ -229,8 +223,8 @@ export class NodeLockManager {
       const currentOwner = readOwner(join(request.path, "owner.json"), this.fileStore);
       if (observedOwner) {
         if (
-          !sameOwner(currentOwner, observedOwner)
-          || lockOwnerIsAlive(currentOwner, {
+          !sameOwner(currentOwner, observedOwner) ||
+          lockOwnerIsAlive(currentOwner, {
             identity: this.identity(Number(currentOwner?.pid)),
           })
         ) {
@@ -302,8 +296,8 @@ export class NodeLockManager {
     const quarantinedClaim = readOwner(quarantinePath, this.fileStore);
     const quarantinedPath = observePath(quarantinePath);
     const sameAbandonedClaim = observedClaim
-      ? sameOwner(quarantinedClaim, observedClaim)
-        && !lockOwnerIsAlive(quarantinedClaim, {
+      ? sameOwner(quarantinedClaim, observedClaim) &&
+        !lockOwnerIsAlive(quarantinedClaim, {
           identity: this.identity(Number(quarantinedClaim?.pid)),
         })
       : !quarantinedClaim && samePath(quarantinedPath, observedPath);
@@ -402,11 +396,11 @@ function completeOwnerRecord(value) {
   const pid = Number(record.pid);
   const startToken = ownerStartToken(record);
   return Boolean(
-    Number.isInteger(pid)
-      && pid > 1
-      && startToken
-      && typeof record.nonce === "string"
-      && record.nonce.length > 0,
+    Number.isInteger(pid) &&
+      pid > 1 &&
+      startToken &&
+      typeof record.nonce === "string" &&
+      record.nonce.length > 0,
   );
 }
 
@@ -415,11 +409,11 @@ function sameOwner(left, right) {
   const leftRecord = ownerRecord(left);
   const rightRecord = ownerRecord(right);
   return Boolean(
-    leftRecord
-      && rightRecord
-      && Number(leftRecord.pid) === Number(rightRecord.pid)
-      && ownerStartToken(leftRecord) === ownerStartToken(rightRecord)
-      && leftRecord.nonce === rightRecord.nonce,
+    leftRecord &&
+      rightRecord &&
+      Number(leftRecord.pid) === Number(rightRecord.pid) &&
+      ownerStartToken(leftRecord) === ownerStartToken(rightRecord) &&
+      leftRecord.nonce === rightRecord.nonce,
   );
 }
 
@@ -456,12 +450,7 @@ function observationIsStale(observation, staleAfterMs, clock) {
 
 /** @param {PathObservation | null} left @param {PathObservation | null} right */
 function samePath(left, right) {
-  return Boolean(
-    left
-      && right
-      && left.device === right.device
-      && left.inode === right.inode,
-  );
+  return Boolean(left && right && left.device === right.device && left.inode === right.inode);
 }
 
 /**
