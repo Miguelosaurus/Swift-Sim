@@ -6,8 +6,7 @@ import test from "node:test";
 import { NodeLockManager } from "../mac-helper/src/infrastructure/nodeLockManager.js";
 
 const currentStartToken = "test-current-process-start";
-const identity = (pid: number) =>
-  pid === process.pid ? { startToken: currentStartToken } : null;
+const identity = (pid: number) => (pid === process.pid ? { startToken: currentStartToken } : null);
 const requestFor = (path: string) => ({
   path,
   waitMs: 2_000,
