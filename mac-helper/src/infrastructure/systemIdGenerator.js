@@ -1,9 +1,11 @@
 // @ts-check
 import { randomBytes, randomUUID } from "node:crypto";
 
+/** @typedef {import("./ports.js").IdGenerator} IdGenerator */
+
 const MAX_TOKEN_BYTES = 4_096;
 
-/** @implements {import("./ports.js").IdGenerator} */
+/** @implements {IdGenerator} */
 export class SystemIdGenerator {
   /** @returns {string} */
   randomUUID() {
