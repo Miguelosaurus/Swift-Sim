@@ -16,7 +16,11 @@ export default [
     },
   },
   {
-    files: ["mac-helper/src/contracts/**/*.ts", "test/**/*.ts"],
+    files: [
+      "mac-helper/src/contracts/**/*.ts",
+      "mac-helper/src/infrastructure/**/*.ts",
+      "test/**/*.ts",
+    ],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
