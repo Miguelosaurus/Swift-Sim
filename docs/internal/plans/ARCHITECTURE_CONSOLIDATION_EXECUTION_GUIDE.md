@@ -4,9 +4,12 @@ This guide is written for the implementation agent. Read it together with:
 
 - `ARCHITECTURE_CONSOLIDATION_MASTER_PLAN.md`
 - `ARCHITECTURE_CONSOLIDATION_INVARIANTS.md`
+- `ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md`
 - `ARCHITECTURE_CONSOLIDATION_PROGRESS.md`
 
 The master plan makes the architecture decisions. Do not reopen settled decisions casually. Raise a deviation only when repository evidence shows the planned approach cannot preserve an invariant or cannot ship through the supported release path.
+
+The checkpoint protocol is a mandatory continuation control. It requires hard stops after Phases 2, 5, and 8 and early stops for its listed emergency conditions. Passing CI, completing self-review, or receiving another automated review does not authorize continuation.
 
 ## 1. Operating mode
 
@@ -15,7 +18,7 @@ You are implementing an architecture program, not conducting unlimited review ro
 For each phase:
 
 1. Refresh from current `main` and record the exact SHA.
-2. Re-read the phase, invariants, and previous progress entry.
+2. Re-read the phase, invariants, checkpoint protocol, and previous progress entry.
 3. Inspect the current implementation because main may have changed since the plan was written.
 4. Create a fresh `agent/architecture-consolidation-phase-<n>-<scope>` branch.
 5. Add characterization tests before moving behavior whose contract is not already testable.
@@ -26,8 +29,11 @@ For each phase:
 10. Fix findings in the same phase before presenting the result.
 11. Open a draft PR with the required declaration block.
 12. Update the progress record with exact evidence and residuals.
+13. Stop without beginning the next phase.
 
-Do not ask an external Codex reviewer to perform the review. The implementation and review are your responsibility. Use GitHub review state only when an actual human or already-configured repository review produces feedback.
+When a phase reaches Checkpoint 1, 2, or 3, the agent must additionally create the required checkpoint state report and current-state review prompt, return the exact prompt to Miguel, leave the PR draft and unmerged, and stop until Miguel returns explicit architecture-review approval. The checkpoint review is independent of the implementation agent's required self-review.
+
+Do not ask an external Codex reviewer to perform the phase self-review. The implementation and self-review are your responsibility. The three scheduled architecture checkpoints are different: Miguel will take the generated prompt to the designated reviewing ChatGPT conversation and return its decision.
 
 ## 2. Scope discipline
 
@@ -48,7 +54,8 @@ Not allowed:
 - broad dependency upgrades;
 - renaming the entire repository for consistency;
 - sweeping formatting mixed with semantic changes;
-- another review ledger containing every hypothetical edge case.
+- another review ledger containing every hypothetical edge case;
+- bypassing, combining, moving, or self-approving a mandatory checkpoint.
 
 When a genuine unrelated defect is found, record it as a follow-up issue or bounded residual unless it blocks the phase invariant.
 
@@ -76,9 +83,10 @@ PRs remain draft until:
 - the self-review is complete;
 - compatibility and rollback are documented;
 - temporary scripts and transformers are removed;
-- the branch contains no unrelated files.
+- the branch contains no unrelated files;
+- when applicable, the mandatory checkpoint review is received, required corrections are complete, and Miguel explicitly authorizes continuation.
 
-Do not merge a phase automatically unless the user explicitly asks.
+Do not merge a phase automatically unless the user explicitly asks. A checkpoint phase may not merge before checkpoint authorization even if a prior general merge instruction exists.
 
 ## 4. Commit strategy
 
@@ -95,6 +103,8 @@ A purely mechanical move may be one commit if it preserves history cleanly.
 Avoid dozens of tiny AI-review commits. Before requesting review, consolidate fixup churn into a readable series without rewriting already-shared history destructively unless the branch is private and safe to force-update.
 
 Never commit temporary handoff logs, generated diagnostic dumps, local absolute paths, real tokens, signing IDs, device identifiers, or build products.
+
+Checkpoint state reports and current-state review prompts are intentional architecture records, not temporary logs. They must contain redacted repository facts and no private identifiers.
 
 ## 5. Characterization-before-refactor rule
 
@@ -171,6 +181,8 @@ At least one authoritative CI path must:
 5. inspect package contents;
 6. verify no source-only import accidentally makes production work.
 
+Checkpoint 1 must report the exact source/compiled execution model, package contents, runtime validator approach, unsafe type exceptions, and selected Node LTS evidence.
+
 ## 7. Infrastructure migration rules
 
 ### Explicit ports before call-site movement
@@ -218,6 +230,8 @@ After the infrastructure phase, add static checks preventing direct imports of:
 - generic global `fetch` use where an authenticated client is required.
 
 Use an AST-aware lint rule or import-boundary rule where practical. A grep-only check may bootstrap the transition but cannot be the permanent enforcement mechanism.
+
+Checkpoint 1 must justify the division between `CommandRunner`, `ProcessSupervisor`, lock/file/artifact ports, and the runtime composition root. It must prove compatibility preloads delegate rather than retain an independent safety implementation.
 
 ## 8. Helper decomposition rules
 
@@ -309,6 +323,8 @@ Never dual-write permanently. Dual-write creates a new consistency problem.
 - Busy timeout: return a typed retry/defer result where safe; do not crash the helper for maintenance contention.
 - Domain transaction failure: no partial public state.
 
+Checkpoint 2 must report migration fixtures, real rollback execution, source-of-truth state, legacy-file permissions, shadow mismatches, corruption/busy behavior, and proof that SQLite rows never authorize process termination.
+
 ## 10. Preload removal rules
 
 Maintain a machine-readable inventory:
@@ -330,6 +346,8 @@ A preload is removed only when:
 - an architecture test confirms built-ins are unchanged.
 
 Do not keep an empty or mostly empty preload forever for reassurance. Delete it when its responsibility is gone.
+
+Do not merge the final Phase 5 PR or begin Phase 6 until Checkpoint 2 confirms that every prior safety property has a visible owner, packaged/raw paths match, no built-in/prototype patch remains, and compatibility shims have objective deletion conditions.
 
 ## 11. Swift analyzer execution rules
 
@@ -369,6 +387,8 @@ For every case:
 - old hot / new hot: must preserve the same structural reasoning or improve it safely;
 - old rebuild / new hot: prohibited without physical proof and explicit review.
 
+Checkpoint 3 must preserve and present all differential cases, every newly permissive decision, failed valid physical attempts, analyzer packaging/version evidence, timeout/malformed/version-mismatch behavior, and the legacy analyzer deletion condition.
+
 ## 12. Companion execution rules
 
 Refactor one feature at a time:
@@ -388,6 +408,8 @@ Feature models should not know URL construction details. The API client should e
 Persistence repositories should not mutate UI state. Feature models should not serialize directly to `UserDefaults`.
 
 Use injected `URLSession` or transport protocol. Preserve current cancellation and revision fencing explicitly.
+
+Checkpoint 3 must prove that the refactor created real ownership rather than distributing a god object across mutually dependent models. It must report actor isolation, global-service call sites, response-generation fences, remaining compatibility coordinator responsibilities, accessibility/UI evidence, and API contract duplication.
 
 ## 13. Self-review procedure
 
@@ -416,6 +438,8 @@ Classify findings conservatively, but do not inflate every theoretical edge case
 - P3: polish, clarity, or low-risk debt.
 
 Fix P0/P1/P2 findings introduced or exposed by the phase. Record unrelated bounded residuals without starting a new unplanned hardening campaign.
+
+A checkpoint review does not replace this self-review and must not become another open-ended sequence. It is a bounded architecture decision gate with an explicit continuation result.
 
 ## 14. Validation matrix per phase
 
@@ -461,6 +485,8 @@ Minimum for companion phases:
 - accessibility/visual smoke for affected screens;
 - old/new helper protocol compatibility where affected.
 
+Checkpoint prompts must distinguish exact local, CI, Simulator, Homebrew, release-package, and physical-device results. Never summarize a skipped or failed gate as passed.
+
 ## 15. Stop conditions
 
 Stop the phase and report rather than improvising when:
@@ -472,9 +498,11 @@ Stop the phase and report rather than improvising when:
 - the Swift analyzer cannot be shipped without an unacceptable first-run build or dependency burden;
 - physical evidence contradicts the intended live-routing policy;
 - a compatibility path would need to become permanent;
-- the phase requires a product decision rather than an engineering choice.
+- the phase requires a product decision rather than an engineering choice;
+- a scheduled checkpoint is reached;
+- any emergency stop condition in the checkpoint protocol occurs.
 
-A stop report must include evidence, attempted alternatives, the smallest decision required, and a recommended choice.
+A stop report must include evidence, attempted alternatives, the smallest decision required, and a recommended choice. For a checkpoint, use the required state-report and pasteable-prompt format; do not continue while waiting for Miguel's response.
 
 ## 16. Definition of done for the executing agent
 
@@ -489,4 +517,13 @@ Report:
 - exact validation;
 - self-review findings and fixes;
 - residuals outside scope;
-- the next phase and why it is now safer.
+- the next phase and why it is now safer, or the checkpoint reached and confirmation that implementation stopped.
+
+For a checkpoint phase, definition of done additionally requires:
+
+- checkpoint state report committed;
+- current-state review prompt committed and returned verbatim to Miguel;
+- checkpoint phase PR draft and unmerged;
+- progress table still marked pending until review is returned;
+- no next-phase production changes;
+- after review, required corrections mapped to commits and Miguel's explicit continuation approval recorded.
