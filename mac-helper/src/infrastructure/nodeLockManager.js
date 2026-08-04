@@ -397,10 +397,10 @@ function completeOwnerRecord(value) {
   const startToken = ownerStartToken(record);
   return Boolean(
     Number.isInteger(pid) &&
-      pid > 1 &&
-      startToken &&
-      typeof record.nonce === "string" &&
-      record.nonce.length > 0,
+    pid > 1 &&
+    startToken &&
+    typeof record.nonce === "string" &&
+    record.nonce.length > 0,
   );
 }
 
@@ -410,10 +410,10 @@ function sameOwner(left, right) {
   const rightRecord = ownerRecord(right);
   return Boolean(
     leftRecord &&
-      rightRecord &&
-      Number(leftRecord.pid) === Number(rightRecord.pid) &&
-      ownerStartToken(leftRecord) === ownerStartToken(rightRecord) &&
-      leftRecord.nonce === rightRecord.nonce,
+    rightRecord &&
+    Number(leftRecord.pid) === Number(rightRecord.pid) &&
+    ownerStartToken(leftRecord) === ownerStartToken(rightRecord) &&
+    leftRecord.nonce === rightRecord.nonce,
   );
 }
 
