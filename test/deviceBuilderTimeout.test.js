@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -51,6 +51,14 @@ function processIsAlive(pid) {
   return !String(status.stdout || "").trim().startsWith("Z");
 }
 
+async function waitForPath(path, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(path) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(existsSync(path), true, `timed out waiting for ${path}`);
+}
+
 
 test("a cancellation marker terminates the complete process group", {
   skip: process.platform === "win32",
@@ -70,12 +78,13 @@ test("a cancellation marker terminates the complete process group", {
       process.on("SIGTERM", () => {});
       setInterval(() => {}, 1000);
     `;
-    const cancellation = setTimeout(() => writeFileSync(cancelPath, "cancel"), 100);
-    const result = await runBuffered(process.execPath, ["-e", fixture], {
+    const running = runBuffered(process.execPath, ["-e", fixture], {
       timeoutMs: 8_000,
       cancelPath,
     });
-    clearTimeout(cancellation);
+    await waitForPath(pidPath, 2_000);
+    writeFileSync(cancelPath, "cancel");
+    const result = await running;
     assert.equal(result.cancellationError?.code, "SWIFT_SIM_BUILD_CANCELLED");
     const descendantPID = Number(readFileSync(pidPath, "utf8"));
     assert.equal(processIsAlive(descendantPID), false);
