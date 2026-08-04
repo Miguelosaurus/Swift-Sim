@@ -1,9 +1,5 @@
 import { URL } from "node:url";
-import type {
-  RequestOriginDecision,
-  RequestOriginInput,
-  RequestOriginPolicy,
-} from "./ports.js";
+import type { RequestOriginDecision, RequestOriginInput, RequestOriginPolicy } from "./ports.js";
 
 export class LoopbackRequestOriginPolicy implements RequestOriginPolicy {
   evaluate(input: RequestOriginInput): RequestOriginDecision {
