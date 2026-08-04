@@ -1,8 +1,10 @@
 import type { CommandResult } from "../contracts/command.js";
 import type {
+  DeliveryProcessIdentity,
   LiveEngineProcessRecord,
   OwnedWorkerProcessRecord,
 } from "../contracts/process.js";
+import type { RuntimeJournal } from "../contracts/runtime.js";
 
 export type CommandEnvironment = Readonly<Record<string, string | undefined>>;
 
@@ -28,7 +30,10 @@ export interface CommandRunner {
   runSync(request: CommandRequest): CommandResult;
 }
 
-export type SupervisedProcessRecord = OwnedWorkerProcessRecord | LiveEngineProcessRecord;
+export type SupervisedProcessRecord =
+  | DeliveryProcessIdentity
+  | OwnedWorkerProcessRecord
+  | LiveEngineProcessRecord;
 
 export interface SpawnRequest {
   executable: string;
@@ -57,9 +62,14 @@ export interface TerminationRequest {
 }
 
 export interface ProcessSupervisor {
-  spawn(request: SpawnRequest): Promise<SupervisedProcess>;
-  inspect(record: SupervisedProcessRecord): Promise<ProcessInspection>;
-  terminate(request: TerminationRequest): Promise<void>;
+  spawn(request: SpawnRequest): SupervisedProcess;
+  inspect(record: SupervisedProcessRecord): ProcessInspection;
+  terminate(request: TerminationRequest): void;
+  waitForExit(
+    record: SupervisedProcessRecord,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<"exited" | "timeout" | "replaced" | "unverifiable">;
 }
 
 export interface AtomicWriteOptions {
@@ -71,10 +81,15 @@ export interface AtomicWriteOptions {
 
 export interface AtomicFileStore {
   readText(path: string): Promise<string>;
+  readTextSync(path: string): string;
   readJSON(path: string): Promise<unknown>;
+  readJSONSync(path: string): unknown;
   writeText(path: string, value: string, options: AtomicWriteOptions): Promise<void>;
+  writeTextSync(path: string, value: string, options: AtomicWriteOptions): void;
   writeJSON(path: string, value: unknown, options: AtomicWriteOptions): Promise<void>;
+  writeJSONSync(path: string, value: unknown, options: AtomicWriteOptions): void;
   remove(path: string): Promise<void>;
+  removeSync(path: string): void;
 }
 
 export interface LockRequest {
@@ -89,17 +104,25 @@ export interface LockLease {
   ownerPath: string;
   ownerNonce: string;
   release(): Promise<void>;
+  releaseSync(): void;
 }
 
 export interface LockManager {
   acquire(request: LockRequest): Promise<LockLease>;
+  acquireSync(request: LockRequest): LockLease;
   withLock<T>(request: LockRequest, operation: (lease: LockLease) => Promise<T>): Promise<T>;
+  withLockSync<T>(request: LockRequest, operation: (lease: LockLease) => T): T;
 }
 
+export type RuntimeJournalRecord = SupervisedProcessRecord | RuntimeJournal;
+
 export interface RuntimeJournalStore {
-  publish(path: string, record: SupervisedProcessRecord): Promise<void>;
+  publish(path: string, record: RuntimeJournalRecord): Promise<void>;
+  publishSync(path: string, record: RuntimeJournalRecord): void;
   read(path: string): Promise<unknown>;
+  readSync(path: string): unknown;
   remove(path: string): Promise<void>;
+  removeSync(path: string): void;
 }
 
 export interface ArtifactWriteOptions {
@@ -110,9 +133,13 @@ export interface ArtifactWriteOptions {
 export interface ArtifactStore {
   resolveContained(root: string, candidate: string): string;
   createDirectory(path: string, mode: number): Promise<void>;
+  createDirectorySync(path: string, mode: number): void;
   write(path: string, value: string | Uint8Array, options: ArtifactWriteOptions): Promise<void>;
+  writeSync(path: string, value: string | Uint8Array, options: ArtifactWriteOptions): void;
   read(path: string): Promise<Uint8Array>;
+  readSync(path: string): Uint8Array;
   removeTree(path: string): Promise<void>;
+  removeTreeSync(path: string): void;
 }
 
 export interface RequestOriginInput {
