@@ -8,6 +8,12 @@ import type { RuntimeJournal } from "../contracts/runtime.js";
 
 export type CommandEnvironment = Readonly<Record<string, string | undefined>>;
 
+export interface CommandEnvironmentPolicy {
+  inherit: readonly string[];
+  overrides: CommandEnvironment;
+  unset: readonly string[];
+}
+
 export interface CommandPolicy {
   timeoutMs: number;
   outputLimitBytes: number;
@@ -19,7 +25,7 @@ export interface CommandRequest {
   executable: string;
   args: readonly string[];
   cwd?: string;
-  environment?: CommandEnvironment;
+  environment: CommandEnvironmentPolicy;
   input?: string | Uint8Array;
   cancellationSignal?: AbortSignal;
   policy: CommandPolicy;
@@ -44,7 +50,7 @@ export interface SpawnRequest<Role extends ProcessRole = ProcessRole> {
   executable: string;
   args: readonly string[];
   cwd?: string;
-  environment?: CommandEnvironment;
+  environment: CommandEnvironmentPolicy;
   processGroup: "inherit" | "new";
   journalPath: string;
   role: Role;
@@ -158,16 +164,33 @@ export interface ArtifactStore {
 
 export interface RequestOriginInput {
   socketRemoteAddress: string;
-  hostHeader?: string;
+  requestProtocol: "http:" | "https:";
+  hostHeader: string;
   forwardedHostHeader?: string;
   forwardedProtoHeader?: string;
-  configuredExternalBaseURL?: string;
-  trustProxy: boolean;
+  requestedExternalBaseURL?: string;
 }
 
 export type RequestOriginDecision =
-  | { allowed: true; externalBaseURL: string; source: "configured" | "direct" | "trusted-proxy" }
-  | { allowed: false; reason: "non-loopback" | "invalid-host" | "untrusted-forwarding" };
+  | {
+      accepted: true;
+      requestIsLoopback: true;
+      forwardedHeadersTrusted: boolean;
+      externalBaseURL: string;
+      source: "requested" | "direct" | "trusted-proxy";
+    }
+  | {
+      accepted: false;
+      requestIsLoopback: false;
+      forwardedHeadersTrusted: false;
+      reason: "non-loopback";
+    }
+  | {
+      accepted: false;
+      requestIsLoopback: true;
+      forwardedHeadersTrusted: boolean;
+      reason: "invalid-host" | "invalid-requested-origin";
+    };
 
 export interface RequestOriginPolicy {
   evaluate(input: RequestOriginInput): RequestOriginDecision;
