@@ -37,17 +37,18 @@ export class StructuredLogger {
     if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
       throw new TypeError("Logger fields must be an object.");
     }
-    const combined = { ...this.fields, ...fields };
-    const record = {
-      timestamp: this.clock.now().toISOString(),
-      level,
-      event,
-      fields: sanitizeValue(combined, "fields", 0, new WeakSet()),
-    };
     try {
+      const combined = { ...this.fields, ...fields };
+      const record = {
+        timestamp: this.clock.now().toISOString(),
+        level,
+        event,
+        fields: sanitizeValue(combined, "fields", 0, new WeakSet()),
+      };
       this.writer(JSON.stringify(record));
     } catch {
-      // Logging must never change the outcome of the operation being observed.
+      // Logging must never change the outcome of the operation being observed,
+      // including failures from field accessors, serialization, clocks, or sinks.
     }
   }
 
