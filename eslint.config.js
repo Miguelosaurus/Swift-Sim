@@ -18,7 +18,7 @@ export default [
   {
     files: [
       "mac-helper/src/contracts/**/*.ts",
-      "mac-helper/src/infrastructure/**/*.ts",
+      "mac-helper/src/infrastructure/**/*.{js,ts}",
       "test/**/*.ts",
     ],
     languageOptions: {
