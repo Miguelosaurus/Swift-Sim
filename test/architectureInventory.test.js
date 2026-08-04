@@ -355,7 +355,7 @@ test("GitHub one-commit and multi-commit pushes select their pre-push commits", 
 
 test("push history rejects cap inflation against the pre-push policy", () => {
   const head = gitCommit("rev-parse", "HEAD");
-  const before = gitCommit("rev-parse", "HEAD~1");
+  const before = prePushPolicyCommit();
   const event = createEventFile({ before, after: head, ref: "refs/heads/main" });
   try {
     const inventory = collectInventory(process.cwd());
@@ -539,6 +539,14 @@ function fixtureText(name) {
 
 function gitCommit(...args) {
   return execFileSync("git", ["-C", process.cwd(), ...args], { encoding: "utf8" }).trim();
+}
+
+function prePushPolicyCommit() {
+  try {
+    return execFileSync("git", ["-C", process.cwd(), "rev-parse", "HEAD^2~1"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return gitCommit("rev-parse", "HEAD~1");
+  }
 }
 
 function createEventFile(payload) {
