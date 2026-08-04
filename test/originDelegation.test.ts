@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { handlePairingFallback } from "../mac-helper/src/helperHttpBoundaryPreload.js";
-import type { RequestOriginInput, RequestOriginPolicy } from "../mac-helper/src/infrastructure/ports.js";
+import type {
+  RequestOriginInput,
+  RequestOriginPolicy,
+} from "../mac-helper/src/infrastructure/ports.js";
 
 test("pairing fallback delegates origin derivation to RequestOriginPolicy", () => {
   const inputs: RequestOriginInput[] = [];
