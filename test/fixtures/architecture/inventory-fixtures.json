@@ -29,6 +29,16 @@
   "fakeTypeBeforeReal": "// import type { Fake } from \"node:fs\";\nconst string = \"import type { Fake } from 'child_process'; require('node:fs');\";\nconst template = `import type { Fake } from \"node:child_process\";`;\nimport { writeFile } from \"node:fs\";\nwriteFile(\"state.json\", \"ready\");\n",
   "templateExpressionRuntime": "const value = `${require(\"node:fs\").promises.writeFile(\"state.json\", \"ready\")}`;\nconst remote = `${fetch(\"https://example.test\")}`;\n",
   "typeOnlyDestructiveFilesystem": "import { type writeFile, readFile } from \"node:fs\";\nreadFile(\"state.json\", () => {});\n",
+  "commonjsMemberExtraction": "const writeFile = require(\"node:fs/promises\").writeFile;\nconst rename = require(\"node:fs\").promises.rename;\nwriteFile(\"state.json\", \"ready\");\nrename(\"old\", \"new\");\n",
+  "directRequireAssignment": "require(\"node:fs\").rmSync = guardedRmSync;\n",
+  "directRequireDefineProperty": "Object.defineProperty(require(\"node:fs\"), \"rmSync\", { value: guardedRmSync });\n",
+  "directRequireDefineProperties": "Object.defineProperties(require(\"node:fs\"), { rmSync: { value: guardedRmSync } });\n",
+  "directRequireReflectDefineProperty": "Reflect.defineProperty(require(\"node:fs\"), \"rmSync\", { value: guardedRmSync });\n",
+  "directRequireObjectAssign": "Object.assign(require(\"node:child_process\"), { spawn: guardedSpawn });\n",
+  "typeOnlyLocalPreloadImport": "import type { PreloadContract } from \"./PreloadRuntimeBoundary.js\";\n",
+  "typeOnlyNamedLocalRuntimeBoundaryImport": "import { type RuntimeContract } from \"./RuntimeBoundary.js\";\n",
+  "runtimeLocalPreloadImport": "import { createPreload } from \"./PreloadRuntimeBoundary.js\";\ncreatePreload();\n",
+  "dynamicLocalRuntimeBoundaryImport": "const runtime = import(\"./RuntimeBoundary.js\");\n",
   "sourceTextJavaScript": "import { readFileSync } from \"node:fs\";\nconst source = readFileSync(\"../mac-helper/src/app.js\", \"utf8\");\nassert.match(source, /value/);\n",
   "sourceTextTypeScript": "import { readFileSync } from \"node:fs\";\nconst source = readFileSync(\"../mac-helper/src/app.ts\", \"utf8\");\nexpect(source).toContain(\"value\");\n"
 }

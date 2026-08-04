@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { checkInventory, collectInventory, collectInventoryAtCommit, snapshotFromInventory } from "../scripts/architecture/inventory.js";
+import { checkInventory, collectInventory, collectInventoryAtCommit, resolveBaseCommit, snapshotFromInventory } from "../scripts/architecture/inventory.js";
 
 const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "architecture");
 const baselineCommit = "a".repeat(40);
@@ -218,6 +219,56 @@ test("filesystem promises variants share one importer capability per file", () =
   }
 });
 
+test("CommonJS member extraction preserves destructive filesystem capability", () => {
+  const fixture = createFixture({ "mac-helper/src/commonjs-members.js": fixtureText("commonjsMemberExtraction") });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), ["mac-helper/src/commonjs-members.js"]);
+    assert.deepEqual(inventory.destructiveFilesystemImports[0].apis, ["rename", "writeFile"]);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("direct CommonJS built-in mutations are detected from neutral filenames", () => {
+  const variants = [
+    ["mac-helper/src/direct-require-assignment.js", "directRequireAssignment", "built-in-assignment"],
+    ["mac-helper/src/direct-require-define-property.js", "directRequireDefineProperty", "built-in-define-property"],
+    ["mac-helper/src/direct-require-define-properties.js", "directRequireDefineProperties", "built-in-define-property"],
+    ["mac-helper/src/direct-require-reflect-define-property.js", "directRequireReflectDefineProperty", "built-in-define-property"],
+    ["mac-helper/src/direct-require-object-assign.js", "directRequireObjectAssign", "built-in-object-assign"],
+  ];
+  const fixture = createFixture(Object.fromEntries(variants.map(([path, fixtureName]) => [path, fixtureText(fixtureName)])));
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.preloadRuntimePatchModules.map((entry) => entry.path), variants.map(([path]) => path).sort());
+    for (const [path, , reason] of variants) {
+      const module = inventory.preloadRuntimePatchModules.find((entry) => entry.path === path);
+      assert.ok(module.reasons.includes(reason));
+    }
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("type-only local imports do not create preload/runtime modules while runtime imports do", () => {
+  const fixture = createFixture({
+    "mac-helper/src/type-only-local-one.ts": fixtureText("typeOnlyLocalPreloadImport"),
+    "mac-helper/src/type-only-local-two.ts": fixtureText("typeOnlyNamedLocalRuntimeBoundaryImport"),
+    "mac-helper/src/runtime-local-one.ts": fixtureText("runtimeLocalPreloadImport"),
+    "mac-helper/src/dynamic-local-one.ts": fixtureText("dynamicLocalRuntimeBoundaryImport"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.preloadRuntimePatchModules.map((entry) => entry.path), [
+      "mac-helper/src/dynamic-local-one.ts",
+      "mac-helper/src/runtime-local-one.ts",
+    ]);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("neutral filenames cannot bypass aliased built-in monkey-patch detection", () => {
   const fixture = createFixture({ "mac-helper/src/neutral.js": fixtureText("aliasedMonkeyPatch") });
   try {
@@ -273,6 +324,60 @@ test("baseline snapshot is history-backed and cannot be inflated", () => {
     assert.ok(result.violations.some((violation) => violation.includes("baseline sections do not match")));
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("GitHub pull-request events select the declared base commit", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const base = gitCommit("rev-parse", "HEAD~3");
+  const event = createEventFile({ pull_request: { base: { sha: base } } });
+  try {
+    assert.equal(resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: event.path, eventName: "pull_request", headCommit: head }), base);
+  } finally {
+    rmSync(event.root, { recursive: true, force: true });
+  }
+});
+
+test("GitHub one-commit and multi-commit pushes select their pre-push commits", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const oneCommitBefore = gitCommit("rev-parse", "HEAD~1");
+  const multiCommitBefore = gitCommit("rev-parse", "HEAD~2");
+  const oneCommitEvent = createEventFile({ before: oneCommitBefore, after: head, ref: "refs/heads/main" });
+  const multiCommitEvent = createEventFile({ before: multiCommitBefore, after: head, ref: "refs/heads/main" });
+  try {
+    assert.equal(resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: oneCommitEvent.path, eventName: "push", headCommit: head }), oneCommitBefore);
+    assert.equal(resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: multiCommitEvent.path, eventName: "push", headCommit: head }), multiCommitBefore);
+  } finally {
+    rmSync(oneCommitEvent.root, { recursive: true, force: true });
+    rmSync(multiCommitEvent.root, { recursive: true, force: true });
+  }
+});
+
+test("push history rejects cap inflation against the pre-push policy", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const before = gitCommit("rev-parse", "HEAD~1");
+  const event = createEventFile({ before, after: head, ref: "refs/heads/main" });
+  try {
+    const inventory = collectInventory(process.cwd());
+    const currentPolicy = JSON.parse(readFileSync(join(fixtureDirectory, "..", "..", "..", "scripts", "architecture", "baseline-policy.json"), "utf8"));
+    currentPolicy.caps.preloadRuntimePatchModules.push("mac-helper/src/future-preload.js");
+    const result = checkInventory(inventory, currentPolicy, { root: process.cwd(), eventPath: event.path, eventName: "push", headCommit: head });
+    assert.ok(result.violations.some((violation) => violation.includes("preloadRuntimePatchModules cap was increased with new path")));
+  } finally {
+    rmSync(event.root, { recursive: true, force: true });
+  }
+});
+
+test("malformed GitHub event metadata fails closed", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const event = createEventFile({ before: "not-a-commit", after: head, ref: "refs/heads/main" });
+  try {
+    assert.throws(
+      () => resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: event.path, eventName: "push", headCommit: head }),
+      /push\.before must be a non-zero full 40-character commit SHA/,
+    );
+  } finally {
+    rmSync(event.root, { recursive: true, force: true });
   }
 });
 
@@ -430,6 +535,17 @@ function validAllowlist(category, id, max) {
 
 function fixtureText(name) {
   return JSON.parse(readFileSync(join(fixtureDirectory, "inventory-fixtures.json"), "utf8"))[name];
+}
+
+function gitCommit(...args) {
+  return execFileSync("git", ["-C", process.cwd(), ...args], { encoding: "utf8" }).trim();
+}
+
+function createEventFile(payload) {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-event-"));
+  const path = join(root, "event.json");
+  writeFileSync(path, JSON.stringify(payload));
+  return { root, path };
 }
 
 function createFixture(files) {

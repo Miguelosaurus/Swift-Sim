@@ -168,7 +168,7 @@ export function checkInventory(inventory, policy, options = {}) {
   let history = options.history || null;
   if (!history && options.root && normalized.policy) {
     try {
-      history = createHistoryContext(options.root, normalized.policy);
+      history = createHistoryContext(options.root, normalized.policy, options);
     } catch (error) {
       violations.push(error instanceof Error ? error.message : String(error));
     }
@@ -210,9 +210,9 @@ function normalizePolicy(policy) {
   return { errors, policy: errors.length > 0 ? null : policy };
 }
 
-function createHistoryContext(root, policy) {
+function createHistoryContext(root, policy, options = {}) {
   const baselineCommit = policy.baselineCommit;
-  const baseCommit = resolveBaseCommit(root, baselineCommit);
+  const baseCommit = resolveBaseCommit(root, baselineCommit, options);
   return {
     root,
     baselineCommit,
@@ -420,10 +420,10 @@ function analyzeNodeModule(path, source) {
     : [];
   const preloadRuntimeReasons = [];
   if (preloadRuntimeNamePattern.test(basename(path))) preloadRuntimeReasons.push("module-name");
-  if (localImportModules(lexical.tokens).some((module) => /^\.{1,2}\//.test(module) && preloadRuntimeNamePattern.test(basename(module)))) {
+  if (localImportModules(lexical.tokens).some((entry) => entry.runtime && /^\.{1,2}\//.test(entry.module) && preloadRuntimeNamePattern.test(basename(entry.module)))) {
     preloadRuntimeReasons.push("imports-preload-or-runtime-boundary");
   }
-  const patchEvidence = patchEvidenceFor(lexical.codeSource, imports);
+  const patchEvidence = patchEvidenceFor(lexical.codeSource, imports, lexical.tokens);
   if (patchEvidence.length > 0) preloadRuntimeReasons.push(...patchEvidence);
   return {
     path,
@@ -598,7 +598,7 @@ function parseStaticImport(tokens, importIndex) {
         kind: "esm-side-effect",
         module: canonicalModule(tokens[index].value),
         bindings: [],
-        runtime: true,
+        runtime: !typeOnly,
       },
     };
   }
@@ -683,18 +683,34 @@ function parseCommonJSRequire(tokens, requireIndex) {
   };
 }
 
+function parseStaticRequireMember(tokens, requireIndex) {
+  const parsedRequire = parseCommonJSRequire(tokens, requireIndex);
+  if (!parsedRequire) return null;
+  const members = [];
+  let index = parsedRequire.endIndex + 1;
+  while (tokens[index]?.value === "." && tokens[index + 1]?.kind === "identifier") {
+    members.push(tokens[index + 1].value);
+    index += 2;
+  }
+  return {
+    ...parsedRequire,
+    members,
+    endIndex: index - 1,
+  };
+}
+
 function localImportModules(tokens) {
   const modules = [];
   for (let index = 0; index < tokens.length; index += 1) {
     if (tokens[index].kind !== "identifier" || tokens[index].value !== "import") continue;
     if (tokens[index + 1]?.value === "(" && tokens[index + 2]?.kind === "string") {
-      modules.push(tokens[index + 2].value);
+      modules.push({ module: tokens[index + 2].value, runtime: true });
       index += 2;
       continue;
     }
     const parsedImport = parseStaticImport(tokens, index);
     if (parsedImport) {
-      modules.push(parsedImport.entry.module);
+      modules.push({ module: parsedImport.entry.module, runtime: parsedImport.entry.runtime });
       index = parsedImport.endIndex;
     }
   }
@@ -728,6 +744,7 @@ function parseESMBindings(clause, typeOnly = false) {
 
 function parseRequireBindings(tokens, requireIndex) {
   if (tokens[requireIndex - 1]?.value !== "=") return [];
+  const member = parseStaticRequireMember(tokens, requireIndex);
   const leftHandSide = tokens.slice(Math.max(0, requireIndex - 12), requireIndex - 1);
   const openBrace = leftHandSide.map((token) => token.value).lastIndexOf("{");
   const closeBrace = leftHandSide.map((token) => token.value).lastIndexOf("}");
@@ -750,6 +767,12 @@ function parseRequireBindings(tokens, requireIndex) {
   }
   const identifiers = leftHandSide.filter((token) => token.kind === "identifier");
   const local = identifiers.at(-1);
+  if (local && member?.members.length > 0) {
+    const imported = member.members.at(-1);
+    if (member.members.length === 1 || member.members[0] === "promises") {
+      return [{ type: "named", imported, local: local.value }];
+    }
+  }
   return local ? [{ type: "namespace", local: local.value }] : [];
 }
 
@@ -770,7 +793,7 @@ function destructiveApisForImports(path, source, imports, tokens) {
         collectNamespaceApis(source, binding.local, apis, lines, true);
       }
       if (binding.type === "namespace") {
-        collectNamespaceApis(source, binding.local, apis, lines, promisesModule);
+        collectNamespaceApis(source, binding.local, apis, lines, promisesModule || binding.promisesNamespace);
       }
     }
     if (entry.bindings.length === 0) {
@@ -822,7 +845,7 @@ function collectDirectRequireApis(tokens, module, apis, lines, source) {
   }
 }
 
-function patchEvidenceFor(source, imports) {
+function patchEvidenceFor(source, imports, tokens) {
   const reasons = [];
   if (/\bglobal(?:This)?\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\])\s*=\s*(?!=)/.test(source)) reasons.push("global-assignment");
   if (/\b[A-Za-z_$][\w$]*\s*\.\s*prototype\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\])\s*=\s*(?!=)/.test(source)) reasons.push("prototype-assignment");
@@ -841,6 +864,28 @@ function patchEvidenceFor(source, imports) {
     if (define.test(source)) reasons.push("built-in-define-property");
     const assign = new RegExp(`Object\\.assign\\s*\\(\\s*${target}(?:\\s*\\.\\s*prototype)?\\b`);
     if (assign.test(source)) reasons.push("built-in-object-assign");
+  }
+  reasons.push(...directRequirePatchEvidence(tokens));
+  return reasons;
+}
+
+function directRequirePatchEvidence(tokens) {
+  const reasons = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const target = parseStaticRequireMember(tokens, index);
+    if (!target || !monitoredModulePattern.test(target.module)) continue;
+    if (target.members.length > 0 && tokens[target.endIndex + 1]?.value === "=") {
+      reasons.push("built-in-assignment");
+    }
+  }
+  for (let index = 0; index < tokens.length; index += 1) {
+    const objectName = tokens[index]?.value;
+    const method = tokens[index + 2]?.value;
+    if (!["Object", "Reflect"].includes(objectName) || tokens[index + 1]?.value !== ".") continue;
+    if (!["defineProperty", "defineProperties", "assign"].includes(method) || tokens[index + 3]?.value !== "(") continue;
+    const target = parseStaticRequireMember(tokens, index + 4);
+    if (!target || !monitoredModulePattern.test(target.module) || tokens[target.endIndex + 1]?.value !== ",") continue;
+    reasons.push(method === "assign" ? "built-in-object-assign" : "built-in-define-property");
   }
   return reasons;
 }
@@ -895,12 +940,73 @@ function normalizeTrackedFiles(root, trackedFiles) {
   return String(result.stdout).split("\0").filter(Boolean).sort();
 }
 
-function resolveBaseCommit(root, baselineCommit) {
-  for (const candidate of ["refs/remotes/origin/main", "refs/heads/main", "main"]) {
-    const result = spawnSync("git", ["-C", root, "merge-base", "HEAD", candidate], { encoding: "utf8" });
-    if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
+export function resolveBaseCommit(root, baselineCommit, options = {}) {
+  const headCommit = options.headCommit || gitOutput(root, ["rev-parse", "HEAD"]).trim();
+  assertCommitExists(root, headCommit);
+  const eventPath = options.eventPath || process.env.GITHUB_EVENT_PATH;
+  if (eventPath) {
+    const eventBase = resolveEventBase(root, eventPath, headCommit, options.eventName || process.env.GITHUB_EVENT_NAME);
+    if (eventBase) return eventBase;
   }
-  return baselineCommit;
+  for (const candidate of ["refs/remotes/origin/main", "refs/heads/main", "main"]) {
+    const result = spawnSync("git", ["-C", root, "merge-base", headCommit, candidate], { encoding: "utf8" });
+    if (result.status === 0 && result.stdout.trim()) {
+      const base = result.stdout.trim();
+      return base === headCommit ? parentCommit(root, headCommit) : validateRelevantBase(root, base, headCommit, "local merge-base");
+    }
+  }
+  return validateRelevantBase(root, baselineCommit, headCommit, "declared baseline fallback");
+}
+
+function resolveEventBase(root, eventPath, headCommit, eventName) {
+  let event;
+  try {
+    event = JSON.parse(readFileSync(eventPath, "utf8"));
+  } catch (error) {
+    throw new Error(`GITHUB_EVENT_PATH could not be parsed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!event || typeof event !== "object" || Array.isArray(event)) {
+    throw new Error("GITHUB_EVENT_PATH must contain a JSON object");
+  }
+  const pullRequestEvent = eventName === "pull_request" || event.pull_request !== undefined;
+  const pushEvent = eventName === "push" || Object.prototype.hasOwnProperty.call(event, "before");
+  if (pullRequestEvent) {
+    const base = event.pull_request?.base?.sha;
+    if (!base) throw new Error("pull_request event metadata is missing pull_request.base.sha");
+    return validateRelevantBase(root, base, headCommit, "pull_request.base.sha");
+  }
+  if (pushEvent) {
+    const base = event.before;
+    if (!base) throw new Error("push event metadata is missing before");
+    return validateRelevantBase(root, base, headCommit, "push.before", { requireAncestor: true });
+  }
+  return null;
+}
+
+function validateRelevantBase(root, base, headCommit, source, options = {}) {
+  if (!/^[0-9a-f]{40}$/.test(base || "") || /^0+$/.test(base)) {
+    throw new Error(`${source} must be a non-zero full 40-character commit SHA`);
+  }
+  assertCommitExists(root, base);
+  if (base === headCommit) throw new Error(`${source} must not equal the checked HEAD`);
+  if (options.requireAncestor && !isAncestor(root, base, headCommit)) {
+    throw new Error(`${source} is not an ancestor of the checked HEAD`);
+  }
+  const mergeBase = spawnSync("git", ["-C", root, "merge-base", base, headCommit], { encoding: "utf8" });
+  if (mergeBase.status !== 0 || !mergeBase.stdout.trim()) {
+    throw new Error(`${source} is unrelated to the checked HEAD`);
+  }
+  return base;
+}
+
+function isAncestor(root, ancestor, descendant) {
+  return spawnSync("git", ["-C", root, "merge-base", "--is-ancestor", ancestor, descendant], { encoding: "utf8" }).status === 0;
+}
+
+function parentCommit(root, commit) {
+  const result = spawnSync("git", ["-C", root, "rev-parse", `${commit}^1`], { encoding: "utf8" });
+  if (result.status !== 0 || !result.stdout.trim()) throw new Error(`checked HEAD has no parent for local history comparison: ${commit}`);
+  return validateRelevantBase(root, result.stdout.trim(), commit, "local parent", { requireAncestor: true });
 }
 
 function readPolicyAtCommit(root, commit) {
