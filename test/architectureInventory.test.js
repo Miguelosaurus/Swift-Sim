@@ -1,0 +1,567 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+import { checkInventory, collectInventory, collectInventoryAtCommit, resolveBaseCommit, snapshotFromInventory } from "../scripts/architecture/inventory.js";
+
+const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "architecture");
+const baselineCommit = "a".repeat(40);
+const baseCommit = baselineCommit;
+
+test("architecture inventory detects the required production categories", () => {
+  const fixture = createFixture({
+    "mac-helper/src/examplePreload.js": fixtureText("javascriptRisk"),
+    "Companion/SwiftSimCompanion/Example.swift": "struct Example {}\n",
+    "test/example.test.js": fixtureText("sourceTextJavaScript"),
+    "package.json": JSON.stringify({ bin: { "swift-sim": "./mac-helper/src/examplePreload.js" } }),
+    ".github/workflows/verify.yml": "name: Verify\n",
+    "README.md": '<a href="https://github.com/example/repo/actions/workflows/verify.yml"><img src="https://github.com/example/repo/actions/workflows/verify.yml/badge.svg"></a>\n',
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.productionFileCounts.javascript, 1);
+    assert.equal(inventory.productionFileCounts.swift, 1);
+    assert.equal(inventory.childProcessImports.length, 1);
+    assert.equal(inventory.destructiveFilesystemImports.length, 1);
+    assert.deepEqual(inventory.destructiveFilesystemImports[0].apis, ["writeFileSync"]);
+    assert.equal(inventory.directGlobalFetchUses.length, 1);
+    assert.equal(inventory.writableJSONDomainStateStores.length, 1);
+    assert.equal(inventory.sourceTextImplementationTests.length, 1);
+    assert.equal(inventory.preloadRuntimePatchModules[0].path, "mac-helper/src/examplePreload.js");
+    assert.equal(inventory.packageEntrypoints[0].exists, true);
+    assert.equal(inventory.workflowBadgeTargets.every((entry) => entry.exists), true);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("the checked-in baseline snapshot is generated from its declared Git commit", () => {
+  const policy = JSON.parse(readFileSync(join(fixtureDirectory, "..", "..", "..", "scripts", "architecture", "baseline-policy.json"), "utf8"));
+  const baselineInventory = collectInventoryAtCommit(process.cwd(), policy.baselineCommit);
+  assert.deepEqual(snapshotFromInventory(baselineInventory), policy.baseline);
+});
+
+test("architecture fitness detects a new preload/runtime patch module", () => {
+  const fixture = createFixture({ "mac-helper/src/newPreload.js": "export {};\n" });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    const result = checkInventory(inventory, policy());
+    assert.ok(result.violations.some((violation) => violation.includes("new preloadRuntimePatchModules")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("architecture fitness detects TypeScript child process, filesystem, fetch, and JSON risks", () => {
+  const fixture = createFixture({ "mac-helper/src/risk.ts": fixtureText("typescriptRisk") });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.productionFileCounts.typescript, 1);
+    assert.equal(inventory.childProcessImports.length, 1);
+    assert.equal(inventory.destructiveFilesystemImports.length, 1);
+    assert.equal(inventory.directGlobalFetchUses.length, 1);
+    assert.equal(inventory.writableJSONDomainStateStores.length, 1);
+    const result = checkInventory(inventory, policy());
+    assert.ok(result.violations.some((violation) => violation.includes("childProcessImporters")));
+    assert.ok(result.violations.some((violation) => violation.includes("destructiveFilesystemImporters")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("child-process capability normalizes node-prefixed and unprefixed JS and TS forms", () => {
+  const variants = [
+    ["mac-helper/src/js-esm-node.js", "childProcessJsESMNode"],
+    ["mac-helper/src/js-esm-plain.js", "childProcessJsESMPlain"],
+    ["mac-helper/src/js-require-node.js", "childProcessJsRequireNode"],
+    ["mac-helper/src/js-require-plain.js", "childProcessJsRequirePlain"],
+    ["mac-helper/src/js-side-effect-node.js", "childProcessJsSideEffectNode"],
+    ["mac-helper/src/js-side-effect-plain.js", "childProcessJsSideEffectPlain"],
+    ["mac-helper/src/ts-esm-node.ts", "childProcessTsESMNode"],
+    ["mac-helper/src/ts-esm-plain.ts", "childProcessTsESMPlain"],
+    ["mac-helper/src/ts-import-equals-node.ts", "childProcessTsImportEqualsNode"],
+    ["mac-helper/src/ts-import-equals-plain.ts", "childProcessTsImportEqualsPlain"],
+    ["mac-helper/src/ts-require-node.ts", "childProcessTsRequireNode"],
+    ["mac-helper/src/ts-require-plain.ts", "childProcessTsRequirePlain"],
+    ["mac-helper/src/ts-side-effect-node.ts", "childProcessTsSideEffectNode"],
+    ["mac-helper/src/ts-side-effect-plain.ts", "childProcessTsSideEffectPlain"],
+  ];
+  const fixture = createFixture(Object.fromEntries(variants.map(([path, fixtureName]) => [path, fixtureText(fixtureName)])));
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), variants.map(([path]) => path).sort());
+    assert.ok(inventory.childProcessImports.every((entry) => entry.modules.length === 1 && entry.modules[0] === "node:child_process"));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("statement-aware scanning keeps separate imports and ignores lexical lookalikes", () => {
+  const fixture = createFixture({
+    "mac-helper/src/statement-aware-fs.ts": fixtureText("statementAwareFs"),
+    "mac-helper/src/statement-aware-child.ts": fixtureText("statementAwareChildProcess"),
+    "mac-helper/src/semicolonless.ts": fixtureText("semicolonlessImports"),
+    "mac-helper/src/multiline.ts": fixtureText("multilineImport"),
+    "mac-helper/src/lexical-fakes.ts": fixtureText("lexicalFakes"),
+    "mac-helper/src/fake-type-before-real.ts": fixtureText("fakeTypeBeforeReal"),
+    "mac-helper/src/template-expression.ts": fixtureText("templateExpressionRuntime"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), [
+      "mac-helper/src/statement-aware-child.ts",
+    ]);
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), [
+      "mac-helper/src/fake-type-before-real.ts",
+      "mac-helper/src/multiline.ts",
+      "mac-helper/src/semicolonless.ts",
+      "mac-helper/src/statement-aware-fs.ts",
+      "mac-helper/src/template-expression.ts",
+    ]);
+    assert.ok(inventory.destructiveFilesystemImports.every((entry) => entry.apis.includes("writeFile")));
+    assert.deepEqual(inventory.directGlobalFetchUses.map((entry) => entry.path), ["mac-helper/src/template-expression.ts"]);
+    assert.deepEqual(inventory.preloadRuntimePatchModules, []);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("production paths remain active inside fixtures and build directories", () => {
+  const fixture = createFixture({
+    "mac-helper/src/fixtures/risky.js": fixtureText("javascriptRisk"),
+    "mac-helper/src/build/risky.ts": fixtureText("typescriptRisk"),
+    "test/fixtures/not-production.js": fixtureText("javascriptRisk"),
+    "benchmarks/results/not-production.js": fixtureText("javascriptRisk"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.productionFileCounts.javascript, 1);
+    assert.equal(inventory.productionFileCounts.typescript, 1);
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), [
+      "mac-helper/src/build/risky.ts",
+      "mac-helper/src/fixtures/risky.js",
+    ]);
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), [
+      "mac-helper/src/build/risky.ts",
+      "mac-helper/src/fixtures/risky.js",
+    ]);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("TypeScript declarations and type-only imports do not create runtime capabilities", () => {
+  const fixture = createFixture({
+    "mac-helper/src/contracts.d.ts": fixtureText("typescriptDeclaration"),
+    "mac-helper/src/contracts.d.mts": fixtureText("typescriptDeclaration"),
+    "mac-helper/src/contracts.d.cts": fixtureText("typescriptDeclaration"),
+    "mac-helper/src/type-only.ts": fixtureText("typeOnlyImports"),
+    "mac-helper/src/mixed.ts": fixtureText("mixedTypeRuntimeImports"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.productionFileCounts.typescript, 5);
+    assert.equal(inventory.productionFileCounts.typescriptDeclarations, 3);
+    assert.deepEqual(inventory.typescriptDeclarationFiles, [
+      "mac-helper/src/contracts.d.cts",
+      "mac-helper/src/contracts.d.mts",
+      "mac-helper/src/contracts.d.ts",
+    ]);
+    assert.deepEqual(inventory.childProcessImports.map((entry) => entry.path), ["mac-helper/src/mixed.ts"]);
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), ["mac-helper/src/mixed.ts"]);
+    assert.ok(!inventory.productionFiles.some((entry) => entry.path.endsWith(".d.ts") || entry.path.endsWith(".d.mts") || entry.path.endsWith(".d.cts")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("type-only destructive filesystem bindings are ignored while runtime bindings remain visible", () => {
+  const fixture = createFixture({
+    "mac-helper/src/type-only-destructive.ts": fixtureText("typeOnlyDestructiveFilesystem"),
+    "mac-helper/src/runtime-promises.ts": fixtureText("promisesVariants"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), [
+      "mac-helper/src/runtime-promises.ts",
+    ]);
+    assert.deepEqual(inventory.destructiveFilesystemImports[0].apis, ["mkdir", "rename", "rm", "writeFile"]);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("architecture fitness rejects .tsx in the Node production tree", () => {
+  const fixture = createFixture({ "mac-helper/src/component.tsx": fixtureText("tsxRisk") });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.unsupportedNodeFiles, ["mac-helper/src/component.tsx"]);
+    const result = checkInventory(inventory, policy());
+    assert.ok(result.violations.some((violation) => violation.includes("unsupported Node production extension .tsx")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("filesystem promises variants share one importer capability per file", () => {
+  const fixture = createFixture({ "mac-helper/src/promises.js": fixtureText("promisesVariants") });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.destructiveFilesystemImports.length, 1);
+    assert.deepEqual(inventory.destructiveFilesystemImports[0].apis, ["mkdir", "rename", "rm", "writeFile"]);
+    const result = checkInventory(inventory, policy());
+    assert.ok(result.violations.some((violation) => violation.includes("destructiveFilesystemImporters")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("CommonJS member extraction preserves destructive filesystem capability", () => {
+  const fixture = createFixture({ "mac-helper/src/commonjs-members.js": fixtureText("commonjsMemberExtraction") });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.destructiveFilesystemImports.map((entry) => entry.path), ["mac-helper/src/commonjs-members.js"]);
+    assert.deepEqual(inventory.destructiveFilesystemImports[0].apis, ["rename", "writeFile"]);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("direct CommonJS built-in mutations are detected from neutral filenames", () => {
+  const variants = [
+    ["mac-helper/src/direct-require-assignment.js", "directRequireAssignment", "built-in-assignment"],
+    ["mac-helper/src/direct-require-define-property.js", "directRequireDefineProperty", "built-in-define-property"],
+    ["mac-helper/src/direct-require-define-properties.js", "directRequireDefineProperties", "built-in-define-property"],
+    ["mac-helper/src/direct-require-reflect-define-property.js", "directRequireReflectDefineProperty", "built-in-define-property"],
+    ["mac-helper/src/direct-require-object-assign.js", "directRequireObjectAssign", "built-in-object-assign"],
+  ];
+  const fixture = createFixture(Object.fromEntries(variants.map(([path, fixtureName]) => [path, fixtureText(fixtureName)])));
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.preloadRuntimePatchModules.map((entry) => entry.path), variants.map(([path]) => path).sort());
+    for (const [path, , reason] of variants) {
+      const module = inventory.preloadRuntimePatchModules.find((entry) => entry.path === path);
+      assert.ok(module.reasons.includes(reason));
+    }
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("type-only local imports do not create preload/runtime modules while runtime imports do", () => {
+  const fixture = createFixture({
+    "mac-helper/src/type-only-local-one.ts": fixtureText("typeOnlyLocalPreloadImport"),
+    "mac-helper/src/type-only-local-two.ts": fixtureText("typeOnlyNamedLocalRuntimeBoundaryImport"),
+    "mac-helper/src/runtime-local-one.ts": fixtureText("runtimeLocalPreloadImport"),
+    "mac-helper/src/dynamic-local-one.ts": fixtureText("dynamicLocalRuntimeBoundaryImport"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.preloadRuntimePatchModules.map((entry) => entry.path), [
+      "mac-helper/src/dynamic-local-one.ts",
+      "mac-helper/src/runtime-local-one.ts",
+    ]);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("neutral filenames cannot bypass aliased built-in monkey-patch detection", () => {
+  const fixture = createFixture({ "mac-helper/src/neutral.js": fixtureText("aliasedMonkeyPatch") });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    const module = inventory.preloadRuntimePatchModules.find((entry) => entry.path === "mac-helper/src/neutral.js");
+    assert.ok(module);
+    assert.ok(module.reasons.includes("built-in-assignment"));
+    assert.ok(module.reasons.includes("built-in-define-property"));
+    assert.ok(module.reasons.includes("built-in-object-assign"));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("the architecture test path is not exempt from source-text enforcement", () => {
+  const architectureTestPath = "test/architectureInventory.test.js";
+  const fixture = createFixture({
+    "mac-helper/src/app.js": "export const value = true;\n",
+    [architectureTestPath]: fixtureText("sourceTextJavaScript"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.deepEqual(inventory.sourceTextImplementationTests.map((entry) => entry.path), [architectureTestPath]);
+    const result = checkInventory(inventory, policy());
+    assert.ok(result.violations.some((violation) => violation.includes("sourceTextImplementationTests")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("TypeScript source-text tests are enforced", () => {
+  const fixture = createFixture({
+    "mac-helper/src/app.ts": "export const value = true;\n",
+    "test/app.test.ts": fixtureText("sourceTextTypeScript"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    assert.equal(inventory.sourceTextImplementationTests.length, 1);
+    const result = checkInventory(inventory, policy());
+    assert.ok(result.violations.some((violation) => violation.includes("sourceTextImplementationTests")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("baseline snapshot is history-backed and cannot be inflated", () => {
+  const fixture = createFixture({ "mac-helper/src/existing.js": "export {};\n" });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    const inflated = snapshotFromInventory(inventory);
+    inflated.preloadRuntimePatchModules.push("mac-helper/src/inflated.js");
+    const result = checkInventory(inventory, policy({ baseline: inflated }), { history: historyFor(inventory) });
+    assert.ok(result.violations.some((violation) => violation.includes("baseline sections do not match")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("GitHub pull-request events select the declared base commit", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const base = gitCommit("rev-parse", "HEAD~3");
+  const event = createEventFile({ pull_request: { base: { sha: base } } });
+  try {
+    assert.equal(resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: event.path, eventName: "pull_request", headCommit: head }), base);
+  } finally {
+    rmSync(event.root, { recursive: true, force: true });
+  }
+});
+
+test("GitHub one-commit and multi-commit pushes select their pre-push commits", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const oneCommitBefore = gitCommit("rev-parse", "HEAD~1");
+  const multiCommitBefore = gitCommit("rev-parse", "HEAD~2");
+  const oneCommitEvent = createEventFile({ before: oneCommitBefore, after: head, ref: "refs/heads/main" });
+  const multiCommitEvent = createEventFile({ before: multiCommitBefore, after: head, ref: "refs/heads/main" });
+  try {
+    assert.equal(resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: oneCommitEvent.path, eventName: "push", headCommit: head }), oneCommitBefore);
+    assert.equal(resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: multiCommitEvent.path, eventName: "push", headCommit: head }), multiCommitBefore);
+  } finally {
+    rmSync(oneCommitEvent.root, { recursive: true, force: true });
+    rmSync(multiCommitEvent.root, { recursive: true, force: true });
+  }
+});
+
+test("push history rejects cap inflation against the pre-push policy", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const before = prePushPolicyCommit();
+  const event = createEventFile({ before, after: head, ref: "refs/heads/main" });
+  try {
+    const inventory = collectInventory(process.cwd());
+    const currentPolicy = JSON.parse(readFileSync(join(fixtureDirectory, "..", "..", "..", "scripts", "architecture", "baseline-policy.json"), "utf8"));
+    currentPolicy.caps.preloadRuntimePatchModules.push("mac-helper/src/future-preload.js");
+    const result = checkInventory(inventory, currentPolicy, { root: process.cwd(), eventPath: event.path, eventName: "push", headCommit: head });
+    assert.ok(result.violations.some((violation) => violation.includes("preloadRuntimePatchModules cap was increased with new path")));
+  } finally {
+    rmSync(event.root, { recursive: true, force: true });
+  }
+});
+
+test("malformed GitHub event metadata fails closed", () => {
+  const head = gitCommit("rev-parse", "HEAD");
+  const event = createEventFile({ before: "not-a-commit", after: head, ref: "refs/heads/main" });
+  try {
+    assert.throws(
+      () => resolveBaseCommit(process.cwd(), baselineCommit, { eventPath: event.path, eventName: "push", headCommit: head }),
+      /push\.before must be a non-zero full 40-character commit SHA/,
+    );
+  } finally {
+    rmSync(event.root, { recursive: true, force: true });
+  }
+});
+
+test("baseline authority cannot be changed from the PR base", () => {
+  const fixture = createFixture({ "mac-helper/src/existing.js": "export {};\n" });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    const result = checkInventory(inventory, policy({ baselineCommit: "b".repeat(40) }), {
+      history: historyFor(inventory, { basePolicy: policy() }),
+    });
+    assert.ok(result.violations.some((violation) => violation.includes("baselineCommit changed")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("removed debt cannot be reintroduced after a cap reduction", () => {
+  const baselineFixture = createFixture({ "mac-helper/src/clean.js": "export {};\n" });
+  const currentFixture = createFixture({ "mac-helper/src/reintroduced.js": fixtureText("javascriptRisk") });
+  try {
+    const baselineInventory = collectInventory(baselineFixture.root, { trackedFiles: baselineFixture.files });
+    const currentInventory = collectInventory(currentFixture.root, { trackedFiles: currentFixture.files });
+    const result = checkInventory(currentInventory, policy(), { history: historyFor(baselineInventory, { basePolicy: policy() }) });
+    assert.ok(result.violations.some((violation) => violation.includes("childProcessImporters")));
+    assert.ok(result.violations.some((violation) => violation.includes("destructiveFilesystemImporters")));
+  } finally {
+    rmSync(baselineFixture.root, { recursive: true, force: true });
+    rmSync(currentFixture.root, { recursive: true, force: true });
+  }
+});
+
+test("invalid allowlists fail closed", () => {
+  const fixture = createFixture({ "mac-helper/src/clean.js": "export {};\n" });
+  try {
+    const invalidAllowlists = emptyAllowlists();
+    invalidAllowlists.preloadRuntimePatchModules.push({ id: "bad", path: "mac-helper/src/new.js", adr: "README.md", reason: "", owner: "", removalPhase: "", expiresOn: "2000-01-01" });
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    const result = checkInventory(inventory, policy({ allowlists: invalidAllowlists }), { history: historyFor(inventory), today: "2026-08-04" });
+    assert.ok(result.violations.some((violation) => violation.includes("requires an ADR path")));
+    assert.ok(result.violations.some((violation) => violation.includes("future expiresOn")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("allowlist increases require immutable structured entries", () => {
+  const fixture = createFixture({ "mac-helper/src/clean.js": "export {};\n" });
+  try {
+    const baseAllowlists = emptyAllowlists();
+    baseAllowlists.destructiveFilesystemImporters.push(validAllowlist("destructiveFilesystemImporters", "exception", 1));
+    const currentAllowlists = emptyAllowlists();
+    currentAllowlists.destructiveFilesystemImporters.push(validAllowlist("destructiveFilesystemImporters", "exception", 2));
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    const result = checkInventory(inventory, policy({ allowlists: currentAllowlists }), {
+      history: historyFor(inventory, { basePolicy: policy({ allowlists: baseAllowlists }) }),
+    });
+    assert.ok(result.violations.some((violation) => violation.includes("may only be removed")));
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("a valid structured allowlist can authorize one exceptional new module", () => {
+  const baselineFixture = createFixture({ "mac-helper/src/clean.js": "export {};\n" });
+  const currentFixture = createFixture({ "mac-helper/src/neutral.js": fixtureText("aliasedMonkeyPatch") });
+  try {
+    const baselineInventory = collectInventory(baselineFixture.root, { trackedFiles: baselineFixture.files });
+    const currentInventory = collectInventory(currentFixture.root, { trackedFiles: currentFixture.files });
+    const allowlists = emptyAllowlists();
+    allowlists.preloadRuntimePatchModules.push(validAllowlist("preloadRuntimePatchModules", "neutral-exception"));
+    const result = checkInventory(currentInventory, policy({ allowlists }), {
+      history: historyFor(baselineInventory),
+      today: "2026-08-04",
+    });
+    assert.deepEqual(result.violations, []);
+  } finally {
+    rmSync(baselineFixture.root, { recursive: true, force: true });
+    rmSync(currentFixture.root, { recursive: true, force: true });
+  }
+});
+
+test("baseline policy allows existing debt without false failure", () => {
+  const fixture = createFixture({
+    "mac-helper/src/existingPreload.js": fixtureText("javascriptRisk"),
+    "mac-helper/src/existing-large.js": `${Array.from({ length: 801 }, () => "x").join("\n")}\n`,
+    "test/existing.test.js": fixtureText("sourceTextJavaScript"),
+  });
+  try {
+    const inventory = collectInventory(fixture.root, { trackedFiles: fixture.files });
+    const result = checkInventory(inventory, policyForInventory(inventory), { history: historyFor(inventory) });
+    assert.deepEqual(result.violations, []);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+function policy(overrides = {}) {
+  const baseline = overrides.baseline || emptySnapshot();
+  return {
+    version: 2,
+    baselineCommit: overrides.baselineCommit || baselineCommit,
+    baseline,
+    caps: overrides.caps || structuredClone(baseline),
+    allowlists: overrides.allowlists || emptyAllowlists(),
+  };
+}
+
+function policyForInventory(inventory, overrides = {}) {
+  return policy({ baseline: snapshotFromInventory(inventory), ...overrides });
+}
+
+function historyFor(baselineInventory, overrides = {}) {
+  return {
+    baselineCommit,
+    baseCommit,
+    baselineInventory,
+    basePolicy: overrides.basePolicy ?? null,
+    knownFiles: new Set(["docs/internal/adr/ADR-0001-test.md"]),
+  };
+}
+
+function emptySnapshot() {
+  return {
+    preloadRuntimePatchModules: [],
+    childProcessImporters: {},
+    destructiveFilesystemImporters: {},
+    sourceTextImplementationTests: {},
+    oversizedProductionFiles: [],
+  };
+}
+
+function emptyAllowlists() {
+  return {
+    preloadRuntimePatchModules: [],
+    childProcessImporters: [],
+    destructiveFilesystemImporters: [],
+    sourceTextImplementationTests: [],
+    oversizedProductionFiles: [],
+  };
+}
+
+function validAllowlist(category, id, max) {
+  const entry = {
+    id,
+    path: "mac-helper/src/neutral.js",
+    adr: "docs/internal/adr/ADR-0001-test.md",
+    reason: "Temporary compatibility exception for a bounded fixture.",
+    owner: "architecture",
+    removalPhase: "Phase 1",
+    expiresOn: "2026-12-31",
+  };
+  if (max !== undefined) entry.max = max;
+  return entry;
+}
+
+function fixtureText(name) {
+  return JSON.parse(readFileSync(join(fixtureDirectory, "inventory-fixtures.json"), "utf8"))[name];
+}
+
+function gitCommit(...args) {
+  return execFileSync("git", ["-C", process.cwd(), ...args], { encoding: "utf8" }).trim();
+}
+
+function prePushPolicyCommit() {
+  try {
+    return execFileSync("git", ["-C", process.cwd(), "rev-parse", "HEAD^2~1"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return gitCommit("rev-parse", "HEAD~1");
+  }
+}
+
+function createEventFile(payload) {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-event-"));
+  const path = join(root, "event.json");
+  writeFileSync(path, JSON.stringify(payload));
+  return { root, path };
+}
+
+function createFixture(files) {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-architecture-"));
+  for (const [path, content] of Object.entries(files)) {
+    const absolutePath = join(root, path);
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, content);
+  }
+  return { root, files: Object.keys(files).sort() };
+}

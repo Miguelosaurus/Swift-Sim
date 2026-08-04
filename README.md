@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache 2.0 license"></a>
-  <a href="https://github.com/Miguelosaurus/Swift-Sim/actions/workflows/release.yml"><img src="https://github.com/Miguelosaurus/Swift-Sim/actions/workflows/release.yml/badge.svg" alt="Build status"></a>
+  <a href="https://github.com/Miguelosaurus/Swift-Sim/actions/workflows/verify.yml"><img src="https://github.com/Miguelosaurus/Swift-Sim/actions/workflows/verify.yml/badge.svg" alt="Build status"></a>
   <a href="https://testflight.apple.com/join/HMUUFYNK"><img src="https://img.shields.io/badge/TestFlight-Join%20Beta-0A84FF.svg" alt="Join the Swift Sim TestFlight beta"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%2B%20iOS-lightgrey.svg" alt="macOS and iOS">
   <img src="https://img.shields.io/badge/SwiftUI-native-orange.svg" alt="Native SwiftUI companion">

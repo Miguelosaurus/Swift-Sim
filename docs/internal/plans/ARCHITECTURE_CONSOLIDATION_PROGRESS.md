@@ -1,12 +1,12 @@
 # Architecture Consolidation Progress
 
-This file is the compact execution ledger for the architecture program. It is not a substitute for pull-request descriptions or durable ADRs.
+This file is the compact execution ledger for the architecture program. It is not a substitute for pull-request descriptions or durable ADRs. Phase rows record the validated implementation commit, not the final PR head; the exact final PR head is recorded in the PR body and final handoff after the last metadata commit.
 
 ## Program status
 
 | Phase | Scope | Status | PR | Base | Head | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | Not started | — | — | — | — |
+| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 2a2239c validated implementation | Existing architecture debt is baselined; runtime behavior unchanged |
 | 1 | TypeScript and package foundation | Not started | — | — | — | — |
 | 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
 | 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
@@ -46,18 +46,132 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 
 | Metric | Baseline | Current | Target |
 | --- | ---: | ---: | ---: |
-| Production JavaScript files | TBD | TBD | 0 canonical JS files after migration, excluding intentional wrappers |
-| Production TypeScript files | TBD | TBD | Canonical Node implementation |
-| Production Swift files | TBD | TBD | Feature-organized |
-| Preload modules | TBD | TBD | 0 |
-| Built-in monkey patches | TBD | TBD | 0 |
-| Source-text implementation tests | TBD | TBD | 0 |
-| Direct `child_process` production importers | TBD | TBD | Approved infrastructure only |
-| Direct destructive filesystem production importers | TBD | TBD | Approved stores only |
-| Largest Node production file | TBD | TBD | <= 800 lines or ADR |
-| Largest Swift production file | TBD | TBD | <= 800 lines or ADR |
-| Domain JSON stores | TBD | TBD | 0 writable stores after migration window |
-| Node minimum version | TBD | TBD | Supported pinned LTS |
+| Production JavaScript files | 67 | 67 | 0 canonical JS files after migration, excluding intentional wrappers |
+| Production TypeScript files | 0 | 0 | Canonical Node implementation |
+| Production Swift files | 7 | 7 | Feature-organized |
+| Preload/runtime patch modules | 30 | 30 | 0 |
+| Built-in monkey-patch evidence modules | 10 | 10 | 0 |
+| Source-text implementation tests | 28 | 28 | 0 |
+| Direct `child_process` production importer files | 28 | 28 | Approved infrastructure only |
+| Direct destructive filesystem importer files | 26 | 26 | Approved stores only |
+| Largest Node production file | 2,821 (`mac-helper/src/liveReload.js`) | 2,821 | <= 800 lines or ADR |
+| Largest Swift production file | 2,562 (`Companion/SwiftSimCompanion/SessionStore.swift`) | 2,562 | <= 800 lines or ADR |
+| Writable JSON state-store candidates | 29 | 29 | 0 writable stores after migration window |
+| Node minimum version | >=20 | >=20 | Supported pinned LTS |
+
+### Phase 0 — Baseline and architectural guardrails
+
+- Status: Draft PR; implementation and validation complete, unmerged
+- Branch: `agent/architecture-consolidation-phase-0-guardrails`
+- PR: [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23)
+- Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
+- Validated implementation SHA: `2a2239c1e49df83b8b75ddc42a363e73a11f0655` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
+- Dates: 2026-08-04
+- Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
+
+#### Objective
+
+Create a generated architecture inventory and monotonic fitness gate that records existing debt and prevents new preload/runtime-patch modules, direct process/filesystem access, source-text implementation tests, unapproved oversized files, and stale workflow badges. Capture the settled architecture decisions in ADRs and make the internal navigation durable.
+
+#### Invariants touched
+
+- Test integrity
+- Maintainability gates
+- Packaging and release
+- HTTP and contract compatibility (documentation-only verification)
+
+#### Mechanical changes
+
+- Added `scripts/architecture/inventory.js` with deterministic `--json` inventory, Git-history-backed baseline verification, decrease-only caps, and structured ADR/time-bounded allowlists.
+- Added `scripts/architecture/baseline-policy.json` with an immutable snapshot from `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`, current caps, and explicit empty exception lists.
+- Added excluded fixture resources and regression tests in `test/architectureInventory.test.js` for every reviewed bypass, including the real architecture-test path.
+- Made Git-history comparison event-safe: pull requests use `pull_request.base.sha`, pushes use `before`, both are validated against the checked HEAD, local fallback remains deterministic, and a self-resolving merge-base falls back to its parent.
+- Added neutral-filename regressions for CommonJS member extraction and direct `require` assignment, `defineProperty`/`defineProperties`, `Reflect.defineProperty`, and `Object.assign` mutations.
+- Made local preload/runtime import evidence respect static type-only imports while retaining runtime static and dynamic imports.
+- Extended Node risk analysis to `.ts`, `.mts`, and `.cts`; explicitly rejects `.tsx` in the Node production tree.
+- Normalized `node:child_process` and `child_process` across JavaScript and TypeScript ESM, CommonJS, side-effect, and TypeScript import-equals forms into one importer capability.
+- Replaced cross-statement import regexes with a statement-aware lexical scanner that masks comments, strings, and template text while preserving executable template expressions; static imports and requires no longer span unrelated statements.
+- Ignored `typeOnly` bindings during destructive filesystem analysis while retaining runtime promises and write evidence.
+- Made exclusions path-aware so declared production roots remain production inside `fixtures`, `build`, and similar segments while actual generated/test fixture roots remain excluded.
+- Inventoried `.d.ts`, `.d.mts`, and `.d.cts` separately from runtime TypeScript and ignored declaration/type-only imports while preserving mixed runtime imports.
+- Unified child-process and destructive-filesystem enforcement at one capability per production file, including fs-promises variants and imported aliases.
+- Strengthened aliased built-in monkey-patch detection for arbitrary assignments, arrows, prototypes, `defineProperty`/`defineProperties`, `Reflect`, and `Object.assign`.
+- Configured CI checkout with full history so the immutable baseline commit is available to the gate.
+- Added ADR-0001 through ADR-0005 and an ADR index under `docs/internal/adr/`.
+- Linked ADR navigation from `docs/internal/README.md`.
+- Added `npm run check:architecture` to the authoritative `npm run check` path.
+- Corrected the verified README workflow badge target from the absent `release.yml` to `.github/workflows/verify.yml`.
+- Preserved all existing historical review records and the three mandatory checkpoint rows.
+
+#### Behavioral changes
+
+`None` expected. The workflow badge target is documentation metadata only; the helper, CLI, companion, storage, pairing, process, and live-reload behavior were not changed.
+
+#### Old architecture removed
+
+None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migrate storage, remove preloads, replace the analyzer, or refactor the companion.
+
+#### Compatibility layer remaining
+
+- The baseline policy explicitly permits current debt so this phase is behavior-preserving. Its path/count entries are generated from the current tree and may only decrease or be narrowed by later phase PRs.
+- No runtime compatibility layer was added.
+
+#### Metrics
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| JavaScript production files | 67 | 67 |
+| TypeScript production files | 0 | 0 |
+| Swift production files | 7 | 7 |
+| Preload/runtime patch modules | 30 | 30 |
+| Built-in monkey-patch evidence modules | 10 | 10 |
+| Source-text implementation tests | 28 | 28 |
+| Direct process importer files | 28 | 28 |
+| Direct destructive filesystem importer files | 26 | 26 |
+| Writable JSON state-store candidates | 29 | 29 |
+| Largest production file | 2,821 lines (`mac-helper/src/liveReload.js`) | 2,821 lines |
+
+#### Validation
+
+- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`f5bef1075de9ff6531ca140af634b20d1f25951510013f6eb72c261ab8263f45`).
+- Local architecture gate: `node scripts/architecture/inventory.js --check` passed.
+- Focused architecture tests: `node --test --test-concurrency=1 test/architectureInventory.test.js` passed 28/28 using temporary fixture trees and event-shaped Git history metadata.
+- Full Node/release suite: final `npm run check` passed 456/456 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files. An initial run exposed one timing-sensitive `descendant.pid` fixture race; its isolated test and the final standard run both passed.
+- Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
+- Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
+- iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
+- GitHub Actions follow-up: the initial `verify` run exposed a self-match from `test/architectureInventory.test.js`; fixture text now lives under the excluded fixture directory, the whole-file exemption is removed, and the architecture path is explicitly regression-tested.
+- Whitespace: `git diff --check` passed.
+- CI, Homebrew clean-install, physical-device, and release-archive gates were not required or changed by this behavior-preserving guardrail phase; they remain external residuals.
+
+#### Self-review findings
+
+| Severity | Found | Fixed | Remaining |
+| --- | ---: | ---: | ---: |
+| P0 | 0 | 0 | 0 |
+| P1 | 7 | 7 | 0 |
+| P2 | 6 | 6 | 0 |
+| P3 | 1 | 1 | 0 |
+
+Self-review fixed the full review set: the original patch-evidence predicate was too broad, local preload imports were not initially included, the release-contract test expected the pre-gate `npm run check` string, the guard test self-matched, the policy baseline was editable authority, TypeScript was unscanned, fs-promises and aliases were missed, monkey-patch aliases bypassed detection, metadata used ambiguous head terminology, unprefixed child-process forms bypassed detection, segment-wide exclusions hid production paths, declarations/type-only imports were treated as runtime, imports could span statements and lexical lookalikes could influence capability evidence, destructive analysis did not skip type-only bindings, GitHub event comparison could select the wrong history, CommonJS member extraction and direct require mutations were incomplete, and type-only local preload/runtime imports were misclassified. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline inflation, immutable baseline authority, cap reductions, removed-debt reintroduction, allowlist expiry/ADR validation, event-shaped pull-request and push history, TypeScript extensions, declaration and type-only semantics, one-capability enforcement, normalized child-process forms, path-aware fixture/build exclusions, neutral filenames, comments/strings/templates, semicolonless and multiline imports, template expressions, fixture exclusion, Git-history availability in CI, direct CommonJS member/mutation forms, and accidental runtime changes.
+
+#### Migration and rollback
+
+- Migration performed: None.
+- Backup location/format: Not applicable.
+- Rollback procedure: revert the Phase 0 PR; no user state or runtime data is touched.
+- Irreversible changes: None.
+
+#### Residual risks
+
+- Existing preloads, direct infrastructure imports, writable JSON records, oversized files, and source-text tests remain intentionally capped for later phases; removed entries cannot be reintroduced without a new structured exception.
+- The inventory uses a documented statement-aware lexical scanner for ESM imports, TypeScript import-equals, and CommonJS `require` calls; comments, strings, and template text are ignored, executable template expressions are scanned, and dynamic imports/computed requires or computed CommonJS member chains are not classified until a later AST-aware enforcement phase. GitHub pull-request and push event metadata is preferred and validated; deterministic local Git fallback remains for local execution.
+- `.tsx` is explicitly prohibited in the Node production tree rather than treated as a supported runtime source.
+- No physical-device behavior gate is required because Phase 0 makes no product behavior change.
+
+#### Next phase
+
+After this draft PR is reviewed and merged, create a fresh Phase 1 branch from current `main` for the TypeScript/compiler/package foundation. Do not begin Phase 1 in this turn.
 
 ## Phase entry template
 
@@ -153,11 +267,11 @@ Durable architecture decisions belong in ADR files. Add links here when created.
 
 | ADR | Decision | Status |
 | --- | --- | --- |
-| TBD | TypeScript build and runtime model | Planned |
-| TBD | Explicit process and filesystem infrastructure ports | Planned |
-| TBD | SQLite domain state / filesystem runtime journal split | Planned |
-| TBD | SwiftSyntax analyzer boundary | Planned |
-| TBD | Companion feature-state architecture | Planned |
+| [ADR-0001](../adr/ADR-0001-typescript-compile-to-dist.md) | TypeScript build and runtime model | Accepted |
+| [ADR-0002](../adr/ADR-0002-explicit-infrastructure-ports.md) | Explicit process and filesystem infrastructure ports | Accepted |
+| [ADR-0003](../adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md) | SQLite domain state / filesystem runtime journal split | Accepted |
+| [ADR-0004](../adr/ADR-0004-swift-analyzer-boundary.md) | SwiftSyntax analyzer boundary | Accepted |
+| [ADR-0005](../adr/ADR-0005-companion-feature-architecture.md) | Companion feature-state architecture | Accepted |
 
 ## Final completion record
 
