@@ -11,7 +11,10 @@ You are beginning the architecture-consolidation program. Read these files compl
 - `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_MASTER_PLAN.md`
 - `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_INVARIANTS.md`
 - `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_EXECUTION_GUIDE.md`
+- `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md`
 - `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md`
+
+The checkpoint protocol is mandatory. It requires hard stops after Phases 2, 5, and 8. The checkpoint phase must remain draft and unmerged while Miguel returns an independent architecture review. Do not weaken, omit, or reinterpret those stops in later phase prompts.
 
 Execute **Phase 0 — Baseline and architectural guardrails only**.
 
@@ -98,7 +101,7 @@ Do not copy the entire master plan into every ADR.
 
 ### 4. Documentation navigation
 
-Update internal documentation navigation to link the architecture program, ADRs, and progress ledger clearly.
+Update internal documentation navigation to link the architecture program, ADRs, checkpoint protocol/templates, and progress ledger clearly.
 
 Keep review-round records under an explicitly historical section. Do not delete them in Phase 0.
 
@@ -120,6 +123,30 @@ Update `ARCHITECTURE_CONSOLIDATION_PROGRESS.md` with generated baseline metrics 
 - self-review findings;
 - residuals;
 - exact next step for Phase 1.
+
+Add a mandatory checkpoint status section with these rows:
+
+```text
+Checkpoint 1 — after Phase 2, before merge / Phase 3: pending
+Checkpoint 2 — after Phase 5, before merge / Phase 6: pending
+Checkpoint 3 — after Phase 8, before merge / Phase 9: pending
+```
+
+Each row must eventually record the checkpoint PR/head, review received state, required-correction state, Miguel approval state, and authorized next phase. A phase prompt may not claim authorization unless the corresponding row records it.
+
+### 7. Future phase prompt governance
+
+Any Phase 1 or later handoff prompt created in Phase 0 must:
+
+- require reading the checkpoint protocol;
+- preserve the exact three scheduled checkpoint triggers;
+- tell the agent to stop early for the emergency conditions in that protocol;
+- prohibit beginning the next phase in the same turn as a checkpoint;
+- require the checkpoint phase PR to remain draft and unmerged;
+- require creation of the actual current-state checkpoint report and pasteable review prompt from the appropriate template;
+- prohibit treating CI or self-review as checkpoint approval.
+
+Do not pre-fill future checkpoint prompts with guessed state. Only the checkpoint templates are static; the executing agent must create the current-state prompt from actual GitHub state at each stop.
 
 ## Required tests
 
@@ -163,7 +190,8 @@ Review for:
 - platform-dependent path ordering;
 - check behavior that differs locally and in CI;
 - stale documentation links;
-- accidental behavior changes in package scripts.
+- accidental behavior changes in package scripts;
+- checkpoint language that accidentally permits continuation without Miguel's approval.
 
 Fix all P0/P1/P2 findings introduced or exposed by this phase.
 
@@ -181,7 +209,9 @@ Do not:
 - introduce broad lint/format churn;
 - commit generated local diagnostics or absolute paths;
 - add temporary workflows or source transformers and leave them in the branch;
-- ask for another open-ended review round.
+- ask for another open-ended review round;
+- remove, move, combine, or weaken the three mandatory checkpoints;
+- begin work past a checkpoint while its progress-ledger status is pending or not authorized.
 
 ## Final report
 
@@ -193,6 +223,7 @@ Return:
 - files added/changed;
 - validation results;
 - self-review severity table;
+- checkpoint-governance files/ledger status;
 - residual risks;
 - a concise Phase 1 handoff recommendation.
 
