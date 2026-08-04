@@ -6,7 +6,7 @@ This file is the compact execution ledger for the architecture program. It is no
 
 | Phase | Scope | Status | PR | Base | Head | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | In progress | Draft PR pending | 4dfa15f | pending | Existing architecture debt is baselined; runtime behavior unchanged |
+| 0 | Baseline and guardrails | Draft PR | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 2ea815c | Existing architecture debt is baselined; runtime behavior unchanged |
 | 1 | TypeScript and package foundation | Not started | — | — | — | — |
 | 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
 | 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
@@ -61,11 +61,11 @@ Populate these in Phase 0 from generated repository inspection rather than memor
 
 ### Phase 0 — Baseline and architectural guardrails
 
-- Status: Draft PR preparation; implementation and validation complete
+- Status: Draft PR; implementation and validation complete, unmerged
 - Branch: `agent/architecture-consolidation-phase-0-guardrails`
-- PR: Draft PR pending creation
+- PR: [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23)
 - Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
-- Head SHA: Pending final commit; the final handoff will record the exact branch head
+- Head SHA: `2ea815ce7d64a917c8223244dc4785b8f0275cc3` (implementation commit; ledger metadata follows in this PR)
 - Dates: 2026-08-04
 - Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
 
