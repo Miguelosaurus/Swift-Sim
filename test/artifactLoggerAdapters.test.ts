@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,6 +35,22 @@ test("NodeArtifactStore requires containment approval and blocks traversal and s
     (error: unknown) => hasCode(error, "SWIFT_SIM_ARTIFACT_PATH_INVALID"),
   );
   assert.equal((await stat(outsideFile)).size, 4);
+});
+
+test("NodeArtifactStore rejects an approved path after its private root is replaced", async (t) => {
+  const workspace = await mkdtemp(join(tmpdir(), "swift-sim-artifact-root-swap-"));
+  t.after(async () => rm(workspace, { recursive: true, force: true }));
+  const root = join(workspace, "private-artifacts");
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const store = new NodeArtifactStore();
+  const artifact = store.resolveContained(root, "late.ipa");
+
+  await rename(root, `${root}.original`);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  assert.throws(
+    () => store.writeSync(artifact, "must-not-write", artifactWrite),
+    (error: unknown) => hasCode(error, "SWIFT_SIM_ARTIFACT_PATH_INVALID"),
+  );
 });
 
 test("NodeArtifactStore reads, replaces, and removes only approved paths", async (t) => {
@@ -120,6 +136,13 @@ test("StructuredLogger emits deterministic bounded records and redacts secrets",
       },
       clock,
     }).log("error", "logger.sink.failed"),
+  );
+  assert.doesNotThrow(() =>
+    logger.log("warn", "logger.field.failed", {
+      get unstable() {
+        throw new Error("field getter failed");
+      },
+    }),
   );
 });
 
