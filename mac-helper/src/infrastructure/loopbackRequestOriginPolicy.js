@@ -1,11 +1,15 @@
 // @ts-check
 import { URL } from "node:url";
 
-/** @implements {import("./ports.js").RequestOriginPolicy} */
+/** @typedef {import("./ports.js").RequestOriginPolicy} RequestOriginPolicy */
+/** @typedef {import("./ports.js").RequestOriginInput} RequestOriginInput */
+/** @typedef {import("./ports.js").RequestOriginDecision} RequestOriginDecision */
+
+/** @implements {RequestOriginPolicy} */
 export class LoopbackRequestOriginPolicy {
   /**
-   * @param {import("./ports.js").RequestOriginInput} input
-   * @returns {import("./ports.js").RequestOriginDecision}
+   * @param {RequestOriginInput} input
+   * @returns {RequestOriginDecision}
    */
   evaluate(input) {
     const requestIsLoopback = isLoopbackAddress(input.socketRemoteAddress);
