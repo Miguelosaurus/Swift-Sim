@@ -128,6 +128,7 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 - Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
 - Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
 - iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
+- GitHub Actions follow-up: the initial `verify` run exposed a self-match from `test/architectureInventory.test.js`; the inventory now excludes that intentional scanner-fixture test from the source-text implementation metric while retaining fixture coverage for real implementation tests.
 - Whitespace: `git diff --check` passed.
 - CI, Homebrew clean-install, physical-device, and release-archive gates were not required or changed by this behavior-preserving guardrail phase; they remain external residuals.
 
@@ -136,11 +137,11 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
 | P0 | 0 | 0 | 0 |
-| P1 | 0 | 0 | 0 |
+| P1 | 1 | 1 | 0 |
 | P2 | 3 | 3 | 0 |
 | P3 | 0 | 0 | 0 |
 
-Self-review fixed three bounded issues before publication: the initial patch-evidence predicate was too broad, local preload imports were not initially included in the module inventory, and the existing release-contract test expected the pre-gate `npm run check` string. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline gaming, path-order determinism, package-entrypoint normalization, stale-link detection, generated-file exclusion, and accidental package/runtime changes.
+Self-review fixed four bounded issues before publication: the initial patch-evidence predicate was too broad, local preload imports were not initially included in the module inventory, the existing release-contract test expected the pre-gate `npm run check` string, and the architecture guard test was self-counted as a new source-text implementation test in CI. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline gaming, path-order determinism, package-entrypoint normalization, stale-link detection, generated-file exclusion, guard-test exclusions, and accidental package/runtime changes.
 
 #### Migration and rollback
 

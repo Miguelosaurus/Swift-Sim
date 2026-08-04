@@ -25,6 +25,7 @@ const productionJavaScriptPattern = /^(?:mac-helper\/(?:src|bin)\/).+\.(?:js|mjs
 const productionTypeScriptPattern = /^(?:mac-helper\/(?:src|bin)\/).+\.ts$/;
 const productionSwiftPattern = /^(?:Companion\/SwiftSimCompanion|Sources)\/.+\.swift$/;
 const testPattern = /^(?:test|benchmarks\/test|Companion\/SwiftSimCompanionTests)\/.+/;
+const architectureInventoryTestPath = "test/architectureInventory.test.js";
 const markdownPattern = /(?:^|\/)README\.md$|\.md$/;
 const preloadRuntimeNamePattern = /(?:preload|runtimeboundary|hardenedruntime|childruntime|fetchboundary|artifactcleanupboundary|devicebuildcapabilityboundary|helperhttpboundary)/i;
 const importPattern = /\bimport\s+(?:(?<clause>[\s\S]*?)\s+from\s+)?["'](?<module>node:child_process|node:fs|fs)["']/g;
@@ -35,7 +36,7 @@ const pathRules = {
   productionJavaScript: "mac-helper/src/**/*.js and mac-helper/bin/**/*.js; tracked only",
   productionTypeScript: "mac-helper/src/**/*.ts and mac-helper/bin/**/*.ts; tracked only",
   productionSwift: "Companion/SwiftSimCompanion/**/*.swift and Sources/**/*.swift; tracked only",
-  tests: "test/**, benchmarks/test/**, and Companion/SwiftSimCompanionTests/**; tracked only",
+  tests: "test/**, benchmarks/test/**, and Companion/SwiftSimCompanionTests/**; tracked only; architectureInventory.test.js excluded from source-text metric because it contains intentional scanner fixtures",
   documentation: "tracked Markdown files outside excluded directories",
   excluded: "generated output, dependencies, .git, build products, benchmark results, and fixture directories",
   importScanner: "static ESM import declarations and CommonJS require calls; dynamic imports and computed requires are not classified",
@@ -87,7 +88,7 @@ export function collectInventory(root, options = {}) {
   const directGlobalFetchUses = productionJavaScriptDetails.flatMap((detail) => detail.directGlobalFetchUses);
   const writableJSONDomainStateStores = productionJavaScriptDetails.flatMap((detail) => detail.writableJSONDomainStateStores);
   const sourceTextImplementationTests = sourceFiles
-    .filter((file) => testPattern.test(file) && /\.(?:js|mjs|cjs|swift)$/.test(file))
+    .filter((file) => testPattern.test(file) && file !== architectureInventoryTestPath && /\.(?:js|mjs|cjs|swift)$/.test(file))
     .map((file) => analyzeTest(file, read(file)))
     .filter(Boolean);
   const packageEntrypoints = packageEntrypointsFor(root, trackedFiles, read);
