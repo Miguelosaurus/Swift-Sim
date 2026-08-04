@@ -1,7 +1,9 @@
 // @ts-check
 import { setTimeout as delay } from "node:timers/promises";
 
-/** @implements {import("./ports.js").Clock} */
+/** @typedef {import("./ports.js").Clock} Clock */
+
+/** @implements {Clock} */
 export class SystemClock {
   /** @returns {Date} */
   now() {
