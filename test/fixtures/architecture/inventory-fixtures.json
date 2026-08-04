@@ -1,0 +1,9 @@
+{
+  "javascriptRisk": "import { spawn } from \"node:child_process\";\nimport { writeFileSync } from \"node:fs\";\nwriteFileSync(\"state.json\", JSON.stringify({ ready: true }));\nspawn(process.execPath, []);\nfetch(\"https://example.test\");\n",
+  "typescriptRisk": "import * as childProcess from \"node:child_process\";\nimport * as nodeFs from \"node:fs\";\nnodeFs.promises.writeFile(\"state.json\", JSON.stringify({ ready: true }));\nchildProcess.spawn(process.execPath, []);\nfetch(\"https://example.test\");\n",
+  "tsxRisk": "export const component = <View />;\n",
+  "promisesVariants": "import { writeFile } from \"node:fs/promises\";\nimport * as fsPromises from \"fs/promises\";\nimport { promises as aliasedPromises } from \"node:fs\";\nimport * as nodeFs from \"node:fs\";\nwriteFile(\"one.json\", \"one\");\nfsPromises.rm(\"two.json\");\naliasedPromises.rename(\"a\", \"b\");\nnodeFs.promises.mkdir(\"three\");\n",
+  "aliasedMonkeyPatch": "import * as nodeFs from \"node:fs\";\nimport { promises as fsPromises } from \"node:fs\";\nnodeFs.rmSync = namedReplacement;\nfsPromises.writeFile = () => Promise.resolve();\nnodeFs.prototype.writeFile = namedReplacement;\nObject.defineProperty(nodeFs, \"rmSync\", { value: namedReplacement });\nObject.defineProperties(fsPromises, { writeFile: { value: namedReplacement } });\nObject.assign(nodeFs, { mkdirSync: namedReplacement });\n",
+  "sourceTextJavaScript": "import { readFileSync } from \"node:fs\";\nconst source = readFileSync(\"../mac-helper/src/app.js\", \"utf8\");\nassert.match(source, /value/);\n",
+  "sourceTextTypeScript": "import { readFileSync } from \"node:fs\";\nconst source = readFileSync(\"../mac-helper/src/app.ts\", \"utf8\");\nexpect(source).toContain(\"value\");\n"
+}

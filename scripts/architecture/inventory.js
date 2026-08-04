@@ -8,7 +8,17 @@ import { spawnSync } from "node:child_process";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = join(scriptDirectory, "../..");
 const policyPath = join(scriptDirectory, "baseline-policy.json");
+const policyRepositoryPath = "scripts/architecture/baseline-policy.json";
 const MAX_PRODUCTION_LINES_WITHOUT_ADR = 800;
+const policyCategories = [
+  "preloadRuntimePatchModules",
+  "childProcessImporters",
+  "destructiveFilesystemImporters",
+  "sourceTextImplementationTests",
+  "oversizedProductionFiles",
+];
+const setCategories = new Set(["preloadRuntimePatchModules", "oversizedProductionFiles"]);
+const mapCategories = new Set(policyCategories.filter((category) => !setCategories.has(category)));
 const destructiveFilesystemApis = new Set([
   "appendFile", "appendFileSync", "chmod", "chmodSync", "chown", "chownSync",
   "copyFile", "copyFileSync", "cp", "cpSync", "fchmod", "fchmodSync", "fchown", "fchownSync",
@@ -22,24 +32,29 @@ const excludedDirectories = new Set([
   "__fixtures__", "results",
 ]);
 const productionJavaScriptPattern = /^(?:mac-helper\/(?:src|bin)\/).+\.(?:js|mjs|cjs)$/;
-const productionTypeScriptPattern = /^(?:mac-helper\/(?:src|bin)\/).+\.ts$/;
+const productionTypeScriptPattern = /^(?:mac-helper\/(?:src|bin)\/).+\.(?:ts|mts|cts)$/;
+const unsupportedNodeTypeScriptPattern = /^(?:mac-helper\/(?:src|bin)\/)\S+\.tsx$/;
 const productionSwiftPattern = /^(?:Companion\/SwiftSimCompanion|Sources)\/.+\.swift$/;
 const testPattern = /^(?:test|benchmarks\/test|Companion\/SwiftSimCompanionTests)\/.+/;
-const architectureInventoryTestPath = "test/architectureInventory.test.js";
+const sourceTextTestExtensionPattern = /\.(?:js|mjs|cjs|ts|mts|cts|tsx|swift)$/;
 const markdownPattern = /(?:^|\/)README\.md$|\.md$/;
 const preloadRuntimeNamePattern = /(?:preload|runtimeboundary|hardenedruntime|childruntime|fetchboundary|artifactcleanupboundary|devicebuildcapabilityboundary|helperhttpboundary)/i;
-const importPattern = /\bimport\s+(?:(?<clause>[\s\S]*?)\s+from\s+)?["'](?<module>node:child_process|node:fs|fs)["']/g;
-const sideEffectImportPattern = /\bimport\s+["'](?<module>node:child_process|node:fs|fs)["']/g;
-const requirePattern = /\brequire\s*\(\s*["'](?<module>node:child_process|node:fs|fs)["']\s*\)/g;
+const monitoredModulePattern = /^(?:node:)?(?:child_process|fs|fs\/promises)$/;
+const importPattern = /\bimport\s+(?:(?<clause>[\s\S]*?)\s+from\s+)?["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']/g;
+const sideEffectImportPattern = /\bimport\s+["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']/g;
+const requirePattern = /\brequire\s*\(\s*["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']\s*\)/g;
+const importEqualsPattern = /\bimport\s+(?<local>[A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["'](?<module>node:child_process|node:fs\/promises|fs\/promises|node:fs|fs)["']\s*\)/g;
 
 const pathRules = {
   productionJavaScript: "mac-helper/src/**/*.js and mac-helper/bin/**/*.js; tracked only",
-  productionTypeScript: "mac-helper/src/**/*.ts and mac-helper/bin/**/*.ts; tracked only",
+  productionTypeScript: "mac-helper/src/**/*.ts, *.mts, and *.cts; tracked only",
+  unsupportedNodeTypeScript: "mac-helper/src/**/*.tsx and mac-helper/bin/**/*.tsx are explicitly prohibited",
   productionSwift: "Companion/SwiftSimCompanion/**/*.swift and Sources/**/*.swift; tracked only",
-  tests: "test/**, benchmarks/test/**, and Companion/SwiftSimCompanionTests/**; tracked only; architectureInventory.test.js excluded from source-text metric because it contains intentional scanner fixtures",
+  tests: "test/**, benchmarks/test/**, and Companion/SwiftSimCompanionTests/**; tracked only",
   documentation: "tracked Markdown files outside excluded directories",
   excluded: "generated output, dependencies, .git, build products, benchmark results, and fixture directories",
-  importScanner: "static ESM import declarations and CommonJS require calls; dynamic imports and computed requires are not classified",
+  importScanner: "static ESM imports, TypeScript import-equals, and CommonJS require calls; dynamic imports and computed requires are not classified",
+  enforcementUnit: "one capability/importer per production file; evidence lists APIs and lines without changing the enforcement count",
 };
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -47,7 +62,9 @@ if (fileURLToPath(import.meta.url) === process.argv[1]) {
   if (command === "--json") {
     console.log(JSON.stringify(collectInventory(repositoryRoot), null, 2));
   } else if (command === "--check") {
-    const result = checkInventory(collectInventory(repositoryRoot), JSON.parse(readFileSync(policyPath, "utf8")));
+    const policy = JSON.parse(readFileSync(policyPath, "utf8"));
+    const inventory = collectInventory(repositoryRoot);
+    const result = checkInventory(inventory, policy, { root: repositoryRoot });
     if (result.violations.length > 0) {
       for (const violation of result.violations) console.error(`Architecture check: ${violation}`);
       process.exitCode = 1;
@@ -65,11 +82,14 @@ export function collectInventory(root, options = {}) {
   const sourceFiles = trackedFiles.filter((file) => !isExcluded(file));
   const productionJavaScriptFiles = sourceFiles.filter((file) => productionJavaScriptPattern.test(file));
   const productionTypeScriptFiles = sourceFiles.filter((file) => productionTypeScriptPattern.test(file));
+  const unsupportedNodeFiles = sourceFiles.filter((file) => unsupportedNodeTypeScriptPattern.test(file));
   const productionSwiftFiles = sourceFiles.filter((file) => productionSwiftPattern.test(file));
-  const productionSourceFiles = [...productionJavaScriptFiles, ...productionTypeScriptFiles, ...productionSwiftFiles].sort();
+  const productionNodeFiles = [...productionJavaScriptFiles, ...productionTypeScriptFiles].sort();
+  const productionSourceFiles = [...productionNodeFiles, ...productionSwiftFiles].sort();
+  const fileReader = options.readFile || ((file) => readFileSync(join(root, file), "utf8"));
   const contents = new Map();
   const read = (file) => {
-    if (!contents.has(file)) contents.set(file, readFileSync(join(root, file), "utf8"));
+    if (!contents.has(file)) contents.set(file, fileReader(file));
     return contents.get(file);
   };
 
@@ -78,24 +98,27 @@ export function collectInventory(root, options = {}) {
     language: languageFor(file),
     lines: lineCount(read(file)),
   }));
-  const productionJavaScriptDetails = productionJavaScriptFiles.map((file) => analyzeJavaScriptModule(file, read(file)));
-  const allProductionJavaScript = productionJavaScriptDetails.map((detail) => detail.path);
-  const preloadRuntimePatchModules = productionJavaScriptDetails
+  const productionNodeDetails = productionNodeFiles.map((file) => analyzeNodeModule(file, read(file)));
+  const preloadRuntimePatchModules = productionNodeDetails
     .filter((detail) => detail.preloadRuntimeReasons.length > 0)
     .map((detail) => ({ path: detail.path, reasons: detail.preloadRuntimeReasons }));
-  const childProcessImports = productionJavaScriptDetails.flatMap((detail) => detail.childProcessImports);
-  const destructiveFilesystemImports = productionJavaScriptDetails.flatMap((detail) => detail.destructiveFilesystemImports);
-  const directGlobalFetchUses = productionJavaScriptDetails.flatMap((detail) => detail.directGlobalFetchUses);
-  const writableJSONDomainStateStores = productionJavaScriptDetails.flatMap((detail) => detail.writableJSONDomainStateStores);
+  const childProcessImports = productionNodeDetails
+    .map((detail) => detail.childProcessImporter)
+    .filter(Boolean);
+  const destructiveFilesystemImports = productionNodeDetails
+    .map((detail) => detail.destructiveFilesystemImporter)
+    .filter(Boolean);
+  const directGlobalFetchUses = productionNodeDetails.flatMap((detail) => detail.directGlobalFetchUses);
+  const writableJSONDomainStateStores = productionNodeDetails.flatMap((detail) => detail.writableJSONDomainStateStores);
   const sourceTextImplementationTests = sourceFiles
-    .filter((file) => testPattern.test(file) && file !== architectureInventoryTestPath && /\.(?:js|mjs|cjs|swift)$/.test(file))
+    .filter((file) => testPattern.test(file) && sourceTextTestExtensionPattern.test(file))
     .map((file) => analyzeTest(file, read(file)))
     .filter(Boolean);
   const packageEntrypoints = packageEntrypointsFor(root, trackedFiles, read);
   const workflowBadgeTargets = workflowBadgesFor(root, sourceFiles, read);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     pathRules,
     productionFileCounts: {
       javascript: productionJavaScriptFiles.length,
@@ -104,6 +127,7 @@ export function collectInventory(root, options = {}) {
       total: productionSourceFiles.length,
     },
     productionFiles: productionFileDetails.sort((a, b) => a.path.localeCompare(b.path)),
+    unsupportedNodeFiles: unsupportedNodeFiles.sort(),
     largestProductionFiles: [...productionFileDetails]
       .sort((a, b) => b.lines - a.lines || a.path.localeCompare(b.path))
       .slice(0, 20),
@@ -117,75 +141,261 @@ export function collectInventory(root, options = {}) {
     workflowBadgeTargets: workflowBadgeTargets.sort(compareEvidence),
     generatedFrom: {
       trackedFiles: sourceFiles.length,
-      productionJavaScriptFiles: allProductionJavaScript.length,
+      productionNodeFiles: productionNodeFiles.length,
     },
   };
 }
 
-export function checkInventory(inventory, policy) {
+export function collectInventoryAtCommit(root, commit) {
+  assertCommitExists(root, commit);
+  const trackedFiles = gitOutput(root, ["ls-tree", "-r", "--name-only", "-z", commit]).split("\0").filter(Boolean).sort();
+  const cache = new Map();
+  return collectInventory(root, {
+    trackedFiles,
+    readFile(file) {
+      if (!cache.has(file)) cache.set(file, gitOutput(root, ["show", `${commit}:${file}`]));
+      return cache.get(file);
+    },
+  });
+}
+
+export function checkInventory(inventory, policy, options = {}) {
   const violations = [];
-  const baselineModules = new Set(policy.preloadRuntimePatchModules || []);
-  const allowedModules = new Set(policy.allowlists?.preloadRuntimePatchModules || []);
-  for (const module of inventory.preloadRuntimePatchModules) {
-    if (!baselineModules.has(module.path) && !allowedModules.has(module.path)) {
-      violations.push(`new preload/runtime patch module ${module.path}`);
+  const normalized = normalizePolicy(policy);
+  if (normalized.errors.length > 0) violations.push(...normalized.errors);
+  let history = options.history || null;
+  if (!history && options.root && normalized.policy) {
+    try {
+      history = createHistoryContext(options.root, normalized.policy);
+    } catch (error) {
+      violations.push(error instanceof Error ? error.message : String(error));
     }
   }
 
-  compareImporterCounts(
-    violations,
-    "child-process importer",
-    inventory.childProcessImports,
-    policy.childProcessImporters || {},
-    policy.allowlists?.childProcessImporters || {},
-  );
-  compareImporterCounts(
-    violations,
-    "destructive filesystem importer",
-    inventory.destructiveFilesystemImports,
-    policy.destructiveFilesystemImporters || {},
-    policy.allowlists?.destructiveFilesystemImporters || {},
-  );
-  compareImporterCounts(
-    violations,
-    "source-text implementation test",
-    inventory.sourceTextImplementationTests,
-    policy.sourceTextImplementationTests || {},
-    policy.allowlists?.sourceTextImplementationTests || {},
-  );
+  if (history && normalized.policy) {
+    violations.push(...verifyPolicyHistory(normalized.policy, history, options));
+  }
 
-  const baselineOversized = new Set(policy.oversizedProductionFiles || []);
-  const allowedOversized = new Set(Object.keys(policy.allowlists?.oversizedProductionFiles || {}));
-  for (const file of inventory.productionFiles.filter((entry) => entry.lines > MAX_PRODUCTION_LINES_WITHOUT_ADR)) {
-    if (!baselineOversized.has(file.path) && !allowedOversized.has(file.path)) {
-      violations.push(`new production file exceeds ${MAX_PRODUCTION_LINES_WITHOUT_ADR} lines without an ADR allowlist entry: ${file.path}`);
+  if (normalized.policy) {
+    violations.push(...validateAllowlistEntries(normalized.policy.allowlists, options));
+    violations.push(...compareCurrentInventory(inventory, normalized.policy, options));
+  }
+
+  if (inventory.unsupportedNodeFiles.length > 0) {
+    for (const file of inventory.unsupportedNodeFiles) {
+      violations.push(`unsupported Node production extension .tsx: ${file}`);
     }
   }
 
-  for (const badge of inventory.workflowBadgeTargets.filter((entry) => !entry.exists)) {
-    violations.push(`stale workflow badge target ${badge.path}:${badge.line} -> ${badge.workflow}`);
-  }
-
-  return { inventory, violations };
+  return { inventory, violations: [...new Set(violations)] };
 }
 
-function compareImporterCounts(violations, label, entries, baselineCounts, allowlist) {
-  const currentCounts = countByPath(entries);
-  for (const [path, count] of Object.entries(currentCounts)) {
-    const baseline = Number(baselineCounts[path] || 0);
-    const allowed = Number(allowlist[path] || 0);
-    if (count > baseline + allowed) violations.push(`new ${label} call site(s) in ${path}: baseline ${baseline}, current ${count}`);
+function normalizePolicy(policy) {
+  const errors = [];
+  if (!policy || policy.version !== 2) errors.push("policy version must be 2");
+  if (!policy || !/^[0-9a-f]{40}$/.test(policy.baselineCommit || "")) {
+    errors.push("baselineCommit must be a full 40-character commit SHA");
   }
+  if (!policy?.baseline || !policy?.caps || !policy?.allowlists) {
+    errors.push("policy must contain baseline, caps, and allowlists sections");
+    return { errors, policy: null };
+  }
+  for (const category of policyCategories) {
+    if (!(category in policy.baseline)) errors.push(`baseline is missing ${category}`);
+    if (!(category in policy.caps)) errors.push(`caps is missing ${category}`);
+    if (!(category in policy.allowlists)) errors.push(`allowlists is missing ${category}`);
+  }
+  return { errors, policy: errors.length > 0 ? null : policy };
 }
 
-function analyzeJavaScriptModule(path, source) {
+function createHistoryContext(root, policy) {
+  const baselineCommit = policy.baselineCommit;
+  const baseCommit = resolveBaseCommit(root, baselineCommit);
+  return {
+    root,
+    baselineCommit,
+    baseCommit,
+    baselineInventory: collectInventoryAtCommit(root, baselineCommit),
+    basePolicy: readPolicyAtCommit(root, baseCommit),
+    knownFiles: new Set(normalizeTrackedFiles(root)),
+  };
+}
+
+function verifyPolicyHistory(policy, history, options) {
+  const violations = [];
+  if (!history.baselineInventory) {
+    violations.push("baseline inventory could not be generated from baselineCommit");
+    return violations;
+  }
+  const expectedBaseline = snapshotFromInventory(history.baselineInventory);
+  if (!sameValue(policy.baseline, expectedBaseline)) {
+    violations.push("baseline sections do not match generated inventory at baselineCommit");
+  }
+  if (history.basePolicy) {
+    if (policy.baselineCommit !== history.basePolicy.baselineCommit) {
+      violations.push("baselineCommit changed from the PR base policy");
+    }
+    if (!sameValue(policy.baseline, history.basePolicy.baseline)) {
+      violations.push("baseline snapshot is immutable and cannot change from the PR base policy");
+    }
+    violations.push(...compareCapsMonotonic(policy.caps, history.basePolicy.caps));
+    violations.push(...compareAllowlistsMonotonic(policy.allowlists, history.basePolicy.allowlists));
+  } else if (policy.baselineCommit !== history.baseCommit) {
+    violations.push("a new policy must anchor baselineCommit to the PR merge-base");
+  }
+  if (policy.baselineCommit !== history.baselineCommit) {
+    violations.push("baselineCommit does not match the policy being checked");
+  }
+  return violations;
+}
+
+function compareCurrentInventory(inventory, policy, options) {
+  const violations = [];
+  const allowlists = indexAllowlists(policy.allowlists);
+  const current = snapshotFromInventory(inventory);
+
+  for (const category of policyCategories) {
+    if (setCategories.has(category)) {
+      const caps = new Set(policy.caps[category]);
+      const observed = new Set(current[category]);
+      for (const path of caps) {
+        if (!observed.has(path)) violations.push(`stale ${category} cap for removed debt ${path}`);
+      }
+      for (const path of observed) {
+        if (!caps.has(path) && !allowlists[category].has(path)) {
+          violations.push(`new ${category} ${path} is not in caps or a structured allowlist`);
+        }
+      }
+    } else {
+      const caps = policy.caps[category];
+      const observed = current[category];
+      for (const [path, cap] of Object.entries(caps)) {
+        const count = Number(observed[path] || 0);
+        if (count < Number(cap)) violations.push(`stale ${category} cap for removed debt ${path}: cap ${cap}, current ${count}`);
+      }
+      for (const [path, count] of Object.entries(observed)) {
+        const cap = Number(caps[path] || 0);
+        const exception = allowlists[category].get(path);
+        const allowed = exception && Number.isInteger(exception.max) && exception.max >= count;
+        if (count > cap && !allowed) {
+          violations.push(`new ${category} capability in ${path}: cap ${cap}, current ${count}`);
+        }
+      }
+    }
+  }
+
+  for (const entry of inventory.workflowBadgeTargets.filter((candidate) => !candidate.exists)) {
+    violations.push(`stale workflow badge target ${entry.path}:${entry.line} -> ${entry.workflow}`);
+  }
+  return violations;
+}
+
+function validateAllowlistEntries(allowlists, options) {
+  const violations = [];
+  const today = options.today || new Date().toISOString().slice(0, 10);
+  const knownFiles = options.history?.knownFiles || (options.root ? new Set(normalizeTrackedFiles(options.root)) : null);
+  for (const category of policyCategories) {
+    const entries = allowlists[category];
+    if (!Array.isArray(entries)) {
+      violations.push(`allowlists.${category} must be an array of structured entries`);
+      continue;
+    }
+    const ids = new Set();
+    const paths = new Set();
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") {
+        violations.push(`invalid ${category} allowlist entry`);
+        continue;
+      }
+      if (!entry.id || typeof entry.id !== "string" || ids.has(entry.id)) violations.push(`allowlist ${category} entries require unique ids`);
+      ids.add(entry.id);
+      if (!entry.path || typeof entry.path !== "string" || paths.has(entry.path)) violations.push(`allowlist ${category} entries require unique paths`);
+      paths.add(entry.path);
+      if (!/^docs\/internal\/adr\/ADR-\d{4}-[^/]+\.md$/.test(entry.adr || "")) {
+        violations.push(`allowlist ${category}/${entry.id || "<unknown>"} requires an ADR path`);
+      } else if (knownFiles && !knownFiles.has(entry.adr)) {
+        violations.push(`allowlist ${category}/${entry.id || "<unknown>"} references a missing ADR ${entry.adr}`);
+      }
+      for (const field of ["reason", "owner", "removalPhase"]) {
+        if (typeof entry[field] !== "string" || entry[field].trim() === "") violations.push(`allowlist ${category}/${entry.id || "<unknown>"} requires ${field}`);
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.expiresOn || "") || entry.expiresOn < today) {
+        violations.push(`allowlist ${category}/${entry.id || "<unknown>"} is missing a future expiresOn date`);
+      }
+      if (mapCategories.has(category) && (!Number.isInteger(entry.max) || entry.max < 1)) {
+        violations.push(`allowlist ${category}/${entry.id || "<unknown>"} requires a positive integer max`);
+      }
+      if (setCategories.has(category) && "max" in entry) {
+        violations.push(`allowlist ${category}/${entry.id || "<unknown>"} must not define max`);
+      }
+    }
+  }
+  return violations;
+}
+
+function compareCapsMonotonic(current, base) {
+  const violations = [];
+  for (const category of policyCategories) {
+    if (setCategories.has(category)) {
+      const baseSet = new Set(base?.[category] || []);
+      for (const path of current[category] || []) {
+        if (!baseSet.has(path)) violations.push(`${category} cap was increased with new path ${path}`);
+      }
+    } else {
+      const baseMap = base?.[category] || {};
+      for (const [path, value] of Object.entries(current[category] || {})) {
+        if (!(path in baseMap)) violations.push(`${category} cap was increased with new path ${path}`);
+        else if (Number(value) > Number(baseMap[path])) violations.push(`${category} cap increased for ${path}: base ${baseMap[path]}, current ${value}`);
+      }
+    }
+  }
+  return violations;
+}
+
+function compareAllowlistsMonotonic(current, base) {
+  const violations = [];
+  for (const category of policyCategories) {
+    const baseById = new Map((base?.[category] || []).map((entry) => [entry.id, entry]));
+    for (const entry of current[category] || []) {
+      const previous = baseById.get(entry.id);
+      if (previous && !sameValue(previous, entry)) {
+        violations.push(`existing ${category} allowlist ${entry.id} may only be removed, not edited or extended`);
+      }
+    }
+  }
+  return violations;
+}
+
+export function snapshotFromInventory(inventory) {
+  return {
+    preloadRuntimePatchModules: inventory.preloadRuntimePatchModules.map((entry) => entry.path).sort(),
+    childProcessImporters: countByPath(inventory.childProcessImports),
+    destructiveFilesystemImporters: countByPath(inventory.destructiveFilesystemImports),
+    sourceTextImplementationTests: countByPath(inventory.sourceTextImplementationTests),
+    oversizedProductionFiles: inventory.productionFiles.filter((entry) => entry.lines > MAX_PRODUCTION_LINES_WITHOUT_ADR).map((entry) => entry.path).sort(),
+  };
+}
+
+function indexAllowlists(allowlists) {
+  const result = {};
+  for (const category of policyCategories) {
+    const index = new Map();
+    for (const entry of allowlists[category] || []) index.set(entry.path, entry);
+    result[category] = setCategories.has(category) ? new Set(index.keys()) : index;
+  }
+  return result;
+}
+
+function analyzeNodeModule(path, source) {
   const imports = scanImports(path, source);
-  const childProcessImports = imports.filter((entry) => entry.module === "node:child_process").map((entry) => ({
-    path, line: entry.line, kind: entry.kind, bindings: entry.bindings,
-  }));
-  const destructiveFilesystemImports = imports
-    .filter((entry) => entry.module === "node:fs" || entry.module === "fs")
-    .flatMap((entry) => destructiveApisForImport(path, source, entry));
+  const childProcessEntries = imports.filter((entry) => entry.module === "node:child_process");
+  const childProcessImporter = childProcessEntries.length > 0 ? {
+    path,
+    line: Math.min(...childProcessEntries.map((entry) => entry.line)),
+    kind: "importer-capability",
+    modules: [...new Set(childProcessEntries.map((entry) => entry.module))].sort(),
+  } : null;
+  const destructiveFilesystemImporter = destructiveApisForImports(path, source, imports);
   const directGlobalFetchUses = [];
   for (const match of source.matchAll(/(?<![\w.$])fetch\s*\(/g)) {
     directGlobalFetchUses.push({ path, line: lineNumber(source, match.index), kind: "global-fetch-call" });
@@ -197,7 +407,7 @@ function analyzeJavaScriptModule(path, source) {
     .map((match) => match[1])
     .filter((value) => !value.endsWith("package.json"))
     .sort();
-  const writesJSON = /\b(?:appendFile|appendFileSync|rename|renameSync|writeFile|writeFileSync)\s*\(/.test(source) && source.includes("JSON.stringify");
+  const writesJSON = destructiveFilesystemImporter && source.includes("JSON.stringify");
   const writableJSONDomainStateStores = writesJSON
     ? [...new Set(jsonPathLiterals)].map((storePath) => ({ path, line: lineNumber(source, source.indexOf(storePath)), storePath, owner: path }))
     : [];
@@ -209,16 +419,12 @@ function analyzeJavaScriptModule(path, source) {
     ...source.matchAll(/\bimport\s*\(\s*["'](?<module>\.{1,2}\/[^"']+)["']\s*\)/g),
   ];
   if (localImports.some((entry) => preloadRuntimeNamePattern.test(basename(entry.groups.module)))) preloadRuntimeReasons.push("imports-preload-or-runtime-boundary");
-  const patchEvidence = [
-    [/\bglobal(?:This)?\.[A-Za-z_$][\w$]*\s*=\s*(?:async\s+)?function/, "global-assignment"],
-    [/\b[A-Za-z_$][\w$]*\.prototype\.[A-Za-z_$][\w$]*\s*=\s*/, "prototype-assignment"],
-    [/\b(?:fs|childProcess)\.[A-Za-z_$][\w$]*\s*=\s*(?:async\s+)?function/, "built-in-assignment"],
-  ].filter(([pattern]) => pattern.test(source));
-  if (patchEvidence.length > 0) preloadRuntimeReasons.push(...patchEvidence.map(([, reason]) => reason));
+  const patchEvidence = patchEvidenceFor(source, imports);
+  if (patchEvidence.length > 0) preloadRuntimeReasons.push(...patchEvidence);
   return {
     path,
-    childProcessImports,
-    destructiveFilesystemImports,
+    childProcessImporter,
+    destructiveFilesystemImporter,
     directGlobalFetchUses,
     writableJSONDomainStateStores,
     preloadRuntimeReasons: [...new Set(preloadRuntimeReasons)],
@@ -239,6 +445,15 @@ function scanImports(path, source) {
   for (const match of source.matchAll(sideEffectImportPattern)) {
     if (imports.some((entry) => entry.line === lineNumber(source, match.index) && entry.module === match.groups.module)) continue;
     imports.push({ path, line: lineNumber(source, match.index), kind: "esm-side-effect", module: match.groups.module, bindings: [] });
+  }
+  for (const match of source.matchAll(importEqualsPattern)) {
+    imports.push({
+      path,
+      line: lineNumber(source, match.index),
+      kind: "typescript-import-equals",
+      module: match.groups.module,
+      bindings: [{ type: "namespace", local: match.groups.local }],
+    });
   }
   for (const match of source.matchAll(requirePattern)) {
     const lineStart = source.lastIndexOf("\n", match.index) + 1;
@@ -282,33 +497,95 @@ function parseRequireBindings(statement, requireExpression) {
       return { type: "named", imported: imported.trim(), local: (local || imported).trim() };
     }).filter((entry) => entry.imported);
   }
-  const namespace = prefix.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*$/);
+  const namespace = prefix.match(/(?:const|let|var|import)\s+([A-Za-z_$][\w$]*)\s*(?:=\s*)?$/);
   return namespace ? [{ type: "namespace", local: namespace[1] }] : [];
 }
 
-function destructiveApisForImport(path, source, entry) {
-  const results = [];
-  for (const binding of entry.bindings) {
-    if (binding.type === "named" && destructiveFilesystemApis.has(binding.imported)) {
-      results.push({ path, line: entry.line, kind: entry.kind, module: entry.module, api: binding.imported });
-    }
-    if (binding.type === "namespace") {
-      const expression = new RegExp(`\\b${escapeRegExp(binding.local)}\\s*\\.\\s*(${[...destructiveFilesystemApis].join("|")})\\s*\\(`, "g");
-      for (const match of source.matchAll(expression)) {
-        results.push({ path, line: lineNumber(source, match.index), kind: entry.kind, module: entry.module, api: match[1] });
+function destructiveApisForImports(path, source, imports) {
+  const apis = new Set();
+  const lines = [];
+  const modules = new Set();
+  for (const entry of imports.filter((candidate) => candidate.module === "node:fs" || candidate.module === "fs" || candidate.module === "node:fs/promises" || candidate.module === "fs/promises")) {
+    const promisesModule = entry.module.endsWith("/promises");
+    modules.add(entry.module);
+    for (const binding of entry.bindings) {
+      if (binding.type === "named" && destructiveFilesystemApis.has(binding.imported)) {
+        apis.add(binding.imported);
+        lines.push(entry.line);
+      }
+      if (binding.type === "named" && binding.imported === "promises") {
+        collectNamespaceApis(source, binding.local, apis, lines, true);
+      }
+      if (binding.type === "namespace") {
+        collectNamespaceApis(source, binding.local, apis, lines, promisesModule);
       }
     }
+    if (entry.bindings.length === 0) {
+      collectDirectRequireApis(source, entry.module, apis, lines);
+    }
   }
-  if (entry.bindings.length === 0) {
-    const direct = new RegExp(`${escapeRegExp(entry.module)}["'\\s)]*\\.\\s*(${[...destructiveFilesystemApis].join("|")})\\s*\\(`, "g");
-    for (const match of source.matchAll(direct)) results.push({ path, line: lineNumber(source, match.index), kind: entry.kind, module: entry.module, api: match[1] });
+  if (apis.size === 0) return null;
+  return {
+    path,
+    line: Math.min(...lines),
+    kind: "filesystem-capability",
+    modules: [...modules].sort(),
+    apis: [...apis].sort(),
+  };
+}
+
+function collectNamespaceApis(source, local, apis, lines, promisesModule) {
+  const apiPattern = [...destructiveFilesystemApis].map(escapeRegExp).join("|");
+  const propertyPattern = promisesModule
+    ? new RegExp(`\\b${escapeRegExp(local)}\\s*(?:\\.\\s*|\\[\\s*["'])(?<api>${apiPattern})(?:["']\\s*\\])?\\s*\\(`, "g")
+    : new RegExp(`\\b${escapeRegExp(local)}\\s*(?:\\.\\s*|\\[\\s*["'])(?<api>${apiPattern})(?:["']\\s*\\])?\\s*\\(`, "g");
+  for (const match of source.matchAll(propertyPattern)) {
+    apis.add(match.groups.api);
+    lines.push(lineNumber(source, match.index));
   }
-  return results;
+  if (!promisesModule) {
+    const promisesPattern = new RegExp(`\\b${escapeRegExp(local)}\\s*\\.\\s*promises\\s*\\.\\s*(?<api>${apiPattern})\\s*\\(`, "g");
+    for (const match of source.matchAll(promisesPattern)) {
+      apis.add(match.groups.api);
+      lines.push(lineNumber(source, match.index));
+    }
+  }
+}
+
+function collectDirectRequireApis(source, module, apis, lines) {
+  const apiPattern = [...destructiveFilesystemApis].map(escapeRegExp).join("|");
+  const directPattern = new RegExp(`require\\s*\\(\\s*["']${escapeRegExp(module)}["']\\s*\\)\\s*(?:\\.\\s*promises\\s*\\.\\s*)?(?<api>${apiPattern})\\s*\\(`, "g");
+  for (const match of source.matchAll(directPattern)) {
+    apis.add(match.groups.api);
+    lines.push(lineNumber(source, match.index));
+  }
+}
+
+function patchEvidenceFor(source, imports) {
+  const reasons = [];
+  if (/\bglobal(?:This)?\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\])\s*=\s*(?!=)/.test(source)) reasons.push("global-assignment");
+  if (/\b[A-Za-z_$][\w$]*\s*\.\s*prototype\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\])\s*=\s*(?!=)/.test(source)) reasons.push("prototype-assignment");
+  const aliases = new Set();
+  for (const entry of imports.filter((candidate) => monitoredModulePattern.test(candidate.module))) {
+    for (const binding of entry.bindings) {
+      if (binding.type === "namespace" || (binding.type === "named" && binding.imported === "promises")) aliases.add(binding.local);
+    }
+  }
+  for (const alias of aliases) {
+    const target = escapeRegExp(alias);
+    const assignment = new RegExp(`\\b${target}\\s*(?:\\.\\s*[A-Za-z_$][\\w$]*|\\[[^\\]]+\\])+\\s*=\\s*(?!=)`);
+    if (assignment.test(source)) reasons.push("built-in-assignment");
+    const define = new RegExp(`(?:Object|Reflect)\\.definePropert(?:y|ies)\\s*\\(\\s*${target}(?:\\s*\\.\\s*prototype)?\\b`);
+    if (define.test(source)) reasons.push("built-in-define-property");
+    const assign = new RegExp(`Object\\.assign\\s*\\(\\s*${target}(?:\\s*\\.\\s*prototype)?\\b`);
+    if (assign.test(source)) reasons.push("built-in-object-assign");
+  }
+  return reasons;
 }
 
 function analyzeTest(path, source) {
   const readsProductionSource = /\b(?:readFileSync|readFile|readFileText|contentsOfFile)\s*\(/.test(source)
-    && /(?:\.\.\/)+(?:mac-helper|Companion|Sources)\/|(?:mac-helper|Companion|Sources)\/[^"'`\s]+\.(?:js|swift|m)$/.test(source);
+    && /(?:\.\.\/)+(?:mac-helper|Companion|Sources)\/|(?:mac-helper|Companion|Sources)\/[^"'`\s]+\.(?:js|mjs|cjs|ts|mts|cts|swift|m)$/.test(source);
   if (!readsProductionSource) return null;
   const assertionPattern = /assert\.(?:match|doesNotMatch|ok|equal|strictEqual|deepEqual|notEqual)|\.(?:includes|indexOf)\s*\(/;
   return {
@@ -356,6 +633,36 @@ function normalizeTrackedFiles(root, trackedFiles) {
   return String(result.stdout).split("\0").filter(Boolean).sort();
 }
 
+function resolveBaseCommit(root, baselineCommit) {
+  for (const candidate of ["refs/remotes/origin/main", "refs/heads/main", "main"]) {
+    const result = spawnSync("git", ["-C", root, "merge-base", "HEAD", candidate], { encoding: "utf8" });
+    if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
+  }
+  return baselineCommit;
+}
+
+function readPolicyAtCommit(root, commit) {
+  const result = spawnSync("git", ["-C", root, "show", `${commit}:${policyRepositoryPath}`], { encoding: "utf8" });
+  if (result.status !== 0) return null;
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+function assertCommitExists(root, commit) {
+  if (!/^[0-9a-f]{40}$/.test(commit || "")) throw new Error("baselineCommit must be a full 40-character commit SHA");
+  const result = spawnSync("git", ["-C", root, "cat-file", "-e", `${commit}^{commit}`], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`baselineCommit does not resolve to a commit: ${commit}`);
+}
+
+function gitOutput(root, args) {
+  const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+  return result.stdout;
+}
+
 function isExcluded(file) {
   return file.split("/").some((segment) => excludedDirectories.has(segment)) || file.startsWith("benchmarks/results/");
 }
@@ -363,7 +670,7 @@ function isExcluded(file) {
 function languageFor(file) {
   const extension = extname(file);
   if (extension === ".swift") return "swift";
-  if (extension === ".ts") return "typescript";
+  if ([".ts", ".mts", ".cts", ".tsx"].includes(extension)) return "typescript";
   return "javascript";
 }
 
@@ -393,4 +700,8 @@ function escapeRegExp(value) {
 
 function normalizePackagePath(value) {
   return value.replace(/^\.\//, "");
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
