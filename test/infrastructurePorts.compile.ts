@@ -1,7 +1,4 @@
-import type {
-  ProcessSupervisor,
-  SpawnRequest,
-} from "../mac-helper/src/infrastructure/ports.js";
+import type { ProcessSupervisor, SpawnRequest } from "../mac-helper/src/infrastructure/ports.js";
 import type { DeliveryProcessIdentity } from "../mac-helper/src/contracts/process.js";
 
 declare const supervisor: ProcessSupervisor;
