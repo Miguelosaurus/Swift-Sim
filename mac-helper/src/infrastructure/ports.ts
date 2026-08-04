@@ -173,23 +173,17 @@ export interface RequestOriginInput {
 
 export type RequestOriginDecision =
   | {
-      accepted: true;
-      requestIsLoopback: true;
+      valid: true;
+      requestIsLoopback: boolean;
       forwardedHeadersTrusted: boolean;
       externalBaseURL: string;
       source: "requested" | "direct" | "trusted-proxy";
     }
   | {
-      accepted: false;
-      requestIsLoopback: false;
-      forwardedHeadersTrusted: false;
-      reason: "non-loopback";
-    }
-  | {
-      accepted: false;
-      requestIsLoopback: true;
+      valid: false;
+      requestIsLoopback: boolean;
       forwardedHeadersTrusted: boolean;
-      reason: "invalid-host" | "invalid-requested-origin";
+      reason: "invalid-host";
     };
 
 export interface RequestOriginPolicy {
