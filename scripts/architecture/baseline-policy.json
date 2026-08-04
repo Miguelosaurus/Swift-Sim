@@ -213,7 +213,6 @@
       "mac-helper/src/deviceInventory.js": 1,
       "mac-helper/src/deviceVerificationGate.js": 1,
       "mac-helper/src/fileServer.js": 1,
-      "mac-helper/src/liveEngineLifecycleLock.js": 1,
       "mac-helper/src/liveReload.js": 1,
       "mac-helper/src/liveSessionDescriptor.js": 1,
       "mac-helper/src/pairingInviteStore.js": 1,
@@ -275,6 +274,16 @@
         "reason": "Phase 2 centralizes atomic publication and removal behind the typed AtomicFileStore boundary.",
         "owner": "Architecture consolidation Phase 2",
         "removalPhase": "Phase 5 removes obsolete direct filesystem compatibility paths; this infrastructure owner remains only while the AtomicFileStore port requires a Node adapter.",
+        "expiresOn": "2027-08-04"
+      },
+      {
+        "id": "phase-2-node-lock-manager",
+        "path": "mac-helper/src/infrastructure/nodeLockManager.js",
+        "max": 1,
+        "adr": "docs/internal/adr/ADR-0002-explicit-infrastructure-ports.md",
+        "reason": "Phase 2 centralizes owner-fenced directory locking and stale-owner reclamation behind the typed LockManager boundary.",
+        "owner": "Architecture consolidation Phase 2",
+        "removalPhase": "Phase 5 removes obsolete direct-lock compatibility paths; this infrastructure owner remains only while LockManager requires Node filesystem coordination.",
         "expiresOn": "2027-08-04"
       }
     ],
