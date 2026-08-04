@@ -8,6 +8,10 @@ This plan converts Swift Sim from a technically serious but overgrown public bet
 
 The plan is intentionally incremental. It must not be implemented as one rewrite or one giant pull request.
 
+## Mandatory checkpoint amendment
+
+`ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md` is a normative amendment to this plan. The executing agent must stop after Phases 2, 5, and 8, keep the checkpoint phase draft and unmerged, create the required current-state report and review prompt, and wait for Miguel's explicit continuation approval. No later section of this plan overrides that stop rule.
+
 ## 1. Desired end state
 
 A new contributor should be able to answer these questions from the module tree and public interfaces:
@@ -404,7 +408,8 @@ Gate:
 
 - identical timeout, descendant cleanup, ownership, redaction, and containment behavior;
 - process integration tests exercise the real compiled entrypoints;
-- no weakening of fail-closed behavior.
+- no weakening of fail-closed behavior;
+- **Checkpoint 1 is mandatory before this phase merges or Phase 3 begins.**
 
 ### Phase 3 — Helper and HTTP decomposition
 
@@ -469,7 +474,8 @@ Gate:
 - packaged and raw entrypoints share the same explicit runtime container;
 - no Node built-in monkey patch remains;
 - no import-order-dependent safety behavior remains;
-- all prior adversarial lifecycle regressions still pass.
+- all prior adversarial lifecycle regressions still pass;
+- **Checkpoint 2 is mandatory before this phase merges or Phase 6 begins.**
 
 ### Phase 6 — Live reload module split
 
@@ -531,7 +537,8 @@ Gate:
 - current UI behavior and accessibility remain intact;
 - no feature model exceeds an agreed responsibility/size threshold without ADR justification;
 - networking is mockable without global `URLSession.shared` use in feature logic;
-- all UI state mutations remain actor-safe.
+- all UI state mutations remain actor-safe;
+- **Checkpoint 3 is mandatory before this phase merges or Phase 9 begins.**
 
 ### Phase 9 — Test, documentation, and release consolidation
 
@@ -591,6 +598,7 @@ Gate:
 - Mechanical extraction comes before behavior change.
 - New architecture must run in shadow or compatibility mode before replacing a durable path.
 - Delete the old path only after the replacement has passed the defined release window.
+- A checkpoint phase remains draft and unmerged until the checkpoint protocol records review, required corrections, and Miguel's explicit continuation approval.
 
 ## 6. Success metrics
 
@@ -629,7 +637,8 @@ Do not:
 - make the new Swift analyzer permissive to improve benchmark numbers;
 - hide failed physical attempts from evidence reports;
 - rewrite Git history to conceal AI-assisted development;
-- continue endless unscoped review rounds instead of completing the planned architecture phases.
+- continue endless unscoped review rounds instead of completing the planned architecture phases;
+- bypass or self-approve a mandatory checkpoint.
 
 ## 8. Completion ownership
 
@@ -646,6 +655,7 @@ The executing agent must maintain `ARCHITECTURE_CONSOLIDATION_PROGRESS.md` on th
 - largest production files;
 - migration/rollback state;
 - validation performed;
-- residual risks and next phase.
+- residual risks and next phase;
+- checkpoint state, review response, correction commits, and authorization when applicable.
 
-A phase is not complete merely because tests pass. It is complete when its old architecture has either been removed or has an explicit time-bounded compatibility role.
+A phase is not complete merely because tests pass. It is complete when its old architecture has either been removed or has an explicit time-bounded compatibility role. A checkpoint phase is not complete until Miguel explicitly authorizes continuation.
