@@ -19,7 +19,9 @@ These documents preserve implementation decisions and completed engineering reco
 
 The architecture program is the current implementation roadmap. Execute it in small, behavior-preserving phase pull requests rather than as one rewrite.
 
-The executing agent must stop after Phases 2, 5, and 8, leave the checkpoint phase draft and unmerged, create a current-state report and pasteable review prompt, and wait for Miguel to return explicit architecture-review approval before continuing.
+The executing agent must stop after Phases 2, 5, and 8, leave the checkpoint phase draft and unmerged, create a current-state report and pasteable review prompt, and return that prompt to Miguel. Miguel will send it to the designated architecture-review conversation and return the decision. Work may continue only after the progress ledger records required corrections and Miguel's explicit authorization.
+
+Passing CI, performing another self-review, or asking another automated reviewer does not satisfy a checkpoint.
 
 ## Other Plans
 
