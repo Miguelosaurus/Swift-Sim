@@ -15,7 +15,8 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /** @typedef {import("./ports.js").ArtifactStore} ArtifactStore */
 /** @typedef {import("./ports.js").ArtifactWriteOptions} ArtifactWriteOptions */
-/** @typedef {{ root: string, path: string }} ApprovedArtifactPath */
+/** @typedef {{ device: string, inode: string }} RootIdentity */
+/** @typedef {{ root: string, path: string, rootIdentity: RootIdentity }} ApprovedArtifactPath */
 
 /** @implements {ArtifactStore} */
 export class NodeArtifactStore {
@@ -27,15 +28,19 @@ export class NodeArtifactStore {
   /** @param {string} root @param {string} candidate */
   resolveContained(root, candidate) {
     const resolvedRoot = normalizeAbsoluteRoot(root);
+    const rootStat = lstatSync(resolvedRoot);
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw invalidArtifactPathError();
     const resolvedCandidate = isAbsolute(candidate)
       ? resolve(candidate)
       : resolve(resolvedRoot, candidate);
     if (!isContained(resolvedRoot, resolvedCandidate)) throw invalidArtifactPathError();
-    assertNoSymlinkComponentsSync(resolvedRoot, resolvedCandidate);
-    this.approvedPaths.set(resolvedCandidate, {
+    const approved = {
       root: resolvedRoot,
       path: resolvedCandidate,
-    });
+      rootIdentity: identityOf(rootStat),
+    };
+    assertApprovedComponentsSync(approved);
+    this.approvedPaths.set(resolvedCandidate, approved);
     return resolvedCandidate;
   }
 
@@ -43,18 +48,18 @@ export class NodeArtifactStore {
   async createDirectory(path, mode) {
     const approved = this.approved(path);
     const normalizedMode = normalizeMode(mode, "directory");
-    await assertNoSymlinkComponents(approved.root, approved.path);
+    await assertApprovedComponents(approved);
     await mkdir(approved.path, { recursive: true, mode: normalizedMode });
-    await assertNoSymlinkComponents(approved.root, approved.path);
+    await assertApprovedComponents(approved);
   }
 
   /** @param {string} path @param {number} mode */
   createDirectorySync(path, mode) {
     const approved = this.approved(path);
     const normalizedMode = normalizeMode(mode, "directory");
-    assertNoSymlinkComponentsSync(approved.root, approved.path);
+    assertApprovedComponentsSync(approved);
     mkdirSync(approved.path, { recursive: true, mode: normalizedMode });
-    assertNoSymlinkComponentsSync(approved.root, approved.path);
+    assertApprovedComponentsSync(approved);
   }
 
   /**
@@ -65,7 +70,7 @@ export class NodeArtifactStore {
   async write(path, value, options) {
     const approved = this.approved(path);
     const normalized = normalizeWriteOptions(options);
-    await assertNoSymlinkComponents(approved.root, approved.path);
+    await assertApprovedComponents(approved);
     const handle = await open(approved.path, writeFlags(normalized.replace), normalized.mode);
     try {
       await handle.writeFile(value);
@@ -83,7 +88,7 @@ export class NodeArtifactStore {
   writeSync(path, value, options) {
     const approved = this.approved(path);
     const normalized = normalizeWriteOptions(options);
-    assertNoSymlinkComponentsSync(approved.root, approved.path);
+    assertApprovedComponentsSync(approved);
     const descriptor = openSync(approved.path, writeFlags(normalized.replace), normalized.mode);
     try {
       const buffer = Buffer.from(value);
@@ -102,7 +107,7 @@ export class NodeArtifactStore {
   /** @param {string} path */
   async read(path) {
     const approved = this.approved(path);
-    await assertNoSymlinkComponents(approved.root, approved.path);
+    await assertApprovedComponents(approved);
     const handle = await open(approved.path, constants.O_RDONLY | noFollowFlag());
     try {
       return new Uint8Array(await handle.readFile());
@@ -114,7 +119,7 @@ export class NodeArtifactStore {
   /** @param {string} path */
   readSync(path) {
     const approved = this.approved(path);
-    assertNoSymlinkComponentsSync(approved.root, approved.path);
+    assertApprovedComponentsSync(approved);
     const descriptor = openSync(approved.path, constants.O_RDONLY | noFollowFlag());
     try {
       return new Uint8Array(readFileSync(descriptor));
@@ -126,14 +131,14 @@ export class NodeArtifactStore {
   /** @param {string} path */
   async removeTree(path) {
     const approved = this.approved(path);
-    await assertNoSymlinkComponents(approved.root, approved.path);
+    await assertApprovedComponents(approved);
     await rm(approved.path, { recursive: true, force: true });
   }
 
   /** @param {string} path */
   removeTreeSync(path) {
     const approved = this.approved(path);
-    assertNoSymlinkComponentsSync(approved.root, approved.path);
+    assertApprovedComponentsSync(approved);
     rmSync(approved.path, { recursive: true, force: true });
   }
 
@@ -161,25 +166,37 @@ function isContained(root, candidate) {
   return Boolean(child && !isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
 }
 
-/** @param {string} root @param {string} candidate */
-async function assertNoSymlinkComponents(root, candidate) {
-  for (const path of componentPaths(root, candidate)) {
+/** @param {ApprovedArtifactPath} approved */
+async function assertApprovedComponents(approved) {
+  const paths = componentPaths(approved.root, approved.path);
+  for (let index = 0; index < paths.length; index += 1) {
+    const path = paths[index];
     try {
-      if ((await lstat(path)).isSymbolicLink()) throw invalidArtifactPathError();
+      const stat = await lstat(path);
+      if (stat.isSymbolicLink()) throw invalidArtifactPathError();
+      if (index === 0 && !sameIdentity(identityOf(stat), approved.rootIdentity)) {
+        throw invalidArtifactPathError();
+      }
     } catch (error) {
-      if (hasCode(error, "ENOENT")) return;
+      if (index > 0 && hasCode(error, "ENOENT")) return;
       throw error;
     }
   }
 }
 
-/** @param {string} root @param {string} candidate */
-function assertNoSymlinkComponentsSync(root, candidate) {
-  for (const path of componentPaths(root, candidate)) {
+/** @param {ApprovedArtifactPath} approved */
+function assertApprovedComponentsSync(approved) {
+  const paths = componentPaths(approved.root, approved.path);
+  for (let index = 0; index < paths.length; index += 1) {
+    const path = paths[index];
     try {
-      if (lstatSync(path).isSymbolicLink()) throw invalidArtifactPathError();
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw invalidArtifactPathError();
+      if (index === 0 && !sameIdentity(identityOf(stat), approved.rootIdentity)) {
+        throw invalidArtifactPathError();
+      }
     } catch (error) {
-      if (hasCode(error, "ENOENT")) return;
+      if (index > 0 && hasCode(error, "ENOENT")) return;
       throw error;
     }
   }
@@ -196,6 +213,16 @@ function componentPaths(root, candidate) {
     result.push(current);
   }
   return result;
+}
+
+/** @param {import("node:fs").Stats} stat */
+function identityOf(stat) {
+  return { device: String(stat.dev), inode: String(stat.ino) };
+}
+
+/** @param {RootIdentity} left @param {RootIdentity} right */
+function sameIdentity(left, right) {
+  return left.device === right.device && left.inode === right.inode;
 }
 
 /** @param {ArtifactWriteOptions} options */
