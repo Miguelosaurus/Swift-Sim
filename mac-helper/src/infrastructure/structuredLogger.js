@@ -98,6 +98,7 @@ function sanitizeValue(value, key, depth, seen) {
       if (value.length > MAX_COLLECTION_ENTRIES) result.push("[truncated]");
       return result;
     }
+    /** @type {Record<string, unknown>} */
     const result = {};
     const entries = Object.entries(value).slice(0, MAX_COLLECTION_ENTRIES);
     for (const [entryKey, entryValue] of entries) {
