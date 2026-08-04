@@ -169,8 +169,7 @@ function isContained(root, candidate) {
 /** @param {ApprovedArtifactPath} approved */
 async function assertApprovedComponents(approved) {
   const paths = componentPaths(approved.root, approved.path);
-  for (let index = 0; index < paths.length; index += 1) {
-    const path = paths[index];
+  for (const [index, path] of paths.entries()) {
     try {
       const stat = await lstat(path);
       if (stat.isSymbolicLink()) throw invalidArtifactPathError();
@@ -187,8 +186,7 @@ async function assertApprovedComponents(approved) {
 /** @param {ApprovedArtifactPath} approved */
 function assertApprovedComponentsSync(approved) {
   const paths = componentPaths(approved.root, approved.path);
-  for (let index = 0; index < paths.length; index += 1) {
-    const path = paths[index];
+  for (const [index, path] of paths.entries()) {
     try {
       const stat = lstatSync(path);
       if (stat.isSymbolicLink()) throw invalidArtifactPathError();
