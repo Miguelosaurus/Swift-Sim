@@ -125,13 +125,13 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 
 #### Validation
 
-- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs after the final metadata update (record the final hash at handoff).
+- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`f5c5ebd0460ca3161946b08a2d3f8eeacbfa4aeb979aad28daa8e3f79b1112cd`).
 - Local architecture gate: `node scripts/architecture/inventory.js --check` passed.
 - Focused architecture tests: `node --test test/architectureInventory.test.js` passed 16/16 using temporary fixture trees and the declared Git baseline.
-- Full Node/release suite: the first parallel run passed 442/443 because an existing process-timeout fixture raced on `descendant.pid`; the sequential rerun passed 443/443 before the final baseline-Git regression was added. Re-run `npm run check` after this metadata update and record its final result at handoff.
+- Full Node/release suite: final `npm run check` passed 444/444 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files. An earlier parallel attempt had one existing process-timeout fixture race on `descendant.pid`; the final standard run passed.
 - Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
 - Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
-- iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
+- iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
 - GitHub Actions follow-up: the initial `verify` run exposed a self-match from `test/architectureInventory.test.js`; fixture text now lives under the excluded fixture directory, the whole-file exemption is removed, and the architecture path is explicitly regression-tested.
 - Whitespace: `git diff --check` passed.
 - CI, Homebrew clean-install, physical-device, and release-archive gates were not required or changed by this behavior-preserving guardrail phase; they remain external residuals.
