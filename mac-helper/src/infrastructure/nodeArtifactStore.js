@@ -1,5 +1,15 @@
 // @ts-check
-import { constants, lstatSync, mkdirSync, openSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeSync,
+} from "node:fs";
 import { lstat, mkdir, open, rm } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -56,8 +66,7 @@ export class NodeArtifactStore {
     const approved = this.approved(path);
     const normalized = normalizeWriteOptions(options);
     await assertNoSymlinkComponents(approved.root, approved.path);
-    const flags = writeFlags(normalized.replace);
-    const handle = await open(approved.path, flags, normalized.mode);
+    const handle = await open(approved.path, writeFlags(normalized.replace), normalized.mode);
     try {
       await handle.writeFile(value);
       await handle.sync();
@@ -77,14 +86,16 @@ export class NodeArtifactStore {
     assertNoSymlinkComponentsSync(approved.root, approved.path);
     const descriptor = openSync(approved.path, writeFlags(normalized.replace), normalized.mode);
     try {
-      const buffer = typeof value === "string" ? Buffer.from(value) : Buffer.from(value);
+      const buffer = Buffer.from(value);
       let offset = 0;
       while (offset < buffer.length) {
-        offset += requireWriteSync()(descriptor, buffer, offset, buffer.length - offset);
+        const written = writeSync(descriptor, buffer, offset, buffer.length - offset);
+        if (written <= 0) throw new Error("Artifact write made no forward progress.");
+        offset += written;
       }
-      requireFsyncSync()(descriptor);
+      fsyncSync(descriptor);
     } finally {
-      requireCloseSync()(descriptor);
+      closeSync(descriptor);
     }
   }
 
@@ -106,9 +117,9 @@ export class NodeArtifactStore {
     assertNoSymlinkComponentsSync(approved.root, approved.path);
     const descriptor = openSync(approved.path, constants.O_RDONLY | noFollowFlag());
     try {
-      return new Uint8Array(requireReadFileSync()(descriptor));
+      return new Uint8Array(readFileSync(descriptor));
     } finally {
-      requireCloseSync()(descriptor);
+      closeSync(descriptor);
     }
   }
 
@@ -232,34 +243,4 @@ function invalidArtifactPathError() {
 function hasCode(error, code) {
   if (!error || typeof error !== "object") return false;
   return /** @type {{ code?: unknown }} */ (error).code === code;
-}
-
-function requireWriteSync() {
-  return /** @type {typeof import("node:fs").writeSync} */ (
-    requireNodeFs().writeSync
-  );
-}
-
-function requireFsyncSync() {
-  return /** @type {typeof import("node:fs").fsyncSync} */ (
-    requireNodeFs().fsyncSync
-  );
-}
-
-function requireCloseSync() {
-  return /** @type {typeof import("node:fs").closeSync} */ (
-    requireNodeFs().closeSync
-  );
-}
-
-function requireReadFileSync() {
-  return /** @type {typeof import("node:fs").readFileSync} */ (
-    requireNodeFs().readFileSync
-  );
-}
-
-function requireNodeFs() {
-  return /** @type {typeof import("node:fs")} */ (
-    globalThis.__swiftSimNodeFs || {}
-  );
 }
