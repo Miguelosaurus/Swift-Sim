@@ -73,10 +73,7 @@ test("pairing snapshot persists canonically across reopen", async (t) => {
     credential: CREDENTIAL,
     invitations: [INVITATION_A, INVITATION_B],
   });
-  assert.deepEqual(
-    first.repository.getCredential(CREDENTIAL.installationID),
-    CREDENTIAL,
-  );
+  assert.deepEqual(first.repository.getCredential(CREDENTIAL.installationID), CREDENTIAL);
   assert.deepEqual(first.repository.getInvitation(INVITATION_A.id), INVITATION_A);
   assert.deepEqual(
     first.repository.findInvitationByInviteHash(INVITATION_B.inviteHash),
@@ -136,10 +133,7 @@ test("snapshot normalization is deterministic and rejects inconsistent domain st
     () =>
       normalizePairingStateSnapshot({
         credential: CREDENTIAL,
-        invitations: [
-          INVITATION_A,
-          { ...INVITATION_B, inviteHash: INVITATION_A.inviteHash },
-        ],
+        invitations: [INVITATION_A, { ...INVITATION_B, inviteHash: INVITATION_A.inviteHash }],
       }),
     /Duplicate pairing inviteHash/,
   );
