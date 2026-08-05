@@ -62,6 +62,8 @@ export class SwiftSimSqliteDatabase {
       this.#database.exec("PRAGMA journal_mode = WAL");
       this.#database.exec("PRAGMA synchronous = FULL");
       this.migrate();
+      const health = this.health();
+      if (!health.ok) throw databaseHealthError(health);
     } catch (error) {
       this.#database.close();
       this.#closed = true;
@@ -222,6 +224,26 @@ export class SwiftSimSqliteDatabase {
   #assertOpen() {
     if (this.#closed) throw new Error("Swift Sim SQLite database is closed.");
   }
+}
+
+/** @param {RepositoryHealth} health */
+function databaseHealthError(health) {
+  const failures = [];
+  if (health.integrity !== "ok") failures.push(`integrity=${health.integrity || "unknown"}`);
+  if (health.journalMode !== "wal") {
+    failures.push(`journal_mode=${health.journalMode || "unknown"}`);
+  }
+  if (!health.foreignKeys) failures.push("foreign_keys=off");
+  if (health.schemaVersion !== health.latestSchemaVersion) {
+    failures.push(`schema_version=${health.schemaVersion}/${health.latestSchemaVersion}`);
+  }
+  if (health.migrationsApplied !== health.latestSchemaVersion) {
+    failures.push(`migration_count=${health.migrationsApplied}/${health.latestSchemaVersion}`);
+  }
+  return new Error(
+    `Swift Sim SQLite database at ${health.path} failed health checks (${failures.join(", ")}). ` +
+      "Refusing to use it; restore a verified backup before retrying.",
+  );
 }
 
 /** @param {readonly SchemaMigration[]} migrations */
