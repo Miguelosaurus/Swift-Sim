@@ -13,6 +13,19 @@ import { dispatchHelperCliCommand, helperCliCommandIsExtracted } from "./helperC
 
 /**
  * @typedef {{ token: string, installationID: string, macName: string }} PairingState
+ * @typedef {{ universalLink?: string, customScheme: string }} PairingLinks
+ * @typedef {{ macName: string, links: PairingLinks, expiresAt?: string }} PairCommandResult
+ * @typedef {{
+ *   rotate: boolean,
+ *   macName?: string,
+ *   qr: boolean,
+ *   ttlMs?: number,
+ *   remoteBaseUrl?: string,
+ * }} PairCommandInput
+ * @typedef {{
+ *   pair(input: PairCommandInput): PairCommandResult,
+ *   printQRCode(value: string): void,
+ * }} PairCommandServices
  * @typedef {{
  *   current(): PairingState,
  *   rotate(): PairingState,
@@ -34,10 +47,17 @@ import { dispatchHelperCliCommand, helperCliCommandIsExtracted } from "./helperC
  *   saveVerification(buildID: string, verification: unknown): unknown,
  * }} DeviceBuildStorePort
  * @typedef {{
+ *   listApps(input: { includeArchived: boolean }): unknown[],
+ *   archiveApp(input: { appID: string, archived: boolean }): unknown | null,
+ * }} DeviceAppCommandServices
+ * @typedef {{ verifyDeviceBuild(buildID: string): Promise<unknown> }} DeviceVerificationServices
+ * @typedef {{
  *   verifyApp(bundleIdentifier: string, version: { version: string, build: string }): Promise<unknown>,
  * }} DeviceInventoryPort
  * @typedef {{ status(): unknown, stop(): boolean }} DeviceDeliveryPort
+ * @typedef {{ deviceDeliveryStatus(): unknown, stopDeviceDelivery(): boolean }} DeviceDeliveryServices
  * @typedef {{ inspect(): Promise<unknown> }} ServeSimPort
+ * @typedef {{ inspectServeSim(): Promise<unknown> }} ServeSimServices
  */
 
 const DEFAULT_FACTORIES = Object.freeze({
@@ -116,6 +136,7 @@ export async function runExtractedHelperCommand(argv, options = {}) {
  * @param {Record<string, unknown>} factories
  * @param {PairingStorePort} pairingStore
  * @param {(value: string) => void} qrPrinter
+ * @returns {PairCommandServices}
  */
 function createPairingServices(factories, pairingStore, qrPrinter) {
   const pairingInvites = /** @type {PairingInviteWriter} */ (
@@ -145,40 +166,49 @@ function createPairingServices(factories, pairingStore, qrPrinter) {
   };
 }
 
-/** @param {Record<string, unknown>} factories */
+/**
+ * @param {Record<string, unknown>} factories
+ * @returns {DeviceAppCommandServices}
+ */
 function createDeviceAppServices(factories) {
-  const deviceBuildStore = deviceBuildStore(factories);
+  const buildStore = createDeviceBuildStorePort(factories);
   return {
     listApps({ includeArchived }) {
-      return deviceBuildStore.listApps({ includeArchived }).map(publicDeviceApp);
+      return buildStore.listApps({ includeArchived }).map(publicDeviceApp);
     },
     archiveApp({ appID, archived }) {
-      const app = deviceBuildStore.setAppArchived(appID, archived);
+      const app = buildStore.setAppArchived(appID, archived);
       return app ? publicDeviceApp(app) : null;
     },
   };
 }
 
-/** @param {Record<string, unknown>} factories */
+/**
+ * @param {Record<string, unknown>} factories
+ * @returns {DeviceVerificationServices}
+ */
 function createDeviceBuildVerificationServices(factories) {
-  const deviceBuildStore = deviceBuildStore(factories);
+  const buildStore = createDeviceBuildStorePort(factories);
   const deviceInventory = /** @type {DeviceInventoryPort} */ (
     /** @type {unknown} */ (requiredFactory(factories, "createDeviceInventory")())
   );
   return {
     async verifyDeviceBuild(buildID) {
-      const build = deviceBuildStore.get(buildID);
+      const build = buildStore.get(buildID);
       if (!build) throw new Error("Unknown device build.");
       const verification = await deviceInventory.verifyApp(build.app.bundleIdentifier, {
         version: build.app.version,
         build: build.app.build,
       });
-      return publicDeviceBuild(deviceBuildStore.saveVerification(build.id, verification));
+      return publicDeviceBuild(buildStore.saveVerification(build.id, verification));
     },
   };
 }
 
-/** @param {Record<string, unknown>} factories */
+/**
+ * @param {Record<string, unknown>} factories
+ * @returns {DeviceDeliveryServices}
+ */
 function createDeviceDeliveryServices(factories) {
   const deviceDelivery = /** @type {DeviceDeliveryPort} */ (
     /** @type {unknown} */ (requiredFactory(factories, "createDeviceDelivery")())
@@ -189,7 +219,10 @@ function createDeviceDeliveryServices(factories) {
   };
 }
 
-/** @param {Record<string, unknown>} factories */
+/**
+ * @param {Record<string, unknown>} factories
+ * @returns {ServeSimServices}
+ */
 function createServeSimServices(factories) {
   const serveSim = /** @type {ServeSimPort} */ (
     /** @type {unknown} */ (requiredFactory(factories, "createServeSim")())
@@ -207,7 +240,7 @@ function stateRootStore(factories) {
 }
 
 /** @param {Record<string, unknown>} factories */
-function deviceBuildStore(factories) {
+function createDeviceBuildStorePort(factories) {
   return /** @type {DeviceBuildStorePort} */ (
     /** @type {unknown} */ (requiredFactory(factories, "createDeviceBuildStore")())
   );
