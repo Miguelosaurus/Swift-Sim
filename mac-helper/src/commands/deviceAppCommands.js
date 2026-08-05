@@ -19,7 +19,7 @@ export async function dispatchDeviceAppCommand({ command, args, services, writeL
   if (!deviceAppCommandIsSupported(command)) return false;
 
   if (command === "list-apps") {
-    const listApps = requiredMethod(services, "listApps");
+    const listApps = requiredListAppsMethod(services);
     const { values } = parseArgs({
       args,
       options: { archived: { type: "boolean" } },
@@ -37,7 +37,7 @@ export async function dispatchDeviceAppCommand({ command, args, services, writeL
   }
 
   if (command === "archive-app") {
-    const archiveApp = requiredMethod(services, "archiveApp");
+    const archiveApp = requiredArchiveAppMethod(services);
     const { values } = parseArgs({
       args,
       options: {
@@ -54,7 +54,7 @@ export async function dispatchDeviceAppCommand({ command, args, services, writeL
     return true;
   }
 
-  const verifyDeviceBuild = requiredMethod(services, "verifyDeviceBuild");
+  const verifyDeviceBuild = requiredVerifyDeviceBuildMethod(services);
   const { values } = parseArgs({
     args,
     options: { "build-id": { type: "string" } },
@@ -64,6 +64,35 @@ export async function dispatchDeviceAppCommand({ command, args, services, writeL
   );
   writeLine(JSON.stringify(build, null, 2));
   return true;
+}
+
+/** @param {Record<string, unknown>} services */
+function requiredListAppsMethod(services) {
+  const candidate = services?.listApps;
+  if (typeof candidate !== "function") {
+    throw new TypeError("Device app command services must provide listApps.");
+  }
+  return /** @type {(input: { includeArchived: boolean }) => unknown[]} */ (candidate);
+}
+
+/** @param {Record<string, unknown>} services */
+function requiredArchiveAppMethod(services) {
+  const candidate = services?.archiveApp;
+  if (typeof candidate !== "function") {
+    throw new TypeError("Device app command services must provide archiveApp.");
+  }
+  return /** @type {(input: { appID: string, archived: boolean }) => unknown | null} */ (
+    candidate
+  );
+}
+
+/** @param {Record<string, unknown>} services */
+function requiredVerifyDeviceBuildMethod(services) {
+  const candidate = services?.verifyDeviceBuild;
+  if (typeof candidate !== "function") {
+    throw new TypeError("Device app command services must provide verifyDeviceBuild.");
+  }
+  return /** @type {(buildID: string) => Promise<unknown>} */ (candidate);
 }
 
 /** @param {Record<string, string | boolean | undefined>} values @param {string} key */
@@ -81,13 +110,4 @@ function optionBoolean(values, key) {
 function required(value, name) {
   if (!value) throw new Error(`Missing required --${name}.`);
   return value;
-}
-
-/** @param {Record<string, unknown>} services @param {string} method */
-function requiredMethod(services, method) {
-  const candidate = services?.[method];
-  if (typeof candidate !== "function") {
-    throw new TypeError(`Device app command services must provide ${method}.`);
-  }
-  return /** @type {(...args: any[]) => any} */ (candidate);
 }
