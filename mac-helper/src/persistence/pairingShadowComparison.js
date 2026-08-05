@@ -108,11 +108,6 @@ export function pairingShadowMismatchID(input) {
   );
 }
 
-/** @param {PairingShadowProjection} projection */
-export function pairingShadowProjectionHash(projection) {
-  return projectionHash(projection);
-}
-
 /**
  * @param {PairingShadowSurface} surface
  * @param {PairingShadowProjection} projection
