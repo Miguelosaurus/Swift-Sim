@@ -6,6 +6,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  normalizePairingShadowProjection,
+  pairingShadowProjectionHash,
+} from "../mac-helper/src/persistence/pairingShadowProjection.js";
 import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
 import {
   SqlitePairingCredentialRepository,
@@ -91,6 +95,10 @@ test("pairing repositories persist normalized records across reopen", async (t) 
     () => first.credentials.replaceAll([CREDENTIAL, OTHER_CREDENTIAL]),
     /at most one credential/,
   );
+  assert.throws(
+    () => first.credentials.replaceAll([{ ...CREDENTIAL, token: "" }]),
+    /Invalid pairing credential contract/,
+  );
   assert.deepEqual(first.credentials.list(), [CREDENTIAL]);
   assert.deepEqual(first.invitations.list(), [INVITATION_A, INVITATION_B]);
   first.database.close();
@@ -99,6 +107,26 @@ test("pairing repositories persist normalized records across reopen", async (t) 
   t.after(() => reopened.database.close());
   assert.deepEqual(reopened.credentials.get(CREDENTIAL.installationID), CREDENTIAL);
   assert.deepEqual(reopened.invitations.get(INVITATION_A.id), INVITATION_A);
+});
+
+test("projection ordering is ordinal and independent of input order", () => {
+  const invitationZ = { ...INVITATION_A, id: "z", inviteHash: digest("z") };
+  const invitationUmlaut = { ...INVITATION_A, id: "ä", inviteHash: digest("umlaut") };
+  const forward = normalizePairingShadowProjection({
+    credential: CREDENTIAL,
+    invitations: [invitationUmlaut, invitationZ],
+  });
+  const reversed = normalizePairingShadowProjection({
+    credential: CREDENTIAL,
+    invitations: [invitationZ, invitationUmlaut],
+  });
+
+  assert.deepEqual(
+    forward.invitations.map((invitation) => invitation.id),
+    ["z", "ä"],
+  );
+  assert.deepEqual(reversed, forward);
+  assert.equal(pairingShadowProjectionHash(reversed), pairingShadowProjectionHash(forward));
 });
 
 test("shadow import is transactional, deterministic, and exactly idempotent", async (t) => {
