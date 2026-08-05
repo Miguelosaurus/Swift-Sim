@@ -34,6 +34,7 @@ test("database migrates on open, reports health, and reopens idempotently", asyn
     schemaVersion: 1,
     latestSchemaVersion: 1,
     migrationsApplied: 1,
+    missingTables: [],
   });
   const applied = plainRows(
     first.prepare("SELECT version, name, applied_at FROM schema_migrations ORDER BY version").all(),
