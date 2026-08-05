@@ -59,9 +59,7 @@ export async function dispatchDeviceAppCommand({ command, args, services, writeL
     args,
     options: { "build-id": { type: "string" } },
   });
-  const build = await verifyDeviceBuild(
-    required(optionString(values, "build-id"), "build-id"),
-  );
+  const build = await verifyDeviceBuild(required(optionString(values, "build-id"), "build-id"));
   writeLine(JSON.stringify(build, null, 2));
   return true;
 }
@@ -81,9 +79,7 @@ function requiredArchiveAppMethod(services) {
   if (typeof candidate !== "function") {
     throw new TypeError("Device app command services must provide archiveApp.");
   }
-  return /** @type {(input: { appID: string, archived: boolean }) => unknown | null} */ (
-    candidate
-  );
+  return /** @type {(input: { appID: string, archived: boolean }) => unknown | null} */ (candidate);
 }
 
 /** @param {Record<string, unknown>} services */
