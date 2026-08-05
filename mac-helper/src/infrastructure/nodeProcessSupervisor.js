@@ -140,11 +140,15 @@ export class NodeProcessSupervisor {
   /** @param {SupervisedProcessRecord} record @returns {ProcessInspection} */
   inspect(record) {
     if (isOwnedWorkerProcessRecord(record)) {
+      if (!this.targetAlive(record.processGroup, true)) return { state: "dead" };
       const state = this.identity.workerState(record);
-      return state === "current" ? { state, record } : { state };
+      return state === "current"
+        ? { state, record }
+        : { state: state === "dead" ? "unverifiable" : state };
     }
     if (isLiveEngineProcessRecord(record)) {
-      if (!this.targetAlive(record.pid, false)) return { state: "dead" };
+      if (!this.targetAlive(record.processGroup, true)) return { state: "dead" };
+      if (!this.targetAlive(record.pid, false)) return { state: "unverifiable" };
       const kernel = this.identity.kernelIdentity(record.pid);
       if (!kernel) return { state: "unverifiable" };
       if (
@@ -206,6 +210,7 @@ export class NodeProcessSupervisor {
     const deadline = this.clock.monotonicMilliseconds() + timeout;
     const group = isOwnedWorkerProcessRecord(record) || isLiveEngineProcessRecord(record);
     while (true) {
+      if (!this.targetAlive(record.pid, group)) return "exited";
       const inspection = this.inspect(record);
       if (inspection.state === "dead" || inspection.state === "missing") return "exited";
       if (inspection.state === "replaced") return "replaced";
