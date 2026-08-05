@@ -1,5 +1,4 @@
 // @ts-check
-import { spawn, spawnSync } from "node:child_process";
 import {
   ownedProcessIsAlive,
   terminateOwnedProcess,
@@ -11,6 +10,8 @@ import {
 /** @typedef {import("./ports.js").CommandEnvironmentPolicy} CommandEnvironmentPolicy */
 /** @typedef {import("./ports.js").CommandRequest} CommandRequest */
 /** @typedef {import("./ports.js").CommandRunner} CommandRunner */
+/** @typedef {typeof import("node:child_process").spawn} SpawnFunction */
+/** @typedef {typeof import("node:child_process").spawnSync} SpawnSyncFunction */
 /**
  * @typedef {{
  *   executable: string,
@@ -31,13 +32,25 @@ const SUCCESS_DESCENDANT_WAIT_MS = 500;
 
 /** @implements {CommandRunner} */
 export class NodeCommandRunner {
+  /** @param {{ spawn: SpawnFunction, spawnSync: SpawnSyncFunction }} runtime */
+  constructor(runtime) {
+    if (!runtime || typeof runtime !== "object") {
+      throw new TypeError("NodeCommandRunner requires an explicit process runtime.");
+    }
+    if (typeof runtime.spawn !== "function" || typeof runtime.spawnSync !== "function") {
+      throw new TypeError("NodeCommandRunner runtime must provide spawn and spawnSync.");
+    }
+    this.spawn = runtime.spawn;
+    this.spawnSync = runtime.spawnSync;
+  }
+
   /** @param {CommandRequest} request */
   run(request) {
     const normalized = normalizeRequest(request);
     if (normalized.cancellationSignal?.aborted) {
       return Promise.resolve(cancelledResult());
     }
-    return runAsynchronously(normalized);
+    return runAsynchronously(normalized, this.spawn);
   }
 
   /** @param {CommandRequest} request */
@@ -54,7 +67,7 @@ export class NodeCommandRunner {
     }
 
     const detached = normalized.processGroup === "new";
-    const result = spawnSync(normalized.executable, normalized.args, {
+    const result = this.spawnSync(normalized.executable, normalized.args, {
       cwd: normalized.cwd,
       env: normalized.environment,
       input: normalized.input,
@@ -71,13 +84,15 @@ export class NodeCommandRunner {
       bufferValue(result.stderr),
       normalized.outputLimitBytes,
     );
-    const errorCode = codedError(result.error);
-    const timedOut = errorCode === "ETIMEDOUT";
-    const outputExceeded = errorCode === "ENOBUFS" || output.exceeded;
+    const spawnErrorCode = codedError(result.error);
+    const timedOut = spawnErrorCode === "ETIMEDOUT";
+    const outputExceeded = spawnErrorCode === "ENOBUFS" || output.exceeded;
+    const accepted = isAcceptedExit(normalized, result.status);
     let descendantsSurvived = false;
     let terminated = true;
-    if (Number.isInteger(pid) && pid > 1 && detached && ownedProcessIsAlive(pid, true)) {
-      descendantsSurvived = result.status === 0 && !timedOut && !outputExceeded;
+
+    if (detached && validPID(pid) && ownedProcessIsAlive(pid, true)) {
+      descendantsSurvived = accepted && !timedOut && !outputExceeded;
       terminated = terminateOwnedProcessSync(pid, true, TERMINATION_GRACE_MS);
     }
 
@@ -133,16 +148,16 @@ export class NodeCommandRunner {
   }
 }
 
-/** @param {NormalizedCommandRequest} request */
-function runAsynchronously(request) {
+/** @param {NormalizedCommandRequest} request @param {SpawnFunction} spawnImplementation */
+function runAsynchronously(request, spawnImplementation) {
   return new Promise((resolve) => {
     const detached = request.processGroup === "new";
+    /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */
     let child;
     try {
-      child = spawn(request.executable, request.args, {
+      child = spawnImplementation(request.executable, request.args, {
         cwd: request.cwd,
         env: request.environment,
-        stdio: ["pipe", "pipe", "pipe"],
         detached,
         windowsHide: true,
       });
@@ -159,6 +174,7 @@ function runAsynchronously(request) {
     let capturedBytes = 0;
     let settled = false;
     let terminating = false;
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer;
 
     const outputs = () => ({
@@ -170,7 +186,7 @@ function runAsynchronously(request) {
     const settle = (result) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       request.cancellationSignal?.removeEventListener("abort", cancel);
       resolve(result);
     };
@@ -179,10 +195,13 @@ function runAsynchronously(request) {
     const terminateAndSettle = (resultFactory) => {
       if (settled || terminating) return;
       terminating = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       request.cancellationSignal?.removeEventListener("abort", cancel);
       child.stdin.destroy();
-      if (!Number.isInteger(pid) || pid <= 1) {
+      if (!validPID(pid)) {
+        try {
+          child.kill("SIGKILL");
+        } catch {}
         settle(resultFactory(false));
         return;
       }
@@ -196,11 +215,9 @@ function runAsynchronously(request) {
         const output = outputs();
         const result = cancelledResult(output.stdout, output.stderr);
         if (!terminated) {
-          result.error = "Command was cancelled, but its process could not be confirmed stopped.";
-          result.cancellationError = {
-            message: result.error,
-            code: "ABORT_ERR",
-          };
+          const message = "Command was cancelled, but its process could not be confirmed stopped.";
+          result.error = message;
+          result.cancellationError = { message, code: "ABORT_ERR" };
         }
         return result;
       });
@@ -228,22 +245,6 @@ function runAsynchronously(request) {
       }
     };
 
-    request.cancellationSignal?.addEventListener("abort", cancel, { once: true });
-    timer = setTimeout(() => {
-      terminateAndSettle((terminated) => {
-        const output = outputs();
-        return {
-          code: null,
-          stdout: output.stdout,
-          stderr: output.stderr,
-          error: terminated
-            ? `${request.executable} timed out`
-            : `${request.executable} timed out and its process could not be confirmed stopped`,
-          timedOut: true,
-        };
-      });
-    }, request.timeoutMs);
-
     child.stdout.on("data", (chunk) => appendOutput(stdoutChunks, chunk));
     child.stderr.on("data", (chunk) => appendOutput(stderrChunks, chunk));
     child.stdin.on("error", () => {});
@@ -260,15 +261,15 @@ function runAsynchronously(request) {
     child.once("close", (code, signal) => {
       if (settled || terminating) return;
       terminating = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       request.cancellationSignal?.removeEventListener("abort", cancel);
       void (async () => {
         let descendantsSurvived = false;
         let terminated = true;
-        if (detached && Number.isInteger(pid) && pid > 1) {
+        if (detached && validPID(pid)) {
           const exited = await waitForOwnedProcessExit(pid, true, SUCCESS_DESCENDANT_WAIT_MS);
           if (!exited) {
-            descendantsSurvived = code === 0;
+            descendantsSurvived = isAcceptedExit(request, code);
             terminated = await terminateOwnedProcess(pid, true, TERMINATION_GRACE_MS);
           }
         }
@@ -295,6 +296,23 @@ function runAsynchronously(request) {
       })();
     });
 
+    request.cancellationSignal?.addEventListener("abort", cancel, { once: true });
+    timer = setTimeout(() => {
+      terminateAndSettle((terminated) => {
+        const output = outputs();
+        return {
+          code: null,
+          stdout: output.stdout,
+          stderr: output.stderr,
+          error: terminated
+            ? `${request.executable} timed out`
+            : `${request.executable} timed out and its process could not be confirmed stopped`,
+          timedOut: true,
+        };
+      });
+    }, request.timeoutMs);
+    if (request.cancellationSignal?.aborted) cancel();
+
     if (request.input === undefined) child.stdin.end();
     else child.stdin.end(request.input);
   });
@@ -302,15 +320,17 @@ function runAsynchronously(request) {
 
 /** @param {CommandRequest} request @returns {NormalizedCommandRequest} */
 function normalizeRequest(request) {
-  if (!request || typeof request !== "object") throw new TypeError("A command request is required.");
+  if (!request || typeof request !== "object") {
+    throw new TypeError("A command request is required.");
+  }
   const executable = normalizedString(request.executable, "Command executable");
   const args = normalizedStringArray(request.args, "Command arguments");
   const policy = request.policy;
   if (!policy || typeof policy !== "object") throw new TypeError("Command policy is required.");
-  const acceptedExitCodes = normalizedExitCodes(policy.acceptedExitCodes);
   if (policy.processGroup !== "inherit" && policy.processGroup !== "new") {
     throw new TypeError("Command processGroup must be inherit or new.");
   }
+  /** @type {NormalizedCommandRequest} */
   const normalized = {
     executable,
     args,
@@ -318,16 +338,14 @@ function normalizeRequest(request) {
     timeoutMs: positiveInteger(policy.timeoutMs, "Command timeout"),
     outputLimitBytes: positiveInteger(policy.outputLimitBytes, "Command output limit"),
     processGroup: policy.processGroup,
-    acceptedExitCodes,
+    acceptedExitCodes: normalizedExitCodes(policy.acceptedExitCodes),
   };
-  return {
-    ...normalized,
-    ...(request.cwd === undefined ? {} : { cwd: normalizedString(request.cwd, "Command cwd") }),
-    ...(request.input === undefined ? {} : { input: normalizedInput(request.input) }),
-    ...(request.cancellationSignal === undefined
-      ? {}
-      : { cancellationSignal: normalizedAbortSignal(request.cancellationSignal) }),
-  };
+  if (request.cwd !== undefined) normalized.cwd = normalizedString(request.cwd, "Command cwd");
+  if (request.input !== undefined) normalized.input = normalizedInput(request.input);
+  if (request.cancellationSignal !== undefined) {
+    normalized.cancellationSignal = normalizedAbortSignal(request.cancellationSignal);
+  }
+  return normalized;
 }
 
 /** @param {CommandEnvironmentPolicy} policy */
@@ -360,6 +378,7 @@ function normalizedExitCodes(values) {
   if (!Array.isArray(values) || values.length === 0) {
     throw new TypeError("Command acceptedExitCodes must contain at least one code.");
   }
+  /** @type {Set<number>} */
   const result = new Set();
   for (const value of values) {
     if (!Number.isInteger(value) || value < 0 || value > 255) {
@@ -398,9 +417,10 @@ function normalizedEnvironmentValue(value, name) {
   return value;
 }
 
-/** @param {unknown} value */
+/** @param {string | Uint8Array} value */
 function normalizedInput(value) {
-  if (typeof value === "string" || value instanceof Uint8Array) return value;
+  if (typeof value === "string") return value;
+  if (value instanceof Uint8Array) return new Uint8Array(value);
   throw new TypeError("Command input must be a string or Uint8Array.");
 }
 
@@ -420,12 +440,10 @@ function normalizedAbortSignal(signal) {
 
 /** @param {unknown} value @param {string} label @param {boolean} [allowEmpty] */
 function normalizedString(value, label, allowEmpty = false) {
-  if (
-    typeof value !== "string" ||
-    (!allowEmpty && !value) ||
-    value.includes("\0")
-  ) {
-    throw new TypeError(`${label} must be a ${allowEmpty ? "NUL-free" : "non-empty NUL-free"} string.`);
+  if (typeof value !== "string" || (!allowEmpty && !value) || value.includes("\0")) {
+    throw new TypeError(
+      `${label} must be a ${allowEmpty ? "NUL-free" : "non-empty NUL-free"} string.`,
+    );
   }
   return value;
 }
@@ -438,71 +456,80 @@ function positiveInteger(value, label) {
   return value;
 }
 
+/** @param {NormalizedCommandRequest} request @param {number | null} code */
+function isAcceptedExit(request, code) {
+  return Number.isInteger(code) && request.acceptedExitCodes.has(Number(code));
+}
+
 /**
  * @param {NormalizedCommandRequest} request
  * @param {number | null} code
  * @param {string} stdout
  * @param {string} stderr
  * @param {string | null} signal
+ * @returns {CommandResult}
  */
 function completedResult(request, code, stdout, stderr, signal) {
-  const accepted = code !== null && request.acceptedExitCodes.has(code);
+  if (isAcceptedExit(request, code)) return { code, stdout, stderr };
   return {
     code,
     stdout,
     stderr,
-    ...(accepted
-      ? {}
-      : {
-        error: stderr || stdout || `${request.executable} failed with exit code ${code}`,
-      }),
+    error:
+      stderr ||
+      stdout ||
+      (signal
+        ? `${request.executable} terminated by ${signal}`
+        : `${request.executable} failed with exit code ${String(code)}`),
     ...(signal ? { signal } : {}),
   };
 }
 
-/** @param {string} [stdout] @param {string} [stderr] */
+/** @param {string} [stdout] @param {string} [stderr] @returns {CommandResult} */
 function cancelledResult(stdout = "", stderr = "") {
+  const message = "Command was cancelled.";
   return {
     code: null,
     stdout,
     stderr,
-    error: "Command was cancelled.",
-    cancellationError: {
-      message: "Command was cancelled.",
-      code: "ABORT_ERR",
-    },
+    error: message,
+    cancellationError: { message, code: "ABORT_ERR" },
   };
 }
 
 /** @param {Buffer} stdout @param {Buffer} stderr @param {number} limit */
 function boundedOutput(stdout, stderr, limit) {
-  const combined = Buffer.concat([stdout, stderr]);
-  const exceeded = combined.length > limit;
-  const bounded = combined.subarray(0, limit);
-  const stdoutLength = Math.min(stdout.length, bounded.length);
+  let remaining = limit;
+  const boundedStdout = stdout.subarray(0, remaining);
+  remaining -= boundedStdout.length;
+  const boundedStderr = stderr.subarray(0, remaining);
   return {
-    stdout: bounded.subarray(0, stdoutLength).toString("utf8"),
-    stderr: bounded.subarray(stdoutLength).toString("utf8"),
-    exceeded,
+    stdout: boundedStdout.toString("utf8"),
+    stderr: boundedStderr.toString("utf8"),
+    exceeded: stdout.length + stderr.length > limit,
   };
 }
 
-/** @param {unknown} value */
+/** @param {Buffer | string | null | undefined} value */
 function bufferValue(value) {
   if (Buffer.isBuffer(value)) return value;
-  if (value instanceof Uint8Array) return Buffer.from(value);
   if (typeof value === "string") return Buffer.from(value);
   return Buffer.alloc(0);
 }
 
 /** @param {unknown} error */
 function codedError(error) {
-  if (!error || typeof error !== "object") return "";
-  const code = /** @type {{ code?: unknown }} */ (error).code;
-  return typeof code === "string" ? code : "";
+  if (!error || typeof error !== "object" || !("code" in error)) return "";
+  const code = error.code;
+  return typeof code === "string" || typeof code === "number" ? String(code) : "";
 }
 
 /** @param {unknown} error */
 function safeErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** @param {number} pid */
+function validPID(pid) {
+  return Number.isInteger(pid) && pid > 1;
 }
