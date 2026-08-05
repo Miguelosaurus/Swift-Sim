@@ -47,4 +47,38 @@ export const PAIRING_SQLITE_MIGRATIONS = Object.freeze([
     ]),
     requiredTables: Object.freeze(["pairing_credentials", "pairing_invitations"]),
   }),
+  Object.freeze({
+    version: 3,
+    name: "pairing_shadow_mismatch_evidence",
+    statements: Object.freeze([
+      `CREATE TABLE pairing_shadow_mismatches (
+        mismatch_id TEXT PRIMARY KEY CHECK (
+          length(mismatch_id) = 64 AND mismatch_id NOT GLOB '*[^0-9a-f]*'
+        ),
+        surface TEXT NOT NULL CHECK (surface IN ('credential', 'invitation')),
+        key_hash TEXT NOT NULL CHECK (
+          length(key_hash) = 64 AND key_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        legacy_projection_hash TEXT CHECK (
+          legacy_projection_hash IS NULL OR (
+            length(legacy_projection_hash) = 64 AND
+            legacy_projection_hash NOT GLOB '*[^0-9a-f]*'
+          )
+        ),
+        sqlite_projection_hash TEXT CHECK (
+          sqlite_projection_hash IS NULL OR (
+            length(sqlite_projection_hash) = 64 AND
+            sqlite_projection_hash NOT GLOB '*[^0-9a-f]*'
+          )
+        ),
+        first_observed_at TEXT NOT NULL CHECK (length(first_observed_at) > 0),
+        last_observed_at TEXT NOT NULL CHECK (length(last_observed_at) > 0),
+        observation_count INTEGER NOT NULL CHECK (observation_count >= 1),
+        CHECK (legacy_projection_hash IS NOT sqlite_projection_hash)
+      ) STRICT`,
+      `CREATE INDEX pairing_shadow_mismatches_surface_key_idx
+        ON pairing_shadow_mismatches(surface, key_hash, last_observed_at)`,
+    ]),
+    requiredTables: Object.freeze(["pairing_shadow_mismatches"]),
+  }),
 ]);

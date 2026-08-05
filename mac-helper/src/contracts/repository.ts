@@ -60,3 +60,44 @@ export interface PairingStateRepository {
   getInvitation(id: string): PairingInvitationRecord | null;
   findInvitationByInviteHash(inviteHash: string): PairingInvitationRecord | null;
 }
+
+export type PairingShadowSurface = "credential" | "invitation";
+export type PairingShadowProjection =
+  | PairingCredentialRecord
+  | PairingInvitationRecord
+  | null;
+
+export interface PairingShadowMismatchObservation {
+  mismatchID: string;
+  surface: PairingShadowSurface;
+  keyHash: string;
+  legacyProjectionHash: string | null;
+  sqliteProjectionHash: string | null;
+  observedAt: string;
+}
+
+export interface PairingShadowMismatchEvidence {
+  mismatchID: string;
+  surface: PairingShadowSurface;
+  keyHash: string;
+  legacyProjectionHash: string | null;
+  sqliteProjectionHash: string | null;
+  firstObservedAt: string;
+  lastObservedAt: string;
+  observationCount: number;
+}
+
+export interface PairingShadowMismatchRepository {
+  get(mismatchID: string): PairingShadowMismatchEvidence | null;
+  list(): PairingShadowMismatchEvidence[];
+  observe(observation: PairingShadowMismatchObservation): PairingShadowMismatchEvidence;
+}
+
+export interface PairingShadowComparisonResult {
+  matched: boolean;
+  surface: PairingShadowSurface;
+  keyHash: string;
+  legacyProjectionHash: string | null;
+  sqliteProjectionHash: string | null;
+  evidence: PairingShadowMismatchEvidence | null;
+}

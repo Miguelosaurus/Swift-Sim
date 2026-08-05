@@ -68,7 +68,7 @@ test("pairing snapshot persists canonically across reopen", async (t) => {
     invitations: [INVITATION_B, INVITATION_A],
   });
 
-  assert.equal(first.database.health().schemaVersion, 2);
+  assert.equal(first.database.health().schemaVersion, 3);
   assert.deepEqual(first.repository.read(), {
     credential: CREDENTIAL,
     invitations: [INVITATION_A, INVITATION_B],
