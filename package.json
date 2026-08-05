@@ -39,7 +39,7 @@
     "check:node": "bash scripts/check-node-version.sh",
     "check:source": "node scripts/check-js-syntax.js && npm run check:architecture && npm run check:docs",
     "check:types": "tsc --noEmit --project tsconfig.json",
-    "check:format": "prettier --write mac-helper/src/http/helperRequestContext.js && git diff -- mac-helper/src/http/helperRequestContext.js && exit 1",
+    "check:format": "prettier --check eslint.config.js tsconfig.json package.json \"mac-helper/src/contracts/**/*.ts\" \"mac-helper/src/infrastructure/**/*.{js,ts}\" \"mac-helper/src/commands/**/*.js\" \"mac-helper/src/http/**/*.js\" mac-helper/src/helperCliDispatcher.js mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js \"test/**/*.ts\"",
     "check:lint": "eslint eslint.config.js mac-helper/src/contracts mac-helper/src/infrastructure mac-helper/src/commands mac-helper/src/http mac-helper/src/helperCliDispatcher.js mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js test --ext .js,.ts",
     "check:package": "npm run build && bash scripts/verify-package-content.sh && bash scripts/verify-package-install.sh && bash scripts/verify-homebrew-package.sh",
     "check:compiled": "npm run build && node --test --test-concurrency=1 dist/test/contracts.test.js dist/test/infrastructurePorts.test.js dist/test/foundationAdapters.test.js dist/test/originDelegation.test.js dist/test/persistenceAdapters.test.js dist/test/lockManagerAdapter.test.js dist/test/artifactLoggerAdapters.test.js dist/test/commandRunnerAdapter.test.js dist/test/processSupervisorAdapter.test.js dist/test/helperCliDispatcher.test.js dist/test/helperRequestContext.test.js && bash scripts/verify-hermetic-compiled.sh && bash scripts/verify-compiled-runtime.sh",
