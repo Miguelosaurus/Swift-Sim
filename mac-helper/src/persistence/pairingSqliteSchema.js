@@ -12,7 +12,8 @@ export const PAIRING_SHADOW_SQLITE_MIGRATIONS = Object.freeze([
     name: "pairing_shadow_state",
     statements: Object.freeze([
       `CREATE TABLE pairing_credentials (
-        installation_id TEXT PRIMARY KEY CHECK (length(installation_id) > 0),
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        installation_id TEXT NOT NULL UNIQUE CHECK (length(installation_id) > 0),
         token TEXT NOT NULL UNIQUE CHECK (length(token) > 0),
         mac_name TEXT NOT NULL CHECK (length(mac_name) > 0),
         created_at TEXT NOT NULL CHECK (length(created_at) > 0),
