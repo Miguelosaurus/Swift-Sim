@@ -35,10 +35,8 @@ const identity = {
   workerState: (record: OwnedWorkerProcessRecord) => ownedWorkerProcessState(record),
   prepareKernel: prepareKernelProcessIdentity,
   kernelIdentity: kernelProcessIdentity,
-  liveEngineCurrent: (
-    record: LiveEngineProcessRecord,
-    options: { engineExecutable: string },
-  ) => liveEngineProcessRecordIsCurrent(record, options),
+  liveEngineCurrent: (record: LiveEngineProcessRecord, options: { engineExecutable: string }) =>
+    liveEngineProcessRecordIsCurrent(record, options),
 };
 
 function environment(overrides: Record<string, string | undefined> = {}) {
@@ -301,7 +299,9 @@ function processIsAlive(pid: number): boolean {
     encoding: "utf8",
   });
   if (result.status !== 0) return false;
-  return !String(result.stdout || "").trim().startsWith("Z");
+  return !String(result.stdout || "")
+    .trim()
+    .startsWith("Z");
 }
 
 function journalStore(overrides: Partial<RuntimeJournalStore>): RuntimeJournalStore {
