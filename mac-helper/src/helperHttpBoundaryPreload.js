@@ -2,6 +2,7 @@ import { createRequire, syncBuiltinESMExports } from "node:module";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
 import { DeliveryMaintenanceCoordinator } from "./http/deliveryMaintenanceCoordinator.js";
+import { HelperHttpBoundaryRuntime } from "./http/helperServerRuntime.js";
 import { writeHelperJson } from "./http/helperHttpResponses.js";
 import { handlePairingFallbackRequest } from "./http/pairingFallbackHandler.js";
 import {
@@ -22,44 +23,10 @@ let defaultDeviceBuildStore;
 let defaultDeviceDelivery;
 let defaultRequestOriginPolicy;
 let defaultDeliveryMaintenance;
-let maintenanceTimer;
-let installed = false;
+let defaultHttpRuntime;
 
 export function installHelperHttpBoundary() {
-  if (installed) return;
-  installed = true;
-  http.createServer = function guardedCreateServer(options, listener) {
-    let resolvedOptions = options;
-    let resolvedListener = listener;
-    if (typeof options === "function") {
-      resolvedListener = options;
-      resolvedOptions = undefined;
-    }
-    const guardedListener = typeof resolvedListener === "function"
-      ? (req, res) => {
-          try {
-            if (handlePairingFallback(req, res)) return;
-            if (handlePublicBuildExpiry(req, res)) return;
-            if (handlePublicBuildLogs(req, res)) return;
-          } catch (error) {
-            console.error(error instanceof Error ? error.message : String(error));
-            if (!res.headersSent) {
-              writeHelperJson(res, 503, { error: "Swift Sim is temporarily unavailable." });
-            } else {
-              res.destroy(error instanceof Error ? error : undefined);
-            }
-            return;
-          }
-          return resolvedListener(req, res);
-        }
-      : resolvedListener;
-    const server = resolvedOptions === undefined
-      ? originalCreateServer.call(this, guardedListener)
-      : originalCreateServer.call(this, resolvedOptions, guardedListener);
-    startBoundaryMaintenance();
-    return server;
-  };
-  syncBuiltinESMExports();
+  return httpBoundaryRuntime().install();
 }
 
 export function handlePairingFallback(
@@ -132,13 +99,11 @@ function resolveDeliveryMaintenanceOptions({
   };
 }
 
-function startBoundaryMaintenance() {
-  if (maintenanceTimer) return;
-  void runBoundaryMaintenanceOnce().catch(() => {});
-  maintenanceTimer = setInterval(() => {
-    void runBoundaryMaintenanceOnce().catch(() => {});
-  }, DELIVERY_CLEANUP_INTERVAL_MS);
-  maintenanceTimer.unref?.();
+function dispatchHelperHttpRequest(req, res) {
+  if (handlePairingFallback(req, res)) return true;
+  if (handlePublicBuildExpiry(req, res)) return true;
+  if (handlePublicBuildLogs(req, res)) return true;
+  return false;
 }
 
 function pairingStore() {
@@ -169,6 +134,27 @@ function deliveryStore() {
 function deliveryMaintenance() {
   defaultDeliveryMaintenance ||= new DeliveryMaintenanceCoordinator();
   return defaultDeliveryMaintenance;
+}
+
+function httpBoundaryRuntime() {
+  defaultHttpRuntime ||= new HelperHttpBoundaryRuntime({
+    originalCreateServer,
+    replaceCreateServer(createServer) {
+      http.createServer = createServer;
+    },
+    syncBuiltinExports: syncBuiltinESMExports,
+    dispatchRequest: dispatchHelperHttpRequest,
+    writeUnavailable(response) {
+      writeHelperJson(response, 503, { error: "Swift Sim is temporarily unavailable." });
+    },
+    reportError(error) {
+      console.error(error instanceof Error ? error.message : String(error));
+    },
+    runMaintenance: () => runBoundaryMaintenanceOnce(),
+    scheduleInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+    maintenanceIntervalMs: DELIVERY_CLEANUP_INTERVAL_MS,
+  });
+  return defaultHttpRuntime;
 }
 
 installHelperHttpBoundary();
