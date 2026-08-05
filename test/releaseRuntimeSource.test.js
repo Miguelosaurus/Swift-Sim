@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const cliEntry = readFileSync(new URL("../mac-helper/bin/swift-sim-entry.js", import.meta.url), "utf8");
+const cliImplementation = readFileSync(new URL("../mac-helper/bin/swift-sim.js", import.meta.url), "utf8");
 const helperEntry = readFileSync(new URL("../mac-helper/bin/swift-sim-helper-entry.js", import.meta.url), "utf8");
 const preload = readFileSync(new URL("../mac-helper/src/hardenedRuntimePreload.js", import.meta.url), "utf8");
+const compiledVerifier = readFileSync(new URL("../scripts/verify-compiled-runtime.sh", import.meta.url), "utf8");
 const packageJSON = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 test("CLI installs child-only hardening before loading the implementation", () => {
@@ -21,6 +23,22 @@ test("CLI installs child-only hardening before loading the implementation", () =
   assert.match(cliEntry, /reconcileHelperRuntime/);
   assert.match(cliEntry, /if \(!skipService \|\| wasRunningBeforeUpdate\)/);
   assert.match(cliEntry, /installCompatibleHelperHealthFetchBoundary/);
+});
+
+test("legacy CLI startup does not launch a second healthy helper", () => {
+  const start = cliImplementation.indexOf("async function ensureHelperRunning()");
+  const end = cliImplementation.indexOf("\n}\n", start) + 2;
+  const implementation = cliImplementation.slice(start, end);
+  const healthyReturn = implementation.indexOf("if (wasHealthy) return");
+  const serviceStart = implementation.indexOf('runCapture(brew, ["services", "start", "swift-sim"]');
+  assert.ok(healthyReturn >= 0);
+  assert.ok(serviceStart > healthyReturn);
+});
+
+test("compiled helper verification cannot mutate the developer's live state", () => {
+  assert.match(compiledVerifier, /HELPER_TEST_ROOT="\$\(mktemp -d/);
+  assert.match(compiledVerifier, /HOME="\$HELPER_TEST_ROOT\/source-home"/);
+  assert.match(compiledVerifier, /HOME="\$HELPER_TEST_ROOT\/compiled-home"/);
 });
 
 test("helper entrypoint composes child hardening after owned-worker supervision", () => {
