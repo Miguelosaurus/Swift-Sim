@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PairingCredentialRecord } from "../mac-helper/src/contracts/pairing.js";
-import type {
-  PairingShadowComparisonResult,
-  PairingStateRepository,
-} from "../mac-helper/src/contracts/repository.js";
+import type { PairingShadowComparisonResult } from "../mac-helper/src/contracts/repository.js";
 import { handlePairingFallbackRequest } from "../mac-helper/src/http/pairingFallbackHandler.js";
 import { PairingCredentialShadowObserver } from "../mac-helper/src/persistence/pairingCredentialShadowObserver.js";
 
@@ -49,7 +46,7 @@ test("credential shadow observer compares SQLite without changing legacy authori
     evidence: null,
   };
   const observer = new PairingCredentialShadowObserver({
-    pairingRepository: pairingRepository(CREDENTIAL),
+    pairingRepository: credentialRepository(CREDENTIAL),
     comparator: {
       compare(input) {
         compared = input;
@@ -70,7 +67,7 @@ test("credential shadow observer compares SQLite without changing legacy authori
 test("credential shadow observer contains repository and reporter failures", () => {
   const diagnostics: string[] = [];
   const observer = new PairingCredentialShadowObserver({
-    pairingRepository: pairingRepository(null, new Error("database unavailable")),
+    pairingRepository: credentialRepository(null, new Error("database unavailable")),
     comparator: {
       compare() {
         return assert.fail("comparison must not run");
@@ -86,7 +83,7 @@ test("credential shadow observer contains repository and reporter failures", () 
   assert.deepEqual(diagnostics, ["Pairing credential shadow observation failed."]);
 });
 
-test("pairing handler observes only authorized responses and contains observer failures", async () => {
+test("pairing handler defers observation until after authorized responses", async () => {
   const observed: unknown[] = [];
   const authorizedResponse = new ResponseRecorder();
   assert.equal(
@@ -109,6 +106,7 @@ test("pairing handler observes only authorized responses and contains observer f
         observeCredential(pairing) {
           assert.equal(authorizedResponse.status, 200);
           assert.match(authorizedResponse.body, /Connect to Test Mac/);
+          assert.notEqual(pairing, CREDENTIAL);
           observed.push(pairing);
           return Promise.reject(new Error("asynchronous observer failure"));
         },
@@ -116,8 +114,9 @@ test("pairing handler observes only authorized responses and contains observer f
     ),
     true,
   );
-  await Promise.resolve();
   assert.equal(authorizedResponse.status, 200);
+  assert.deepEqual(observed, []);
+  await waitForImmediate();
   assert.deepEqual(observed, [CREDENTIAL]);
 
   const unauthorizedResponse = new ResponseRecorder();
@@ -173,6 +172,8 @@ test("pairing handler observes only authorized responses and contains observer f
     true,
   );
   assert.equal(expiredInviteResponse.status, 410);
+  await waitForImmediate();
+  assert.deepEqual(observed, [CREDENTIAL]);
 
   const invitationResponse = new ResponseRecorder();
   assert.equal(
@@ -200,6 +201,7 @@ test("pairing handler observes only authorized responses and contains observer f
         observeCredential(pairing) {
           assert.equal(invitationResponse.status, 200);
           assert.match(invitationResponse.body, /active-invite/);
+          assert.notEqual(pairing, CREDENTIAL);
           observed.push(pairing);
           throw new Error("synchronous observer failure");
         },
@@ -208,21 +210,23 @@ test("pairing handler observes only authorized responses and contains observer f
     true,
   );
   assert.equal(invitationResponse.status, 200);
+  assert.deepEqual(observed, [CREDENTIAL]);
+  await waitForImmediate();
   assert.deepEqual(observed, [CREDENTIAL, CREDENTIAL]);
 });
 
-function pairingRepository(
+function credentialRepository(
   credential: PairingCredentialRecord | null,
   failure: Error | null = null,
-): PairingStateRepository {
+) {
   return {
-    read: () => ({ credential, invitations: [] }),
-    replace: () => {},
     getCredential() {
       if (failure) throw failure;
       return credential;
     },
-    getInvitation: () => null,
-    findInvitationByInviteHash: () => null,
   };
+}
+
+function waitForImmediate(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }

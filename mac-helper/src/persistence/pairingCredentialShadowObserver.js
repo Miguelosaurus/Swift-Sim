@@ -4,7 +4,11 @@ import { parsePairingCredential } from "../contracts/pairing.js";
 
 /** @typedef {import("../contracts/pairing.js").PairingCredentialRecord} PairingCredentialRecord */
 /** @typedef {import("../contracts/repository.js").PairingShadowComparisonResult} PairingShadowComparisonResult */
-/** @typedef {import("../contracts/repository.js").PairingStateRepository} PairingStateRepository */
+/**
+ * @typedef {{
+ *   getCredential(installationID: string): PairingCredentialRecord | null,
+ * }} PairingCredentialRepositoryPort
+ */
 /**
  * @typedef {{
  *   compare(input: {
@@ -17,7 +21,7 @@ import { parsePairingCredential } from "../contracts/pairing.js";
  */
 
 export class PairingCredentialShadowObserver {
-  /** @type {PairingStateRepository} */
+  /** @type {PairingCredentialRepositoryPort} */
   #pairingRepository;
   /** @type {PairingShadowComparatorPort} */
   #comparator;
@@ -26,14 +30,14 @@ export class PairingCredentialShadowObserver {
 
   /**
    * @param {{
-   *   pairingRepository: PairingStateRepository,
+   *   pairingRepository: PairingCredentialRepositoryPort,
    *   comparator: PairingShadowComparatorPort,
    *   reportError?: (error: Error) => void,
    * }} options
    */
   constructor({ pairingRepository, comparator, reportError = () => {} }) {
     if (!pairingRepository || typeof pairingRepository.getCredential !== "function") {
-      throw new Error("Pairing shadow state repository is required.");
+      throw new Error("Pairing shadow credential repository is required.");
     }
     if (!comparator || typeof comparator.compare !== "function") {
       throw new Error("Pairing shadow comparator is required.");

@@ -84,7 +84,7 @@ export function handlePairingFallbackRequest(
       base,
     ).customScheme;
     writeHelperHtml(response, pairingPage(customScheme, pairing.macName, invitation.expiresAt));
-    observeCredentialSafely(shadowObserver, pairing);
+    deferCredentialObservation(shadowObserver, pairing);
     return true;
   }
 
@@ -96,7 +96,7 @@ export function handlePairingFallbackRequest(
   const base = externalBaseURL(context, originPolicy);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHelperHtml(response, pairingPage(customScheme, pairing.macName));
-  observeCredentialSafely(shadowObserver, pairing);
+  deferCredentialObservation(shadowObserver, pairing);
   return true;
 }
 
@@ -104,13 +104,20 @@ export function handlePairingFallbackRequest(
  * @param {PairingShadowObserverPort | undefined} shadowObserver
  * @param {PairingState} pairing
  */
-function observeCredentialSafely(shadowObserver, pairing) {
+function deferCredentialObservation(shadowObserver, pairing) {
   if (!shadowObserver || typeof shadowObserver.observeCredential !== "function") return;
   try {
-    const result = shadowObserver.observeCredential(pairing);
-    void Promise.resolve(result).catch(() => {});
+    const snapshot = { ...pairing };
+    setImmediate(() => {
+      try {
+        const result = shadowObserver.observeCredential(snapshot);
+        void Promise.resolve(result).catch(() => {});
+      } catch {
+        // Shadow diagnostics never affect JSON authorization or HTTP responses.
+      }
+    });
   } catch {
-    // Shadow diagnostics never affect JSON authorization or HTTP responses.
+    // Snapshot or scheduling failures are also best-effort diagnostics only.
   }
 }
 
