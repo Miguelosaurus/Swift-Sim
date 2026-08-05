@@ -8,9 +8,7 @@ test("importing the helper HTTP boundary is inert until explicitly installed", a
   const http = require("node:http");
   const originalCreateServer = http.createServer;
   const esmHttp = await import("node:http");
-  const boundary = await import(
-    `../mac-helper/src/helperHttpBoundaryPreload.js?explicit-install=${Date.now()}`
-  );
+  const boundary = await import("../mac-helper/src/helperHttpBoundaryPreload.js");
 
   assert.strictEqual(http.createServer, originalCreateServer);
   assert.strictEqual(esmHttp.createServer, originalCreateServer);
