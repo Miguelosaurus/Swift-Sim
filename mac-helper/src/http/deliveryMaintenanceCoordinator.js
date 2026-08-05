@@ -11,7 +11,7 @@ const ACTIVE_BUILD_STATES = new Set([
 ]);
 
 /**
- * @typedef {{ referenceID?: unknown }} DeliveryReference
+ * @typedef {{ referenceID?: string }} DeliveryReference
  * @typedef {{
  *   id: string,
  *   generation: string,
@@ -23,12 +23,12 @@ const ACTIVE_BUILD_STATES = new Set([
  *   id: string,
  *   state?: string,
  *   expiresAt?: string,
- *   delivery?: DeliveryReference,
+ *   delivery?: DeliveryReference | null,
  *   capabilities?: Array<{
  *     expiresAt?: string,
- *     delivery?: DeliveryReference,
+ *     delivery?: DeliveryReference | null,
  *   }>,
- *   pendingRenewal?: { id?: unknown },
+ *   pendingRenewal?: { id?: string } | null,
  * }} DeliveryBuild
  * @typedef {{ generation: string, references?: string[] }} DeliveryStatus
  * @typedef {{
@@ -96,6 +96,7 @@ export class DeliveryMaintenanceCoordinator {
     if (this.#reconciliationPromise) return this.#reconciliationPromise;
     this.#reconciliationPromise = Promise.resolve()
       .then(() => {
+        /** @type {Set<string>} */
         const liveReferences = new Set();
         for (const build of deviceBuildStore.list()) {
           const currentExpiresAt = Date.parse(build.expiresAt || "");
@@ -153,7 +154,7 @@ export class DeliveryMaintenanceCoordinator {
   }
 }
 
-/** @param {Set<unknown>} references @param {DeliveryReference | undefined} delivery */
+/** @param {Set<string>} references @param {DeliveryReference | null | undefined} delivery */
 function addDeliveryReference(references, delivery) {
   if (delivery?.referenceID) references.add(String(delivery.referenceID));
 }
