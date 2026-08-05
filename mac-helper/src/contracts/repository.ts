@@ -134,3 +134,20 @@ export interface PairingAuthorityRepository {
   }): PairingAuthorityState;
   finalizeSqlite(input: { expectedRevision: number; finalizedAt: string }): PairingAuthorityState;
 }
+
+export type PairingAuthorityTarget = "legacy" | "sqlite";
+
+export interface PairingAuthoritySelection {
+  authority: Readonly<PairingAuthorityState>;
+  target: PairingAuthorityTarget;
+  repository: PairingStateRepository;
+}
+
+/**
+ * Selects one complete pairing repository from one validated authority read.
+ * Selection itself performs no domain reads or writes and exposes no dual-write
+ * operation.
+ */
+export interface PairingAuthoritySelector {
+  select(): Readonly<PairingAuthoritySelection>;
+}
