@@ -83,7 +83,11 @@ export class SqlitePairingAuthorityRepository {
       ) {
         return current;
       }
-      requireExpectedRevision(current, normalized.expectedRevision, "prepare SQLite pairing authority");
+      requireExpectedRevision(
+        current,
+        normalized.expectedRevision,
+        "prepare SQLite pairing authority",
+      );
       if (current.mode !== "legacy") {
         throw new Error(`Pairing authority cannot prepare SQLite from ${current.mode}.`);
       }

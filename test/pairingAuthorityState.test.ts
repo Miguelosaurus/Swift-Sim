@@ -31,10 +31,7 @@ async function temporaryDatabasePath(t: TestContext) {
   return join(root, "swift-sim.sqlite");
 }
 
-function openRepository(
-  path: string,
-  migrations = PAIRING_SQLITE_MIGRATIONS,
-) {
+function openRepository(path: string, migrations = PAIRING_SQLITE_MIGRATIONS) {
   const database = new SwiftSimSqliteDatabase({ path, migrations });
   return {
     database,
@@ -46,10 +43,7 @@ test("authority migration initializes one durable legacy source of truth", async
   const path = await temporaryDatabasePath(t);
   const first = openRepository(path);
 
-  assert.equal(
-    first.database.health().schemaVersion,
-    PAIRING_SQLITE_MIGRATIONS.at(-1)?.version,
-  );
+  assert.equal(first.database.health().schemaVersion, PAIRING_SQLITE_MIGRATIONS.at(-1)?.version);
   assert.deepEqual(first.repository.current(), legacyState(0));
   first.database.close();
 
@@ -281,10 +275,7 @@ test("finalization waits for rollback expiry and permanently closes rollback", a
     expectedRevision: 2,
     finalizedAt: PREPARATION.rollbackExpiresAt,
   });
-  assert.deepEqual(
-    finalized,
-    finalState(PREPARATION, EVIDENCE, PREPARATION.rollbackExpiresAt, 3),
-  );
+  assert.deepEqual(finalized, finalState(PREPARATION, EVIDENCE, PREPARATION.rollbackExpiresAt, 3));
   assert.deepEqual(
     stores.repository.finalizeSqlite({
       expectedRevision: 2,
