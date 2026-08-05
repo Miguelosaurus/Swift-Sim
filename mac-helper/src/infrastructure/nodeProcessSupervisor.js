@@ -209,17 +209,18 @@ export class NodeProcessSupervisor {
     const timeout = nonnegativeInteger(timeoutMs, "Process wait timeout");
     const deadline = this.clock.monotonicMilliseconds() + timeout;
     const group = isOwnedWorkerProcessRecord(record) || isLiveEngineProcessRecord(record);
+    let sawUnverifiable = false;
+
     while (true) {
       if (!this.targetAlive(record.pid, group)) return "exited";
       const inspection = this.inspect(record);
       if (inspection.state === "dead" || inspection.state === "missing") return "exited";
       if (inspection.state === "replaced") return "replaced";
-      if (inspection.state === "unverifiable" || inspection.state === "invalid") {
-        return "unverifiable";
-      }
-      if (!this.targetAlive(record.pid, group)) return "exited";
+      if (inspection.state === "invalid") return "unverifiable";
+      if (inspection.state === "unverifiable") sawUnverifiable = true;
+
       const remaining = deadline - this.clock.monotonicMilliseconds();
-      if (remaining <= 0) return "timeout";
+      if (remaining <= 0) return sawUnverifiable ? "unverifiable" : "timeout";
       await this.clock.sleep(Math.min(WAIT_INTERVAL_MS, remaining), signal);
     }
   }
