@@ -62,7 +62,7 @@ test("pairing handler preserves query authorization, origin inputs, and HTML pol
   assert.equal(response.headers["cache-control"], "no-store");
   assert.match(response.headers["content-security-policy"] || "", /default-src 'none'/);
   assert.match(response.body, /Connect to Test Mac/);
-  assert.match(response.body, /swiftsim:\/\/pair/);
+  assert.match(response.body, /swift-sim:\/\/pair/);
   assert.deepEqual(originInputs, [
     {
       socketRemoteAddress: "127.0.0.1",
