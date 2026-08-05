@@ -77,8 +77,9 @@ export function handlePairingFallback(
   invites = pairingInviteStore(),
   originPolicy = requestOriginPolicy(),
 ) {
+  if (req?.method !== "GET") return false;
   const context = createHelperRequestContext(req);
-  if (!context || context.method !== "GET" || context.pathname !== "/pair") return false;
+  if (!context || context.pathname !== "/pair") return false;
 
   const pairing = store.current();
   const invite = context.url.searchParams.get("invite") || "";
@@ -137,8 +138,9 @@ export function handlePublicBuildLogs(req, res, {
   pairingStore: pairings = pairingStore(),
   deviceBuildStore: builds = buildStore(),
 } = {}) {
+  if (req?.method !== "GET") return false;
   const context = createHelperRequestContext(req);
-  if (!context || context.method !== "GET") return false;
+  if (!context) return false;
   const match = context.pathname.match(/^\/api\/device-builds\/([^/]+)\/logs$/);
   if (!match) return false;
   const token = helperRequestToken(context);
