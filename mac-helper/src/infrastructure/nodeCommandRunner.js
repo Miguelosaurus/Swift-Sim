@@ -1,8 +1,6 @@
 // @ts-check
 import {
-  ownedProcessIsAlive,
   terminateOwnedProcess,
-  terminateOwnedProcessSync,
   waitForOwnedProcessExit,
 } from "./nodeProcessControl.js";
 
@@ -58,15 +56,16 @@ export class NodeCommandRunner {
     const normalized = normalizeRequest(request);
     if (normalized.cancellationSignal?.aborted) return cancelledResult();
     if (normalized.cancellationSignal) {
-      return {
-        code: null,
-        stdout: "",
-        stderr: "",
-        error: "Synchronous commands cannot observe a cancellation signal while blocked.",
-      };
+      return failedResult(
+        "Synchronous commands cannot observe a cancellation signal while blocked.",
+      );
+    }
+    if (normalized.processGroup === "new") {
+      return failedResult(
+        "Synchronous commands cannot establish an owned process group; use asynchronous execution.",
+      );
     }
 
-    const detached = normalized.processGroup === "new";
     const result = this.spawnSync(normalized.executable, normalized.args, {
       cwd: normalized.cwd,
       env: normalized.environment,
@@ -75,10 +74,8 @@ export class NodeCommandRunner {
       timeout: normalized.timeoutMs,
       maxBuffer: normalized.outputLimitBytes,
       killSignal: "SIGTERM",
-      detached,
       windowsHide: true,
     });
-    const pid = Number(result.pid);
     const output = boundedOutput(
       bufferValue(result.stdout),
       bufferValue(result.stderr),
@@ -87,23 +84,13 @@ export class NodeCommandRunner {
     const spawnErrorCode = codedError(result.error);
     const timedOut = spawnErrorCode === "ETIMEDOUT";
     const outputExceeded = spawnErrorCode === "ENOBUFS" || output.exceeded;
-    const accepted = isAcceptedExit(normalized, result.status);
-    let descendantsSurvived = false;
-    let terminated = true;
-
-    if (detached && validPID(pid) && ownedProcessIsAlive(pid, true)) {
-      descendantsSurvived = accepted && !timedOut && !outputExceeded;
-      terminated = terminateOwnedProcessSync(pid, true, TERMINATION_GRACE_MS);
-    }
 
     if (timedOut) {
       return {
         code: null,
         stdout: output.stdout,
         stderr: output.stderr,
-        error: terminated
-          ? `${normalized.executable} timed out`
-          : `${normalized.executable} timed out and its process group could not be confirmed stopped`,
+        error: `${normalized.executable} timed out`,
         timedOut: true,
         ...(result.signal ? { signal: result.signal } : {}),
       };
@@ -113,20 +100,8 @@ export class NodeCommandRunner {
         code: null,
         stdout: output.stdout,
         stderr: output.stderr,
-        error: terminated
-          ? `${normalized.executable} exceeded the ${normalized.outputLimitBytes}-byte output limit`
-          : `${normalized.executable} exceeded the output limit and its process group could not be confirmed stopped`,
+        error: `${normalized.executable} exceeded the ${normalized.outputLimitBytes}-byte output limit`,
         ...(result.signal ? { signal: result.signal } : {}),
-      };
-    }
-    if (descendantsSurvived) {
-      return {
-        code: null,
-        stdout: output.stdout,
-        stderr: output.stderr,
-        error: terminated
-          ? `${normalized.executable} exited successfully while descendant processes were still running`
-          : `${normalized.executable} exited, but its process group could not be confirmed stopped`,
       };
     }
     if (result.error) {
@@ -162,7 +137,7 @@ function runAsynchronously(request, spawnImplementation) {
         windowsHide: true,
       });
     } catch (error) {
-      resolve({ code: null, stdout: "", stderr: "", error: safeErrorMessage(error) });
+      resolve(failedResult(safeErrorMessage(error)));
       return;
     }
 
@@ -213,13 +188,15 @@ function runAsynchronously(request, spawnImplementation) {
     const cancel = () => {
       terminateAndSettle((terminated) => {
         const output = outputs();
-        const result = cancelledResult(output.stdout, output.stderr);
-        if (!terminated) {
-          const message = "Command was cancelled, but its process could not be confirmed stopped.";
-          result.error = message;
-          result.cancellationError = { message, code: "ABORT_ERR" };
-        }
-        return result;
+        if (terminated) return cancelledResult(output.stdout, output.stderr);
+        const message = "Command was cancelled, but its process could not be confirmed stopped.";
+        return {
+          code: null,
+          stdout: output.stdout,
+          stderr: output.stderr,
+          error: message,
+          cancellationError: { message, code: "ABORT_ERR" },
+        };
       });
     };
 
@@ -311,7 +288,10 @@ function runAsynchronously(request, spawnImplementation) {
         };
       });
     }, request.timeoutMs);
-    if (request.cancellationSignal?.aborted) cancel();
+    if (request.cancellationSignal?.aborted) {
+      cancel();
+      return;
+    }
 
     if (request.input === undefined) child.stdin.end();
     else child.stdin.end(request.input);
@@ -323,8 +303,6 @@ function normalizeRequest(request) {
   if (!request || typeof request !== "object") {
     throw new TypeError("A command request is required.");
   }
-  const executable = normalizedString(request.executable, "Command executable");
-  const args = normalizedStringArray(request.args, "Command arguments");
   const policy = request.policy;
   if (!policy || typeof policy !== "object") throw new TypeError("Command policy is required.");
   if (policy.processGroup !== "inherit" && policy.processGroup !== "new") {
@@ -332,8 +310,8 @@ function normalizeRequest(request) {
   }
   /** @type {NormalizedCommandRequest} */
   const normalized = {
-    executable,
-    args,
+    executable: normalizedString(request.executable, "Command executable"),
+    args: normalizedStringArray(request.args, "Command arguments"),
     environment: commandEnvironment(request.environment),
     timeoutMs: positiveInteger(policy.timeoutMs, "Command timeout"),
     outputLimitBytes: positiveInteger(policy.outputLimitBytes, "Command output limit"),
@@ -483,6 +461,11 @@ function completedResult(request, code, stdout, stderr, signal) {
         : `${request.executable} failed with exit code ${String(code)}`),
     ...(signal ? { signal } : {}),
   };
+}
+
+/** @param {string} message @returns {CommandResult} */
+function failedResult(message) {
+  return { code: null, stdout: "", stderr: "", error: message };
 }
 
 /** @param {string} [stdout] @param {string} [stderr] @returns {CommandResult} */
