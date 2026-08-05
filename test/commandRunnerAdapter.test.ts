@@ -179,7 +179,9 @@ function processIsAlive(pid: number): boolean {
   }
   const status = spawnSync("/bin/ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
   if (status.status !== 0) return false;
-  return !String(status.stdout || "").trim().startsWith("Z");
+  return !String(status.stdout || "")
+    .trim()
+    .startsWith("Z");
 }
 
 function restoreEnvironment(name: string, value: string | undefined): void {
