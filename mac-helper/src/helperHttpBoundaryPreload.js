@@ -98,7 +98,7 @@ export function handlePairingFallback(
     return true;
   }
 
-  const token = helperRequestToken(context);
+  const token = context.url.searchParams.get("token") || "";
   if (!store.tokenMatches(token)) {
     writeJson(res, 401, { error: "Unauthorized." });
     return true;
