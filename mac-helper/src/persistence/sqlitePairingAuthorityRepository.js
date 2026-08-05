@@ -103,7 +103,7 @@ export class SqlitePairingAuthorityRepository {
       if (rolledBackAt.time < cutoverAt.time) {
         throw new Error("Pairing rollback cannot precede cutover.");
       }
-      if (rolledBackAt.time > rollbackExpiresAt.time) {
+      if (rolledBackAt.time >= rollbackExpiresAt.time) {
         throw new Error("Pairing rollback window has expired.");
       }
       requireOneChange(
@@ -119,7 +119,7 @@ export class SqlitePairingAuthorityRepository {
     const finalizedAt = requireCanonicalTimestamp(input?.finalizedAt, "Pairing finalizedAt");
     return this.#database.transaction(() => {
       const current = this.current();
-      if (current.mode === "sqlite-final" && current.finalizedAt === finalizedAt.value) {
+      if (current.mode === "sqlite-final") {
         return current;
       }
       if (current.mode !== "sqlite-rollback") {
