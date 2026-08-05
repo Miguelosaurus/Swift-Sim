@@ -4,13 +4,21 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import type { PairingAuthorityCutoverEvidence } from "../mac-helper/src/contracts/repository.js";
+import type {
+  PairingAuthorityCutoverEvidence,
+  PairingAuthorityPreparation,
+} from "../mac-helper/src/contracts/repository.js";
 import { PAIRING_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/pairingSqliteSchema.js";
 import { SqlitePairingAuthorityRepository } from "../mac-helper/src/persistence/sqlitePairingAuthorityRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
-const EVIDENCE: PairingAuthorityCutoverEvidence = Object.freeze({
+const PREPARATION: PairingAuthorityPreparation = Object.freeze({
   expectedRevision: 0,
+  preparationID: digest("pairing-cutover-preparation"),
+});
+const EVIDENCE: PairingAuthorityCutoverEvidence = Object.freeze({
+  expectedRevision: 1,
+  preparationID: PREPARATION.preparationID,
   sourceRevision: digest("legacy-pairing-source"),
   projectionHash: digest("normalized-pairing-projection"),
   cutoverAt: "2026-08-05T18:00:00.000Z",
@@ -23,11 +31,8 @@ async function temporaryDatabasePath(t: TestContext) {
   return join(root, "swift-sim.sqlite");
 }
 
-function openRepository(path: string) {
-  const database = new SwiftSimSqliteDatabase({
-    path,
-    migrations: PAIRING_SQLITE_MIGRATIONS,
-  });
+function openRepository(path: string, migrations = PAIRING_SQLITE_MIGRATIONS) {
+  const database = new SwiftSimSqliteDatabase({ path, migrations });
   return {
     database,
     repository: new SqlitePairingAuthorityRepository(database),
@@ -38,7 +43,7 @@ test("authority migration initializes one durable legacy source of truth", async
   const path = await temporaryDatabasePath(t);
   const first = openRepository(path);
 
-  assert.equal(first.database.health().schemaVersion, 4);
+  assert.equal(first.database.health().schemaVersion, PAIRING_SQLITE_MIGRATIONS.at(-1)?.version);
   assert.deepEqual(first.repository.current(), legacyState(0));
   first.database.close();
 
@@ -47,18 +52,54 @@ test("authority migration initializes one durable legacy source of truth", async
   assert.deepEqual(reopened.repository.current(), legacyState(0));
 });
 
-test("SQLite activation is evidence-fenced, idempotent, and persistent", async (t) => {
+test("v5 migration preserves existing SQLite authority with deterministic preparation evidence", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const v4Migrations = PAIRING_SQLITE_MIGRATIONS.filter((migration) => migration.version <= 4);
+  const old = new SwiftSimSqliteDatabase({ path, migrations: v4Migrations });
+  old.exec(`UPDATE pairing_authority_state
+    SET mode = 'sqlite-rollback',
+        source_revision = '${EVIDENCE.sourceRevision}',
+        projection_hash = '${EVIDENCE.projectionHash}',
+        cutover_at = '${EVIDENCE.cutoverAt}',
+        rollback_expires_at = '${EVIDENCE.rollbackExpiresAt}',
+        revision = 7
+    WHERE singleton = 1`);
+  old.close();
+
+  const migrated = openRepository(path);
+  t.after(() => migrated.database.close());
+  assert.deepEqual(
+    migrated.repository.current(),
+    rollbackState(
+      {
+        ...PREPARATION,
+        preparationID: EVIDENCE.sourceRevision,
+      },
+      EVIDENCE,
+      7,
+    ),
+  );
+  assert.equal(migrated.database.health().schemaVersion, 5);
+});
+
+test("preparation is revision-fenced, idempotent, persistent, and has no rollback deadline", async (t) => {
   const path = await temporaryDatabasePath(t);
   const first = openRepository(path);
 
-  const activated = first.repository.activateSqlite(EVIDENCE);
-  assert.deepEqual(activated, rollbackState(EVIDENCE, 1));
-  assert.deepEqual(first.repository.activateSqlite(EVIDENCE), activated);
+  assert.throws(
+    () => first.repository.activateSqlite({ ...EVIDENCE, expectedRevision: 0 }),
+    /cannot activate SQLite from legacy/,
+  );
+  const prepared = first.repository.prepareSqlite(PREPARATION);
+  assert.deepEqual(prepared, preparingState(PREPARATION, 1));
+  assert.deepEqual(first.repository.prepareSqlite(PREPARATION), prepared);
+  assert.equal(prepared.cutoverAt, null);
+  assert.equal(prepared.rollbackExpiresAt, null);
   assert.throws(
     () =>
-      first.repository.activateSqlite({
-        ...EVIDENCE,
-        projectionHash: digest("different-projection"),
+      first.repository.prepareSqlite({
+        ...PREPARATION,
+        preparationID: digest("different-preparation"),
       }),
     /expected pairing authority revision 0, found 1/,
   );
@@ -66,40 +107,53 @@ test("SQLite activation is evidence-fenced, idempotent, and persistent", async (
 
   const reopened = openRepository(path);
   t.after(() => reopened.database.close());
-  assert.deepEqual(reopened.repository.current(), activated);
+  assert.deepEqual(reopened.repository.current(), prepared);
 });
 
-test("cutover evidence rejects malformed hashes, revisions, and timestamps", async (t) => {
+test("preparation rejects malformed identifiers and revisions", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
 
   assert.throws(
-    () => stores.repository.activateSqlite({ ...EVIDENCE, sourceRevision: "not-a-hash" }),
+    () => stores.repository.prepareSqlite({ ...PREPARATION, preparationID: "not-a-hash" }),
     /lowercase SHA-256/,
   );
   assert.throws(
     () =>
-      stores.repository.activateSqlite({
-        ...EVIDENCE,
+      stores.repository.prepareSqlite({
+        ...PREPARATION,
         expectedRevision: "0" as unknown as number,
       }),
     /safe integer/,
   );
   assert.throws(
     () =>
-      stores.repository.activateSqlite({
-        ...EVIDENCE,
+      stores.repository.prepareSqlite({
+        ...PREPARATION,
         expectedRevision: Number.MAX_SAFE_INTEGER,
       }),
     /cannot be incremented safely/,
   );
+  assert.deepEqual(stores.repository.current(), legacyState(0));
+});
+
+test("activation starts the rollback window and requires exact preparation and import evidence", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const stores = openRepository(path);
+  t.after(() => stores.database.close());
+  stores.repository.prepareSqlite(PREPARATION);
+
   assert.throws(
     () =>
       stores.repository.activateSqlite({
         ...EVIDENCE,
-        cutoverAt: "2026-08-05T18:00:00Z",
+        preparationID: digest("other-preparation"),
       }),
+    /does not match the active preparation/,
+  );
+  assert.throws(
+    () => stores.repository.activateSqlite({ ...EVIDENCE, cutoverAt: "2026-08-05T18:00:00Z" }),
     /canonical UTC timestamp/,
   );
   assert.throws(
@@ -110,19 +164,59 @@ test("cutover evidence rejects malformed hashes, revisions, and timestamps", asy
       }),
     /must follow cutoverAt/,
   );
-  assert.deepEqual(stores.repository.current(), legacyState(0));
+  const activated = stores.repository.activateSqlite(EVIDENCE);
+  assert.deepEqual(activated, rollbackState(PREPARATION, EVIDENCE, 2));
+  assert.deepEqual(stores.repository.activateSqlite(EVIDENCE), activated);
+  assert.throws(
+    () =>
+      stores.repository.activateSqlite({
+        ...EVIDENCE,
+        rollbackExpiresAt: "2026-08-13T18:00:00.000Z",
+      }),
+    /expected pairing authority revision 1, found 2/,
+  );
+});
+
+test("preparation cancellation is retry-safe and allows a delayed new preparation epoch", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const stores = openRepository(path);
+  t.after(() => stores.database.close());
+  stores.repository.prepareSqlite(PREPARATION);
+
+  assert.throws(
+    () =>
+      stores.repository.cancelPreparation({
+        expectedRevision: 1,
+        preparationID: digest("other-preparation"),
+      }),
+    /does not match the active preparation/,
+  );
+  const cancellation = {
+    expectedRevision: 1,
+    preparationID: PREPARATION.preparationID,
+  };
+  const cancelled = stores.repository.cancelPreparation(cancellation);
+  assert.deepEqual(cancelled, legacyState(2));
+  assert.deepEqual(stores.repository.cancelPreparation(cancellation), cancelled);
+
+  const resumed: PairingAuthorityPreparation = {
+    expectedRevision: 2,
+    preparationID: digest("resumed-preparation"),
+  };
+  assert.deepEqual(stores.repository.prepareSqlite(resumed), preparingState(resumed, 3));
 });
 
 test("rollback requires the frozen source and a half-open rollback window", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
+  stores.repository.prepareSqlite(PREPARATION);
   stores.repository.activateSqlite(EVIDENCE);
 
   assert.throws(
     () =>
       stores.repository.rollbackToLegacy({
-        expectedRevision: 1,
+        expectedRevision: 2,
         sourceRevision: digest("other-source"),
         rolledBackAt: "2026-08-06T18:00:00.000Z",
       }),
@@ -131,7 +225,7 @@ test("rollback requires the frozen source and a half-open rollback window", asyn
   assert.throws(
     () =>
       stores.repository.rollbackToLegacy({
-        expectedRevision: 1,
+        expectedRevision: 2,
         sourceRevision: EVIDENCE.sourceRevision,
         rolledBackAt: "2026-08-05T17:59:59.999Z",
       }),
@@ -140,7 +234,7 @@ test("rollback requires the frozen source and a half-open rollback window", asyn
   assert.throws(
     () =>
       stores.repository.rollbackToLegacy({
-        expectedRevision: 1,
+        expectedRevision: 2,
         sourceRevision: EVIDENCE.sourceRevision,
         rolledBackAt: EVIDENCE.rollbackExpiresAt,
       }),
@@ -148,45 +242,38 @@ test("rollback requires the frozen source and a half-open rollback window", asyn
   );
 
   const rollbackInput = {
-    expectedRevision: 1,
+    expectedRevision: 2,
     sourceRevision: EVIDENCE.sourceRevision,
     rolledBackAt: "2026-08-06T18:00:00.000Z",
   };
   const rolledBack = stores.repository.rollbackToLegacy(rollbackInput);
-  assert.deepEqual(rolledBack, legacyState(2));
+  assert.deepEqual(rolledBack, legacyState(3));
   assert.deepEqual(stores.repository.rollbackToLegacy(rollbackInput), rolledBack);
-  assert.throws(
-    () =>
-      stores.repository.finalizeSqlite({
-        expectedRevision: 1,
-        finalizedAt: EVIDENCE.rollbackExpiresAt,
-      }),
-    /expected pairing authority revision 1, found 2/,
-  );
 });
 
 test("finalization waits for rollback expiry and permanently closes rollback", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
+  stores.repository.prepareSqlite(PREPARATION);
   stores.repository.activateSqlite(EVIDENCE);
 
   assert.throws(
     () =>
       stores.repository.finalizeSqlite({
-        expectedRevision: 1,
+        expectedRevision: 2,
         finalizedAt: "2026-08-12T17:59:59.999Z",
       }),
     /cannot finalize before the rollback window expires/,
   );
   const finalized = stores.repository.finalizeSqlite({
-    expectedRevision: 1,
+    expectedRevision: 2,
     finalizedAt: EVIDENCE.rollbackExpiresAt,
   });
-  assert.deepEqual(finalized, finalState(EVIDENCE, EVIDENCE.rollbackExpiresAt, 2));
+  assert.deepEqual(finalized, finalState(PREPARATION, EVIDENCE, EVIDENCE.rollbackExpiresAt, 3));
   assert.deepEqual(
     stores.repository.finalizeSqlite({
-      expectedRevision: 1,
+      expectedRevision: 2,
       finalizedAt: "2026-08-13T18:00:00.000Z",
     }),
     finalized,
@@ -194,73 +281,55 @@ test("finalization waits for rollback expiry and permanently closes rollback", a
   assert.throws(
     () =>
       stores.repository.rollbackToLegacy({
-        expectedRevision: 1,
+        expectedRevision: 2,
         sourceRevision: EVIDENCE.sourceRevision,
         rolledBackAt: EVIDENCE.rollbackExpiresAt,
       }),
-    /expected pairing authority revision 1, found 2/,
+    /expected pairing authority revision 2, found 3/,
   );
 });
 
-test("stale transition requests cannot act on a later authority epoch", async (t) => {
+test("stale preparation and activation requests cannot act on a later epoch", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
-  stores.repository.activateSqlite(EVIDENCE);
-  stores.repository.rollbackToLegacy({
+  stores.repository.prepareSqlite(PREPARATION);
+  stores.repository.cancelPreparation({
     expectedRevision: 1,
-    sourceRevision: EVIDENCE.sourceRevision,
-    rolledBackAt: "2026-08-06T18:00:00.000Z",
+    preparationID: PREPARATION.preparationID,
   });
 
   assert.throws(
-    () => stores.repository.activateSqlite(EVIDENCE),
+    () => stores.repository.prepareSqlite(PREPARATION),
     /expected pairing authority revision 0, found 2/,
   );
-
-  const secondCutover: PairingAuthorityCutoverEvidence = {
+  const secondPreparation: PairingAuthorityPreparation = {
     expectedRevision: 2,
-    sourceRevision: digest("second-legacy-source"),
-    projectionHash: digest("second-normalized-projection"),
-    cutoverAt: "2026-08-07T18:00:00.000Z",
-    rollbackExpiresAt: "2026-08-14T18:00:00.000Z",
+    preparationID: digest("second-preparation"),
   };
-  assert.deepEqual(
-    stores.repository.activateSqlite(secondCutover),
-    rollbackState(secondCutover, 3),
-  );
+  stores.repository.prepareSqlite(secondPreparation);
   assert.throws(
-    () =>
-      stores.repository.rollbackToLegacy({
-        expectedRevision: 1,
-        sourceRevision: EVIDENCE.sourceRevision,
-        rolledBackAt: "2026-08-08T18:00:00.000Z",
-      }),
+    () => stores.repository.activateSqlite(EVIDENCE),
     /expected pairing authority revision 1, found 3/,
   );
-  assert.throws(
-    () =>
-      stores.repository.finalizeSqlite({
-        expectedRevision: 1,
-        finalizedAt: "2026-08-15T18:00:00.000Z",
-      }),
-    /expected pairing authority revision 1, found 3/,
-  );
-  assert.deepEqual(stores.repository.current(), rollbackState(secondCutover, 3));
+  assert.deepEqual(stores.repository.current(), preparingState(secondPreparation, 3));
 });
 
-test("failed authority transition leaves the prior source of truth intact", async (t) => {
+test("failed preparation transition leaves the prior source of truth intact", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
-  stores.database.exec(`CREATE TRIGGER reject_pairing_authority_activation
+  stores.database.exec(`CREATE TRIGGER reject_pairing_authority_preparation
     BEFORE UPDATE ON pairing_authority_state
-    WHEN NEW.mode = 'sqlite-rollback'
+    WHEN NEW.mode = 'legacy-preparing'
     BEGIN
-      SELECT RAISE(ABORT, 'blocked authority activation');
+      SELECT RAISE(ABORT, 'blocked authority preparation');
     END`);
 
-  assert.throws(() => stores.repository.activateSqlite(EVIDENCE), /blocked authority activation/);
+  assert.throws(
+    () => stores.repository.prepareSqlite(PREPARATION),
+    /blocked authority preparation/,
+  );
   assert.deepEqual(stores.repository.current(), legacyState(0));
 });
 
@@ -271,12 +340,13 @@ test("authority repository rejects coercible driver counters", () => {
 
   const invalidChangesDatabase = fakeDatabase({ revision: 0, changes: "1" });
   const invalidChangesRepository = new SqlitePairingAuthorityRepository(invalidChangesDatabase);
-  assert.throws(() => invalidChangesRepository.activateSqlite(EVIDENCE), /safe integer/);
+  assert.throws(() => invalidChangesRepository.prepareSqlite(PREPARATION), /safe integer/);
 });
 
 function legacyState(revision: number) {
   return {
     mode: "legacy" as const,
+    preparationID: null,
     sourceRevision: null,
     projectionHash: null,
     cutoverAt: null,
@@ -286,9 +356,27 @@ function legacyState(revision: number) {
   };
 }
 
-function rollbackState(evidence: PairingAuthorityCutoverEvidence, revision: number) {
+function preparingState(preparation: PairingAuthorityPreparation, revision: number) {
+  return {
+    mode: "legacy-preparing" as const,
+    preparationID: preparation.preparationID,
+    sourceRevision: null,
+    projectionHash: null,
+    cutoverAt: null,
+    rollbackExpiresAt: null,
+    finalizedAt: null,
+    revision,
+  };
+}
+
+function rollbackState(
+  preparation: PairingAuthorityPreparation,
+  evidence: PairingAuthorityCutoverEvidence,
+  revision: number,
+) {
   return {
     mode: "sqlite-rollback" as const,
+    preparationID: preparation.preparationID,
     sourceRevision: evidence.sourceRevision,
     projectionHash: evidence.projectionHash,
     cutoverAt: evidence.cutoverAt,
@@ -299,12 +387,14 @@ function rollbackState(evidence: PairingAuthorityCutoverEvidence, revision: numb
 }
 
 function finalState(
+  preparation: PairingAuthorityPreparation,
   evidence: PairingAuthorityCutoverEvidence,
   finalizedAt: string,
   revision: number,
 ) {
   return {
     mode: "sqlite-final" as const,
+    preparationID: preparation.preparationID,
     sourceRevision: evidence.sourceRevision,
     projectionHash: evidence.projectionHash,
     cutoverAt: evidence.cutoverAt,
@@ -324,6 +414,7 @@ function fakeDatabase({ revision, changes }: { revision: unknown; changes: unkno
         return {
           get: () => ({
             mode: "legacy",
+            preparation_id: null,
             source_revision: null,
             projection_hash: null,
             cutover_at: null,

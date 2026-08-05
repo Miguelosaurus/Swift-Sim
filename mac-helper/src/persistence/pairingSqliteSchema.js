@@ -135,4 +135,92 @@ export const PAIRING_SQLITE_MIGRATIONS = Object.freeze([
     ]),
     requiredTables: Object.freeze(["pairing_authority_state"]),
   }),
+  Object.freeze({
+    version: 5,
+    name: "pairing_cutover_preparation",
+    statements: Object.freeze([
+      "ALTER TABLE pairing_authority_state RENAME TO pairing_authority_state_v4",
+      `CREATE TABLE pairing_authority_state (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        mode TEXT NOT NULL CHECK (
+          mode IN ('legacy', 'legacy-preparing', 'sqlite-rollback', 'sqlite-final')
+        ),
+        preparation_id TEXT CHECK (
+          preparation_id IS NULL OR (
+            length(preparation_id) = 64 AND preparation_id NOT GLOB '*[^0-9a-f]*'
+          )
+        ),
+        source_revision TEXT CHECK (
+          source_revision IS NULL OR (
+            length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'
+          )
+        ),
+        projection_hash TEXT CHECK (
+          projection_hash IS NULL OR (
+            length(projection_hash) = 64 AND projection_hash NOT GLOB '*[^0-9a-f]*'
+          )
+        ),
+        cutover_at TEXT CHECK (cutover_at IS NULL OR length(cutover_at) > 0),
+        rollback_expires_at TEXT CHECK (
+          rollback_expires_at IS NULL OR length(rollback_expires_at) > 0
+        ),
+        finalized_at TEXT CHECK (finalized_at IS NULL OR length(finalized_at) > 0),
+        revision INTEGER NOT NULL CHECK (
+          revision >= 0 AND revision <= 9007199254740991
+        ),
+        CHECK (
+          (
+            mode = 'legacy' AND
+            preparation_id IS NULL AND source_revision IS NULL AND projection_hash IS NULL AND
+            cutover_at IS NULL AND rollback_expires_at IS NULL AND finalized_at IS NULL
+          ) OR
+          (
+            mode = 'legacy-preparing' AND
+            preparation_id IS NOT NULL AND
+            source_revision IS NULL AND projection_hash IS NULL AND
+            cutover_at IS NULL AND rollback_expires_at IS NULL AND finalized_at IS NULL
+          ) OR
+          (
+            mode = 'sqlite-rollback' AND
+            preparation_id IS NOT NULL AND
+            source_revision IS NOT NULL AND projection_hash IS NOT NULL AND
+            cutover_at IS NOT NULL AND rollback_expires_at IS NOT NULL AND
+            rollback_expires_at > cutover_at AND finalized_at IS NULL
+          ) OR
+          (
+            mode = 'sqlite-final' AND
+            preparation_id IS NOT NULL AND
+            source_revision IS NOT NULL AND projection_hash IS NOT NULL AND
+            cutover_at IS NOT NULL AND rollback_expires_at IS NOT NULL AND
+            rollback_expires_at > cutover_at AND
+            finalized_at IS NOT NULL AND finalized_at >= rollback_expires_at
+          )
+        )
+      ) STRICT`,
+      `INSERT INTO pairing_authority_state(
+        singleton,
+        mode,
+        preparation_id,
+        source_revision,
+        projection_hash,
+        cutover_at,
+        rollback_expires_at,
+        finalized_at,
+        revision
+      )
+      SELECT
+        singleton,
+        mode,
+        CASE WHEN mode = 'legacy' THEN NULL ELSE source_revision END,
+        source_revision,
+        projection_hash,
+        cutover_at,
+        rollback_expires_at,
+        finalized_at,
+        revision
+      FROM pairing_authority_state_v4`,
+      "DROP TABLE pairing_authority_state_v4",
+    ]),
+    requiredTables: Object.freeze([]),
+  }),
 ]);
