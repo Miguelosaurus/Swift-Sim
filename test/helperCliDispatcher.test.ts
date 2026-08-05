@@ -10,6 +10,7 @@ import {
   helperCliCommandIsExtracted,
 } from "../mac-helper/src/helperCliDispatcher.js";
 import { runHelperBootstrap } from "../mac-helper/src/helperEntrypoint.js";
+import { createExtractedHelperServices } from "../mac-helper/src/helperCliRuntime.js";
 
 function services(overrides: Record<string, unknown> = {}) {
   return {
@@ -32,6 +33,57 @@ function services(overrides: Record<string, unknown> = {}) {
     inspectServeSim: async () => ({ available: true }),
     printQRCode: () => undefined,
     ...overrides,
+  };
+}
+
+function runtimeFactories(events: string[]) {
+  return {
+    createStateRootStore() {
+      events.push("state-root");
+      const pairing = {
+        token: "token",
+        installationID: "installation",
+        macName: "Test Mac",
+      };
+      return {
+        current: () => pairing,
+        rotate: () => pairing,
+        updateMacName: () => pairing,
+      };
+    },
+    createPairingInviteStore() {
+      events.push("pairing-invite-store");
+      return {
+        create: () => ({
+          invite: "invite",
+          expiresAt: "2026-08-05T12:00:00.000Z",
+        }),
+      };
+    },
+    createDeviceBuildStore() {
+      events.push("device-build-store");
+      return {
+        listApps: () => [],
+        setAppArchived: () => null,
+        get: () => null,
+        saveVerification: () => null,
+      };
+    },
+    createDeviceInventory() {
+      events.push("device-inventory");
+      return { verifyApp: async () => ({ state: "verified" }) };
+    },
+    createDeviceDelivery() {
+      events.push("device-delivery");
+      return {
+        status: () => ({ status: "stopped" }),
+        stop: () => false,
+      };
+    },
+    createServeSim() {
+      events.push("serve-sim");
+      return { inspect: async () => ({ available: true }) };
+    },
   };
 }
 
@@ -74,6 +126,27 @@ test("helper CLI extraction owns only the declared one-shot commands", async () 
     false,
   );
   assert.equal(serviceAccessed, false);
+});
+
+test("runtime composition constructs only the selected command owners", () => {
+  const cases: Array<[string, string[]]> = [
+    ["pair", ["state-root", "pairing-invite-store"]],
+    ["list-apps", ["state-root", "device-build-store"]],
+    ["archive-app", ["state-root", "device-build-store"]],
+    ["verify-device-build", ["state-root", "device-build-store", "device-inventory"]],
+    ["device-delivery-status", ["state-root", "device-delivery"]],
+    ["device-delivery-stop", ["state-root", "device-delivery"]],
+    ["serve-sim-info", ["serve-sim"]],
+  ];
+
+  for (const [command, expected] of cases) {
+    const events: string[] = [];
+    createExtractedHelperServices(command, {
+      factories: runtimeFactories(events),
+      printQRCode: () => undefined,
+    });
+    assert.deepEqual(events, expected, command);
+  }
 });
 
 test("pair command preserves TTL validation and QR output ordering", async () => {
@@ -220,7 +293,7 @@ test("helper bootstrap loads only the selected runtime after boundaries", async 
   assert.deepEqual(events, ["boundaries", "compatibility"]);
 });
 
-test("compiled official helper works from a fresh home and matches the compatibility result", () => {
+test("compiled official helper owns fresh-home state and matches compatibility output", () => {
   const official = fileURLToPath(
     new URL("../mac-helper/bin/swift-sim-helper-entry.js", import.meta.url),
   );
@@ -228,13 +301,13 @@ test("compiled official helper works from a fresh home and matches the compatibi
     new URL("../mac-helper/bin/swift-sim-helper.js", import.meta.url),
   );
 
-  const run = (script: string, prepareLegacyStateRoot: boolean) => {
+  const run = (script: string, argv: string[], prepareLegacyStateRoot: boolean) => {
     const home = mkdtempSync(join(tmpdir(), "swift-sim-helper-cli-equivalence-"));
     try {
       if (prepareLegacyStateRoot) {
         mkdirSync(join(home, ".swift-sim"), { recursive: true, mode: 0o700 });
       }
-      const result = spawnSync(process.execPath, [script, "device-delivery-status"], {
+      const result = spawnSync(process.execPath, [script, ...argv], {
         encoding: "utf8",
         env: { ...process.env, HOME: home },
         timeout: 10_000,
@@ -247,7 +320,16 @@ test("compiled official helper works from a fresh home and matches the compatibi
     }
   };
 
-  const freshOfficial = run(official, false);
-  assert.deepEqual(freshOfficial, run(compatibility, true));
-  assert.deepEqual(freshOfficial, run(official, true));
+  for (const argv of [["list-apps"], ["device-delivery-status"], ["device-delivery-stop"]]) {
+    const freshOfficial = run(official, argv, false);
+    assert.deepEqual(freshOfficial, run(compatibility, argv, true), argv.join(" "));
+    assert.deepEqual(freshOfficial, run(official, argv, true), argv.join(" "));
+  }
+
+  const pairing = run(official, ["pair"], false) as {
+    macName?: unknown;
+    links?: { customScheme?: unknown };
+  };
+  assert.equal(typeof pairing.macName, "string");
+  assert.equal(typeof pairing.links?.customScheme, "string");
 });
