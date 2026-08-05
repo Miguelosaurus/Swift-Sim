@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 import { NodeCommandRunner } from "../mac-helper/src/infrastructure/nodeCommandRunner.js";
 import type { CommandRequest } from "../mac-helper/src/infrastructure/ports.js";
 
-const runner = new NodeCommandRunner();
+type RequestOverrides = Partial<Omit<CommandRequest, "policy">> & {
+  policy?: Partial<CommandRequest["policy"]>;
+};
 
-function request(
-  source: string,
-  overrides: Partial<CommandRequest> & {
-    policy?: Partial<CommandRequest["policy"]>;
-  } = {},
-): CommandRequest {
+const runner = new NodeCommandRunner({ spawn, spawnSync });
+
+function request(source: string, overrides: RequestOverrides = {}): CommandRequest {
+  const { policy: policyOverrides = {}, ...requestOverrides } = overrides;
   return {
     executable: process.execPath,
     args: ["-e", source],
@@ -20,16 +20,27 @@ function request(
       overrides: {},
       unset: [],
     },
+    ...requestOverrides,
     policy: {
       timeoutMs: 5_000,
       outputLimitBytes: 64 * 1024,
       processGroup: "new",
       acceptedExitCodes: [0],
-      ...overrides.policy,
+      ...policyOverrides,
     },
-    ...overrides,
   };
 }
+
+test("NodeCommandRunner requires an explicit process runtime", () => {
+  assert.throws(
+    () => new NodeCommandRunner(undefined as never),
+    /requires an explicit process runtime/,
+  );
+  assert.throws(
+    () => new NodeCommandRunner({ spawn, spawnSync: undefined as never }),
+    /must provide spawn and spawnSync/,
+  );
+});
 
 test("NodeCommandRunner applies explicit environment policy and accepted exit codes", async (t) => {
   const visibleName = "SWIFT_SIM_COMMAND_VISIBLE";
@@ -44,17 +55,14 @@ test("NodeCommandRunner applies explicit environment policy and accepted exit co
   });
 
   const result = await runner.run(
-    request(
-      `process.stdout.write(JSON.stringify(process.env)); process.exit(7);`,
-      {
-        environment: {
-          inherit: [visibleName, secretName],
-          overrides: { [visibleName]: "overridden", EXTRA: "set", REMOVE: undefined },
-          unset: [secretName, "REMOVE"],
-        },
-        policy: { acceptedExitCodes: [7] },
+    request(`process.stdout.write(JSON.stringify(process.env)); process.exit(7);`, {
+      environment: {
+        inherit: [visibleName, secretName],
+        overrides: { [visibleName]: "overridden", EXTRA: "set", REMOVE: undefined },
+        unset: [secretName, "REMOVE"],
       },
-    ),
+      policy: { acceptedExitCodes: [7] },
+    }),
   );
 
   assert.equal(result.code, 7);
@@ -90,7 +98,7 @@ test("NodeCommandRunner fails closed for cancellation signals", async () => {
       cancellationSignal: controller.signal,
     }),
   );
-  setTimeout(() => controller.abort(), 500);
+  setTimeout(() => controller.abort(), 300);
   const cancelled = await running;
   assert.equal(cancelled.cancellationError?.code, "ABORT_ERR");
   assert.equal(cancelled.code, null);
@@ -108,7 +116,7 @@ test("NodeCommandRunner fails closed for cancellation signals", async () => {
 test("NodeCommandRunner terminates timed-out groups and their descendants", async () => {
   const result = await runner.run(
     request(descendantFixture(), {
-      policy: { timeoutMs: 500 },
+      policy: { timeoutMs: 400 },
     }),
   );
   assert.equal(result.timedOut, true);
@@ -126,16 +134,20 @@ test("NodeCommandRunner bounds output and terminates the producer", async () => 
   assert.ok(Buffer.byteLength(result.stdout) <= 1_024);
 });
 
-test("NodeCommandRunner rejects a successful parent with lingering descendants", async () => {
+test("NodeCommandRunner rejects an accepted parent with lingering descendants", async () => {
   const result = await runner.run(
-    request(`
-      const { spawn } = require("node:child_process");
-      const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-        stdio: "ignore",
-      });
-      process.stdout.write(String(child.pid));
-      child.unref();
-    `),
+    request(
+      `
+        const { spawn } = require("node:child_process");
+        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+          stdio: "ignore",
+        });
+        process.stdout.write(String(child.pid));
+        child.unref();
+        process.exit(7);
+      `,
+      { policy: { acceptedExitCodes: [7] } },
+    ),
   );
   assert.match(result.error ?? "", /descendant processes were still running/);
   assert.equal(processIsAlive(descendantPID(result.stdout)), false);
