@@ -60,6 +60,13 @@ test("database migrates on open, reports health, and reopens idempotently", asyn
   );
 });
 
+test("database fails closed when WAL cannot be enabled", () => {
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path: ":memory:" }),
+    /journal_mode=memory/,
+  );
+});
+
 test("checkpoint repository persists idempotent import evidence across reopen", async (t) => {
   const path = await temporaryDatabasePath(t);
   const database = new SwiftSimSqliteDatabase({ path });
