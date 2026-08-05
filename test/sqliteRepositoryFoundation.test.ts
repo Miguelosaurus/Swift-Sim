@@ -1,0 +1,197 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import type { SchemaMigration } from "../mac-helper/src/contracts/repository.js";
+import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
+import {
+  SWIFT_SIM_SQLITE_MIGRATIONS,
+  SwiftSimSqliteDatabase,
+} from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
+
+const APPLIED_AT = "2026-08-05T14:00:00.000Z";
+
+async function temporaryDatabasePath(t: test.TestContext) {
+  const root = await mkdtemp(join(tmpdir(), "swift-sim-sqlite-foundation-"));
+  t.after(async () => rm(root, { recursive: true, force: true }));
+  return join(root, "swift-sim.sqlite");
+}
+
+test("database migrates on open, reports health, and reopens idempotently", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const first = new SwiftSimSqliteDatabase({ path, now: () => APPLIED_AT });
+  assert.deepEqual(first.health(), {
+    ok: true,
+    path,
+    integrity: "ok",
+    journalMode: "wal",
+    foreignKeys: true,
+    schemaVersion: 1,
+    latestSchemaVersion: 1,
+    migrationsApplied: 1,
+  });
+  const applied = first
+    .prepare("SELECT version, name, applied_at FROM schema_migrations ORDER BY version")
+    .all();
+  assert.deepEqual(applied, [
+    { version: 1, name: "legacy_import_checkpoints", applied_at: APPLIED_AT },
+  ]);
+  first.close();
+  first.close();
+
+  const reopened = new SwiftSimSqliteDatabase({
+    path,
+    now: () => "must-not-be-written",
+  });
+  t.after(() => reopened.close());
+  assert.equal(reopened.health().migrationsApplied, 1);
+  assert.deepEqual(
+    reopened.prepare("SELECT version, name, applied_at FROM schema_migrations").all(),
+    applied,
+  );
+});
+
+test("checkpoint repository persists idempotent import evidence across reopen", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  const checkpoints = new SqliteLegacyImportCheckpointRepository(database);
+  checkpoints.upsert({
+    source: "pairing.json",
+    sourceRevision: "sha256:first",
+    projectionHash: "sha256:projection-first",
+    importedAt: "2026-08-05T14:01:00.000Z",
+    recordCount: 1,
+  });
+  checkpoints.upsert({
+    source: "pairing-invites.json",
+    sourceRevision: "sha256:invites",
+    projectionHash: "sha256:projection-invites",
+    importedAt: "2026-08-05T14:02:00.000Z",
+    recordCount: 3,
+  });
+  checkpoints.upsert({
+    source: "pairing.json",
+    sourceRevision: "sha256:second",
+    projectionHash: "sha256:projection-second",
+    importedAt: "2026-08-05T14:03:00.000Z",
+    recordCount: 1,
+  });
+
+  assert.deepEqual(checkpoints.get("pairing.json"), {
+    source: "pairing.json",
+    sourceRevision: "sha256:second",
+    projectionHash: "sha256:projection-second",
+    importedAt: "2026-08-05T14:03:00.000Z",
+    recordCount: 1,
+  });
+  assert.deepEqual(
+    checkpoints.list().map((checkpoint) => checkpoint.source),
+    ["pairing-invites.json", "pairing.json"],
+  );
+  database.close();
+
+  const reopened = new SwiftSimSqliteDatabase({ path });
+  t.after(() => reopened.close());
+  assert.equal(new SqliteLegacyImportCheckpointRepository(reopened).list().length, 2);
+});
+
+test("transactions commit synchronously and roll back all checkpoint writes on failure", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  t.after(() => database.close());
+  const checkpoints = new SqliteLegacyImportCheckpointRepository(database);
+
+  const committed = checkpoints.transaction(() => {
+    checkpoints.upsert({
+      source: "committed.json",
+      sourceRevision: "sha256:committed",
+      projectionHash: "sha256:committed-projection",
+      importedAt: APPLIED_AT,
+      recordCount: 2,
+    });
+    return "committed";
+  });
+  assert.equal(committed, "committed");
+  assert.ok(checkpoints.get("committed.json"));
+
+  assert.throws(
+    () =>
+      checkpoints.transaction(() => {
+        checkpoints.upsert({
+          source: "rolled-back.json",
+          sourceRevision: "sha256:rolled-back",
+          projectionHash: "sha256:rolled-back-projection",
+          importedAt: APPLIED_AT,
+          recordCount: 4,
+        });
+        throw new Error("abort import");
+      }),
+    /abort import/,
+  );
+  assert.equal(checkpoints.get("rolled-back.json"), null);
+  assert.throws(
+    () => database.transaction(() => Promise.resolve("not allowed")),
+    /must be synchronous/,
+  );
+  assert.throws(
+    () => database.transaction(() => database.transaction(() => "nested")),
+    /Nested Swift Sim SQLite transactions/,
+  );
+});
+
+test("failed migrations roll back their schema and do not record a version", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const brokenMigrations: readonly SchemaMigration[] = [
+    ...SWIFT_SIM_SQLITE_MIGRATIONS,
+    {
+      version: 2,
+      name: "broken_migration",
+      statements: [
+        "CREATE TABLE rollback_probe(id INTEGER PRIMARY KEY) STRICT",
+        "THIS IS NOT VALID SQL",
+      ],
+    },
+  ];
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path, migrations: brokenMigrations }),
+    /syntax|near/i,
+  );
+
+  const recovered = new SwiftSimSqliteDatabase({ path });
+  t.after(() => recovered.close());
+  assert.deepEqual(
+    recovered.prepare("SELECT version, name FROM schema_migrations ORDER BY version").all(),
+    [{ version: 1, name: "legacy_import_checkpoints" }],
+  );
+  assert.equal(
+    recovered
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'rollback_probe'")
+      .get(),
+    undefined,
+  );
+});
+
+test("migration history drift and invalid checkpoint values fail closed", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  const checkpoints = new SqliteLegacyImportCheckpointRepository(database);
+  assert.throws(
+    () =>
+      checkpoints.upsert({
+        source: "bad.json",
+        sourceRevision: "sha256:bad",
+        projectionHash: "sha256:bad-projection",
+        importedAt: APPLIED_AT,
+        recordCount: -1,
+      }),
+    /non-negative safe integer/,
+  );
+  database.prepare("UPDATE schema_migrations SET name = ? WHERE version = 1").run("drifted");
+  database.close();
+
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path }),
+    /recorded as drifted, expected legacy_import_checkpoints/,
+  );
+});
