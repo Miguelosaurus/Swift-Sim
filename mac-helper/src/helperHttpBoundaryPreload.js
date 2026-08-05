@@ -1,6 +1,7 @@
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
+import { DeliveryMaintenanceCoordinator } from "./http/deliveryMaintenanceCoordinator.js";
 import { writeHelperJson } from "./http/helperHttpResponses.js";
 import { handlePairingFallbackRequest } from "./http/pairingFallbackHandler.js";
 import {
@@ -15,23 +16,12 @@ const require = createRequire(import.meta.url);
 const http = require("node:http");
 const originalCreateServer = http.createServer;
 const DELIVERY_CLEANUP_INTERVAL_MS = 30_000;
-const ACTIVE_BUILD_STATES = new Set([
-  "queued",
-  "validating",
-  "preparing",
-  "archiving",
-  "building",
-  "exporting",
-  "delivering",
-]);
 let defaultPairingStore;
 let defaultPairingInviteStore;
 let defaultDeviceBuildStore;
 let defaultDeviceDelivery;
 let defaultRequestOriginPolicy;
-let deliveryCleanupPromise;
-let deliveryReconciliationPromise;
-let boundaryMaintenancePromise;
+let defaultDeliveryMaintenance;
 let maintenanceTimer;
 let installed = false;
 
@@ -107,23 +97,11 @@ export function drainDeliveryReferenceCleanupJobsOnce({
   deviceDelivery: delivery = deliveryStore(),
   now = Date.now(),
 } = {}) {
-  if (deliveryCleanupPromise) return deliveryCleanupPromise;
-  deliveryCleanupPromise = Promise.resolve().then(() => {
-    for (const job of builds.listDeliveryReferenceCleanupJobs()) {
-      const dueAt = Date.parse(job.nextAttemptAt || job.createdAt || "");
-      if (Number.isFinite(dueAt) && dueAt > now) continue;
-      try {
-        const released = delivery.stopGeneration(job.generation, { referenceID: job.referenceID });
-        if (!released) throw new Error("Delivery generation is still referenced or could not be stopped.");
-        builds.completeDeliveryReferenceCleanupJob(job.id);
-      } catch (error) {
-        builds.failDeliveryReferenceCleanupJob(job.id, error);
-      }
-    }
-  }).finally(() => {
-    deliveryCleanupPromise = undefined;
+  return deliveryMaintenance().drainCleanupJobsOnce({
+    deviceBuildStore: builds,
+    deviceDelivery: delivery,
+    now,
   });
-  return deliveryCleanupPromise;
 }
 
 export function reconcileDeliveryReferencesOnce({
@@ -131,54 +109,27 @@ export function reconcileDeliveryReferencesOnce({
   deviceDelivery: delivery = deliveryStore(),
   now = Date.now(),
 } = {}) {
-  if (deliveryReconciliationPromise) return deliveryReconciliationPromise;
-  deliveryReconciliationPromise = Promise.resolve().then(() => {
-    const liveReferences = new Set();
-    for (const build of builds.list()) {
-      const currentExpiresAt = Date.parse(build.expiresAt || "");
-      if (Number.isFinite(currentExpiresAt) && currentExpiresAt > now) {
-        addDeliveryReference(liveReferences, build.delivery);
-      }
-      for (const capability of Array.isArray(build.capabilities) ? build.capabilities : []) {
-        const expiresAt = Date.parse(capability?.expiresAt || "");
-        if (Number.isFinite(expiresAt) && expiresAt > now) {
-          addDeliveryReference(liveReferences, capability.delivery);
-        }
-      }
-      if (build.pendingRenewal?.id) {
-        liveReferences.add(`renewal:${build.pendingRenewal.id}`);
-      }
-      if (ACTIVE_BUILD_STATES.has(build.state)) {
-        liveReferences.add(`build:${build.id}`);
-      }
-    }
-
-    for (const status of delivery.statuses()) {
-      for (const referenceID of Array.isArray(status.references) ? status.references : []) {
-        if (!isManagedReference(referenceID) || liveReferences.has(referenceID)) continue;
-        try {
-          delivery.stopGeneration(status.generation, { referenceID });
-        } catch {
-          // A later maintenance pass retries surviving state. Never make helper
-          // startup depend on a best-effort orphan reconciliation.
-        }
-      }
-    }
-  }).finally(() => {
-    deliveryReconciliationPromise = undefined;
+  return deliveryMaintenance().reconcileReferencesOnce({
+    deviceBuildStore: builds,
+    deviceDelivery: delivery,
+    now,
   });
-  return deliveryReconciliationPromise;
 }
 
 export function runBoundaryMaintenanceOnce(options = {}) {
-  if (boundaryMaintenancePromise) return boundaryMaintenancePromise;
-  boundaryMaintenancePromise = Promise.resolve()
-    .then(() => reconcileDeliveryReferencesOnce(options))
-    .then(() => drainDeliveryReferenceCleanupJobsOnce(options))
-    .finally(() => {
-      boundaryMaintenancePromise = undefined;
-    });
-  return boundaryMaintenancePromise;
+  return deliveryMaintenance().runOnce(() => resolveDeliveryMaintenanceOptions(options));
+}
+
+function resolveDeliveryMaintenanceOptions({
+  deviceBuildStore: builds = buildStore(),
+  deviceDelivery: delivery = deliveryStore(),
+  now = Date.now(),
+} = {}) {
+  return {
+    deviceBuildStore: builds,
+    deviceDelivery: delivery,
+    now,
+  };
 }
 
 function startBoundaryMaintenance() {
@@ -188,14 +139,6 @@ function startBoundaryMaintenance() {
     void runBoundaryMaintenanceOnce().catch(() => {});
   }, DELIVERY_CLEANUP_INTERVAL_MS);
   maintenanceTimer.unref?.();
-}
-
-function addDeliveryReference(set, delivery) {
-  if (delivery?.referenceID) set.add(String(delivery.referenceID));
-}
-
-function isManagedReference(referenceID) {
-  return /^(?:build|renewal):/.test(String(referenceID || ""));
 }
 
 function pairingStore() {
@@ -221,6 +164,11 @@ function buildStore() {
 function deliveryStore() {
   defaultDeviceDelivery ||= new DeviceDeliveryAdapter();
   return defaultDeviceDelivery;
+}
+
+function deliveryMaintenance() {
+  defaultDeliveryMaintenance ||= new DeliveryMaintenanceCoordinator();
+  return defaultDeliveryMaintenance;
 }
 
 installHelperHttpBoundary();
