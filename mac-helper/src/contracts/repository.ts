@@ -7,6 +7,7 @@ export interface SchemaMigration {
   version: number;
   name: string;
   statements: readonly string[];
+  requiredTables?: readonly string[];
 }
 
 export interface RepositoryHealth {
@@ -18,6 +19,7 @@ export interface RepositoryHealth {
   schemaVersion: number;
   latestSchemaVersion: number;
   migrationsApplied: number;
+  missingTables: string[];
 }
 
 /**
