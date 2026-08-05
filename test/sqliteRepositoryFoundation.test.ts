@@ -41,7 +41,9 @@ test("database migrates on open, reports health, and reopens idempotently", asyn
   assert.deepEqual(applied, [
     { version: 1, name: "legacy_import_checkpoints", applied_at: APPLIED_AT },
   ]);
-  const checksumRow = first.prepare("SELECT checksum FROM schema_migrations WHERE version = 1").get();
+  const checksumRow = first
+    .prepare("SELECT checksum FROM schema_migrations WHERE version = 1")
+    .get();
   assert.match(String(recordValue(checksumRow, "checksum")), /^[a-f0-9]{64}$/);
   first.close();
   first.close();
@@ -165,7 +167,10 @@ test("a busy transaction begin does not poison the connection guard", async (t) 
 
   lockHolder.exec("ROLLBACK");
   lockHeld = false;
-  assert.equal(database.transaction(() => "recovered"), "recovered");
+  assert.equal(
+    database.transaction(() => "recovered"),
+    "recovered",
+  );
 });
 
 test("failed migrations roll back their schema and do not record a version", async (t) => {
@@ -189,7 +194,9 @@ test("failed migrations roll back their schema and do not record a version", asy
   const recovered = new SwiftSimSqliteDatabase({ path });
   t.after(() => recovered.close());
   assert.deepEqual(
-    plainRows(recovered.prepare("SELECT version, name FROM schema_migrations ORDER BY version").all()),
+    plainRows(
+      recovered.prepare("SELECT version, name FROM schema_migrations ORDER BY version").all(),
+    ),
     [{ version: 1, name: "legacy_import_checkpoints" }],
   );
   assert.equal(
