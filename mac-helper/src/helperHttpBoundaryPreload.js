@@ -138,8 +138,10 @@ function deliveryMaintenance() {
 
 function httpBoundaryRuntime() {
   defaultHttpRuntime ||= new HelperHttpBoundaryRuntime({
-    httpModule: http,
     originalCreateServer,
+    replaceCreateServer(createServer) {
+      http.createServer = createServer;
+    },
     syncBuiltinExports: syncBuiltinESMExports,
     dispatchRequest: dispatchHelperHttpRequest,
     writeUnavailable(response) {
