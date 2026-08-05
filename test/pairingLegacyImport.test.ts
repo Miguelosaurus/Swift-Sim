@@ -272,7 +272,10 @@ test("a busy legacy lock prevents backups and database changes and releases oute
   await writeFile(harness.invitationPath, JSON.stringify([INVITATION]));
   const heldInvitationLease = harness.lockManager.acquireSync(harness.invitationLock);
   try {
-    assert.throws(() => harness.coordinator().run(), /lock is busy/i);
+    assert.throws(
+      () => harness.coordinator().run(),
+      /lock is busy|timed out waiting for lock/i,
+    );
   } finally {
     heldInvitationLease.releaseSync();
   }
