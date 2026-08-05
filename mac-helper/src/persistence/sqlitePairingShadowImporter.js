@@ -73,6 +73,16 @@ export class SqlitePairingShadowImporter {
 
     return this.#database.transaction(() => {
       const currentCheckpoint = this.#checkpoints.get(source);
+      if (
+        currentCheckpoint?.sourceRevision === sourceRevision &&
+        (currentCheckpoint.projectionHash !== projectionHash ||
+          currentCheckpoint.recordCount !== recordCount)
+      ) {
+        throw new Error(
+          `Pairing shadow source revision ${sourceRevision} for ${source} was already recorded with a different projection.`,
+        );
+      }
+
       const currentProjectionHash = pairingShadowProjectionHash(this.read());
       if (
         currentCheckpoint?.sourceRevision === sourceRevision &&
