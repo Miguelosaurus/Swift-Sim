@@ -43,8 +43,8 @@ export class PairingShadowComparator {
    */
   compare({ surface, key, legacy, sqlite }) {
     const validatedSurface = requireSurface(surface);
-    const validatedLegacy = validateProjection(validatedSurface, legacy);
-    const validatedSqlite = validateProjection(validatedSurface, sqlite);
+    const validatedLegacy = normalizeProjection(validatedSurface, legacy);
+    const validatedSqlite = normalizeProjection(validatedSurface, sqlite);
     const keyHash = sha256(requireNonEmptyString(key, "Pairing shadow comparison key"));
     const legacyProjectionHash = projectionHash(validatedLegacy);
     const sqliteProjectionHash = projectionHash(validatedSqlite);
@@ -118,11 +118,29 @@ export function pairingShadowProjectionHash(projection) {
  * @param {PairingShadowProjection} projection
  * @returns {PairingShadowProjection}
  */
-function validateProjection(surface, projection) {
+function normalizeProjection(surface, projection) {
   if (projection === null) return null;
-  return surface === "credential"
-    ? parsePairingCredential(projection)
-    : parsePairingInvitation(projection);
+  if (surface === "credential") {
+    const credential = parsePairingCredential(projection);
+    return {
+      token: credential.token,
+      installationID: credential.installationID,
+      macName: credential.macName,
+      createdAt: credential.createdAt,
+      updatedAt: credential.updatedAt,
+    };
+  }
+  const invitation = parsePairingInvitation(projection);
+  return {
+    id: invitation.id,
+    inviteHash: invitation.inviteHash,
+    installationID: invitation.installationID,
+    clientNonce: invitation.clientNonce,
+    claimed: invitation.claimed,
+    createdAt: invitation.createdAt,
+    expiresAt: invitation.expiresAt,
+    ...(invitation.claimedAt === undefined ? {} : { claimedAt: invitation.claimedAt }),
+  };
 }
 
 /** @param {PairingShadowProjection} projection */

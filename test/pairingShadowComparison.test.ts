@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { PairingShadowMismatchObservation } from "../mac-helper/src/contracts/repository.js";
-import { PairingShadowComparator } from "../mac-helper/src/persistence/pairingShadowComparison.js";
+import {
+  PairingShadowComparator,
+  pairingShadowMismatchID,
+} from "../mac-helper/src/persistence/pairingShadowComparison.js";
 import { PAIRING_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/pairingSqliteSchema.js";
 import { SqlitePairingShadowMismatchRepository } from "../mac-helper/src/persistence/sqlitePairingShadowMismatchRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
@@ -57,18 +60,20 @@ test("matching pairing projections produce no durable evidence", async (t) => {
     mismatchRepository: stores.repository,
     now: () => "2026-08-05T18:00:00.000Z",
   });
+  const reorderedWithExtraMetadata = {
+    updatedAt: CREDENTIAL.updatedAt,
+    createdAt: CREDENTIAL.createdAt,
+    macName: CREDENTIAL.macName,
+    installationID: CREDENTIAL.installationID,
+    token: CREDENTIAL.token,
+    irrelevantLegacyMetadata: "ignored",
+  };
 
   const result = comparator.compare({
     surface: "credential",
     key: CREDENTIAL.installationID,
     legacy: CREDENTIAL,
-    sqlite: {
-      updatedAt: CREDENTIAL.updatedAt,
-      createdAt: CREDENTIAL.createdAt,
-      macName: CREDENTIAL.macName,
-      installationID: CREDENTIAL.installationID,
-      token: CREDENTIAL.token,
-    },
+    sqlite: reorderedWithExtraMetadata,
   });
 
   assert.equal(result.matched, true);
@@ -177,16 +182,22 @@ test("repository rejects malformed or forged shadow evidence before SQLite mutat
   const path = await temporaryDatabasePath(t);
   const stores = openStores(path);
   t.after(() => stores.database.close());
-  const valid: PairingShadowMismatchObservation = {
-    mismatchID: digest("forged"),
-    surface: "credential",
+  const hashes = {
+    surface: "credential" as const,
     keyHash: digest("installation-1"),
     legacyProjectionHash: digest("legacy"),
     sqliteProjectionHash: digest("sqlite"),
+  };
+  const valid: PairingShadowMismatchObservation = {
+    mismatchID: pairingShadowMismatchID(hashes),
+    ...hashes,
     observedAt: "2026-08-05T18:00:00.000Z",
   };
 
-  assert.throws(() => stores.repository.observe(valid), /does not match/);
+  assert.throws(
+    () => stores.repository.observe({ ...valid, mismatchID: digest("forged") }),
+    /does not match/,
+  );
   assert.throws(
     () =>
       stores.repository.observe({
