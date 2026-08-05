@@ -48,17 +48,20 @@ export interface PairingStateSnapshot {
   invitations: readonly PairingInvitationRecord[];
 }
 
+export interface PairingStateReader {
+  read(): PairingStateSnapshot;
+  getCredential(installationID: string): PairingCredentialRecord | null;
+  getInvitation(id: string): PairingInvitationRecord | null;
+  findInvitationByInviteHash(inviteHash: string): PairingInvitationRecord | null;
+}
+
 /**
  * Owns an entire normalized pairing snapshot. Replacement is atomic: callers
  * cannot publish a credential without its matching invitation set or leave a
  * partially replaced invitation collection behind.
  */
-export interface PairingStateRepository {
-  read(): PairingStateSnapshot;
+export interface PairingStateRepository extends PairingStateReader {
   replace(snapshot: PairingStateSnapshot): void;
-  getCredential(installationID: string): PairingCredentialRecord | null;
-  getInvitation(id: string): PairingInvitationRecord | null;
-  findInvitationByInviteHash(inviteHash: string): PairingInvitationRecord | null;
 }
 
 export type PairingShadowSurface = "credential" | "invitation";
@@ -119,13 +122,16 @@ export interface PairingAuthorityCutoverEvidence {
   rollbackExpiresAt: string;
 }
 
+export interface PairingAuthorityReader {
+  current(): PairingAuthorityState;
+}
+
 /**
  * Persists only the source-of-truth decision. Every transition is bound to the
  * authority revision observed by its caller so stale recovery work cannot act
  * on a later cutover epoch.
  */
-export interface PairingAuthorityRepository {
-  current(): PairingAuthorityState;
+export interface PairingAuthorityRepository extends PairingAuthorityReader {
   activateSqlite(evidence: PairingAuthorityCutoverEvidence): PairingAuthorityState;
   rollbackToLegacy(input: {
     expectedRevision: number;
