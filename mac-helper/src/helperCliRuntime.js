@@ -4,7 +4,6 @@ import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
 import { DeviceInventoryAdapter } from "./deviceInventory.js";
 import { publicDeviceApp, publicDeviceBuild } from "./deviceBuilder.js";
-import { ensureSwiftSimStateDirectory } from "./infrastructure/nodeStateDirectory.js";
 import { PairingStore } from "./pairingStore.js";
 import { PairingInviteStore } from "./pairingInviteStore.js";
 import { buildPairingLinks } from "./links.js";
@@ -42,8 +41,7 @@ import { dispatchHelperCliCommand, helperCliCommandIsExtracted } from "./helperC
  */
 
 const DEFAULT_FACTORIES = Object.freeze({
-  ensureStateDirectory: () => ensureSwiftSimStateDirectory(),
-  createPairingStore: () => new PairingStore(),
+  createStateRootStore: () => new PairingStore(),
   createPairingInviteStore: () => new PairingInviteStore(),
   createDeviceBuildStore: () => new DeviceBuildStore(),
   createDeviceInventory: () => new DeviceInventoryAdapter(),
@@ -53,6 +51,10 @@ const DEFAULT_FACTORIES = Object.freeze({
 
 /**
  * Compose only the services required by the selected one-shot command.
+ *
+ * Current filesystem repositories assume the shared private root already
+ * exists. PairingStore remains the explicit compatibility owner of that root
+ * until Phase 4 replaces the legacy repositories.
  *
  * @param {string} command
  * @param {{
@@ -69,19 +71,18 @@ export function createExtractedHelperServices(command, options = {}) {
   }
 
   if (command === "pair") {
-    ensureStateDirectory(factories);
-    return createPairingServices(factories, qrPrinter);
+    return createPairingServices(factories, stateRootStore(factories), qrPrinter);
   }
   if (command === "list-apps" || command === "archive-app") {
-    ensureStateDirectory(factories);
+    stateRootStore(factories);
     return createDeviceAppServices(factories);
   }
   if (command === "verify-device-build") {
-    ensureStateDirectory(factories);
+    stateRootStore(factories);
     return createDeviceBuildVerificationServices(factories);
   }
   if (command === "device-delivery-status" || command === "device-delivery-stop") {
-    ensureStateDirectory(factories);
+    stateRootStore(factories);
     return createDeviceDeliveryServices(factories);
   }
   if (command === "serve-sim-info") {
@@ -91,8 +92,8 @@ export function createExtractedHelperServices(command, options = {}) {
 }
 
 /**
- * Commands outside the extracted set return false before any state directory,
- * store, or adapter is constructed.
+ * Commands outside the extracted set return false before any compatibility
+ * root owner, store, or adapter is constructed.
  *
  * @param {string[]} argv
  * @param {{
@@ -111,19 +112,12 @@ export async function runExtractedHelperCommand(argv, options = {}) {
   });
 }
 
-/** @param {Record<string, unknown>} factories */
-function ensureStateDirectory(factories) {
-  requiredFactory(factories, "ensureStateDirectory")();
-}
-
 /**
  * @param {Record<string, unknown>} factories
+ * @param {PairingStorePort} pairingStore
  * @param {(value: string) => void} qrPrinter
  */
-function createPairingServices(factories, qrPrinter) {
-  const pairingStore = /** @type {PairingStorePort} */ (
-    /** @type {unknown} */ (requiredFactory(factories, "createPairingStore")())
-  );
+function createPairingServices(factories, pairingStore, qrPrinter) {
   const pairingInvites = /** @type {PairingInviteWriter} */ (
     /** @type {unknown} */ (requiredFactory(factories, "createPairingInviteStore")())
   );
@@ -203,6 +197,13 @@ function createServeSimServices(factories) {
   return {
     inspectServeSim: () => serveSim.inspect(),
   };
+}
+
+/** @param {Record<string, unknown>} factories */
+function stateRootStore(factories) {
+  return /** @type {PairingStorePort} */ (
+    /** @type {unknown} */ (requiredFactory(factories, "createStateRootStore")())
+  );
 }
 
 /** @param {Record<string, unknown>} factories */
