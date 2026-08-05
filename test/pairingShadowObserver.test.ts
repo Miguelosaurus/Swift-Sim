@@ -116,9 +116,10 @@ test("pairing handler defers observation until after authorized responses", asyn
     true,
   );
   assert.equal(authorizedResponse.status, 200);
-  assert.deepEqual(observed, []);
+  assert.equal(observed.length, 0);
   await waitForImmediate();
-  assert.deepEqual(observed, [CREDENTIAL]);
+  assert.equal(observed.length, 1);
+  assert.deepEqual(observed[0], CREDENTIAL);
 
   const unauthorizedResponse = new ResponseRecorder();
   assert.equal(
@@ -174,7 +175,8 @@ test("pairing handler defers observation until after authorized responses", asyn
   );
   assert.equal(expiredInviteResponse.status, 410);
   await waitForImmediate();
-  assert.deepEqual(observed, [CREDENTIAL]);
+  assert.equal(observed.length, 1);
+  assert.deepEqual(observed[0], CREDENTIAL);
 
   const accessorResponse = new ResponseRecorder();
   const throwingAccessor = {
@@ -240,9 +242,10 @@ test("pairing handler defers observation until after authorized responses", asyn
     true,
   );
   assert.equal(invitationResponse.status, 200);
-  assert.deepEqual(observed, [CREDENTIAL]);
+  assert.equal(observed.length, 1);
   await waitForImmediate();
-  assert.deepEqual(observed, [CREDENTIAL, CREDENTIAL]);
+  assert.equal(observed.length, 2);
+  assert.deepEqual(observed[1], CREDENTIAL);
 });
 
 function credentialRepository(
