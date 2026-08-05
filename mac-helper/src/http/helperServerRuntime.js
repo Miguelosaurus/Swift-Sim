@@ -91,12 +91,14 @@ export class HelperHttpBoundaryRuntime {
       const resolvedOptions = hasListenerOverload ? undefined : optionsOrListener;
       const resolvedListener = hasListenerOverload ? optionsOrListener : listener;
       /** @type {RequestListener | undefined} */
-      const guardedListener = typeof resolvedListener === "function"
-        ? (request, response) => runtime.#handleRequest(request, response, resolvedListener)
-        : undefined;
-      const server = resolvedOptions === undefined
-        ? runtime.#originalCreateServer.call(this, guardedListener)
-        : runtime.#originalCreateServer.call(this, resolvedOptions, guardedListener);
+      const guardedListener =
+        typeof resolvedListener === "function"
+          ? (request, response) => runtime.#handleRequest(request, response, resolvedListener)
+          : undefined;
+      const server =
+        resolvedOptions === undefined
+          ? runtime.#originalCreateServer.call(this, guardedListener)
+          : runtime.#originalCreateServer.call(this, resolvedOptions, guardedListener);
       runtime.#startMaintenance();
       return server;
     }
