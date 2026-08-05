@@ -1,0 +1,429 @@
+// @ts-check
+
+import { createHash } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
+
+/** @typedef {import("../contracts/repository.js").RepositoryHealth} RepositoryHealth */
+/** @typedef {import("../contracts/repository.js").SchemaMigration} SchemaMigration */
+
+/** @type {readonly SchemaMigration[]} */
+export const SWIFT_SIM_SQLITE_MIGRATIONS = Object.freeze([
+  Object.freeze({
+    version: 1,
+    name: "legacy_import_checkpoints",
+    statements: Object.freeze([
+      `CREATE TABLE legacy_import_checkpoints (
+        source TEXT PRIMARY KEY CHECK (length(source) > 0),
+        source_revision TEXT NOT NULL CHECK (length(source_revision) > 0),
+        projection_hash TEXT NOT NULL CHECK (length(projection_hash) > 0),
+        imported_at TEXT NOT NULL CHECK (length(imported_at) > 0),
+        record_count INTEGER NOT NULL CHECK (record_count >= 0)
+      ) STRICT`,
+    ]),
+    requiredTables: Object.freeze(["legacy_import_checkpoints"]),
+  }),
+]);
+
+/**
+ * Single synchronous SQLite connection and migration owner for transactional
+ * domain state. Callers must provide a path whose private parent directory
+ * already exists; filesystem preparation remains outside this foundation PR.
+ */
+export class SwiftSimSqliteDatabase {
+  /** @type {DatabaseSync} */
+  #database;
+  /** @type {string} */
+  #path;
+  /** @type {readonly SchemaMigration[]} */
+  #migrations;
+  /** @type {() => string} */
+  #now;
+  #transactionActive = false;
+  #closed = false;
+
+  /**
+   * @param {{
+   *   path: string,
+   *   migrations?: readonly SchemaMigration[],
+   *   now?: () => string,
+   * }} options
+   */
+  constructor({
+    path,
+    migrations = SWIFT_SIM_SQLITE_MIGRATIONS,
+    now = () => new Date().toISOString(),
+  }) {
+    this.#path = requireNonEmptyString(path, "SQLite database path");
+    this.#migrations = validateMigrations(migrations);
+    this.#now = now;
+    this.#database = new DatabaseSync(this.#path);
+    try {
+      this.#database.exec("PRAGMA foreign_keys = ON");
+      this.#database.exec("PRAGMA busy_timeout = 5000");
+      this.#database.exec("PRAGMA journal_mode = WAL");
+      this.#database.exec("PRAGMA synchronous = FULL");
+      this.migrate();
+      const health = this.health();
+      if (!health.ok) throw databaseHealthError(health);
+    } catch (error) {
+      this.#closeFailClosed();
+      throw error;
+    }
+  }
+
+  get path() {
+    return this.#path;
+  }
+
+  migrate() {
+    this.#assertOpen();
+    this.#database.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY CHECK (version > 0),
+      name TEXT NOT NULL UNIQUE CHECK (length(name) > 0),
+      checksum TEXT NOT NULL CHECK (length(checksum) = 64),
+      applied_at TEXT NOT NULL CHECK (length(applied_at) > 0)
+    ) STRICT`);
+
+    const applied = this.#database
+      .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
+      .all()
+      .map(parseAppliedMigrationRow);
+    const expectedByVersion = new Map(
+      this.#migrations.map((migration) => [migration.version, migration]),
+    );
+    let expectedAppliedVersion = 1;
+    for (const row of applied) {
+      if (row.version !== expectedAppliedVersion) {
+        throw new Error(
+          `SQLite migration history is non-contiguous; expected version ${expectedAppliedVersion}, found ${row.version}.`,
+        );
+      }
+      const expected = expectedByVersion.get(row.version);
+      if (!expected) {
+        throw new Error(`SQLite schema version ${row.version} is newer than this Swift Sim build.`);
+      }
+      if (row.name !== expected.name) {
+        throw new Error(
+          `SQLite migration ${row.version} is recorded as ${row.name}, expected ${expected.name}.`,
+        );
+      }
+      const expectedChecksum = migrationChecksum(expected);
+      if (row.checksum !== expectedChecksum) {
+        throw new Error(
+          `SQLite migration ${row.version} checksum does not match this Swift Sim build.`,
+        );
+      }
+      expectedAppliedVersion += 1;
+    }
+
+    const appliedVersions = new Set(applied.map((row) => row.version));
+    const recordMigration = this.#database.prepare(
+      "INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
+    );
+    for (const migration of this.#migrations) {
+      if (appliedVersions.has(migration.version)) continue;
+      this.transaction(() => {
+        for (const statement of migration.statements) this.#database.exec(statement);
+        recordMigration.run(
+          migration.version,
+          migration.name,
+          migrationChecksum(migration),
+          requireNonEmptyString(this.#now(), "SQLite migration appliedAt"),
+        );
+      });
+    }
+  }
+
+  /** @param {string} sql */
+  prepare(sql) {
+    this.#assertOpen();
+    return this.#database.prepare(requireNonEmptyString(sql, "SQL statement"));
+  }
+
+  /** @param {string} sql */
+  exec(sql) {
+    this.#assertOpen();
+    this.#database.exec(requireNonEmptyString(sql, "SQL batch"));
+  }
+
+  /**
+   * @template T
+   * @param {() => T} operation
+   * @returns {T}
+   */
+  transaction(operation) {
+    this.#assertOpen();
+    if (this.#transactionActive) {
+      throw new Error("Nested Swift Sim SQLite transactions are not supported.");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    this.#transactionActive = true;
+    let closeAfterFailure = false;
+    try {
+      const result = operation();
+      if (isPromiseLike(result)) {
+        observePromiseRejection(result);
+        closeAfterFailure = true;
+        throw new Error("Swift Sim SQLite transactions must be synchronous.");
+      }
+      this.#database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      let rollbackFailed = false;
+      try {
+        this.#database.exec("ROLLBACK");
+      } catch {
+        rollbackFailed = true;
+      }
+      if (closeAfterFailure || rollbackFailed) this.#closeFailClosed();
+      throw error;
+    } finally {
+      this.#transactionActive = false;
+    }
+  }
+
+  /** @returns {RepositoryHealth} */
+  health() {
+    this.#assertOpen();
+    const integrity = firstPragmaValue(this.#database.prepare("PRAGMA integrity_check").get());
+    const journalMode = firstPragmaValue(this.#database.prepare("PRAGMA journal_mode").get());
+    const foreignKeys =
+      Number(firstPragmaValue(this.#database.prepare("PRAGMA foreign_keys").get())) === 1;
+    const foreignKeyViolations = this.#database.prepare("PRAGMA foreign_key_check").all().length;
+    const existingTables = new Set(
+      this.#database
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+        .all()
+        .map(parseSchemaTableName),
+    );
+    const requiredTables = [
+      "schema_migrations",
+      ...this.#migrations.flatMap((migration) => migration.requiredTables),
+    ];
+    const missingTables = requiredTables.filter((tableName) => !existingTables.has(tableName));
+    const schemaVersion = requiredIntegerColumn(
+      this.#database
+        .prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations")
+        .get(),
+      "version",
+      "SQLite schema version",
+    );
+    const migrationsApplied = requiredIntegerColumn(
+      this.#database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get(),
+      "count",
+      "SQLite migration count",
+    );
+    const latestSchemaVersion = this.#migrations.at(-1)?.version || 0;
+    return {
+      ok:
+        integrity === "ok" &&
+        journalMode === "wal" &&
+        foreignKeys &&
+        foreignKeyViolations === 0 &&
+        missingTables.length === 0 &&
+        schemaVersion === latestSchemaVersion &&
+        migrationsApplied === latestSchemaVersion,
+      path: this.#path,
+      integrity,
+      journalMode,
+      foreignKeys,
+      foreignKeyViolations,
+      missingTables,
+      schemaVersion,
+      latestSchemaVersion,
+      migrationsApplied,
+    };
+  }
+
+  close() {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#database.close();
+  }
+
+  #closeFailClosed() {
+    if (this.#closed) return;
+    this.#closed = true;
+    try {
+      this.#database.close();
+    } catch {
+      // The wrapper remains permanently closed even if the native close path
+      // itself reports an error. No later operation may reuse uncertain state.
+    }
+  }
+
+  #assertOpen() {
+    if (this.#closed) throw new Error("Swift Sim SQLite database is closed.");
+  }
+}
+
+/** @param {RepositoryHealth} health */
+function databaseHealthError(health) {
+  /** @type {string[]} */
+  const failures = [];
+  if (health.integrity !== "ok") failures.push(`integrity=${health.integrity || "unknown"}`);
+  if (health.journalMode !== "wal") {
+    failures.push(`journal_mode=${health.journalMode || "unknown"}`);
+  }
+  if (!health.foreignKeys) failures.push("foreign_keys=off");
+  if (health.foreignKeyViolations > 0) {
+    failures.push(`foreign_key_violations=${health.foreignKeyViolations}`);
+  }
+  if (health.missingTables.length > 0) {
+    failures.push(`missing_tables=${health.missingTables.join("|")}`);
+  }
+  if (health.schemaVersion !== health.latestSchemaVersion) {
+    failures.push(`schema_version=${health.schemaVersion}/${health.latestSchemaVersion}`);
+  }
+  if (health.migrationsApplied !== health.latestSchemaVersion) {
+    failures.push(`migration_count=${health.migrationsApplied}/${health.latestSchemaVersion}`);
+  }
+  return new Error(
+    `Swift Sim SQLite database at ${health.path} failed health checks (${failures.join(", ")}). ` +
+      "Refusing to use it; restore a verified backup before retrying.",
+  );
+}
+
+/** @param {readonly SchemaMigration[]} migrations */
+function validateMigrations(migrations) {
+  if (!Array.isArray(migrations)) throw new Error("SQLite migrations must be an array.");
+  let expectedVersion = 1;
+  /** @type {SchemaMigration[]} */
+  const validated = [];
+  const names = new Set();
+  const requiredTableNames = new Set(["schema_migrations"]);
+  for (const migration of migrations) {
+    if (!migration || migration.version !== expectedVersion) {
+      throw new Error(
+        `SQLite migrations must be contiguous from version 1; expected ${expectedVersion}.`,
+      );
+    }
+    const name = requireNonEmptyString(
+      migration.name,
+      `SQLite migration ${migration.version} name`,
+    );
+    if (names.has(name)) throw new Error(`Duplicate SQLite migration name: ${name}.`);
+    const rawStatements = /** @type {unknown} */ (migration.statements);
+    if (!Array.isArray(rawStatements) || rawStatements.length === 0) {
+      throw new Error(`SQLite migration ${migration.version} must contain at least one statement.`);
+    }
+    const statements = /** @type {unknown[]} */ (rawStatements).map((statement) =>
+      requireNonEmptyString(statement, `SQLite migration ${migration.version} statement`),
+    );
+    const rawRequiredTables = /** @type {unknown} */ (migration.requiredTables);
+    if (!Array.isArray(rawRequiredTables)) {
+      throw new Error(`SQLite migration ${migration.version} requiredTables must be an array.`);
+    }
+    const requiredTables = /** @type {unknown[]} */ (rawRequiredTables).map((tableName) => {
+      const validatedName = requireNonEmptyString(
+        tableName,
+        `SQLite migration ${migration.version} required table`,
+      );
+      if (requiredTableNames.has(validatedName)) {
+        throw new Error(`Duplicate required SQLite table: ${validatedName}.`);
+      }
+      requiredTableNames.add(validatedName);
+      return validatedName;
+    });
+    validated.push(
+      Object.freeze({
+        version: migration.version,
+        name,
+        statements: Object.freeze(statements),
+        requiredTables: Object.freeze(requiredTables),
+      }),
+    );
+    names.add(name);
+    expectedVersion += 1;
+  }
+  return Object.freeze(validated);
+}
+
+/** @param {unknown} row */
+function parseAppliedMigrationRow(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error("SQLite returned an invalid migration-history row.");
+  }
+  const values = /** @type {Record<string, unknown>} */ (row);
+  const version = values.version;
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1) {
+    throw new Error("SQLite returned an invalid migration version.");
+  }
+  return {
+    version,
+    name: requireNonEmptyString(values.name, "SQLite migration name"),
+    checksum: requireChecksum(values.checksum),
+  };
+}
+
+/** @param {unknown} row */
+function parseSchemaTableName(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error("SQLite returned an invalid schema-table row.");
+  }
+  return requireNonEmptyString(
+    /** @type {Record<string, unknown>} */ (row).name,
+    "SQLite schema table name",
+  );
+}
+
+/** @param {SchemaMigration} migration */
+function migrationChecksum(migration) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: migration.version,
+        name: migration.name,
+        statements: [...migration.statements],
+        requiredTables: [...migration.requiredTables],
+      }),
+    )
+    .digest("hex");
+}
+
+/** @param {unknown} value */
+function requireChecksum(value) {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error("SQLite migration checksum is invalid.");
+  }
+  return value;
+}
+
+/** @param {unknown} row @param {string} key @param {string} label */
+function requiredIntegerColumn(row, key, label) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error(`${label} query returned no row.`);
+  }
+  const value = /** @type {Record<string, unknown>} */ (row)[key];
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} is invalid.`);
+  }
+  return value;
+}
+
+/** @param {unknown} value @param {string} label */
+function requireNonEmptyString(value, label) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value;
+}
+
+/** @param {unknown} row */
+function firstPragmaValue(row) {
+  if (!row || typeof row !== "object") return "";
+  const value = Object.values(row)[0];
+  return String(value ?? "");
+}
+
+/** @param {unknown} value @returns {value is PromiseLike<unknown>} */
+function isPromiseLike(value) {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false;
+  const candidate = /** @type {{ then?: unknown }} */ (value);
+  return typeof candidate.then === "function";
+}
+
+/** @param {PromiseLike<unknown>} value */
+function observePromiseRejection(value) {
+  void Promise.resolve(value).catch(() => undefined);
+}
