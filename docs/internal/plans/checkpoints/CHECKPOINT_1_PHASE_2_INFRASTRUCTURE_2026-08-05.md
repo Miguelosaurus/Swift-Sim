@@ -37,16 +37,16 @@ No P0 or P1 findings remain in the bounded checkpoint review. Two P2 residuals r
 
 | Unit | Pull request | Exact head | Scope | Hosted state |
 | --- | ---: | --- | --- | --- |
-| Phase 2A | #26 | `b50ca78d82f2a034111333df28ee36f9820250f5` | Port contracts and compile-time role constraints | Green |
-| Phase 2B | #27 | `bc5a137fe09a15e24c52d9bad28833f2b0c16746` | Clock, IDs, origin policy, and container foundations | Green |
-| Phase 2C | #28 | `110b2422129e9b8109ef9ef42c2461d0fd37168c` | Request-origin preload delegation | Green |
+| Phase 2A | #26 | `f6d5338df4bb392543bb1db7ac9a597e58d040b0` | Port contracts and compile-time role constraints | Green |
+| Phase 2B | #27 | `932241d0b60cbe27aec31db125635bbdec24dc8a` | Clock, IDs, origin policy, and container foundations | Green |
+| Phase 2C | #28 | `110b2422ecc5b57fd28bbffaa45762eb518f315b` | Request-origin preload delegation | Green |
 | Phase 2D | #29 | `4b175a472ca009498e27e43950dfb09bd26c9408` | Atomic file and runtime-journal adapters | Green |
 | Phase 2E | #30 | `092ec816b8684f36e3900ed6826eead8d12b29a3` | Lock manager and lifecycle compatibility delegation | Green |
 | Phase 2F | #31 | `ecb2e7f926787e24bb73e432c436c6b4b11c4574` | Contained artifact store and structured logger | Green |
 | Phase 2G | #32 | `4260dbf58cb04a97b991bdd17ae7152f76dcd442` | Bounded command runner | Green |
 | Phase 2H | #33 | `d44179868fee4b62af5376b3344a40aca0b917d2` | Identity-authorized process supervisor | Green |
 
-Every PR remains open, draft, unmerged, and stacked on the immediately preceding exact head.
+Every Phase 2 PR remains open, draft, unmerged, and stacked on the immediately preceding exact head.
 
 ## Contract and schema inventory
 
