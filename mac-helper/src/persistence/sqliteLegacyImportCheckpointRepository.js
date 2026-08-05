@@ -87,20 +87,14 @@ function validateCheckpoint(checkpoint) {
     throw new Error("Legacy import checkpoint must be an object.");
   }
   const values = /** @type {Record<string, unknown>} */ (checkpoint);
-  const recordCount = Number(values.recordCount);
-  if (!Number.isSafeInteger(recordCount) || recordCount < 0) {
+  const recordCount = values.recordCount;
+  if (typeof recordCount !== "number" || !Number.isSafeInteger(recordCount) || recordCount < 0) {
     throw new Error("Legacy import checkpoint recordCount must be a non-negative safe integer.");
   }
   return {
     source: requireNonEmptyString(values.source, "Legacy import source"),
-    sourceRevision: requireNonEmptyString(
-      values.sourceRevision,
-      "Legacy import sourceRevision",
-    ),
-    projectionHash: requireNonEmptyString(
-      values.projectionHash,
-      "Legacy import projectionHash",
-    ),
+    sourceRevision: requireNonEmptyString(values.sourceRevision, "Legacy import sourceRevision"),
+    projectionHash: requireNonEmptyString(values.projectionHash, "Legacy import projectionHash"),
     importedAt: requireNonEmptyString(values.importedAt, "Legacy import importedAt"),
     recordCount,
   };
