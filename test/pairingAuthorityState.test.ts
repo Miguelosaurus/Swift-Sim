@@ -117,7 +117,7 @@ test("cutover evidence rejects malformed hashes and ambiguous timestamps", async
   assert.equal(stores.repository.current().mode, "legacy");
 });
 
-test("rollback requires the frozen source and an open rollback window", async (t) => {
+test("rollback requires the frozen source and a half-open rollback window", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
@@ -143,7 +143,7 @@ test("rollback requires the frozen source and an open rollback window", async (t
     () =>
       stores.repository.rollbackToLegacy({
         sourceRevision: EVIDENCE.sourceRevision,
-        rolledBackAt: "2026-08-12T18:00:00.001Z",
+        rolledBackAt: EVIDENCE.rollbackExpiresAt,
       }),
     /window has expired/,
   );
@@ -189,7 +189,7 @@ test("finalization waits for rollback expiry and permanently closes rollback", a
     revision: 2,
   });
   assert.deepEqual(
-    stores.repository.finalizeSqlite({ finalizedAt: EVIDENCE.rollbackExpiresAt }),
+    stores.repository.finalizeSqlite({ finalizedAt: "2026-08-13T18:00:00.000Z" }),
     finalized,
   );
   assert.throws(
@@ -217,6 +217,44 @@ test("failed authority transition leaves the prior source of truth intact", asyn
   assert.equal(stores.repository.current().mode, "legacy");
   assert.equal(stores.repository.current().revision, 0);
 });
+
+test("authority repository rejects coercible driver counters", () => {
+  const invalidRevisionDatabase = fakeDatabase({ revision: "0", changes: 1 });
+  const invalidRevisionRepository = new SqlitePairingAuthorityRepository(invalidRevisionDatabase);
+  assert.throws(() => invalidRevisionRepository.current(), /safe integer/);
+
+  const invalidChangesDatabase = fakeDatabase({ revision: 0, changes: "1" });
+  const invalidChangesRepository = new SqlitePairingAuthorityRepository(invalidChangesDatabase);
+  assert.throws(() => invalidChangesRepository.activateSqlite(EVIDENCE), /safe integer/);
+});
+
+function fakeDatabase({ revision, changes }: { revision: unknown; changes: unknown }) {
+  let statementIndex = 0;
+  const database = {
+    prepare() {
+      const index = statementIndex;
+      statementIndex += 1;
+      if (index === 0) {
+        return {
+          get: () => ({
+            mode: "legacy",
+            source_revision: null,
+            projection_hash: null,
+            cutover_at: null,
+            rollback_expires_at: null,
+            finalized_at: null,
+            revision,
+          }),
+        };
+      }
+      return { run: () => ({ changes }) };
+    },
+    transaction<T>(operation: () => T): T {
+      return operation();
+    },
+  };
+  return database as unknown as SwiftSimSqliteDatabase;
+}
 
 function digest(value: string) {
   return createHash("sha256").update(value).digest("hex");
