@@ -133,10 +133,7 @@ test("runtime composition constructs only the selected command owners", () => {
     ["pair", ["state-root", "pairing-invite-store"]],
     ["list-apps", ["state-root", "device-build-store"]],
     ["archive-app", ["state-root", "device-build-store"]],
-    [
-      "verify-device-build",
-      ["state-root", "device-build-store", "device-inventory"],
-    ],
+    ["verify-device-build", ["state-root", "device-build-store", "device-inventory"]],
     ["device-delivery-status", ["state-root", "device-delivery"]],
     ["device-delivery-stop", ["state-root", "device-delivery"]],
     ["serve-sim-info", ["serve-sim"]],
@@ -323,11 +320,7 @@ test("compiled official helper owns fresh-home state and matches compatibility o
     }
   };
 
-  for (const argv of [
-    ["list-apps"],
-    ["device-delivery-status"],
-    ["device-delivery-stop"],
-  ]) {
+  for (const argv of [["list-apps"], ["device-delivery-status"], ["device-delivery-stop"]]) {
     const freshOfficial = run(official, argv, false);
     assert.deepEqual(freshOfficial, run(compatibility, argv, true), argv.join(" "));
     assert.deepEqual(freshOfficial, run(official, argv, true), argv.join(" "));
