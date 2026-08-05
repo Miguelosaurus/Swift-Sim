@@ -132,10 +132,16 @@ test("imports a locked pairing snapshot with immutable content-addressed backups
     importedAt: IMPORTED_AT,
     recordCount: 2,
   });
-  assert.deepEqual(
-    first.backups.map((path) => harness.fileStore.readTextSync(path)),
-    [credentialRaw, invitationsRaw],
+  const credentialBackupPath = join(
+    harness.backupDirectory,
+    `credential-pairing.json.${digest(credentialRaw)}.bak`,
   );
+  const invitationBackupPath = join(
+    harness.backupDirectory,
+    `invitations-pairing-invites.json.${digest(invitationsRaw)}.bak`,
+  );
+  assert.equal(harness.fileStore.readTextSync(credentialBackupPath), credentialRaw);
+  assert.equal(harness.fileStore.readTextSync(invitationBackupPath), invitationsRaw);
   assert.equal((await readdir(harness.backupDirectory)).length, 2);
 
   const second = harness.coordinator().run();
