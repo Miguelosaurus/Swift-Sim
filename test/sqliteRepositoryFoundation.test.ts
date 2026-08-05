@@ -31,6 +31,8 @@ test("database migrates on open, reports health, and reopens idempotently", asyn
     integrity: "ok",
     journalMode: "wal",
     foreignKeys: true,
+    foreignKeyViolations: 0,
+    missingTables: [],
     schemaVersion: 1,
     latestSchemaVersion: 1,
     migrationsApplied: 1,
@@ -143,13 +145,73 @@ test("transactions commit synchronously and roll back all checkpoint writes on f
   );
   assert.equal(checkpoints.get("rolled-back.json"), null);
   assert.throws(
-    () => database.transaction(() => Promise.resolve("not allowed")),
-    /must be synchronous/,
-  );
-  assert.throws(
     () => database.transaction(() => database.transaction(() => "nested")),
     /Nested Swift Sim SQLite transactions/,
   );
+});
+
+test("asynchronous transaction continuations cannot escape rollback", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  t.after(() => database.close());
+  const checkpoints = new SqliteLegacyImportCheckpointRepository(database);
+  let continuation: Promise<void> | undefined;
+  let lateWriteError: unknown;
+
+  assert.throws(
+    () =>
+      checkpoints.transaction(() => {
+        checkpoints.upsert({
+          source: "before-promise.json",
+          sourceRevision: "sha256:before-promise",
+          projectionHash: "sha256:before-promise-projection",
+          importedAt: APPLIED_AT,
+          recordCount: 1,
+        });
+        continuation = Promise.resolve().then(() => {
+          try {
+            checkpoints.upsert({
+              source: "late-promise.json",
+              sourceRevision: "sha256:late-promise",
+              projectionHash: "sha256:late-promise-projection",
+              importedAt: APPLIED_AT,
+              recordCount: 1,
+            });
+          } catch (error) {
+            lateWriteError = error;
+          }
+        });
+        return continuation;
+      }),
+    /must be synchronous/,
+  );
+
+  assert.ok(continuation);
+  await continuation;
+  assert.match(String(lateWriteError), /closed|not open/i);
+  assert.throws(() => database.health(), /closed/);
+
+  const reopened = new SwiftSimSqliteDatabase({ path });
+  t.after(() => reopened.close());
+  const reopenedCheckpoints = new SqliteLegacyImportCheckpointRepository(reopened);
+  assert.equal(reopenedCheckpoints.get("before-promise.json"), null);
+  assert.equal(reopenedCheckpoints.get("late-promise.json"), null);
+});
+
+test("rollback uncertainty permanently fail-closes the connection", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  t.after(() => database.close());
+
+  assert.throws(
+    () =>
+      database.transaction(() => {
+        database.exec("ROLLBACK");
+        throw new Error("forced rollback mismatch");
+      }),
+    /forced rollback mismatch/,
+  );
+  assert.throws(() => database.health(), /closed/);
 });
 
 test("a busy transaction begin does not poison the connection guard", async (t) => {
@@ -188,6 +250,7 @@ test("failed migrations roll back their schema and do not record a version", asy
         "CREATE TABLE rollback_probe(id INTEGER PRIMARY KEY) STRICT",
         "THIS IS NOT VALID SQL",
       ],
+      requiredTables: ["rollback_probe"],
     },
   ];
   assert.throws(
@@ -247,6 +310,39 @@ test("migration history name, body, and sequence drift fail closed", async (t) =
   assert.throws(
     () => new SwiftSimSqliteDatabase({ path: sequencePath }),
     /non-contiguous; expected version 1, found 2/,
+  );
+});
+
+test("missing migrated tables fail closed before repositories can open", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  database.exec("DROP TABLE legacy_import_checkpoints");
+  database.close();
+
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path }),
+    /missing_tables=legacy_import_checkpoints/,
+  );
+});
+
+test("foreign-key violations fail closed even when integrity_check is clean", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  database.close();
+
+  const corrupter = new DatabaseSync(path);
+  corrupter.exec(`PRAGMA foreign_keys = OFF;
+    CREATE TABLE foreign_key_parent(id INTEGER PRIMARY KEY) STRICT;
+    CREATE TABLE foreign_key_child(
+      id INTEGER PRIMARY KEY,
+      parent_id INTEGER NOT NULL REFERENCES foreign_key_parent(id)
+    ) STRICT;
+    INSERT INTO foreign_key_child(id, parent_id) VALUES (1, 999);`);
+  corrupter.close();
+
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path }),
+    /foreign_key_violations=1/,
   );
 });
 

@@ -2,6 +2,7 @@ export interface SchemaMigration {
   version: number;
   name: string;
   statements: readonly string[];
+  requiredTables: readonly string[];
 }
 
 export interface RepositoryHealth {
@@ -10,9 +11,15 @@ export interface RepositoryHealth {
   integrity: string;
   journalMode: string;
   foreignKeys: boolean;
+  foreignKeyViolations: number;
+  missingTables: readonly string[];
   schemaVersion: number;
   latestSchemaVersion: number;
   migrationsApplied: number;
+}
+
+export interface SynchronousRepositoryTransaction {
+  transaction<T>(operation: () => T): T;
 }
 
 /**
@@ -28,7 +35,7 @@ export interface LegacyImportCheckpoint {
   recordCount: number;
 }
 
-export interface LegacyImportCheckpointRepository {
+export interface LegacyImportCheckpointRepository extends SynchronousRepositoryTransaction {
   get(source: string): LegacyImportCheckpoint | null;
   list(): LegacyImportCheckpoint[];
   upsert(checkpoint: LegacyImportCheckpoint): void;

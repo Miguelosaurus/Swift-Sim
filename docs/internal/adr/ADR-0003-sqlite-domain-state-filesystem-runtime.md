@@ -27,7 +27,7 @@ The Node 24 API is still documented as release-candidate stability. That risk is
 
 Migration needs validation, backup, idempotent import, shadow comparison, rollback, corruption handling, and a clear single-writer cutover. Filesystem permissions and atomic publication remain first-class concerns.
 
-The database owner must fail closed on non-contiguous history, changed migration names or bodies, failed transactional upgrades, unavailable WAL/foreign-key behavior, and integrity-check failures. Domain repositories consume typed contracts rather than `DatabaseSync` directly.
+The database owner must fail closed on non-contiguous history, changed migration names or bodies, missing required schema tables, failed transactional upgrades, unavailable WAL/foreign-key behavior, foreign-key violations, and integrity-check failures. Asynchronous transaction callbacks and rollback uncertainty permanently close the owning connection so delayed work cannot escape the transaction boundary. Domain repositories consume typed contracts rather than `DatabaseSync` directly.
 
 ## Migration strategy
 
