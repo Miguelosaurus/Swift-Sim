@@ -76,25 +76,24 @@ export class SwiftSimSqliteDatabase {
       applied_at TEXT NOT NULL CHECK (length(applied_at) > 0)
     ) STRICT`);
 
-    /** @type {Array<{ version: number | bigint, name: string }>} */
-    const applied = /** @type {any} */ (
-      this.#database.prepare("SELECT version, name FROM schema_migrations ORDER BY version").all()
-    );
+    const applied = this.#database
+      .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
+      .all()
+      .map(parseAppliedMigrationRow);
     const expectedByVersion = new Map(this.#migrations.map((migration) => [migration.version, migration]));
     for (const row of applied) {
-      const version = Number(row.version);
-      const expected = expectedByVersion.get(version);
+      const expected = expectedByVersion.get(row.version);
       if (!expected) {
-        throw new Error(`SQLite schema version ${version} is newer than this Swift Sim build.`);
+        throw new Error(`SQLite schema version ${row.version} is newer than this Swift Sim build.`);
       }
       if (row.name !== expected.name) {
         throw new Error(
-          `SQLite migration ${version} is recorded as ${row.name}, expected ${expected.name}.`,
+          `SQLite migration ${row.version} is recorded as ${row.name}, expected ${expected.name}.`,
         );
       }
     }
 
-    const appliedVersions = new Set(applied.map((row) => Number(row.version)));
+    const appliedVersions = new Set(applied.map((row) => row.version));
     const recordMigration = this.#database.prepare(
       "INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)",
     );
@@ -157,17 +156,17 @@ export class SwiftSimSqliteDatabase {
     const integrity = firstPragmaValue(this.#database.prepare("PRAGMA integrity_check").get());
     const journalMode = firstPragmaValue(this.#database.prepare("PRAGMA journal_mode").get());
     const foreignKeys = Number(firstPragmaValue(this.#database.prepare("PRAGMA foreign_keys").get())) === 1;
-    /** @type {{ version: number | bigint }} */
-    const latest = /** @type {any} */ (
-      this.#database.prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations").get()
+    const schemaVersion = requiredIntegerColumn(
+      this.#database.prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations").get(),
+      "version",
+      "SQLite schema version",
     );
-    /** @type {{ count: number | bigint }} */
-    const count = /** @type {any} */ (
-      this.#database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
+    const migrationsApplied = requiredIntegerColumn(
+      this.#database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get(),
+      "count",
+      "SQLite migration count",
     );
-    const schemaVersion = Number(latest.version);
     const latestSchemaVersion = this.#migrations.at(-1)?.version || 0;
-    const migrationsApplied = Number(count.count);
     return {
       ok: integrity === "ok" && foreignKeys && schemaVersion === latestSchemaVersion,
       path: this.#path,
@@ -204,10 +203,11 @@ function validateMigrations(migrations) {
     }
     const name = requireNonEmptyString(migration.name, `SQLite migration ${migration.version} name`);
     if (names.has(name)) throw new Error(`Duplicate SQLite migration name: ${name}.`);
-    if (!Array.isArray(migration.statements) || migration.statements.length === 0) {
+    const rawStatements = /** @type {unknown} */ (migration.statements);
+    if (!Array.isArray(rawStatements) || rawStatements.length === 0) {
       throw new Error(`SQLite migration ${migration.version} must contain at least one statement.`);
     }
-    const statements = migration.statements.map((statement) =>
+    const statements = /** @type {unknown[]} */ (rawStatements).map((statement) =>
       requireNonEmptyString(statement, `SQLite migration ${migration.version} statement`),
     );
     validated.push(Object.freeze({ version: migration.version, name, statements: Object.freeze(statements) }));
@@ -215,6 +215,34 @@ function validateMigrations(migrations) {
     expectedVersion += 1;
   }
   return Object.freeze(validated);
+}
+
+/** @param {unknown} row */
+function parseAppliedMigrationRow(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error("SQLite returned an invalid migration-history row.");
+  }
+  const values = /** @type {Record<string, unknown>} */ (row);
+  const version = Number(values.version);
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new Error("SQLite returned an invalid migration version.");
+  }
+  return {
+    version,
+    name: requireNonEmptyString(values.name, "SQLite migration name"),
+  };
+}
+
+/** @param {unknown} row @param {string} key @param {string} label */
+function requiredIntegerColumn(row, key, label) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error(`${label} query returned no row.`);
+  }
+  const value = Number(/** @type {Record<string, unknown>} */ (row)[key]);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} is invalid.`);
+  }
+  return value;
 }
 
 /** @param {unknown} value @param {string} label */
@@ -234,10 +262,7 @@ function firstPragmaValue(row) {
 
 /** @param {unknown} value */
 function isPromiseLike(value) {
-  return Boolean(
-    value &&
-      (typeof value === "object" || typeof value === "function") &&
-      "then" in value &&
-      typeof value.then === "function",
-  );
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false;
+  const candidate = /** @type {{ then?: unknown }} */ (value);
+  return typeof candidate.then === "function";
 }
