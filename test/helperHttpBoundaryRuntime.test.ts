@@ -9,14 +9,8 @@ type HelperResponse = {
   destroy(error?: Error): unknown;
 };
 type RequestListener = (request: unknown, response: HelperResponse) => unknown;
-type CreateServerInput =
-  | Record<string, unknown>
-  | RequestListener
-  | undefined;
-type CreateServer = (
-  optionsOrListener?: CreateServerInput,
-  listener?: RequestListener,
-) => unknown;
+type CreateServerInput = Record<string, unknown> | RequestListener | undefined;
+type CreateServer = (optionsOrListener?: CreateServerInput, listener?: RequestListener) => unknown;
 
 class ResponseRecorder implements HelperResponse {
   headersSent = false;
@@ -113,10 +107,7 @@ test("runtime preserves createServer overloads, dynamic this, and one maintenanc
   assert.equal(typeof guardedFirst, "function");
   const firstRequest = { path: "/fallback" };
   const firstResponse = new ResponseRecorder();
-  assert.equal(
-    (guardedFirst as RequestListener)(firstRequest, firstResponse),
-    "fallback-result",
-  );
+  assert.equal((guardedFirst as RequestListener)(firstRequest, firstResponse), "fallback-result");
   assert.deepEqual(fallbackCalls, [[firstRequest, firstResponse]]);
   assert.equal(maintenanceCalls, 1);
   assert.equal(scheduled.length, 1);
