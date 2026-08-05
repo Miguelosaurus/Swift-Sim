@@ -83,7 +83,7 @@ export async function dispatchPairingCommand({ command, args, services, writeLin
 function pairingCommandServices(services) {
   assertMethod(services, "pair");
   assertMethod(services, "printQRCode");
-  return /** @type {unknown as PairingCommandServices} */ (services);
+  return /** @type {PairingCommandServices} */ (/** @type {unknown} */ (services));
 }
 
 /** @param {Record<string, string | boolean | undefined>} values @param {string} key */
