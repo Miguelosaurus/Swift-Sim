@@ -60,7 +60,9 @@ export class PairingAuthorityReadRepository {
   /** @returns {PairingStateReader} */
   #selectedReader() {
     const authority = normalizePairingAuthorityState(this.#authorityReader.current());
-    return authority.mode === "legacy" ? this.#legacyReader : this.#sqliteReader;
+    return authority.mode === "legacy" || authority.mode === "legacy-preparing"
+      ? this.#legacyReader
+      : this.#sqliteReader;
   }
 }
 
@@ -74,6 +76,7 @@ export function normalizePairingAuthorityState(value) {
 
   if (values.mode === "legacy") {
     for (const key of [
+      "preparationID",
       "sourceRevision",
       "projectionHash",
       "cutoverAt",
@@ -86,6 +89,7 @@ export function normalizePairingAuthorityState(value) {
     }
     return Object.freeze({
       mode: "legacy",
+      preparationID: null,
       sourceRevision: null,
       projectionHash: null,
       cutoverAt: null,
@@ -95,11 +99,16 @@ export function normalizePairingAuthorityState(value) {
     });
   }
 
-  if (values.mode !== "sqlite-rollback" && values.mode !== "sqlite-final") {
-    throw new Error("Pairing authority mode must be legacy, sqlite-rollback, or sqlite-final.");
+  if (
+    values.mode !== "legacy-preparing" &&
+    values.mode !== "sqlite-rollback" &&
+    values.mode !== "sqlite-final"
+  ) {
+    throw new Error(
+      "Pairing authority mode must be legacy, legacy-preparing, sqlite-rollback, or sqlite-final.",
+    );
   }
-  const sourceRevision = requireHash(values.sourceRevision, "Pairing sourceRevision");
-  const projectionHash = requireHash(values.projectionHash, "Pairing projectionHash");
+  const preparationID = requireHash(values.preparationID, "Pairing preparationID");
   const cutoverAt = requireCanonicalTimestamp(values.cutoverAt, "Pairing cutoverAt");
   const rollbackExpiresAt = requireCanonicalTimestamp(
     values.rollbackExpiresAt,
@@ -109,12 +118,35 @@ export function normalizePairingAuthorityState(value) {
     throw new Error("Pairing rollbackExpiresAt must follow cutoverAt.");
   }
 
+  if (values.mode === "legacy-preparing") {
+    if (
+      values.sourceRevision !== null ||
+      values.projectionHash !== null ||
+      values.finalizedAt !== null
+    ) {
+      throw new Error("Pairing preparation cannot contain cutover evidence.");
+    }
+    return Object.freeze({
+      mode: "legacy-preparing",
+      preparationID,
+      sourceRevision: null,
+      projectionHash: null,
+      cutoverAt: cutoverAt.value,
+      rollbackExpiresAt: rollbackExpiresAt.value,
+      finalizedAt: null,
+      revision,
+    });
+  }
+
+  const sourceRevision = requireHash(values.sourceRevision, "Pairing sourceRevision");
+  const projectionHash = requireHash(values.projectionHash, "Pairing projectionHash");
   if (values.mode === "sqlite-rollback") {
     if (values.finalizedAt !== null) {
       throw new Error("SQLite rollback authority cannot contain finalization evidence.");
     }
     return Object.freeze({
       mode: "sqlite-rollback",
+      preparationID,
       sourceRevision,
       projectionHash,
       cutoverAt: cutoverAt.value,
@@ -130,6 +162,7 @@ export function normalizePairingAuthorityState(value) {
   }
   return Object.freeze({
     mode: "sqlite-final",
+    preparationID,
     sourceRevision,
     projectionHash,
     cutoverAt: cutoverAt.value,
