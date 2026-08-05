@@ -8,7 +8,7 @@
  *   destroy(error?: Error): unknown,
  * }} HelperResponseLike
  * @typedef {(request: unknown, response: HelperResponseLike) => unknown} RequestListener
- * @typedef {object | RequestListener | undefined} CreateServerInput
+ * @typedef {Record<string, unknown> | RequestListener | undefined} CreateServerInput
  * @typedef {(optionsOrListener?: CreateServerInput, listener?: RequestListener) => unknown} CreateServerLike
  * @typedef {{ unref?(): unknown }} IntervalHandle
  * @typedef {(callback: () => void, intervalMs: number) => IntervalHandle} ScheduleInterval
@@ -90,6 +90,7 @@ export class HelperHttpBoundaryRuntime {
       const hasListenerOverload = typeof optionsOrListener === "function";
       const resolvedOptions = hasListenerOverload ? undefined : optionsOrListener;
       const resolvedListener = hasListenerOverload ? optionsOrListener : listener;
+      /** @type {RequestListener | undefined} */
       const guardedListener = typeof resolvedListener === "function"
         ? (request, response) => runtime.#handleRequest(request, response, resolvedListener)
         : undefined;
