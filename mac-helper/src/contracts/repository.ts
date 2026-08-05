@@ -112,6 +112,7 @@ export interface PairingAuthorityState {
 }
 
 export interface PairingAuthorityCutoverEvidence {
+  expectedRevision: number;
   sourceRevision: string;
   projectionHash: string;
   cutoverAt: string;
@@ -119,12 +120,17 @@ export interface PairingAuthorityCutoverEvidence {
 }
 
 /**
- * Persists only the source-of-truth decision. Runtime readers and writers must
- * not infer authority from file existence or database contents.
+ * Persists only the source-of-truth decision. Every transition is bound to the
+ * authority revision observed by its caller so stale recovery work cannot act
+ * on a later cutover epoch.
  */
 export interface PairingAuthorityRepository {
   current(): PairingAuthorityState;
   activateSqlite(evidence: PairingAuthorityCutoverEvidence): PairingAuthorityState;
-  rollbackToLegacy(input: { sourceRevision: string; rolledBackAt: string }): PairingAuthorityState;
-  finalizeSqlite(input: { finalizedAt: string }): PairingAuthorityState;
+  rollbackToLegacy(input: {
+    expectedRevision: number;
+    sourceRevision: string;
+    rolledBackAt: string;
+  }): PairingAuthorityState;
+  finalizeSqlite(input: { expectedRevision: number; finalizedAt: string }): PairingAuthorityState;
 }

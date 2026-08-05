@@ -60,9 +60,18 @@ export class SqlitePairingAuthorityRepository {
     const normalized = normalizeCutoverEvidence(evidence);
     return this.#database.transaction(() => {
       const current = this.current();
-      if (current.mode === "sqlite-rollback" && sameCutover(current, normalized)) {
+      if (
+        current.mode === "sqlite-rollback" &&
+        current.revision === normalized.expectedRevision + 1 &&
+        sameCutover(current, normalized)
+      ) {
         return current;
       }
+      requireExpectedRevision(
+        current,
+        normalized.expectedRevision,
+        "activate SQLite pairing authority",
+      );
       if (current.mode !== "legacy") {
         throw new Error(`Pairing authority cannot activate SQLite from ${current.mode}.`);
       }
@@ -72,7 +81,7 @@ export class SqlitePairingAuthorityRepository {
           normalized.projectionHash,
           normalized.cutoverAt,
           normalized.rollbackExpiresAt,
-          current.revision,
+          normalized.expectedRevision,
         ),
         "activate SQLite pairing authority",
       );
@@ -81,14 +90,22 @@ export class SqlitePairingAuthorityRepository {
   }
 
   /**
-   * @param {{ sourceRevision: string, rolledBackAt: string }} input
+   * @param {{ expectedRevision: number, sourceRevision: string, rolledBackAt: string }} input
    * @returns {PairingAuthorityState}
    */
   rollbackToLegacy(input) {
+    const expectedRevision = requireTransitionRevision(
+      input?.expectedRevision,
+      "Pairing rollback expectedRevision",
+    );
     const sourceRevision = requireHash(input?.sourceRevision, "Pairing rollback sourceRevision");
     const rolledBackAt = requireCanonicalTimestamp(input?.rolledBackAt, "Pairing rolledBackAt");
     return this.#database.transaction(() => {
       const current = this.current();
+      if (current.mode === "legacy" && current.revision === expectedRevision + 1) {
+        return current;
+      }
+      requireExpectedRevision(current, expectedRevision, "roll back pairing authority");
       if (current.mode !== "sqlite-rollback") {
         throw new Error(`Pairing authority cannot roll back from ${current.mode}.`);
       }
@@ -107,21 +124,29 @@ export class SqlitePairingAuthorityRepository {
         throw new Error("Pairing rollback window has expired.");
       }
       requireOneChange(
-        this.#rollbackStatement.run(current.revision),
+        this.#rollbackStatement.run(expectedRevision),
         "roll back pairing authority",
       );
       return this.current();
     });
   }
 
-  /** @param {{ finalizedAt: string }} input @returns {PairingAuthorityState} */
+  /**
+   * @param {{ expectedRevision: number, finalizedAt: string }} input
+   * @returns {PairingAuthorityState}
+   */
   finalizeSqlite(input) {
+    const expectedRevision = requireTransitionRevision(
+      input?.expectedRevision,
+      "Pairing finalization expectedRevision",
+    );
     const finalizedAt = requireCanonicalTimestamp(input?.finalizedAt, "Pairing finalizedAt");
     return this.#database.transaction(() => {
       const current = this.current();
-      if (current.mode === "sqlite-final") {
+      if (current.mode === "sqlite-final" && current.revision === expectedRevision + 1) {
         return current;
       }
+      requireExpectedRevision(current, expectedRevision, "finalize SQLite pairing authority");
       if (current.mode !== "sqlite-rollback") {
         throw new Error(`Pairing authority cannot finalize SQLite from ${current.mode}.`);
       }
@@ -133,7 +158,7 @@ export class SqlitePairingAuthorityRepository {
         throw new Error("Pairing authority cannot finalize before the rollback window expires.");
       }
       requireOneChange(
-        this.#finalizeStatement.run(finalizedAt.value, current.revision),
+        this.#finalizeStatement.run(finalizedAt.value, expectedRevision),
         "finalize SQLite pairing authority",
       );
       return this.current();
@@ -156,6 +181,10 @@ function normalizeCutoverEvidence(value) {
     throw new Error("Pairing rollbackExpiresAt must follow cutoverAt.");
   }
   return {
+    expectedRevision: requireTransitionRevision(
+      values.expectedRevision,
+      "Pairing cutover expectedRevision",
+    ),
     sourceRevision: requireHash(values.sourceRevision, "Pairing sourceRevision"),
     projectionHash: requireHash(values.projectionHash, "Pairing projectionHash"),
     cutoverAt: cutoverAt.value,
@@ -252,6 +281,19 @@ function sameCutover(current, evidence) {
   );
 }
 
+/**
+ * @param {PairingAuthorityState} current
+ * @param {number} expectedRevision
+ * @param {string} action
+ */
+function requireExpectedRevision(current, expectedRevision, action) {
+  if (current.revision !== expectedRevision) {
+    throw new Error(
+      `Cannot ${action}: expected pairing authority revision ${expectedRevision}, found ${current.revision}.`,
+    );
+  }
+}
+
 /** @param {unknown} result @param {string} action */
 function requireOneChange(result, action) {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
@@ -261,6 +303,15 @@ function requireOneChange(result, action) {
   if (requireSafeInteger(values.changes, "SQLite change count") !== 1) {
     throw new Error(`Could not ${action} because the authority revision changed.`);
   }
+}
+
+/** @param {unknown} value @param {string} label */
+function requireTransitionRevision(value, label) {
+  const revision = requireSafeInteger(value, label);
+  if (revision >= Number.MAX_SAFE_INTEGER) {
+    throw new Error(`${label} cannot be incremented safely.`);
+  }
+  return revision;
 }
 
 /** @param {unknown} value @param {string} label */
