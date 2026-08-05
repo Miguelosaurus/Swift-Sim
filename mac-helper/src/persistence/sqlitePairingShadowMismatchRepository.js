@@ -7,6 +7,18 @@ import { pairingShadowMismatchID } from "./pairingShadowComparison.js";
 /** @typedef {import("../contracts/repository.js").PairingShadowSurface} PairingShadowSurface */
 /** @typedef {import("./swiftSimSqliteDatabase.js").SwiftSimSqliteDatabase} SwiftSimSqliteDatabase */
 
+const MAX_OBSERVATION_COUNT = Number.MAX_SAFE_INTEGER;
+const SELECT_COLUMNS = `SELECT
+  mismatch_id,
+  surface,
+  key_hash,
+  legacy_projection_hash,
+  sqlite_projection_hash,
+  first_observed_at,
+  last_observed_at,
+  observation_count
+FROM pairing_shadow_mismatches`;
+
 export class SqlitePairingShadowMismatchRepository {
   /** @type {SwiftSimSqliteDatabase} */
   #database;
@@ -32,8 +44,16 @@ export class SqlitePairingShadowMismatchRepository {
       observation_count
     ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     ON CONFLICT(mismatch_id) DO UPDATE SET
-      last_observed_at = excluded.last_observed_at,
-      observation_count = pairing_shadow_mismatches.observation_count + 1
+      last_observed_at = CASE
+        WHEN excluded.last_observed_at > pairing_shadow_mismatches.last_observed_at
+          THEN excluded.last_observed_at
+        ELSE pairing_shadow_mismatches.last_observed_at
+      END,
+      observation_count = CASE
+        WHEN pairing_shadow_mismatches.observation_count < ${MAX_OBSERVATION_COUNT}
+          THEN pairing_shadow_mismatches.observation_count + 1
+        ELSE pairing_shadow_mismatches.observation_count
+      END
     WHERE
       pairing_shadow_mismatches.surface = excluded.surface AND
       pairing_shadow_mismatches.key_hash = excluded.key_hash AND
@@ -43,7 +63,9 @@ export class SqlitePairingShadowMismatchRepository {
 
   /** @param {string} mismatchID @returns {PairingShadowMismatchEvidence | null} */
   get(mismatchID) {
-    const row = this.#getStatement.get(requireHash(mismatchID, "Pairing shadow mismatchID"));
+    const row = this.#getStatement.get(
+      requireHash(mismatchID, "Pairing shadow mismatchID"),
+    );
     return row ? mapEvidenceRow(row) : null;
   }
 
@@ -75,17 +97,6 @@ export class SqlitePairingShadowMismatchRepository {
   }
 }
 
-const SELECT_COLUMNS = `SELECT
-  mismatch_id,
-  surface,
-  key_hash,
-  legacy_projection_hash,
-  sqlite_projection_hash,
-  first_observed_at,
-  last_observed_at,
-  observation_count
-FROM pairing_shadow_mismatches`;
-
 /** @param {unknown} observation @returns {PairingShadowMismatchObservation} */
 function validateObservation(observation) {
   if (!observation || typeof observation !== "object" || Array.isArray(observation)) {
@@ -103,9 +114,14 @@ function validateObservation(observation) {
     "Pairing shadow sqliteProjectionHash",
   );
   if (legacyProjectionHash === sqliteProjectionHash) {
-    throw new Error("Pairing shadow mismatch observation must contain different projections.");
+    throw new Error(
+      "Pairing shadow mismatch observation must contain different projections.",
+    );
   }
-  const mismatchID = requireHash(values.mismatchID, "Pairing shadow mismatchID");
+  const mismatchID = requireHash(
+    values.mismatchID,
+    "Pairing shadow mismatchID",
+  );
   const expectedMismatchID = pairingShadowMismatchID({
     surface,
     keyHash,
@@ -113,7 +129,9 @@ function validateObservation(observation) {
     sqliteProjectionHash,
   });
   if (mismatchID !== expectedMismatchID) {
-    throw new Error("Pairing shadow mismatchID does not match its redacted projections.");
+    throw new Error(
+      "Pairing shadow mismatchID does not match its redacted projections.",
+    );
   }
   return {
     mismatchID,
@@ -121,7 +139,10 @@ function validateObservation(observation) {
     keyHash,
     legacyProjectionHash,
     sqliteProjectionHash,
-    observedAt: requireTimestamp(values.observedAt, "Pairing shadow observedAt"),
+    observedAt: requireTimestamp(
+      values.observedAt,
+      "Pairing shadow observedAt",
+    ),
   };
 }
 
@@ -137,7 +158,9 @@ function mapEvidenceRow(row) {
     !Number.isSafeInteger(observationCount) ||
     observationCount < 1
   ) {
-    throw new Error("Pairing shadow observationCount must be a positive safe integer.");
+    throw new Error(
+      "Pairing shadow observationCount must be a positive safe integer.",
+    );
   }
   const surface = requireSurface(values.surface);
   const keyHash = requireHash(values.key_hash, "Pairing shadow keyHash");
@@ -150,22 +173,39 @@ function mapEvidenceRow(row) {
     "Pairing shadow sqliteProjectionHash",
   );
   if (legacyProjectionHash === sqliteProjectionHash) {
-    throw new Error("SQLite returned matching pairing shadow projections as a mismatch.");
+    throw new Error(
+      "SQLite returned matching pairing shadow projections as a mismatch.",
+    );
   }
-  const mismatchID = requireHash(values.mismatch_id, "Pairing shadow mismatchID");
+  const mismatchID = requireHash(
+    values.mismatch_id,
+    "Pairing shadow mismatchID",
+  );
   if (
     mismatchID !==
-    pairingShadowMismatchID({ surface, keyHash, legacyProjectionHash, sqliteProjectionHash })
+    pairingShadowMismatchID({
+      surface,
+      keyHash,
+      legacyProjectionHash,
+      sqliteProjectionHash,
+    })
   ) {
-    throw new Error("SQLite returned pairing shadow evidence with an invalid mismatchID.");
+    throw new Error(
+      "SQLite returned pairing shadow evidence with an invalid mismatchID.",
+    );
   }
   const firstObservedAt = requireTimestamp(
     values.first_observed_at,
     "Pairing shadow firstObservedAt",
   );
-  const lastObservedAt = requireTimestamp(values.last_observed_at, "Pairing shadow lastObservedAt");
-  if (Date.parse(lastObservedAt) < Date.parse(firstObservedAt)) {
-    throw new Error("Pairing shadow lastObservedAt cannot precede firstObservedAt.");
+  const lastObservedAt = requireTimestamp(
+    values.last_observed_at,
+    "Pairing shadow lastObservedAt",
+  );
+  if (lastObservedAt < firstObservedAt) {
+    throw new Error(
+      "Pairing shadow lastObservedAt cannot precede firstObservedAt.",
+    );
   }
   return {
     mismatchID,
@@ -202,8 +242,12 @@ function requireNullableHash(value, label) {
 
 /** @param {unknown} value @param {string} label */
 function requireTimestamp(value, label) {
-  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
-    throw new Error(`${label} must be a valid timestamp.`);
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a canonical UTC timestamp.`);
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== value) {
+    throw new Error(`${label} must be a canonical UTC timestamp.`);
   }
   return value;
 }

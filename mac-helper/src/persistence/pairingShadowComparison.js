@@ -1,6 +1,7 @@
 // @ts-check
 
 import { createHash } from "node:crypto";
+import { parsePairingCredential, parsePairingInvitation } from "../contracts/pairing.js";
 
 /** @typedef {import("../contracts/repository.js").PairingShadowComparisonResult} PairingShadowComparisonResult */
 /** @typedef {import("../contracts/repository.js").PairingShadowMismatchRepository} PairingShadowMismatchRepository */
@@ -20,7 +21,10 @@ export class PairingShadowComparator {
    * }} options
    */
   constructor({ mismatchRepository, now = () => new Date().toISOString() }) {
-    if (!mismatchRepository || typeof mismatchRepository.observe !== "function") {
+    if (
+      !mismatchRepository ||
+      typeof mismatchRepository.observe !== "function"
+    ) {
       throw new Error("Pairing shadow mismatch repository is required.");
     }
     this.#mismatchRepository = mismatchRepository;
@@ -42,9 +46,13 @@ export class PairingShadowComparator {
    */
   compare({ surface, key, legacy, sqlite }) {
     const validatedSurface = requireSurface(surface);
-    const keyHash = sha256(requireNonEmptyString(key, "Pairing shadow comparison key"));
-    const legacyProjectionHash = projectionHash(legacy);
-    const sqliteProjectionHash = projectionHash(sqlite);
+    const validatedLegacy = validateProjection(validatedSurface, legacy);
+    const validatedSqlite = validateProjection(validatedSurface, sqlite);
+    const keyHash = sha256(
+      requireNonEmptyString(key, "Pairing shadow comparison key"),
+    );
+    const legacyProjectionHash = projectionHash(validatedLegacy);
+    const sqliteProjectionHash = projectionHash(validatedSqlite);
     if (legacyProjectionHash === sqliteProjectionHash) {
       return {
         matched: true,
@@ -110,6 +118,18 @@ export function pairingShadowProjectionHash(projection) {
   return projectionHash(projection);
 }
 
+/**
+ * @param {PairingShadowSurface} surface
+ * @param {PairingShadowProjection} projection
+ * @returns {PairingShadowProjection}
+ */
+function validateProjection(surface, projection) {
+  if (projection === null) return null;
+  return surface === "credential"
+    ? parsePairingCredential(projection)
+    : parsePairingInvitation(projection);
+}
+
 /** @param {PairingShadowProjection} projection */
 function projectionHash(projection) {
   if (projection === null) return null;
@@ -118,9 +138,17 @@ function projectionHash(projection) {
 
 /** @param {unknown} value @returns {unknown} */
 function canonicalize(value) {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error("Pairing shadow projections require finite numbers.");
+    if (!Number.isFinite(value)) {
+      throw new Error("Pairing shadow projections require finite numbers.");
+    }
     return value;
   }
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -130,11 +158,13 @@ function canonicalize(value) {
   const record = /** @type {Record<string, unknown>} */ (value);
   /** @type {Record<string, unknown>} */
   const canonical = {};
-  for (const key of Object.keys(record).sort()) canonical[key] = canonicalize(record[key]);
+  for (const key of Object.keys(record).sort()) {
+    canonical[key] = canonicalize(record[key]);
+  }
   return canonical;
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value @returns {PairingShadowSurface} */
 function requireSurface(value) {
   if (value !== "credential" && value !== "invitation") {
     throw new Error("Pairing shadow surface must be credential or invitation.");
@@ -166,7 +196,10 @@ function requireNonEmptyString(value, label) {
 /** @param {unknown} value @param {string} label */
 function requireTimestamp(value, label) {
   const timestamp = requireNonEmptyString(value, label);
-  if (!Number.isFinite(Date.parse(timestamp))) throw new Error(`${label} must be a valid timestamp.`);
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== timestamp) {
+    throw new Error(`${label} must be a canonical UTC timestamp.`);
+  }
   return timestamp;
 }
 

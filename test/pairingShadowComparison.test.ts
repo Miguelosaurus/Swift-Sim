@@ -74,6 +74,16 @@ test("matching pairing projections produce no durable evidence", async (t) => {
   assert.equal(result.matched, true);
   assert.equal(result.evidence, null);
   assert.deepEqual(stores.repository.list(), []);
+  assert.throws(
+    () =>
+      comparator.compare({
+        surface: "credential",
+        key: INVITATION.id,
+        legacy: INVITATION,
+        sqlite: INVITATION,
+      }),
+    /pairing credential/,
+  );
 });
 
 test("mismatches persist deterministic redacted evidence and coalesce observations", async (t) => {
@@ -98,14 +108,21 @@ test("mismatches persist deterministic redacted evidence and coalesce observatio
     legacy: CREDENTIAL,
     sqlite: ROTATED_CREDENTIAL,
   });
+  now = "2026-08-05T17:59:00.000Z";
+  const backwardClock = comparator.compare({
+    surface: "credential",
+    key: CREDENTIAL.installationID,
+    legacy: CREDENTIAL,
+    sqlite: ROTATED_CREDENTIAL,
+  });
 
   assert.equal(first.matched, false);
   assert.equal(second.matched, false);
   assert.equal(first.evidence?.mismatchID, second.evidence?.mismatchID);
-  assert.equal(second.evidence?.observationCount, 2);
-  assert.equal(second.evidence?.firstObservedAt, "2026-08-05T18:00:00.000Z");
-  assert.equal(second.evidence?.lastObservedAt, "2026-08-05T18:01:00.000Z");
-  const serialized = JSON.stringify(second.evidence);
+  assert.equal(backwardClock.evidence?.observationCount, 3);
+  assert.equal(backwardClock.evidence?.firstObservedAt, "2026-08-05T18:00:00.000Z");
+  assert.equal(backwardClock.evidence?.lastObservedAt, "2026-08-05T18:01:00.000Z");
+  const serialized = JSON.stringify(backwardClock.evidence);
   for (const secret of [
     CREDENTIAL.token,
     ROTATED_CREDENTIAL.token,
@@ -118,7 +135,7 @@ test("mismatches persist deterministic redacted evidence and coalesce observatio
 
   const reopened = openStores(path);
   t.after(() => reopened.database.close());
-  assert.deepEqual(reopened.repository.get(second.evidence!.mismatchID), second.evidence);
+  assert.deepEqual(reopened.repository.get(backwardClock.evidence!.mismatchID), backwardClock.evidence);
   assert.equal(reopened.database.health().schemaVersion, 3);
 });
 
@@ -184,6 +201,14 @@ test("repository rejects malformed or forged shadow evidence before SQLite mutat
         sqliteProjectionHash: digest("same-projection"),
       }),
     /different projections/,
+  );
+  assert.throws(
+    () =>
+      stores.repository.observe({
+        ...valid,
+        observedAt: "2026-08-05T18:00:00Z",
+      }),
+    /canonical UTC timestamp/,
   );
   assert.deepEqual(stores.repository.list(), []);
 });
