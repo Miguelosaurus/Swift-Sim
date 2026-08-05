@@ -460,7 +460,11 @@ function environmentPolicy(policy) {
   }
   const inherit = environmentNames(policy.inherit);
   const unset = environmentNames(policy.unset);
-  if (!policy.overrides || typeof policy.overrides !== "object" || Array.isArray(policy.overrides)) {
+  if (
+    !policy.overrides ||
+    typeof policy.overrides !== "object" ||
+    Array.isArray(policy.overrides)
+  ) {
     throw new TypeError("Process environment overrides must be an object.");
   }
   /** @type {Record<string, string | undefined>} */
