@@ -21,11 +21,11 @@ import { writeHelperJson } from "./helperHttpResponses.js";
  *   writeHead(status: number, headers: Record<string, string>): unknown,
  *   end(body?: string): unknown,
  * }} HelperResponseLike
- * @typedef {{ token?: unknown, expiresAt?: unknown }} PublicCapability
+ * @typedef {{ token?: string, expiresAt?: string }} PublicCapability
  * @typedef {{
  *   id: string,
- *   token?: unknown,
- *   expiresAt?: unknown,
+ *   token?: string,
+ *   expiresAt?: string,
  *   state?: unknown,
  *   logs?: unknown[],
  *   capabilities?: PublicCapability[],
@@ -60,7 +60,7 @@ export function handlePublicBuildExpiryRequest(
   if (!build || !capability) return false;
   const mustHaveExpiry = capability !== build || build.state === "ready";
   if (!mustHaveExpiry) return false;
-  const expiresAt = Date.parse(String(capability.expiresAt || ""));
+  const expiresAt = Date.parse(capability.expiresAt || "");
   if (Number.isFinite(expiresAt) && expiresAt > Date.now()) return false;
   writeHelperJson(response, 410, { error: "This install link has expired." });
   return true;
@@ -90,7 +90,7 @@ export function handlePublicBuildLogsRequest(
     writeHelperJson(response, 401, { error: "Unauthorized." });
     return true;
   }
-  const expiresAt = Date.parse(String(capability.expiresAt || ""));
+  const expiresAt = Date.parse(capability.expiresAt || "");
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
     writeHelperJson(response, 410, { error: "This install link has expired." });
     return true;
