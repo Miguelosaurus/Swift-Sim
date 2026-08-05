@@ -1,9 +1,6 @@
 // @ts-check
 
-import {
-  parsePairingCredential,
-  parsePairingInvitation,
-} from "../contracts/pairing.js";
+import { parsePairingCredential, parsePairingInvitation } from "../contracts/pairing.js";
 
 /** @typedef {import("../contracts/pairing.js").PairingCredentialRecord} PairingCredentialRecord */
 /** @typedef {import("../contracts/pairing.js").PairingInvitationRecord} PairingInvitationRecord */
@@ -240,10 +237,7 @@ function normalizeInvitation(value) {
     invitation.clientNonce,
     "Claimed pairing invitation clientNonce",
   );
-  const claimedAt = requireTimestamp(
-    invitation.claimedAt,
-    "Claimed pairing invitation claimedAt",
-  );
+  const claimedAt = requireTimestamp(invitation.claimedAt, "Claimed pairing invitation claimedAt");
   if (claimedAt.time < createdAt.time || claimedAt.time >= expiresAt.time) {
     throw new Error("Pairing invitation claimedAt must be within its active interval.");
   }
