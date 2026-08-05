@@ -98,9 +98,11 @@ export const PAIRING_SQLITE_MIGRATIONS = Object.freeze([
             length(projection_hash) = 64 AND projection_hash NOT GLOB '*[^0-9a-f]*'
           )
         ),
-        cutover_at TEXT,
-        rollback_expires_at TEXT,
-        finalized_at TEXT,
+        cutover_at TEXT CHECK (cutover_at IS NULL OR length(cutover_at) > 0),
+        rollback_expires_at TEXT CHECK (
+          rollback_expires_at IS NULL OR length(rollback_expires_at) > 0
+        ),
+        finalized_at TEXT CHECK (finalized_at IS NULL OR length(finalized_at) > 0),
         revision INTEGER NOT NULL CHECK (revision >= 0),
         CHECK (
           (
