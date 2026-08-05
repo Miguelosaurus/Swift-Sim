@@ -10,21 +10,20 @@
  * @typedef {(request: unknown, response: HelperResponseLike) => unknown} RequestListener
  * @typedef {object | RequestListener | undefined} CreateServerInput
  * @typedef {(optionsOrListener?: CreateServerInput, listener?: RequestListener) => unknown} CreateServerLike
- * @typedef {{ createServer: CreateServerLike }} MutableHttpModule
  * @typedef {{ unref?(): unknown }} IntervalHandle
  * @typedef {(callback: () => void, intervalMs: number) => IntervalHandle} ScheduleInterval
  */
 
 /**
  * Own the compatibility HTTP server wrapper and its maintenance scheduler.
- * Route authorization, response projection, persistence, and concrete service
- * construction remain injected responsibilities.
+ * Route authorization, response projection, persistence, concrete service
+ * construction, and built-in replacement authority remain injected.
  */
 export class HelperHttpBoundaryRuntime {
-  /** @type {MutableHttpModule} */
-  #httpModule;
   /** @type {CreateServerLike} */
   #originalCreateServer;
+  /** @type {(createServer: CreateServerLike) => void} */
+  #replaceCreateServer;
   /** @type {() => void} */
   #syncBuiltinExports;
   /** @type {(request: unknown, response: HelperResponseLike) => boolean} */
@@ -45,8 +44,8 @@ export class HelperHttpBoundaryRuntime {
 
   /**
    * @param {{
-   *   httpModule: MutableHttpModule,
    *   originalCreateServer: CreateServerLike,
+   *   replaceCreateServer(createServer: CreateServerLike): void,
    *   syncBuiltinExports(): void,
    *   dispatchRequest(request: unknown, response: HelperResponseLike): boolean,
    *   writeUnavailable(response: HelperResponseLike): void,
@@ -57,8 +56,8 @@ export class HelperHttpBoundaryRuntime {
    * }} options
    */
   constructor({
-    httpModule,
     originalCreateServer,
+    replaceCreateServer,
     syncBuiltinExports,
     dispatchRequest,
     writeUnavailable,
@@ -67,8 +66,8 @@ export class HelperHttpBoundaryRuntime {
     scheduleInterval,
     maintenanceIntervalMs,
   }) {
-    this.#httpModule = httpModule;
     this.#originalCreateServer = originalCreateServer;
+    this.#replaceCreateServer = replaceCreateServer;
     this.#syncBuiltinExports = syncBuiltinExports;
     this.#dispatchRequest = dispatchRequest;
     this.#writeUnavailable = writeUnavailable;
@@ -100,7 +99,7 @@ export class HelperHttpBoundaryRuntime {
       runtime.#startMaintenance();
       return server;
     }
-    this.#httpModule.createServer = guardedCreateServer;
+    this.#replaceCreateServer(guardedCreateServer);
     this.#syncBuiltinExports();
   }
 
