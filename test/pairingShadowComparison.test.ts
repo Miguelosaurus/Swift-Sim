@@ -144,7 +144,10 @@ test("mismatches persist deterministic redacted evidence and coalesce observatio
     reopened.repository.get(backwardClock.evidence!.mismatchID),
     backwardClock.evidence,
   );
-  assert.equal(reopened.database.health().schemaVersion, 3);
+  assert.equal(
+    reopened.database.health().schemaVersion,
+    PAIRING_SQLITE_MIGRATIONS.at(-1)?.version,
+  );
 });
 
 test("null projections match while missing SQLite rows record one redacted mismatch", async (t) => {
