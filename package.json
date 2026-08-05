@@ -55,7 +55,7 @@
     "benchmark:validate": "node benchmarks/src/cli.js validate",
     "benchmark:validate:liquid-glass": "node benchmarks/src/cli.js validate --corpus benchmarks/corpora/liquid-glass/corpus.json",
     "benchmark:validate:native-surfaces": "node benchmarks/src/cli.js validate --corpus benchmarks/corpora/native-surfaces/corpus.json",
-    "benchmark:validate:mechanisms": "node benchmarks/src/cli.js validate --corpus benchmarks/corpora/native-surfaces/corpus.json",
+    "benchmark:validate:mechanisms": "node benchmarks/src/cli.js validate --corpus benchmarks/corpora/mechanisms/corpus.json",
     "benchmark:static": "node benchmarks/src/cli.js static",
     "benchmark:static:liquid-glass": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/liquid-glass/corpus.json",
     "benchmark:static:native-surfaces": "node benchmarks/src/cli.js static --corpus benchmarks/corpora/native-surfaces/corpus.json",
