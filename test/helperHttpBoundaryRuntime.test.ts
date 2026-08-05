@@ -42,6 +42,7 @@ test("runtime preserves createServer overloads, dynamic this, and one maintenanc
   const fallbackCalls: unknown[] = [];
   const scheduled: Array<{ callback: () => void; intervalMs: number }> = [];
   let syncCalls = 0;
+  let replacementCalls = 0;
   let maintenanceCalls = 0;
   let unrefCalls = 0;
   const originalCreateServer: CreateServer = function (
@@ -52,10 +53,13 @@ test("runtime preserves createServer overloads, dynamic this, and one maintenanc
     originalCalls.push({ thisArg: this, args: [...arguments] });
     return { call: originalCalls.length, optionsOrListener, listener };
   };
-  const httpModule = { createServer: originalCreateServer };
+  let installedCreateServer: CreateServer = originalCreateServer;
   const runtime = new HelperHttpBoundaryRuntime({
-    httpModule,
     originalCreateServer,
+    replaceCreateServer: (createServer: CreateServer) => {
+      replacementCalls += 1;
+      installedCreateServer = createServer;
+    },
     syncBuiltinExports: () => {
       syncCalls += 1;
     },
@@ -81,13 +85,14 @@ test("runtime preserves createServer overloads, dynamic this, and one maintenanc
   });
 
   runtime.install();
-  const installedCreateServer = httpModule.createServer;
+  const firstInstalledCreateServer = installedCreateServer;
   runtime.install();
-  assert.strictEqual(httpModule.createServer, installedCreateServer);
+  assert.strictEqual(installedCreateServer, firstInstalledCreateServer);
+  assert.equal(replacementCalls, 1);
   assert.equal(syncCalls, 1);
 
   const firstContext = { id: "listener-overload" };
-  const firstServer = httpModule.createServer.call(
+  const firstServer = installedCreateServer.call(
     firstContext,
     (request: unknown, response: HelperResponse) => {
       fallbackCalls.push([request, response]);
@@ -121,7 +126,7 @@ test("runtime preserves createServer overloads, dynamic this, and one maintenanc
 
   const secondContext = { id: "options-overload" };
   const options = { keepAlive: true };
-  const secondServer = httpModule.createServer.call(
+  const secondServer = installedCreateServer.call(
     secondContext,
     options,
     (_request: unknown, _response: HelperResponse) => "second-fallback",
@@ -145,10 +150,12 @@ test("runtime short-circuits handled requests before the compatibility listener"
     guardedListener = typeof listener === "function" ? listener : undefined;
     return {};
   };
-  const httpModule = { createServer: originalCreateServer };
+  let installedCreateServer: CreateServer = originalCreateServer;
   new HelperHttpBoundaryRuntime({
-    httpModule,
     originalCreateServer,
+    replaceCreateServer: (createServer: CreateServer) => {
+      installedCreateServer = createServer;
+    },
     syncBuiltinExports: () => {},
     dispatchRequest: () => true,
     writeUnavailable: () => {},
@@ -158,7 +165,7 @@ test("runtime short-circuits handled requests before the compatibility listener"
     maintenanceIntervalMs: 30_000,
   }).install();
 
-  httpModule.createServer(() => {
+  installedCreateServer(() => {
     fallbackCalls += 1;
   });
   guardedListener?.({}, new ResponseRecorder());
@@ -173,10 +180,12 @@ test("runtime preserves pre-header 503 and post-header destroy behavior", () => 
     if (typeof listener === "function") guardedListeners.push(listener);
     return {};
   };
-  const httpModule = { createServer: originalCreateServer };
+  let installedCreateServer: CreateServer = originalCreateServer;
   new HelperHttpBoundaryRuntime({
-    httpModule,
     originalCreateServer,
+    replaceCreateServer: (createServer: CreateServer) => {
+      installedCreateServer = createServer;
+    },
     syncBuiltinExports: () => {},
     dispatchRequest: () => {
       throw new Error("dispatch failed");
@@ -192,7 +201,7 @@ test("runtime preserves pre-header 503 and post-header destroy behavior", () => 
     maintenanceIntervalMs: 30_000,
   }).install();
 
-  httpModule.createServer(() => {
+  installedCreateServer(() => {
     throw new Error("fallback must not run after dispatch failure");
   });
   const guarded = guardedListeners[0];
@@ -219,10 +228,12 @@ test("runtime does not start maintenance when original createServer throws", () 
   const originalCreateServer: CreateServer = () => {
     throw new Error("server construction failed");
   };
-  const httpModule = { createServer: originalCreateServer };
+  let installedCreateServer: CreateServer = originalCreateServer;
   new HelperHttpBoundaryRuntime({
-    httpModule,
     originalCreateServer,
+    replaceCreateServer: (createServer: CreateServer) => {
+      installedCreateServer = createServer;
+    },
     syncBuiltinExports: () => {},
     dispatchRequest: () => false,
     writeUnavailable: () => {},
@@ -237,7 +248,7 @@ test("runtime does not start maintenance when original createServer throws", () 
     maintenanceIntervalMs: 30_000,
   }).install();
 
-  assert.throws(() => httpModule.createServer(() => {}), /server construction failed/);
+  assert.throws(() => installedCreateServer(() => {}), /server construction failed/);
   assert.equal(maintenanceCalls, 0);
   assert.equal(scheduleCalls, 0);
 });
