@@ -25,14 +25,14 @@ export class PairingCredentialShadowObserver {
   #pairingRepository;
   /** @type {PairingShadowComparatorPort} */
   #comparator;
-  /** @type {(error: Error) => void} */
+  /** @type {(error: Error) => unknown} */
   #reportError;
 
   /**
    * @param {{
    *   pairingRepository: PairingCredentialRepositoryPort,
    *   comparator: PairingShadowComparatorPort,
-   *   reportError?: (error: Error) => void,
+   *   reportError?: (error: Error) => unknown,
    * }} options
    */
   constructor({ pairingRepository, comparator, reportError = () => {} }) {
@@ -71,7 +71,10 @@ export class PairingCredentialShadowObserver {
       });
     } catch {
       try {
-        this.#reportError(new Error("Pairing credential shadow observation failed."));
+        const reporting = this.#reportError(
+          new Error("Pairing credential shadow observation failed."),
+        );
+        void Promise.resolve(reporting).catch(() => {});
       } catch {
         // Shadow diagnostics are never allowed to affect JSON authority.
       }

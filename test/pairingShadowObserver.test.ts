@@ -64,7 +64,7 @@ test("credential shadow observer compares SQLite without changing legacy authori
   });
 });
 
-test("credential shadow observer contains repository and reporter failures", () => {
+test("credential shadow observer contains repository and async reporter failures", async () => {
   const diagnostics: string[] = [];
   const observer = new PairingCredentialShadowObserver({
     pairingRepository: credentialRepository(null, new Error("database unavailable")),
@@ -75,11 +75,12 @@ test("credential shadow observer contains repository and reporter failures", () 
     },
     reportError(error) {
       diagnostics.push(error.message);
-      throw new Error("reporter failed");
+      return Promise.reject(new Error("reporter failed"));
     },
   });
 
   assert.equal(observer.observeCredential(CREDENTIAL), null);
+  await Promise.resolve();
   assert.deepEqual(diagnostics, ["Pairing credential shadow observation failed."]);
 });
 
@@ -174,6 +175,35 @@ test("pairing handler defers observation until after authorized responses", asyn
   assert.equal(expiredInviteResponse.status, 410);
   await waitForImmediate();
   assert.deepEqual(observed, [CREDENTIAL]);
+
+  const accessorResponse = new ResponseRecorder();
+  const throwingAccessor = {
+    get observeCredential(): never {
+      throw new Error("observer accessor failed");
+    },
+  };
+  assert.equal(
+    handlePairingFallbackRequest(
+      {
+        method: "GET",
+        url: "/pair?token=pair-token",
+        headers: { host: "mac.example" },
+      },
+      accessorResponse,
+      {
+        current: () => CREDENTIAL,
+        tokenMatches: () => true,
+      },
+      { inspect: () => null },
+      {
+        evaluate: () => ({ valid: true, externalBaseURL: "https://mac.example" }),
+      },
+      throwingAccessor,
+    ),
+    true,
+  );
+  assert.equal(accessorResponse.status, 200);
+  assert.match(accessorResponse.body, /Connect to Test Mac/);
 
   const invitationResponse = new ResponseRecorder();
   assert.equal(

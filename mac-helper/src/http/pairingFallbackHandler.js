@@ -105,19 +105,21 @@ export function handlePairingFallbackRequest(
  * @param {PairingState} pairing
  */
 function deferCredentialObservation(shadowObserver, pairing) {
-  if (!shadowObserver || typeof shadowObserver.observeCredential !== "function") return;
   try {
+    if (!shadowObserver) return;
+    const observeCredential = shadowObserver.observeCredential;
+    if (typeof observeCredential !== "function") return;
     const snapshot = { ...pairing };
     setImmediate(() => {
       try {
-        const result = shadowObserver.observeCredential(snapshot);
+        const result = Reflect.apply(observeCredential, shadowObserver, [snapshot]);
         void Promise.resolve(result).catch(() => {});
       } catch {
         // Shadow diagnostics never affect JSON authorization or HTTP responses.
       }
     });
   } catch {
-    // Snapshot or scheduling failures are also best-effort diagnostics only.
+    // Accessor, snapshot, or scheduling failures are best-effort diagnostics only.
   }
 }
 
