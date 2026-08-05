@@ -16,6 +16,7 @@ const workerRequest: SpawnRequest<"worker"> = {
   processGroup: "new",
   journalPath: "/tmp/worker.json",
   role: "worker",
+  command: "fixture-worker",
 };
 const worker = supervisor.spawn(workerRequest);
 worker.record.command;
@@ -27,6 +28,7 @@ const manager = supervisor.spawn({
   processGroup: "inherit",
   journalPath: "/tmp/manager.json",
   role: "manager",
+  commandFragments: ["manager"],
 });
 manager.record.commandFragments;
 // @ts-expect-error Delivery identities do not prove a process-group identity.
