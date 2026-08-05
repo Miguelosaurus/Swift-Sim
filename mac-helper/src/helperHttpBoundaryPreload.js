@@ -1,16 +1,15 @@
-import { timingSafeEqual } from "node:crypto";
 import { createRequire, syncBuiltinESMExports } from "node:module";
-import { PairingStore } from "./pairingStore.js";
-import { PairingInviteStore } from "./pairingInviteStore.js";
-import { buildPairingLinks } from "./links.js";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
-import { sanitizePublicBuildLogs } from "./publicBuildLogs.js";
+import { writeHelperJson } from "./http/helperHttpResponses.js";
+import { handlePairingFallbackRequest } from "./http/pairingFallbackHandler.js";
 import {
-  createHelperRequestContext,
-  helperRequestToken,
-} from "./http/helperRequestContext.js";
+  handlePublicBuildExpiryRequest,
+  handlePublicBuildLogsRequest,
+} from "./http/publicBuildCapabilityHandlers.js";
 import { LoopbackRequestOriginPolicy } from "./infrastructure/loopbackRequestOriginPolicy.js";
+import { PairingInviteStore } from "./pairingInviteStore.js";
+import { PairingStore } from "./pairingStore.js";
 
 const require = createRequire(import.meta.url);
 const http = require("node:http");
@@ -54,8 +53,11 @@ export function installHelperHttpBoundary() {
             if (handlePublicBuildLogs(req, res)) return;
           } catch (error) {
             console.error(error instanceof Error ? error.message : String(error));
-            if (!res.headersSent) writeJson(res, 503, { error: "Swift Sim is temporarily unavailable." });
-            else res.destroy(error instanceof Error ? error : undefined);
+            if (!res.headersSent) {
+              writeHelperJson(res, 503, { error: "Swift Sim is temporarily unavailable." });
+            } else {
+              res.destroy(error instanceof Error ? error : undefined);
+            }
             return;
           }
           return resolvedListener(req, res);
@@ -77,88 +79,27 @@ export function handlePairingFallback(
   invites = pairingInviteStore(),
   originPolicy = requestOriginPolicy(),
 ) {
-  if (req?.method !== "GET") return false;
-  const context = createHelperRequestContext(req);
-  if (!context || context.pathname !== "/pair") return false;
-
-  const pairing = store.current();
-  const invite = context.url.searchParams.get("invite") || "";
-  if (invite) {
-    const invitation = invites.inspect(invite, pairing);
-    if (!invitation || invitation.claimed) {
-      writeJson(res, 410, { error: "Pairing invitation expired or already used." });
-      return true;
-    }
-    const base = externalBaseURL(context, originPolicy);
-    const customScheme = buildPairingLinks({
-      ...pairing,
-      invite,
-      expiresAt: invitation.expiresAt,
-    }, base).customScheme;
-    writeHtml(res, pairingPage(customScheme, pairing.macName, invitation.expiresAt));
-    return true;
-  }
-
-  const token = context.url.searchParams.get("token") || "";
-  if (!store.tokenMatches(token)) {
-    writeJson(res, 401, { error: "Unauthorized." });
-    return true;
-  }
-  const base = externalBaseURL(context, originPolicy);
-  const customScheme = buildPairingLinks(pairing, base).customScheme;
-  writeHtml(res, pairingPage(customScheme, pairing.macName));
-  return true;
+  return handlePairingFallbackRequest(req, res, store, invites, originPolicy);
 }
 
 export function handlePublicBuildExpiry(req, res, {
   pairingStore: pairings = pairingStore(),
   deviceBuildStore: builds = buildStore(),
 } = {}) {
-  const context = createHelperRequestContext(req);
-  if (!context) return false;
-  const match = context.pathname.match(
-    /^\/(?:d\/([^/]+)|api\/device-builds\/([^/]+)(?:\/(?:logs|links|install-request|verify|artifact\/(?:ipa|manifest)))?)$/
-  );
-  if (!match) return false;
-  const token = helperRequestToken(context);
-  if (pairings.tokenMatches(token)) return false;
-
-  const build = builds.get(match[1] || match[2]);
-  const capability = build && capabilityForToken(build, token);
-  if (!capability) return false;
-  const mustHaveExpiry = capability !== build || build.state === "ready";
-  if (!mustHaveExpiry) return false;
-  const expiresAt = Date.parse(capability.expiresAt || "");
-  if (Number.isFinite(expiresAt) && expiresAt > Date.now()) return false;
-  writeJson(res, 410, { error: "This install link has expired." });
-  return true;
+  return handlePublicBuildExpiryRequest(req, res, {
+    pairingStore: pairings,
+    deviceBuildStore: builds,
+  });
 }
 
 export function handlePublicBuildLogs(req, res, {
   pairingStore: pairings = pairingStore(),
   deviceBuildStore: builds = buildStore(),
 } = {}) {
-  if (req?.method !== "GET") return false;
-  const context = createHelperRequestContext(req);
-  if (!context) return false;
-  const match = context.pathname.match(/^\/api\/device-builds\/([^/]+)\/logs$/);
-  if (!match) return false;
-  const token = helperRequestToken(context);
-  if (pairings.tokenMatches(token)) return false;
-
-  const build = builds.get(match[1]);
-  const capability = build && capabilityForToken(build, token);
-  if (!capability) {
-    writeJson(res, 401, { error: "Unauthorized." });
-    return true;
-  }
-  const expiresAt = Date.parse(capability.expiresAt || "");
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    writeJson(res, 410, { error: "This install link has expired." });
-    return true;
-  }
-  writeJson(res, 200, { buildId: build.id, logs: sanitizePublicBuildLogs(build) });
-  return true;
+  return handlePublicBuildLogsRequest(req, res, {
+    pairingStore: pairings,
+    deviceBuildStore: builds,
+  });
 }
 
 export function drainDeliveryReferenceCleanupJobsOnce({
@@ -257,20 +198,6 @@ function isManagedReference(referenceID) {
   return /^(?:build|renewal):/.test(String(referenceID || ""));
 }
 
-function capabilityForToken(build, token) {
-  if (secretsMatch(build?.token, token)) return build;
-  return (Array.isArray(build?.capabilities) ? build.capabilities : [])
-    .find((item) => secretsMatch(item?.token, token)) || null;
-}
-
-function secretsMatch(expected, actual) {
-  if (!expected || !actual) return false;
-  const expectedBuffer = Buffer.from(String(expected));
-  const actualBuffer = Buffer.from(String(actual));
-  return expectedBuffer.length === actualBuffer.length
-    && timingSafeEqual(expectedBuffer, actualBuffer);
-}
-
 function pairingStore() {
   defaultPairingStore ||= new PairingStore();
   return defaultPairingStore;
@@ -296,59 +223,4 @@ function deliveryStore() {
   return defaultDeviceDelivery;
 }
 
-function externalBaseURL(context, originPolicy) {
-  const { url } = context;
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return `${url.protocol}//${url.host}`;
-  }
-  const decision = originPolicy.evaluate({
-    socketRemoteAddress: context.socketRemoteAddress,
-    requestProtocol: url.protocol,
-    hostHeader: context.hostHeader || url.host || "",
-    forwardedHostHeader: context.forwardedHostHeader,
-    forwardedProtoHeader: context.forwardedProtoHeader,
-    requestedExternalBaseURL: url.searchParams.get("base") || undefined,
-  });
-  return decision.valid ? decision.externalBaseURL : `${url.protocol}//${url.host}`;
-}
-
 installHelperHttpBoundary();
-
-function writeJson(res, status, body) {
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-    "referrer-policy": "no-referrer",
-    "x-content-type-options": "nosniff",
-  });
-  res.end(JSON.stringify(body));
-}
-
-function writeHtml(res, body) {
-  res.writeHead(200, {
-    "content-type": "text/html; charset=utf-8",
-    "cache-control": "no-store",
-    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
-    "referrer-policy": "no-referrer",
-    "x-content-type-options": "nosniff",
-  });
-  res.end(body);
-}
-
-function pairingPage(customScheme, macName = "this Mac", expiresAt = "") {
-  const expiry = expiresAt ? `<p>This invitation expires at ${escapeHTML(expiresAt)}.</p>` : "";
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Connect Swift Sim</title><style>
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f8fbff;color:#121417}main{max-width:560px;margin:0 auto;padding:40px 22px}a{display:inline-block;margin-top:18px;padding:14px 18px;border-radius:999px;color:white;background:#1677ff;text-decoration:none;font-weight:700}code{display:block;margin-top:18px;padding:14px;border-radius:14px;background:white;word-break:break-all}
-</style></head><body><main><h1>Connect to ${escapeHTML(macName)}</h1><p>Open Swift Sim on your iPhone and connect it to this Mac over Tailscale.</p>${expiry}<a href="${escapeHTML(customScheme)}">Open Swift Sim</a><code>${escapeHTML(customScheme)}</code></main></body></html>`;
-}
-
-function escapeHTML(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
