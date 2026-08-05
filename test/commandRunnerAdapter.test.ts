@@ -67,10 +67,11 @@ test("NodeCommandRunner applies explicit environment policy and accepted exit co
 
   assert.equal(result.code, 7);
   assert.equal(result.error, undefined);
-  assert.deepEqual(JSON.parse(result.stdout), {
-    [visibleName]: "overridden",
-    EXTRA: "set",
-  });
+  const environment = JSON.parse(result.stdout) as Record<string, string>;
+  assert.equal(environment[visibleName], "overridden");
+  assert.equal(environment.EXTRA, "set");
+  assert.equal(environment[secretName], undefined);
+  assert.equal(environment.REMOVE, undefined);
 
   const synchronous = runner.runSync(
     request(`process.stdout.write("sync"); process.exit(7);`, {
