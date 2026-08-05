@@ -1,152 +1,89 @@
 # Architecture Consolidation Progress
 
-This file is the compact execution ledger for the architecture program. It is not a substitute for pull-request descriptions or durable ADRs. Phase rows record the validated implementation commit, not the final PR head; the exact final PR head is recorded in the PR body and final handoff after the last metadata commit.
+This is the compact execution ledger for the architecture consolidation program. Pull-request bodies, checkpoint reports, ADRs, and Git history retain the detailed implementation record. Phase rows record validated implementation commits; documentation-only final heads are recorded in the owning PR body after the final metadata commit.
+
+The active execution control is [the batched-execution amendment](ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md), authorized by Miguel on 2026-08-04. It preserves phase boundaries, rollback points, fail-closed behavior, mandatory checkpoint records, final Luna local verification, and final Miguel merge authorization while allowing provisional stacked work between checkpoints.
 
 ## Program status
 
-| Phase | Scope | Status | PR | Base | Head | Key residual |
+| Phase | Scope | Status | PR or stack | Base | Validated implementation | Key residual |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | Baseline and guardrails | Merged | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | 4dfa15f | 6f356df merge commit | Existing architecture debt is baselined; runtime behavior unchanged |
-| 1 | TypeScript and package foundation | Draft PR | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | 6f356df | 5d778eb validated implementation | Existing JavaScript remains canonical during the mixed-source transition; Phase 2 ports not started |
-| 2 | Explicit infrastructure primitives | Not started | — | — | — | — |
-| 3 | Helper and HTTP decomposition | Not started | — | — | — | — |
-| 4 | Repository interfaces and SQLite migration | Not started | — | — | — | — |
-| 5 | Preload removal | Not started | — | — | — | — |
+| 0 | Baseline and guardrails | Merged | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | `4dfa15f` | `2a2239c`; merge `6f356df` | Existing debt is baselined and decrease-only |
+| 1 | TypeScript and package foundation | Merged | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | `6f356df` | `2151d35`; merge `820ff2e` | Mixed JS/TS transition remains; compiled `dist` is runtime output |
+| 2 | Explicit infrastructure primitives | Checkpoint 1 hosted-green; draft stack unmerged | [#26–#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | `820ff2e` | `d441798` | Weak delivery identity and unmigrated command/process call sites |
+| 3 | Helper and HTTP decomposition | Not started | — | Phase 2 stack tip after final checkpoint metadata | — | Provisional continuation only after final Checkpoint 1 documentation Verify |
+| 4 | Repository interfaces and SQLite migration | Not started | — | — | — | Legacy reader/rollback must remain until final local verification |
+| 5 | Preload removal | Not started | — | — | — | Checkpoint 2 required before Phase 6 |
 | 6 | Live reload module split | Not started | — | — | — | — |
-| 7 | SwiftSyntax analyzer | Not started | — | — | — | — |
-| 8 | iOS companion feature architecture | Not started | — | — | — | — |
+| 7 | SwiftSyntax analyzer | Not started | — | — | — | Newly permissive cases remain disabled without physical proof |
+| 8 | iOS companion feature architecture | Not started | — | — | — | Checkpoint 3 required before Phase 9 |
 | 9 | Test, docs, and release consolidation | Not started | — | — | — | — |
-| 10 | Product reliability proof | Not started | — | — | — | — |
+| 10 | Product reliability proof | Not started | — | — | — | External-beta evidence cannot be manufactured by repository automation |
 
 ## Mandatory architecture checkpoints
 
-The checkpoint rules in `ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md` are hard continuation gates. Passing CI or completing self-review does not satisfy them.
+| Checkpoint | Trigger | PR / implementation head | Repository review complete | Repository corrections complete | Deferred local gates captured | Provisional next phase authorized by amendment | Final Luna verification | Final Miguel merge authorization | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Phase 2 complete; before Phase 2 merge | PR #33 / `d441798` | Yes | Yes | Yes | Yes, Phase 3 after final metadata Verify | No | No | Hosted-green; stack remains draft and unmerged |
+| 2 | Phase 5 complete; before Phase 6 | — | No | No | No | No | No | No | Pending |
+| 3 | Phase 8 complete; before Phase 9 | — | No | No | No | No | No | No | Pending |
 
-| Checkpoint | Trigger | Checkpoint PR/head | Review received | Required corrections complete | Miguel continuation approval | Authorized next phase | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Phase 2 complete; before Phase 2 merge or Phase 3 work | — | No | No | No | Phase 3 | Pending |
-| 2 | Phase 5 complete; before Phase 5 merge or Phase 6 work | — | No | No | No | Phase 6 | Pending |
-| 3 | Phase 8 complete; before Phase 8 merge or Phase 9 work | — | No | No | No | Phase 9 | Pending |
+Checkpoint 1 records:
 
-At each checkpoint, add beneath this table:
+- [Canonical state report](checkpoints/CHECKPOINT_1_STATE.md)
+- [Canonical independent-review prompt](checkpoints/NEXT_AGENT_PROMPT_CHECKPOINT_1_CURRENT_STATE.md)
+- Dated audit snapshots remain beside the canonical files.
+- Repository verdict: proceed provisionally under the batched-execution amendment.
+- Remaining severity: P0 0, P1 0, P2 2, P3 1.
+- Merge authorization: not granted; persistent-local/device evidence remains delegated to Luna.
 
-- the state-report path;
-- the current-state review-prompt path;
-- review date;
-- concise reviewer decision;
-- correction commits;
-- explicit approval evidence;
-- any re-review requirement.
+## Current architecture metrics
 
-Do not mark `Miguel continuation approval` as `Yes` based on implication, elapsed time, CI, the implementing agent's judgment, or another automated reviewer.
-
-## Baseline metrics
-
-Populate these in Phase 0 from generated repository inspection rather than memory.
-
-| Metric | Baseline | Current | Target |
+| Metric | Phase 0 baseline | Current at Checkpoint 1 | Target |
 | --- | ---: | ---: | ---: |
-| Production JavaScript files | 67 | 67 | 0 canonical JS files after migration, excluding intentional wrappers |
-| Production TypeScript files | 0 | 8 | Canonical Node implementation |
+| Production source files | 74 | 92 | Responsibility-oriented modules without framework-shaped sprawl |
+| Production JavaScript files | 67 | 76 | 0 canonical JS implementation files after migration, excluding intentional wrappers |
+| Production TypeScript files | 0 | 9 | Canonical Node implementation |
 | Production Swift files | 7 | 7 | Feature-organized |
-| Preload/runtime patch modules | 30 | 30 | 0 |
+| Named infrastructure ports | 0 | 10 | Stable narrow boundary |
+| Preload/runtime-patch modules | 30 | 30 | 0 |
 | Built-in monkey-patch evidence modules | 10 | 10 | 0 |
 | Source-text implementation tests | 28 | 28 | 0 |
-| Direct `child_process` production importer files | 28 | 28 | Approved infrastructure only |
-| Direct destructive filesystem importer files | 26 | 26 | Approved stores only |
+| Direct `child_process` production importer files | 28 | 28 | Approved composition/infrastructure owners only |
+| Legacy destructive-filesystem importer files | 26 | 25 | 0 legacy owners |
+| Dedicated destructive-filesystem infrastructure owners | 0 | 3 | Explicit stores only |
 | Largest Node production file | 2,821 (`mac-helper/src/liveReload.js`) | 2,821 | <= 800 lines or ADR |
 | Largest Swift production file | 2,562 (`Companion/SwiftSimCompanion/SessionStore.swift`) | 2,562 | <= 800 lines or ADR |
-| Writable JSON state-store candidates | 29 | 29 | 0 writable stores after migration window |
-| Node minimum version | >=20 | 24.x | Supported pinned LTS |
+| Writable JSON domain-state candidates | 29 | 29 | 0 writable domain stores after migration window |
+| Supported Node line | >=20 | 24.x | Supported pinned LTS |
 
-### Phase 0 — Baseline and architectural guardrails
+## Phase 0 — Baseline and architectural guardrails
 
 - Status: Merged
 - Branch: `agent/architecture-consolidation-phase-0-guardrails`
 - PR: [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23)
 - Base SHA: `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`
-- Merge commit SHA: `6f356df3c1e1e91499b3d05efe4308337cc7ff6b`
-- Validated implementation SHA: `2a2239c1e49df83b8b75ddc42a363e73a11f0655` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after this ledger update)
-- Dates: 2026-08-04
-- Checkpoint relationship: None; scheduled checkpoints remain unchanged and pending
+- Validated implementation: `2a2239c1e49df83b8b75ddc42a363e73a11f0655`
+- Merge commit: `6f356df3c1e1e91499b3d05efe4308337cc7ff6b`
+- Date: 2026-08-04
 
-#### Objective
+### Outcome
 
-Create a generated architecture inventory and monotonic fitness gate that records existing debt and prevents new preload/runtime-patch modules, direct process/filesystem access, source-text implementation tests, unapproved oversized files, and stale workflow badges. Capture the settled architecture decisions in ADRs and make the internal navigation durable.
+- Added generated architecture inventory and immutable Git-history-backed baseline policy.
+- Added decrease-only caps and exact ADR-backed/time-bounded exceptions for preload/runtime patches, process/filesystem authority, source-text tests, and oversized production files.
+- Added event-safe pull-request/push history selection and extensive scanner bypass regressions.
+- Added ADR-0001 through ADR-0005 and architecture navigation.
+- Added the architecture gate to the authoritative verification workflow.
+- Changed no product runtime behavior.
 
-#### Invariants touched
+### Validation
 
-- Test integrity
-- Maintainability gates
-- Packaging and release
-- HTTP and contract compatibility (documentation-only verification)
+- Architecture inventory was deterministic and passed its focused 28-test suite.
+- Final source/release gate passed 456 tests.
+- iOS companion tests passed 30/30.
+- Post-merge Verify run `30920938939` passed on merge commit `6f356df3c1e1e91499b3d05efe4308337cc7ff6b`.
 
-#### Mechanical changes
-
-- Added `scripts/architecture/inventory.js` with deterministic `--json` inventory, Git-history-backed baseline verification, decrease-only caps, and structured ADR/time-bounded allowlists.
-- Added `scripts/architecture/baseline-policy.json` with an immutable snapshot from `4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb`, current caps, and explicit empty exception lists.
-- Added excluded fixture resources and regression tests in `test/architectureInventory.test.js` for every reviewed bypass, including the real architecture-test path.
-- Made Git-history comparison event-safe: pull requests use `pull_request.base.sha`, pushes use `before`, both are validated against the checked HEAD, local fallback remains deterministic, and a self-resolving merge-base falls back to its parent.
-- Added neutral-filename regressions for CommonJS member extraction and direct `require` assignment, `defineProperty`/`defineProperties`, `Reflect.defineProperty`, and `Object.assign` mutations.
-- Made local preload/runtime import evidence respect static type-only imports while retaining runtime static and dynamic imports.
-- Extended Node risk analysis to `.ts`, `.mts`, and `.cts`; explicitly rejects `.tsx` in the Node production tree.
-- Normalized `node:child_process` and `child_process` across JavaScript and TypeScript ESM, CommonJS, side-effect, and TypeScript import-equals forms into one importer capability.
-- Replaced cross-statement import regexes with a statement-aware lexical scanner that masks comments, strings, and template text while preserving executable template expressions; static imports and requires no longer span unrelated statements.
-- Ignored `typeOnly` bindings during destructive filesystem analysis while retaining runtime promises and write evidence.
-- Made exclusions path-aware so declared production roots remain production inside `fixtures`, `build`, and similar segments while actual generated/test fixture roots remain excluded.
-- Inventoried `.d.ts`, `.d.mts`, and `.d.cts` separately from runtime TypeScript and ignored declaration/type-only imports while preserving mixed runtime imports.
-- Unified child-process and destructive-filesystem enforcement at one capability per production file, including fs-promises variants and imported aliases.
-- Strengthened aliased built-in monkey-patch detection for arbitrary assignments, arrows, prototypes, `defineProperty`/`defineProperties`, `Reflect`, and `Object.assign`.
-- Configured CI checkout with full history so the immutable baseline commit is available to the gate.
-- Added ADR-0001 through ADR-0005 and an ADR index under `docs/internal/adr/`.
-- Linked ADR navigation from `docs/internal/README.md`.
-- Added `npm run check:architecture` to the authoritative `npm run check` path.
-- Corrected the verified README workflow badge target from the absent `release.yml` to `.github/workflows/verify.yml`.
-- Preserved all existing historical review records and the three mandatory checkpoint rows.
-
-#### Behavioral changes
-
-`None` expected. The workflow badge target is documentation metadata only; the helper, CLI, companion, storage, pairing, process, and live-reload behavior were not changed.
-
-#### Old architecture removed
-
-None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migrate storage, remove preloads, replace the analyzer, or refactor the companion.
-
-#### Compatibility layer remaining
-
-- The baseline policy explicitly permits current debt so this phase is behavior-preserving. Its path/count entries are generated from the current tree and may only decrease or be narrowed by later phase PRs.
-- No runtime compatibility layer was added.
-
-#### Metrics
-
-| Metric | Before | After |
-| --- | ---: | ---: |
-| JavaScript production files | 67 | 67 |
-| TypeScript production files | 0 | 0 |
-| Swift production files | 7 | 7 |
-| Preload/runtime patch modules | 30 | 30 |
-| Built-in monkey-patch evidence modules | 10 | 10 |
-| Source-text implementation tests | 28 | 28 |
-| Direct process importer files | 28 | 28 |
-| Direct destructive filesystem importer files | 26 | 26 |
-| Writable JSON state-store candidates | 29 | 29 |
-| Largest production file | 2,821 lines (`mac-helper/src/liveReload.js`) | 2,821 lines |
-
-#### Validation
-
-- Local architecture inventory: `node scripts/architecture/inventory.js --json` produced identical SHA-256 output on two runs (`f5bef1075de9ff6531ca140af634b20d1f25951510013f6eb72c261ab8263f45`).
-- Local architecture gate: `node scripts/architecture/inventory.js --check` passed.
-- Focused architecture tests: `node --test --test-concurrency=1 test/architectureInventory.test.js` passed 28/28 using temporary fixture trees and event-shaped Git history metadata.
-- Full Node/release suite: final `npm run check` passed 456/456 tests; syntax checked 165 JavaScript files; docs verified 54 Markdown files. An initial run exposed one timing-sensitive `descendant.pid` fixture race; its isolated test and the final standard run both passed.
-- Workflow YAML: Ruby YAML parse verified 4 `.yml` files.
-- Release shell syntax: `bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh` passed.
-- iOS Simulator: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase0-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on iOS 26.5.
-- GitHub Actions follow-up: the initial `verify` run exposed a self-match from `test/architectureInventory.test.js`; fixture text now lives under the excluded fixture directory, the whole-file exemption is removed, and the architecture path is explicitly regression-tested.
-- Whitespace: `git diff --check` passed.
-- Post-merge GitHub Verify: run `30920938939` on `main` at merge commit `6f356df3c1e1e91499b3d05efe4308337cc7ff6b` passed checkout, Node setup, `npm ci`, `npm run check`, YAML validation, release-shell validation, and iOS app tests.
-- CI, Homebrew clean-install, physical-device, and release-archive gates were not required or changed by this behavior-preserving guardrail phase; they remain external residuals.
-
-#### Self-review findings
+### Self-review
 
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
@@ -155,105 +92,39 @@ None. Phase 0 deliberately does not migrate TypeScript, decompose helpers, migra
 | P2 | 6 | 6 | 0 |
 | P3 | 1 | 1 | 0 |
 
-Self-review fixed the full review set: the original patch-evidence predicate was too broad, local preload imports were not initially included, the release-contract test expected the pre-gate `npm run check` string, the guard test self-matched, the policy baseline was editable authority, TypeScript was unscanned, fs-promises and aliases were missed, monkey-patch aliases bypassed detection, metadata used ambiguous head terminology, unprefixed child-process forms bypassed detection, segment-wide exclusions hid production paths, declarations/type-only imports were treated as runtime, imports could span statements and lexical lookalikes could influence capability evidence, destructive analysis did not skip type-only bindings, GitHub event comparison could select the wrong history, CommonJS member extraction and direct require mutations were incomplete, and type-only local preload/runtime imports were misclassified. The final diff review found no remaining P0/P1/P2 issue. It specifically checked baseline inflation, immutable baseline authority, cap reductions, removed-debt reintroduction, allowlist expiry/ADR validation, event-shaped pull-request and push history, TypeScript extensions, declaration and type-only semantics, one-capability enforcement, normalized child-process forms, path-aware fixture/build exclusions, neutral filenames, comments/strings/templates, semicolonless and multiline imports, template expressions, fixture exclusion, Git-history availability in CI, direct CommonJS member/mutation forms, and accidental runtime changes.
+### Rollback and residuals
 
-#### Migration and rollback
+- Rollback: revert PR #23; no user state was touched.
+- Existing preloads, direct infrastructure access, JSON stores, source-text tests, and oversized files remained deliberately baselined for later phases.
+- The lexical inventory scanner remains documented and fail-closed for supported static forms; dynamic/computed forms require later AST-aware enforcement if introduced.
 
-- Migration performed: None.
-- Backup location/format: Not applicable.
-- Rollback procedure: revert the Phase 0 PR; no user state or runtime data is touched.
-- Irreversible changes: None.
+## Phase 1 — TypeScript and package foundation
 
-#### Residual risks
-
-- Existing preloads, direct infrastructure imports, writable JSON records, oversized files, and source-text tests remain intentionally capped for later phases; removed entries cannot be reintroduced without a new structured exception.
-- The inventory uses a documented statement-aware lexical scanner for ESM imports, TypeScript import-equals, and CommonJS `require` calls; comments, strings, and template text are ignored, executable template expressions are scanned, and dynamic imports/computed requires or computed CommonJS member chains are not classified until a later AST-aware enforcement phase. GitHub pull-request and push event metadata is preferred and validated; deterministic local Git fallback remains for local execution.
-- `.tsx` is explicitly prohibited in the Node production tree rather than treated as a supported runtime source.
-- No physical-device behavior gate is required because Phase 0 makes no product behavior change.
-
-#### Next phase
-
-Phase 0 is merged. Phase 1 is executed on the fresh branch recorded below; do not begin Phase 2 from this entry.
-
-### Phase 1 — TypeScript and package foundation
-
-- Status: Draft PR; implementation and validation complete, unmerged
+- Status: Merged
 - Branch: `agent/architecture-consolidation-phase-1-typescript-foundation`
 - PR: [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24)
 - Base SHA: `6f356df3c1e1e91499b3d05efe4308337cc7ff6b`
-- Validated implementation SHA: `3ca6d23ae322822f6fee538739ab97cf50d02d1d` (the exact final PR head is intentionally not self-recorded here; it is published in the PR body and final handoff after the metadata commit)
-- Dates: 2026-08-04
-- Checkpoint relationship: None; Checkpoint 1 is scheduled only after Phase 2
+- Exact final PR head: `2151d35511dcefec2bef8bd4501560598581d629`
+- Merge commit: `820ff2e2863e06eab908da70229c7991fd85c65c`
+- Date: 2026-08-04
 
-#### Objective
+### Outcome
 
-Establish the Node 24, NodeNext TypeScript, emitted-JavaScript, and clean-package foundation required for incremental production migration without changing helper, CLI, pairing, process-ownership, live-reload, storage, or companion behavior.
+- Pinned Node 24, TypeScript 5.9.3, Node types, ESLint, and Prettier.
+- Established strict NodeNext compilation with `allowJs`, emitted ignored `dist/`, no production runtime transpiler, and compiled package/Homebrew entrypoints.
+- Added characterization-backed validators for actual session, build, pairing, invite, delivery, command, process, and runtime-journal records.
+- Made source/compiled behavior, hermetic compiled execution, clean npm package installation, package-root resolution, and isolated Homebrew service lifecycle authoritative gates.
+- Removed `skipLibCheck` and avoided broad lint/format rewrites.
+- Merged the batched-execution amendment into Phase 1 before merge.
 
-#### Invariants touched
+### Validation
 
-- Runtime and packaging compatibility
-- Untrusted-boundary contracts
-- Test integrity
-- Maintainability and architecture ratchets
+- Local Node 24 gate passed strict types, formatting, lint, 457 source tests, compiled characterization, hermetic execution, package inspection/install, and safe Homebrew preflight.
+- Isolated clean Homebrew install/service/restart proof passed.
+- iOS companion tests passed 30/30.
+- Exact-final-head Verify run `30943330191` passed at `2151d35511dcefec2bef8bd4501560598581d629`.
 
-#### Mechanical changes
-
-- Pinned Node.js 24.x in `package.json`, CI, Homebrew/release packaging, installation checks, and contributor documentation.
-- Added exact TypeScript 5.9.3, `@types/node` 24.13.3, ESLint 9.39.1, `typescript-eslint` 8.46.2, and Prettier 3.7.0 pins with a Node ESM/NodeNext configuration.
-- Added mixed JavaScript/TypeScript compilation with `allowJs`, `checkJs: false`, source maps, strict TypeScript, consistent casing, and the required control-flow/error options. `.tsx` remains excluded and prohibited in the Node production tree.
-- Added ignored `dist/` output and shell build/verification scripts. Production package bins, `npm start`, Homebrew launchers, service startup, and contributor wrappers execute emitted JavaScript from `dist/`; no runtime TypeScript loader was added.
-- Added runtime-validated typed contracts grounded in the current `SessionStore`, `PairingStore`, `PairingInviteStore`, `DeviceBuildStore`, `deviceDeliveryState`, `runBuffered`, and ownership-record outputs. Pairing credentials and invitations are separate, public/private projections are explicit, delivery envelopes delegate to the canonical `changeDeliveryContract.js` outcomes and validator, and owned-worker/live-engine records are independent. Normal build cancellation markers, legacy reason-bearing markers, and renewal cancellation records are modeled separately. Validators consume `unknown` at the boundary and reject explicitly present `undefined` under `exactOptionalPropertyTypes`.
-- Added characterization tests that invoke the real owned-worker/live-engine and cancellation writers, plus negative and compile-time delivery-contract tests for malformed nested records, required projection fields, and invalid builder input.
-- Added narrow flat ESLint and Prettier configuration scoped to the new contracts, TypeScript tests, and foundation configuration; existing JavaScript was not reformatted.
-- Added package whitelist inspection, clean tarball installation in isolated HOME/config directories with fake Codex/Cursor/Claude/OpenCode commands, package entrypoint resolution, source/compiled CLI/helper equivalence, an isolated compiled-only lifecycle subset, and release-archive assembly from the package whitelist.
-- Fixed package-root discovery so npm-installed `.bin/swift-sim` resolves top-level marketplace and plugin assets without `SWIFT_SIM_MARKETPLACE_ROOT`; Homebrew launchers remain compatible with the same layout.
-- Added a real isolated Homebrew gate that builds an archive, renders a temporary unique-name formula with its actual SHA, uses isolated HOME/config state and a unique non-production port, verifies Node 24 launchers, service health/protocol, exact listening PID/prefix identity across restart, assets, setup, and doctor, then cleans up. The normal local gate is a safe formula preflight; CI opts into the clean installation gate explicitly.
-- Removed `skipLibCheck`; the full tree typechecks with first-party and dependency declarations checked.
-- Updated release/development documentation and the existing source-runtime assertion for the expanded authoritative `npm run check` path.
-
-#### Behavioral changes
-
-`None` expected for helper, CLI, pairing, process ownership, persistence, live reload, storage, and companion behavior. The supported production execution boundary intentionally changes from source entrypoints to equivalent emitted `dist/` JavaScript, with source/compiled CLI and helper entrypoint output compared by validation.
-
-#### Old architecture removed
-
-None. Phase 1 does not port infrastructure, remove preloads, migrate storage, split the helper/live-reload/iOS architecture, or change product behavior.
-
-#### Compatibility layer remaining
-
-- Existing JavaScript remains the canonical production implementation while `allowJs: true` and the single `dist/` build enable bounded TypeScript migration.
-- Source-tree entrypoints remain available for source/compiled equivalence tests; shipped package bins and release/Homebrew launchers resolve only to emitted `dist/` files.
-- The new contracts are declaration/validation boundaries only in this phase. Existing modules do not consume them until later infrastructure and decomposition phases.
-
-#### Metrics
-
-| Metric | Before | After |
-| --- | ---: | ---: |
-| Production JavaScript files | 67 | 67 |
-| Production TypeScript files | 0 | 8 |
-| Preloads | 30 | 30 |
-| Source-text tests | 28 | 28 |
-| Direct child-process importer files | 28 | 28 |
-| Direct destructive filesystem importer files | 26 | 26 |
-| Largest touched production file | 2,821 (`mac-helper/src/liveReload.js`) | 2,821 (`mac-helper/src/liveReload.js`) |
-| Supported Node line | >=20 | 24.x |
-| Clean package files | Not established | 181 |
-
-#### Validation
-
-- Runtime/install baseline: Homebrew Node `v24.19.0`; npm `11.17.0`; `npm ci` passed with no vulnerabilities.
-- Complete local gate: `PATH=/opt/homebrew/opt/node@24/bin:$PATH npm run check` passed under Node `v24.19.0`. It syntax-checked 344 JavaScript files, passed architecture inventory for 82 production source files, verified 54 Markdown files, passed strict TypeScript typecheck with `skipLibCheck: false`, Prettier, ESLint, the source suite at 457/457, the hermetic compiled subset at 1/1, source/compiled CLI/helper equivalence, clean package archive installation, package entrypoint resolution, and the safe local Homebrew formula preflight. The explicit clean gate `HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 SWIFT_SIM_RUN_CLEAN_HOMEBREW=1 bash scripts/verify-homebrew-package.sh` also passed with isolated service identity and cleanup.
-- TypeScript foundation: `npm run check:types`, `npm run build`, and the compiled characterization suite `node --test --test-concurrency=1 dist/test/contracts.test.js` passed 8/8; `dist/` is ignored and no generated output is committed.
-- Package validation: `npm pack --dry-run --json` inspected 181 intended files; a clean archive install in isolated HOME/config directories executed both the compiled CLI and package bin at version `0.6.1`, ran setup and `doctor --json` against fake agent commands, verified exact marketplace/copied-skill paths, and resolved `swift-sim/dist/mac-helper/bin/swift-sim-entry.js` through the installed package.
-- Architecture inventory and ratchet: `node scripts/architecture/inventory.js --json` and `npm run check:architecture` passed. Counts remained 30 preloads, 28 child-process importers, 26 destructive filesystem importers, and 28 source-text tests; no policy cap increased.
-- Hermetic compiled/package validation: `scripts/verify-hermetic-compiled.sh` extracted only `dist`, `node_modules`, package integration assets, and the compiled test subset; source `mac-helper`, source tests, and source-only assets were unavailable. The subset covered CLI dispatch, helper health/start/stop/restart, process ownership state, setup/doctor, runtime asset discovery, and package entrypoint behavior. Source-path reconstruction in subprocess tests now uses module URLs.
-- Helper/process ownership: the complete source suite and hermetic compiled subset passed helper setup/start/restart, deadline, owned-worker, lock-ownership, lifecycle, and process-group tests; the sequential runner avoids the previously observed fixture race.
-- Homebrew/release: the explicit clean gate built the local release archive, rendered a temporary unique-name formula with the archive SHA, installed it through an isolated local tap/prefix without linking or moving user launchers, verified Node 24 launchers, package assets, setup/doctor, unique-port service health/protocol, exact pre/post-restart PIDs under the formula prefix, and cleanup. The Ruby/static check remains the safe fast preflight used by normal local `npm run check`. The complete release-shell syntax command also passed for all build, package, Homebrew, and release scripts.
-- iOS companion: `xcodebuild test -project Companion/SwiftSimCompanion.xcodeproj -scheme SwiftSimCompanion -destination 'platform=iOS Simulator,id=FB2F4110-E68D-4D29-8665-D6070AC3BEC3' -configuration Debug -derivedDataPath .build/phase1-review-ios-validation -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 30 -maximum-test-execution-time-allowance 60` passed 30/30 tests on the configured iPhone 17 Pro simulator. The same command is rerun at the exact final head before push.
-- YAML and release validation: Ruby parsed all workflow YAML files; `bash -n` passed the build, package, Homebrew, and release shell scripts. `git diff --check` passed.
-- GitHub Verify: the exact final-head run is recorded in the PR body and final handoff after the metadata commit. It must include checkout, Node 24 setup, `npm ci`, full `npm run check`, the explicit clean Homebrew gate, YAML validation, release-shell validation, and iOS app tests.
-
-#### Self-review findings
+### Self-review
 
 | Severity | Found | Fixed | Remaining |
 | --- | ---: | ---: | ---: |
@@ -262,117 +133,111 @@ None. Phase 1 does not port infrastructure, remove preloads, migrate storage, sp
 | P2 | 3 | 3 | 0 |
 | P3 | 0 | 0 | 0 |
 
-The self-review found and fixed the blocking review findings: invented contract shapes were replaced with characterization-backed current records and canonical delivery outcomes; owned-worker/live-engine and normal/renewal cancellation records are separated; every exported validator now narrows only soundly; package root discovery was separated from compiled runtime discovery; compiled validation was made hermetic; the Homebrew check became an isolated clean archive/service proof with a safe local default; and `skipLibCheck` was removed. It also fixed bounded validation defects found during implementation: the default parallel runner made one existing process-group fixture timing-sensitive, the package-content assertion incorrectly required a lockfile npm omits, the initial command-result fixture rejected valid empty stderr, and the delivery validator briefly exempted explicit `diagnostics: undefined`. No introduced or exposed P0/P1/P2 issue remains; no product behavior or architecture cap was weakened.
+### Rollback and residuals
 
-#### Migration and rollback
+- Rollback: revert PR #24; no data migration occurred.
+- Existing JavaScript remained canonical during the mixed-source transition.
+- Source checkout wrappers require a build; shipped npm/Homebrew bins execute emitted JavaScript.
+- A public tagged-release upgrade remained outside this phase.
 
-- Migration performed: None; no user state, schema, pairing record, process journal, lease, artifact, or live session was changed.
-- Backup location/format: Not applicable.
-- Rollback procedure: revert the Phase 1 PR or run the previous source entrypoints from the prior release; no data migration is involved.
-- Irreversible changes: None.
+## Phase 2 — Explicit infrastructure primitives
 
-#### Residual risks
+- Status: Implementation complete, Checkpoint 1 hosted-green, draft stack unmerged
+- Base commit: `820ff2e2863e06eab908da70229c7991fd85c65c`
+- Code implementation head: `d44179868fee4b62af5376b3344a40aca0b917d2`
+- Dates: 2026-08-04 to 2026-08-05
+- Checkpoint relationship: Checkpoint 1 complete for repository-hosted evidence; final Luna verification and final Miguel merge authorization remain pending
 
-- Existing JavaScript remains canonical and the direct infrastructure/preload/oversized-file/source-text-test debt remains intentionally unchanged for later phases.
-- The package archive contains emitted runtime JavaScript and deliberate source maps; source maps reference source paths that are not shipped, and no runtime loader is required.
-- Local source entrypoints remain for equivalence testing, while normal package/Homebrew execution resolves `dist/`. A contributor must build before using source-checkout wrappers or `npm link`.
-- The clean Homebrew proof uses a temporary local archive/formula and isolated tap/prefix; a public tagged release upgrade remains a later release gate.
+### Stack order
 
-#### Next phase
+| Unit | PR | Base branch / SHA | Exact validated head | Verify run | State |
+| --- | ---: | --- | --- | ---: | --- |
+| 2A — port contracts | [#26](https://github.com/Miguelosaurus/Swift-Sim/pull/26) | `main` / `820ff2e2863e06eab908da70229c7991fd85c65c` | `f6d5338df4bb392543bb1db7ac9a597e58d040b0` | `30946128136` | Open, draft, unmerged |
+| 2B — foundation adapters | [#27](https://github.com/Miguelosaurus/Swift-Sim/pull/27) | Phase 2A / `f6d5338df4bb392543bb1db7ac9a597e58d040b0` | `932241d0b60cbe27aec31db125635bbdec24dc8a` | `30948591408` | Open, draft, unmerged |
+| 2C — origin delegation | [#28](https://github.com/Miguelosaurus/Swift-Sim/pull/28) | Phase 2B / `932241d0b60cbe27aec31db125635bbdec24dc8a` | `110b2422ecc5b57fd28bbffaa45762eb518f315b` | `30950707093` | Open, draft, unmerged |
+| 2D — persistence adapters | [#29](https://github.com/Miguelosaurus/Swift-Sim/pull/29) | Phase 2C / `110b2422ecc5b57fd28bbffaa45762eb518f315b` | `4b175a472ca009498e27e43950dfb09bd26c9408` | `30952061308` | Open, draft, unmerged |
+| 2E — lock manager | [#30](https://github.com/Miguelosaurus/Swift-Sim/pull/30) | Phase 2D / `4b175a472ca009498e27e43950dfb09bd26c9408` | `092ec816b8684f36e3900ed6826eead8d12b29a3` | `30953444594` | Open, draft, unmerged |
+| 2F — artifacts/logger | [#31](https://github.com/Miguelosaurus/Swift-Sim/pull/31) | Phase 2E / `092ec816b8684f36e3900ed6826eead8d12b29a3` | `ecb2e7f926787e24bb73e432c436c6b4b11c4574` | `30954907621` | Open, draft, unmerged |
+| 2G — command runner | [#32](https://github.com/Miguelosaurus/Swift-Sim/pull/32) | Phase 2F / `ecb2e7f926787e24bb73e432c436c6b4b11c4574` | `4260dbf58cb04a97b991bdd17ae7152f76dcd442` | `30989529025` | Open, draft, unmerged |
+| 2H — process supervisor | [#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | Phase 2G / `4260dbf58cb04a97b991bdd17ae7152f76dcd442` | `d44179868fee4b62af5376b3344a40aca0b917d2` | `30993626853` | Open, draft, unmerged |
 
-After this draft PR is reviewed and merged, create a fresh Phase 2 branch for explicit `CommandRunner`, `ProcessSupervisor`, `LockManager`, `AtomicFileStore`, `ArtifactStore`, and request-policy infrastructure ports. Do not begin Phase 2 in this turn, and do not create Checkpoint 1 materials until Phase 2 is complete.
+### Outcome
 
-## Phase entry template
+- Added ten narrow typed ports: `CommandRunner`, `ProcessSupervisor`, `AtomicFileStore`, `LockManager`, `RuntimeJournalStore`, `ArtifactStore`, `RequestOriginPolicy`, `Clock`, `IdGenerator`, and `Logger`.
+- Added a validated immutable runtime container while prohibiting application services from receiving the complete aggregate.
+- Added source-loadable, TypeScript-checked Node adapters without a runtime TypeScript loader.
+- Moved request-origin decisions behind `RequestOriginPolicy`; the existing HTTP compatibility preload delegates to it.
+- Moved the hardened live-engine lifecycle lock algorithm behind `NodeLockManager`; the compatibility module delegates and retains legacy error mapping.
+- Added atomic publication/runtime-journal stores, inode-fenced artifact containment, deterministic redacting structured logging, bounded command execution, and identity-authorized process supervision.
+- Preserved all current public routes, package layouts, persisted record shapes, process-role authority distinctions, and compatibility preloads.
+- Did not begin helper decomposition, SQLite migration, preload removal, live-reload restructuring, analyzer replacement, or iOS redesign.
 
-Copy this section for each completed phase.
+### Behavioral and safety guarantees
 
-### Phase N — Title
+- Command execution requires explicit environment inheritance, deadlines, output limits, accepted exits, and process-group policy.
+- Async cancellation/timeout and accepted-parent lingering descendants trigger bounded cleanup; synchronous new-group execution fails closed because Node cannot establish the required detached ownership through `spawnSync`.
+- Strong worker/live-engine records may authorize group operations; weak manager/gateway/tunnel records remain exact-PID only.
+- Process identities are captured and atomically journaled before return; identity/publication failure rolls back the process.
+- Identity is revalidated before signaling and before KILL escalation. Transient post-kill unverifiability is bounded and never grants authority.
+- Atomic publication uses exclusive same-directory temporaries, fsync, exact replace/no-replace semantics, owner modes, and cleanup.
+- Lock reclamation retains PID/start-token/nonce ownership, quarantine, claim fencing, and replacement-lock protection.
+- Artifact operations require prior containment approval and reject traversal, symlink components, and root replacement.
+- Logger redaction/bounds are recursive and logging construction/sink failures cannot alter application outcomes.
+- Forwarded origin headers are trusted only for loopback proxy sockets; direct remote origin behavior is preserved.
 
-- Status: Not started | In progress | Draft PR | Merged | Blocked
-- Branch:
-- PR:
-- Base SHA:
-- Head SHA:
-- Dates:
-- Checkpoint relationship: None | Leads to Checkpoint 1 | Leads to Checkpoint 2 | Leads to Checkpoint 3 | Blocked pending checkpoint
+### Validation
 
-#### Objective
+Verify run `30993626853` passed at implementation head `d44179868fee4b62af5376b3344a40aca0b917d2` on macOS 26 ARM64 with Node 24:
 
-Describe the responsibility moved or mechanism replaced.
+- architecture inventory and documentation;
+- strict TypeScript, formatting, and lint;
+- all 457 source tests;
+- compiled contracts and every Phase 2 adapter suite;
+- real command/process-group, identity, journal, lock, containment, and fault-injection tests;
+- hermetic compiled execution;
+- clean npm package/archive installation and entrypoints;
+- isolated clean Homebrew install, launcher, setup/doctor, service identity, and restart;
+- workflow YAML and release-shell syntax;
+- iOS companion tests.
 
-#### Invariants touched
+Temporary diagnostic commands were removed before the accepted run. The final documentation-only checkpoint head must pass the same Verify workflow before Phase 3 begins.
 
-List exact invariant sections.
+### Checkpoint review and residuals
 
-#### Mechanical changes
+| Severity | Remaining | Residual |
+| --- | ---: | --- |
+| P0 | 0 | — |
+| P1 | 0 | — |
+| P2 | 2 | Weak delivery identity remains exact-PID only; CommandRunner/ProcessSupervisor are not yet production owners |
+| P3 | 1 | Preload count remains at the Phase 0 cap until the planned removal phase |
 
-- files moved;
-- modules split;
-- names changed;
-- generated configuration.
+No emergency-stop condition was found. The repository checkpoint verdict is provisional continuation under the batched-execution amendment.
 
-#### Behavioral changes
+### Deferred evidence
 
-State `None` when behavior is intentionally unchanged. Otherwise describe each behavior change and its product impact.
+Before final merge, Luna must execute and record:
 
-#### Old architecture removed
+- persistent installed npm CLI `version`, `setup`, and `doctor --json`;
+- persistent helper start/health/restart/stop and orphan/journal inspection;
+- clean local Homebrew install/upgrade/uninstall and service lifecycle on the target Mac;
+- representative sleep/wake, stale/reused PID, process-group, filesystem-permission, and local-state behavior;
+- physical iPhone build/install/renew and available network/signing scenarios;
+- final release-candidate smoke checks.
 
-List deleted paths, global hooks, stores, tests, or compatibility code.
+Hosted isolated Homebrew and Simulator evidence is real but does not replace those persistent-local/device gates.
 
-#### Compatibility layer remaining
+### Migration and rollback
 
-For each remaining layer:
+- Data migration: none.
+- Irreversible changes: none.
+- Rollback: discard or revert the Phase 2 stack in reverse order; persisted external formats and public contracts are unchanged.
+- No Phase 2 PR may merge before the complete stacked state receives final Luna evidence and Miguel authorization.
 
-- purpose;
-- call sites;
-- owner;
-- removal phase/deadline.
+### Next phase
 
-#### Metrics
-
-| Metric | Before | After |
-| --- | ---: | ---: |
-| JavaScript production files | | |
-| TypeScript production files | | |
-| Preloads | | |
-| Source-text tests | | |
-| Direct process imports | | |
-| Largest touched file | | |
-
-#### Validation
-
-Record exact commands and result counts. Distinguish local, GitHub Actions, Simulator, physical device, Homebrew, and release-package validation.
-
-#### Self-review findings
-
-| Severity | Found | Fixed | Remaining |
-| --- | ---: | ---: | ---: |
-| P0 | | | |
-| P1 | | | |
-| P2 | | | |
-| P3 | | | |
-
-Summarize meaningful findings without creating a giant round ledger.
-
-#### Migration and rollback
-
-- migration performed;
-- backup location/format;
-- rollback command or procedure;
-- rollback window;
-- irreversible changes, if any.
-
-#### Residual risks
-
-List only real bounded residuals, their triggers, and why they are outside the phase.
-
-#### Next phase
-
-State the next smallest safe step and the dependency this phase resolved. When a checkpoint follows this phase, state only the checkpoint preparation and stop; do not recommend beginning the next implementation phase before authorization.
+After the final checkpoint-documentation head passes Verify, create Phase 3 from that exact PR #33 head and target the Phase 2H branch. Phase 3 must decompose helper/HTTP responsibilities through explicit application services and route modules, inject only required Phase 2 ports, preserve route/projection contracts, and keep lifecycle/process authority visible. It must not remove preloads, migrate SQLite, or redesign the companion outside its assigned phase.
 
 ## Decision log index
-
-Durable architecture decisions belong in ADR files. Add links here when created.
 
 | ADR | Decision | Status |
 | --- | --- | --- |
@@ -384,7 +249,7 @@ Durable architecture decisions belong in ADR files. Add links here when created.
 
 ## Final completion record
 
-Complete this only after Phase 10.
+Complete only after Phase 10 and final merge authorization.
 
 - Final release:
 - Final main SHA:
