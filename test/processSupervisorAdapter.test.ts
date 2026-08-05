@@ -144,8 +144,8 @@ test("NodeProcessSupervisor gives weak delivery records exact-PID authority only
   supervisor.terminate({
     record: supervised.record,
     terminateGroup: false,
-    signal: "SIGTERM",
-    graceMs: 100,
+    signal: "SIGKILL",
+    graceMs: 0,
   });
   await waitForDead(supervised.pid);
   assert.equal(processIsAlive(descendantPID), true);
