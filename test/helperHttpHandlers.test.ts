@@ -181,12 +181,16 @@ test("public build logs handler preserves bearer precedence and sanitization", (
 });
 
 test("non-GET extracted handlers preserve request-metadata short circuit", () => {
-  const request = {
+  const request: {
+    method: string;
+    readonly url: string;
+    readonly headers: Record<string, unknown>;
+  } = {
     method: "POST",
-    get url() {
+    get url(): string {
       throw new Error("URL must not be read");
     },
-    get headers() {
+    get headers(): Record<string, unknown> {
       throw new Error("headers must not be read");
     },
   };
