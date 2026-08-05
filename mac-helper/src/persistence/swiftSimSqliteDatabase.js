@@ -20,6 +20,7 @@ export const SWIFT_SIM_SQLITE_MIGRATIONS = Object.freeze([
         record_count INTEGER NOT NULL CHECK (record_count >= 0)
       ) STRICT`,
     ]),
+    requiredTables: Object.freeze(["legacy_import_checkpoints"]),
   }),
 ]);
 
@@ -65,8 +66,7 @@ export class SwiftSimSqliteDatabase {
       const health = this.health();
       if (!health.ok) throw databaseHealthError(health);
     } catch (error) {
-      this.#database.close();
-      this.#closed = true;
+      this.#closeFailClosed();
       throw error;
     }
   }
@@ -158,20 +158,24 @@ export class SwiftSimSqliteDatabase {
     }
     this.#database.exec("BEGIN IMMEDIATE");
     this.#transactionActive = true;
+    let closeAfterFailure = false;
     try {
       const result = operation();
       if (isPromiseLike(result)) {
+        observePromiseRejection(result);
+        closeAfterFailure = true;
         throw new Error("Swift Sim SQLite transactions must be synchronous.");
       }
       this.#database.exec("COMMIT");
       return result;
     } catch (error) {
+      let rollbackFailed = false;
       try {
         this.#database.exec("ROLLBACK");
       } catch {
-        // Preserve the owning operation error. Integrity checks expose a failed
-        // rollback separately before any later cutover can proceed.
+        rollbackFailed = true;
       }
+      if (closeAfterFailure || rollbackFailed) this.#closeFailClosed();
       throw error;
     } finally {
       this.#transactionActive = false;
@@ -185,6 +189,18 @@ export class SwiftSimSqliteDatabase {
     const journalMode = firstPragmaValue(this.#database.prepare("PRAGMA journal_mode").get());
     const foreignKeys =
       Number(firstPragmaValue(this.#database.prepare("PRAGMA foreign_keys").get())) === 1;
+    const foreignKeyViolations = this.#database.prepare("PRAGMA foreign_key_check").all().length;
+    const existingTables = new Set(
+      this.#database
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+        .all()
+        .map(parseSchemaTableName),
+    );
+    const requiredTables = [
+      "schema_migrations",
+      ...this.#migrations.flatMap((migration) => migration.requiredTables),
+    ];
+    const missingTables = requiredTables.filter((tableName) => !existingTables.has(tableName));
     const schemaVersion = requiredIntegerColumn(
       this.#database
         .prepare("SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations")
@@ -197,42 +213,43 @@ export class SwiftSimSqliteDatabase {
       "count",
       "SQLite migration count",
     );
-    const existingTables = new Set(
-      this.#database
-        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table'")
-        .all()
-        .map(parseTableNameRow),
-    );
-    const requiredTables = this.#migrations.flatMap(
-      (migration) => migration.requiredTables || [],
-    );
-    const missingTables = [...new Set(requiredTables.filter((name) => !existingTables.has(name)))].sort(
-      compareStrings,
-    );
     const latestSchemaVersion = this.#migrations.at(-1)?.version || 0;
     return {
       ok:
         integrity === "ok" &&
         journalMode === "wal" &&
         foreignKeys &&
+        foreignKeyViolations === 0 &&
+        missingTables.length === 0 &&
         schemaVersion === latestSchemaVersion &&
-        migrationsApplied === latestSchemaVersion &&
-        missingTables.length === 0,
+        migrationsApplied === latestSchemaVersion,
       path: this.#path,
       integrity,
       journalMode,
       foreignKeys,
+      foreignKeyViolations,
+      missingTables,
       schemaVersion,
       latestSchemaVersion,
       migrationsApplied,
-      missingTables,
     };
   }
 
   close() {
     if (this.#closed) return;
-    this.#database.close();
     this.#closed = true;
+    this.#database.close();
+  }
+
+  #closeFailClosed() {
+    if (this.#closed) return;
+    this.#closed = true;
+    try {
+      this.#database.close();
+    } catch {
+      // The wrapper remains permanently closed even if the native close path
+      // itself reports an error. No later operation may reuse uncertain state.
+    }
   }
 
   #assertOpen() {
@@ -249,14 +266,17 @@ function databaseHealthError(health) {
     failures.push(`journal_mode=${health.journalMode || "unknown"}`);
   }
   if (!health.foreignKeys) failures.push("foreign_keys=off");
+  if (health.foreignKeyViolations > 0) {
+    failures.push(`foreign_key_violations=${health.foreignKeyViolations}`);
+  }
+  if (health.missingTables.length > 0) {
+    failures.push(`missing_tables=${health.missingTables.join("|")}`);
+  }
   if (health.schemaVersion !== health.latestSchemaVersion) {
     failures.push(`schema_version=${health.schemaVersion}/${health.latestSchemaVersion}`);
   }
   if (health.migrationsApplied !== health.latestSchemaVersion) {
     failures.push(`migration_count=${health.migrationsApplied}/${health.latestSchemaVersion}`);
-  }
-  if (health.missingTables.length > 0) {
-    failures.push(`missing_tables=${health.missingTables.join("|")}`);
   }
   return new Error(
     `Swift Sim SQLite database at ${health.path} failed health checks (${failures.join(", ")}). ` +
@@ -271,8 +291,7 @@ function validateMigrations(migrations) {
   /** @type {SchemaMigration[]} */
   const validated = [];
   const names = new Set();
-  /** @type {Set<string>} */
-  const requiredTableNames = new Set();
+  const requiredTableNames = new Set(["schema_migrations"]);
   for (const migration of migrations) {
     if (!migration || migration.version !== expectedVersion) {
       throw new Error(
@@ -292,29 +311,26 @@ function validateMigrations(migrations) {
       requireNonEmptyString(statement, `SQLite migration ${migration.version} statement`),
     );
     const rawRequiredTables = /** @type {unknown} */ (migration.requiredTables);
-    /** @type {readonly string[] | undefined} */
-    let requiredTables;
-    if (rawRequiredTables !== undefined) {
-      if (!Array.isArray(rawRequiredTables)) {
-        throw new Error(`SQLite migration ${migration.version} requiredTables must be an array.`);
-      }
-      const values = /** @type {unknown[]} */ (rawRequiredTables).map((tableName) =>
-        requireNonEmptyString(tableName, `SQLite migration ${migration.version} required table`),
-      );
-      for (const tableName of values) {
-        if (requiredTableNames.has(tableName)) {
-          throw new Error(`Duplicate SQLite required table: ${tableName}.`);
-        }
-        requiredTableNames.add(tableName);
-      }
-      requiredTables = Object.freeze(values);
+    if (!Array.isArray(rawRequiredTables)) {
+      throw new Error(`SQLite migration ${migration.version} requiredTables must be an array.`);
     }
+    const requiredTables = /** @type {unknown[]} */ (rawRequiredTables).map((tableName) => {
+      const validatedName = requireNonEmptyString(
+        tableName,
+        `SQLite migration ${migration.version} required table`,
+      );
+      if (requiredTableNames.has(validatedName)) {
+        throw new Error(`Duplicate required SQLite table: ${validatedName}.`);
+      }
+      requiredTableNames.add(validatedName);
+      return validatedName;
+    });
     validated.push(
       Object.freeze({
         version: migration.version,
         name,
         statements: Object.freeze(statements),
-        ...(requiredTables === undefined ? {} : { requiredTables }),
+        requiredTables: Object.freeze(requiredTables),
       }),
     );
     names.add(name);
@@ -341,13 +357,13 @@ function parseAppliedMigrationRow(row) {
 }
 
 /** @param {unknown} row */
-function parseTableNameRow(row) {
+function parseSchemaTableName(row) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
-    throw new Error("SQLite returned an invalid table-name row.");
+    throw new Error("SQLite returned an invalid schema-table row.");
   }
   return requireNonEmptyString(
     /** @type {Record<string, unknown>} */ (row).name,
-    "SQLite table name",
+    "SQLite schema table name",
   );
 }
 
@@ -359,9 +375,7 @@ function migrationChecksum(migration) {
         version: migration.version,
         name: migration.name,
         statements: [...migration.statements],
-        ...(migration.requiredTables === undefined
-          ? {}
-          : { requiredTables: [...migration.requiredTables] }),
+        requiredTables: [...migration.requiredTables],
       }),
     )
     .digest("hex");
@@ -402,16 +416,14 @@ function firstPragmaValue(row) {
   return String(value ?? "");
 }
 
-/** @param {string} left @param {string} right */
-function compareStrings(left, right) {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-}
-
-/** @param {unknown} value */
+/** @param {unknown} value @returns {value is PromiseLike<unknown>} */
 function isPromiseLike(value) {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false;
   const candidate = /** @type {{ then?: unknown }} */ (value);
   return typeof candidate.then === "function";
+}
+
+/** @param {PromiseLike<unknown>} value */
+function observePromiseRejection(value) {
+  void Promise.resolve(value).catch(() => undefined);
 }
