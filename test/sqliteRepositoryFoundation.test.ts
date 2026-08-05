@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import type { SchemaMigration } from "../mac-helper/src/contracts/repository.js";
 import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
 import {
@@ -12,7 +12,7 @@ import {
 
 const APPLIED_AT = "2026-08-05T14:00:00.000Z";
 
-async function temporaryDatabasePath(t: test.TestContext) {
+async function temporaryDatabasePath(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), "swift-sim-sqlite-foundation-"));
   t.after(async () => rm(root, { recursive: true, force: true }));
   return join(root, "swift-sim.sqlite");
@@ -31,12 +31,14 @@ test("database migrates on open, reports health, and reopens idempotently", asyn
     latestSchemaVersion: 1,
     migrationsApplied: 1,
   });
-  const applied = first
-    .prepare("SELECT version, name, applied_at FROM schema_migrations ORDER BY version")
-    .all();
+  const applied = plainRows(
+    first.prepare("SELECT version, name, applied_at FROM schema_migrations ORDER BY version").all(),
+  );
   assert.deepEqual(applied, [
     { version: 1, name: "legacy_import_checkpoints", applied_at: APPLIED_AT },
   ]);
+  const checksumRow = first.prepare("SELECT checksum FROM schema_migrations WHERE version = 1").get();
+  assert.match(String(recordValue(checksumRow, "checksum")), /^[a-f0-9]{64}$/);
   first.close();
   first.close();
 
@@ -47,7 +49,7 @@ test("database migrates on open, reports health, and reopens idempotently", asyn
   t.after(() => reopened.close());
   assert.equal(reopened.health().migrationsApplied, 1);
   assert.deepEqual(
-    reopened.prepare("SELECT version, name, applied_at FROM schema_migrations").all(),
+    plainRows(reopened.prepare("SELECT version, name, applied_at FROM schema_migrations").all()),
     applied,
   );
 });
@@ -161,7 +163,7 @@ test("failed migrations roll back their schema and do not record a version", asy
   const recovered = new SwiftSimSqliteDatabase({ path });
   t.after(() => recovered.close());
   assert.deepEqual(
-    recovered.prepare("SELECT version, name FROM schema_migrations ORDER BY version").all(),
+    plainRows(recovered.prepare("SELECT version, name FROM schema_migrations ORDER BY version").all()),
     [{ version: 1, name: "legacy_import_checkpoints" }],
   );
   assert.equal(
@@ -172,9 +174,47 @@ test("failed migrations roll back their schema and do not record a version", asy
   );
 });
 
-test("migration history drift and invalid checkpoint values fail closed", async (t) => {
+test("migration history name, body, and sequence drift fail closed", async (t) => {
+  const namePath = await temporaryDatabasePath(t);
+  const nameDatabase = new SwiftSimSqliteDatabase({ path: namePath });
+  nameDatabase.prepare("UPDATE schema_migrations SET name = ? WHERE version = 1").run("drifted");
+  nameDatabase.close();
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path: namePath }),
+    /recorded as drifted, expected legacy_import_checkpoints/,
+  );
+
+  const bodyPath = await temporaryDatabasePath(t);
+  const bodyDatabase = new SwiftSimSqliteDatabase({ path: bodyPath });
+  bodyDatabase.close();
+  const changedBody: readonly SchemaMigration[] = [
+    {
+      ...SWIFT_SIM_SQLITE_MIGRATIONS[0],
+      statements: [
+        ...SWIFT_SIM_SQLITE_MIGRATIONS[0].statements,
+        "CREATE TABLE changed_body_probe(id INTEGER PRIMARY KEY) STRICT",
+      ],
+    },
+  ];
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path: bodyPath, migrations: changedBody }),
+    /checksum does not match/,
+  );
+
+  const sequencePath = await temporaryDatabasePath(t);
+  const sequenceDatabase = new SwiftSimSqliteDatabase({ path: sequencePath });
+  sequenceDatabase.prepare("UPDATE schema_migrations SET version = 2 WHERE version = 1").run();
+  sequenceDatabase.close();
+  assert.throws(
+    () => new SwiftSimSqliteDatabase({ path: sequencePath }),
+    /non-contiguous; expected version 1, found 2/,
+  );
+});
+
+test("invalid checkpoint values fail before SQLite mutation", async (t) => {
   const path = await temporaryDatabasePath(t);
   const database = new SwiftSimSqliteDatabase({ path });
+  t.after(() => database.close());
   const checkpoints = new SqliteLegacyImportCheckpointRepository(database);
   assert.throws(
     () =>
@@ -187,11 +227,14 @@ test("migration history drift and invalid checkpoint values fail closed", async 
       }),
     /non-negative safe integer/,
   );
-  database.prepare("UPDATE schema_migrations SET name = ? WHERE version = 1").run("drifted");
-  database.close();
-
-  assert.throws(
-    () => new SwiftSimSqliteDatabase({ path }),
-    /recorded as drifted, expected legacy_import_checkpoints/,
-  );
+  assert.equal(checkpoints.get("bad.json"), null);
 });
+
+function plainRows(rows: unknown): unknown {
+  return JSON.parse(JSON.stringify(rows));
+}
+
+function recordValue(row: unknown, key: string): unknown {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return undefined;
+  return (row as Record<string, unknown>)[key];
+}
