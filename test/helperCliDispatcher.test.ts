@@ -38,12 +38,8 @@ function services(overrides: Record<string, unknown> = {}) {
 
 function runtimeFactories(events: string[]) {
   return {
-    ensureStateDirectory() {
-      events.push("state-directory");
-      return "/tmp/.swift-sim";
-    },
-    createPairingStore() {
-      events.push("pairing-store");
+    createStateRootStore() {
+      events.push("state-root");
       const pairing = {
         token: "token",
         installationID: "installation",
@@ -134,15 +130,15 @@ test("helper CLI extraction owns only the declared one-shot commands", async () 
 
 test("runtime composition constructs only the selected command owners", () => {
   const cases: Array<[string, string[]]> = [
-    ["pair", ["state-directory", "pairing-store", "pairing-invite-store"]],
-    ["list-apps", ["state-directory", "device-build-store"]],
-    ["archive-app", ["state-directory", "device-build-store"]],
+    ["pair", ["state-root", "pairing-invite-store"]],
+    ["list-apps", ["state-root", "device-build-store"]],
+    ["archive-app", ["state-root", "device-build-store"]],
     [
       "verify-device-build",
-      ["state-directory", "device-build-store", "device-inventory"],
+      ["state-root", "device-build-store", "device-inventory"],
     ],
-    ["device-delivery-status", ["state-directory", "device-delivery"]],
-    ["device-delivery-stop", ["state-directory", "device-delivery"]],
+    ["device-delivery-status", ["state-root", "device-delivery"]],
+    ["device-delivery-stop", ["state-root", "device-delivery"]],
     ["serve-sim-info", ["serve-sim"]],
   ];
 
