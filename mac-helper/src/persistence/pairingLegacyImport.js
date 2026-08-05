@@ -135,9 +135,7 @@ export class PairingLegacyImportCoordinator {
       importedAt: requireTimestamp(this.#now(), "Pairing legacy importedAt"),
       recordCount,
     };
-    const backups = sources
-      .map((source) => source.backupPath)
-      .filter((path) => path !== null);
+    const backups = sources.map((source) => source.backupPath).filter((path) => path !== null);
 
     const existingProjectionHash = projectionHashFor(this.#pairingRepository.read());
     if (existingProjectionHash === projectionHash) {
@@ -328,7 +326,9 @@ function withLocksSync(lockManager, requests, operation, index = 0) {
 
 /** @param {LockRequest} left @param {LockRequest} right */
 function compareLockPaths(left, right) {
-  return left.path.localeCompare(right.path);
+  if (left.path < right.path) return -1;
+  if (left.path > right.path) return 1;
+  return 0;
 }
 
 /** @param {LegacySource} source @param {string} label */
