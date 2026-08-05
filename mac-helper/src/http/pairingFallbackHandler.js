@@ -99,7 +99,7 @@ export function handlePairingFallbackRequest(
 }
 
 /**
- * @param {import("./helperRequestContext.js").HelperRequestContext} context
+ * @param {NonNullable<ReturnType<typeof createHelperRequestContext>>} context
  * @param {RequestOriginPolicyPort} originPolicy
  */
 function externalBaseURL(context, originPolicy) {
