@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type {
   LegacyImportCheckpoint,
   LegacyImportCheckpointRepository,
-  PairingStateSnapshot,
 } from "../mac-helper/src/contracts/repository.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../mac-helper/src/infrastructure/nodeLockManager.js";
@@ -134,14 +133,17 @@ test("imports a locked pairing snapshot with immutable content-addressed backups
     recordCount: 2,
   });
   assert.deepEqual(
-    await Promise.all(first.backups.map((path) => readFile(path, "utf8"))),
+    first.backups.map((path) => harness.fileStore.readTextSync(path)),
     [credentialRaw, invitationsRaw],
   );
   assert.equal((await readdir(harness.backupDirectory)).length, 2);
 
   const second = harness.coordinator().run();
   assert.equal(second.status, "already-current");
-  assert.deepEqual(second, first);
+  assert.equal(second.sourceRevision, first.sourceRevision);
+  assert.equal(second.projectionHash, first.projectionHash);
+  assert.equal(second.recordCount, first.recordCount);
+  assert.deepEqual(second.backups, first.backups);
   assert.equal((await readdir(harness.backupDirectory)).length, 2);
 });
 
@@ -234,7 +236,7 @@ test("invalid JSON is backed up before parsing and cannot change SQLite state", 
     harness.backupDirectory,
     `invitations-pairing-invites.json.${digest(invalidRaw)}.bak`,
   );
-  assert.equal(await readFile(invalidBackup, "utf8"), invalidRaw);
+  assert.equal(harness.fileStore.readTextSync(invalidBackup), invalidRaw);
   assert.equal(first.status, "applied");
 });
 
