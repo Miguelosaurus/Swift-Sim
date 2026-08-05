@@ -125,9 +125,6 @@ export interface PairingAuthorityCutoverEvidence {
 export interface PairingAuthorityRepository {
   current(): PairingAuthorityState;
   activateSqlite(evidence: PairingAuthorityCutoverEvidence): PairingAuthorityState;
-  rollbackToLegacy(input: {
-    sourceRevision: string;
-    rolledBackAt: string;
-  }): PairingAuthorityState;
+  rollbackToLegacy(input: { sourceRevision: string; rolledBackAt: string }): PairingAuthorityState;
   finalizeSqlite(input: { finalizedAt: string }): PairingAuthorityState;
 }

@@ -268,11 +268,7 @@ function requireSafeInteger(value, label) {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
     return value;
   }
-  if (
-    typeof value === "bigint" &&
-    value >= 0n &&
-    value <= BigInt(Number.MAX_SAFE_INTEGER)
-  ) {
+  if (typeof value === "bigint" && value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER)) {
     return Number(value);
   }
   throw new Error(`${label} must be a non-negative safe integer.`);
