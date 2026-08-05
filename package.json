@@ -39,7 +39,7 @@
     "check:node": "bash scripts/check-node-version.sh",
     "check:source": "node scripts/check-js-syntax.js && npm run check:architecture && npm run check:docs",
     "check:types": "tsc --noEmit --project tsconfig.json",
-    "check:format": "prettier --check eslint.config.js tsconfig.json package.json \"mac-helper/src/contracts/**/*.ts\" \"mac-helper/src/infrastructure/**/*.{js,ts}\" \"test/**/*.ts\"",
+    "check:format": "prettier --check eslint.config.js tsconfig.json package.json \"mac-helper/src/contracts/**/*.ts\" \"mac-helper/src/infrastructure/**/*.{js,ts}\" \"test/**/*.ts\" || (echo '--- NODE COMMAND RUNNER ---' && prettier mac-helper/src/infrastructure/nodeCommandRunner.js && echo '--- COMMAND RUNNER TEST ---' && prettier test/commandRunnerAdapter.test.ts && false)",
     "check:lint": "eslint eslint.config.js mac-helper/src/contracts mac-helper/src/infrastructure test --ext .js,.ts",
     "check:package": "npm run build && bash scripts/verify-package-content.sh && bash scripts/verify-package-install.sh && bash scripts/verify-homebrew-package.sh",
     "check:compiled": "npm run build && node --test --test-concurrency=1 dist/test/contracts.test.js dist/test/infrastructurePorts.test.js dist/test/foundationAdapters.test.js dist/test/originDelegation.test.js dist/test/persistenceAdapters.test.js dist/test/lockManagerAdapter.test.js dist/test/artifactLoggerAdapters.test.js dist/test/commandRunnerAdapter.test.js && bash scripts/verify-hermetic-compiled.sh && bash scripts/verify-compiled-runtime.sh",
