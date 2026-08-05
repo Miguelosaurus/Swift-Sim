@@ -69,10 +69,7 @@ export class PairingCutoverCoordinator {
     this.#authorityRepository = requireAuthorityRepository(authorityRepository);
     this.#snapshotReader = requireSnapshotReader(snapshotReader);
     this.#importApplier = requireImportApplier(importApplier);
-    if (typeof now !== "function") {
-      throw new Error("Pairing cutover clock must be a function.");
-    }
-    this.#now = now;
+    this.#now = requireSynchronousFunction(now, "Pairing cutover clock");
   }
 
   /** @param {PairingCutoverRequest} request @returns {Readonly<PairingCutoverResult>} */
@@ -129,7 +126,11 @@ export class PairingCutoverCoordinator {
     }
 
     requirePreparedState(current, request);
-    const imported = normalizeImportResult(this.#importApplier.apply(lockedSnapshot));
+    const rawImportResult = this.#importApplier.apply(lockedSnapshot);
+    if (isThenable(rawImportResult)) {
+      throw new Error("Pairing legacy import must complete synchronously.");
+    }
+    const imported = normalizeImportResult(rawImportResult);
     if (
       imported.sourceRevision !== locked.sourceRevision ||
       imported.projectionHash !== locked.projectionHash
@@ -137,7 +138,11 @@ export class PairingCutoverCoordinator {
       throw new Error("Pairing import result does not match the locked legacy snapshot.");
     }
 
-    const cutoverAt = requireCanonicalTimestamp(this.#now(), "Pairing cutoverAt");
+    const rawNow = this.#now();
+    if (isThenable(rawNow)) {
+      throw new Error("Pairing cutover clock must complete synchronously.");
+    }
+    const cutoverAt = requireCanonicalTimestamp(rawNow, "Pairing cutoverAt");
     const rollbackExpiresAt = addMilliseconds(
       cutoverAt,
       request.rollbackWindowMs,
@@ -310,9 +315,11 @@ function requireSnapshotReader(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Pairing locked snapshot reader is required.");
   }
-  if (typeof (/** @type {Record<string, unknown>} */ (value)).withLockedSnapshot !== "function") {
+  const operation = (/** @type {Record<string, unknown>} */ (value)).withLockedSnapshot;
+  if (typeof operation !== "function") {
     throw new Error("Pairing locked snapshot reader must implement withLockedSnapshot().");
   }
+  requireSynchronousFunction(operation, "Pairing locked snapshot reader");
   return /** @type {LockedSnapshotReader} */ (value);
 }
 
@@ -321,9 +328,11 @@ function requireImportApplier(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Pairing legacy import applier is required.");
   }
-  if (typeof (/** @type {Record<string, unknown>} */ (value)).apply !== "function") {
+  const operation = (/** @type {Record<string, unknown>} */ (value)).apply;
+  if (typeof operation !== "function") {
     throw new Error("Pairing legacy import applier must implement apply().");
   }
+  requireSynchronousFunction(operation, "Pairing legacy import applier");
   return /** @type {LegacyImportApplier} */ (value);
 }
 
@@ -345,6 +354,17 @@ function addMilliseconds(timestamp, milliseconds, label) {
   } catch (error) {
     throw new Error(`${label} is outside the supported date range.`, { cause: error });
   }
+}
+
+/** @template {Function} T @param {unknown} value @param {string} label @returns {T} */
+function requireSynchronousFunction(value, label) {
+  if (typeof value !== "function") {
+    throw new Error(`${label} must be a function.`);
+  }
+  if (value.constructor?.name === "AsyncFunction") {
+    throw new Error(`${label} must be synchronous.`);
+  }
+  return /** @type {T} */ (value);
 }
 
 /** @param {unknown} value @param {string} label */

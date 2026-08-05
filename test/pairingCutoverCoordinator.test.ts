@@ -258,19 +258,42 @@ test("request, clock, import, activation, and synchronous-boundary failures stay
   assert.throws(() => invalidClock.run(REQUEST), /canonical UTC timestamp/);
   assert.deepEqual(invalidClockAuthority.state(), preparingState(1));
 
+  const asyncImportAuthority = authorityHarness(preparingState(1), [], () => true);
+  const asyncImport = new PairingCutoverCoordinator({
+    authorityRepository: asyncImportAuthority.repository,
+    snapshotReader: immediateSnapshotReader(),
+    importApplier: {
+      apply() {
+        return Promise.resolve(importResult("applied"));
+      },
+    } as unknown as { apply: () => ReturnType<typeof importResult> },
+  });
+  assert.throws(() => asyncImport.run(REQUEST), /import must complete synchronously/);
+  assert.deepEqual(asyncImportAuthority.state(), preparingState(1));
+
+  const asyncClockAuthority = authorityHarness(preparingState(1), [], () => true);
+  const asyncClock = new PairingCutoverCoordinator({
+    authorityRepository: asyncClockAuthority.repository,
+    snapshotReader: immediateSnapshotReader(),
+    importApplier: { apply: () => importResult("applied") },
+    now: (() => Promise.resolve(CUTOVER_AT)) as unknown as () => string,
+  });
+  assert.throws(() => asyncClock.run(REQUEST), /clock must complete synchronously/);
+  assert.deepEqual(asyncClockAuthority.state(), preparingState(1));
+
   const asyncBoundary = new PairingCutoverCoordinator({
     authorityRepository: authorityHarness(preparingState(1), [], () => false).repository,
     snapshotReader: {
       withLockedSnapshot() {
         return Promise.resolve("escaped");
       },
-    },
+    } as unknown as ReturnType<typeof immediateSnapshotReader>,
     importApplier: { apply: () => importResult("applied") },
   });
   assert.throws(() => asyncBoundary.run(REQUEST), /must complete synchronously/);
 });
 
-test("constructor rejects missing structural dependencies", () => {
+test("constructor rejects missing or explicitly asynchronous structural dependencies", () => {
   const authority = authorityHarness(legacyState(0), [], () => false).repository;
   assert.throws(
     () =>
@@ -298,6 +321,42 @@ test("constructor rejects missing structural dependencies", () => {
         importApplier: {} as { apply: () => ReturnType<typeof importResult> },
       }),
     /must implement apply/,
+  );
+  assert.throws(
+    () =>
+      new PairingCutoverCoordinator({
+        authorityRepository: authority,
+        snapshotReader: {
+          async withLockedSnapshot() {
+            return "escaped";
+          },
+        } as unknown as ReturnType<typeof immediateSnapshotReader>,
+        importApplier: { apply: () => importResult("applied") },
+      }),
+    /snapshot reader must be synchronous/,
+  );
+  assert.throws(
+    () =>
+      new PairingCutoverCoordinator({
+        authorityRepository: authority,
+        snapshotReader: immediateSnapshotReader(),
+        importApplier: {
+          async apply() {
+            return importResult("applied");
+          },
+        } as unknown as { apply: () => ReturnType<typeof importResult> },
+      }),
+    /import applier must be synchronous/,
+  );
+  assert.throws(
+    () =>
+      new PairingCutoverCoordinator({
+        authorityRepository: authority,
+        snapshotReader: immediateSnapshotReader(),
+        importApplier: { apply: () => importResult("applied") },
+        now: (async () => CUTOVER_AT) as unknown as () => string,
+      }),
+    /clock must be synchronous/,
   );
 });
 
