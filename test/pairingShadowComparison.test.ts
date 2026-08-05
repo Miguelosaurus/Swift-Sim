@@ -135,7 +135,10 @@ test("mismatches persist deterministic redacted evidence and coalesce observatio
 
   const reopened = openStores(path);
   t.after(() => reopened.database.close());
-  assert.deepEqual(reopened.repository.get(backwardClock.evidence!.mismatchID), backwardClock.evidence);
+  assert.deepEqual(
+    reopened.repository.get(backwardClock.evidence!.mismatchID),
+    backwardClock.evidence,
+  );
   assert.equal(reopened.database.health().schemaVersion, 3);
 });
 

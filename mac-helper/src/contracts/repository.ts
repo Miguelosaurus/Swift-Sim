@@ -62,10 +62,7 @@ export interface PairingStateRepository {
 }
 
 export type PairingShadowSurface = "credential" | "invitation";
-export type PairingShadowProjection =
-  | PairingCredentialRecord
-  | PairingInvitationRecord
-  | null;
+export type PairingShadowProjection = PairingCredentialRecord | PairingInvitationRecord | null;
 
 export interface PairingShadowMismatchObservation {
   mismatchID: string;

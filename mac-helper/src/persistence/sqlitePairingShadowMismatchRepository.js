@@ -63,9 +63,7 @@ export class SqlitePairingShadowMismatchRepository {
 
   /** @param {string} mismatchID @returns {PairingShadowMismatchEvidence | null} */
   get(mismatchID) {
-    const row = this.#getStatement.get(
-      requireHash(mismatchID, "Pairing shadow mismatchID"),
-    );
+    const row = this.#getStatement.get(requireHash(mismatchID, "Pairing shadow mismatchID"));
     return row ? mapEvidenceRow(row) : null;
   }
 
@@ -114,14 +112,9 @@ function validateObservation(observation) {
     "Pairing shadow sqliteProjectionHash",
   );
   if (legacyProjectionHash === sqliteProjectionHash) {
-    throw new Error(
-      "Pairing shadow mismatch observation must contain different projections.",
-    );
+    throw new Error("Pairing shadow mismatch observation must contain different projections.");
   }
-  const mismatchID = requireHash(
-    values.mismatchID,
-    "Pairing shadow mismatchID",
-  );
+  const mismatchID = requireHash(values.mismatchID, "Pairing shadow mismatchID");
   const expectedMismatchID = pairingShadowMismatchID({
     surface,
     keyHash,
@@ -129,9 +122,7 @@ function validateObservation(observation) {
     sqliteProjectionHash,
   });
   if (mismatchID !== expectedMismatchID) {
-    throw new Error(
-      "Pairing shadow mismatchID does not match its redacted projections.",
-    );
+    throw new Error("Pairing shadow mismatchID does not match its redacted projections.");
   }
   return {
     mismatchID,
@@ -139,10 +130,7 @@ function validateObservation(observation) {
     keyHash,
     legacyProjectionHash,
     sqliteProjectionHash,
-    observedAt: requireTimestamp(
-      values.observedAt,
-      "Pairing shadow observedAt",
-    ),
+    observedAt: requireTimestamp(values.observedAt, "Pairing shadow observedAt"),
   };
 }
 
@@ -158,9 +146,7 @@ function mapEvidenceRow(row) {
     !Number.isSafeInteger(observationCount) ||
     observationCount < 1
   ) {
-    throw new Error(
-      "Pairing shadow observationCount must be a positive safe integer.",
-    );
+    throw new Error("Pairing shadow observationCount must be a positive safe integer.");
   }
   const surface = requireSurface(values.surface);
   const keyHash = requireHash(values.key_hash, "Pairing shadow keyHash");
@@ -173,14 +159,9 @@ function mapEvidenceRow(row) {
     "Pairing shadow sqliteProjectionHash",
   );
   if (legacyProjectionHash === sqliteProjectionHash) {
-    throw new Error(
-      "SQLite returned matching pairing shadow projections as a mismatch.",
-    );
+    throw new Error("SQLite returned matching pairing shadow projections as a mismatch.");
   }
-  const mismatchID = requireHash(
-    values.mismatch_id,
-    "Pairing shadow mismatchID",
-  );
+  const mismatchID = requireHash(values.mismatch_id, "Pairing shadow mismatchID");
   if (
     mismatchID !==
     pairingShadowMismatchID({
@@ -190,22 +171,15 @@ function mapEvidenceRow(row) {
       sqliteProjectionHash,
     })
   ) {
-    throw new Error(
-      "SQLite returned pairing shadow evidence with an invalid mismatchID.",
-    );
+    throw new Error("SQLite returned pairing shadow evidence with an invalid mismatchID.");
   }
   const firstObservedAt = requireTimestamp(
     values.first_observed_at,
     "Pairing shadow firstObservedAt",
   );
-  const lastObservedAt = requireTimestamp(
-    values.last_observed_at,
-    "Pairing shadow lastObservedAt",
-  );
+  const lastObservedAt = requireTimestamp(values.last_observed_at, "Pairing shadow lastObservedAt");
   if (lastObservedAt < firstObservedAt) {
-    throw new Error(
-      "Pairing shadow lastObservedAt cannot precede firstObservedAt.",
-    );
+    throw new Error("Pairing shadow lastObservedAt cannot precede firstObservedAt.");
   }
   return {
     mismatchID,

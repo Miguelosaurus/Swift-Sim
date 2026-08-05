@@ -21,10 +21,7 @@ export class PairingShadowComparator {
    * }} options
    */
   constructor({ mismatchRepository, now = () => new Date().toISOString() }) {
-    if (
-      !mismatchRepository ||
-      typeof mismatchRepository.observe !== "function"
-    ) {
+    if (!mismatchRepository || typeof mismatchRepository.observe !== "function") {
       throw new Error("Pairing shadow mismatch repository is required.");
     }
     this.#mismatchRepository = mismatchRepository;
@@ -48,9 +45,7 @@ export class PairingShadowComparator {
     const validatedSurface = requireSurface(surface);
     const validatedLegacy = validateProjection(validatedSurface, legacy);
     const validatedSqlite = validateProjection(validatedSurface, sqlite);
-    const keyHash = sha256(
-      requireNonEmptyString(key, "Pairing shadow comparison key"),
-    );
+    const keyHash = sha256(requireNonEmptyString(key, "Pairing shadow comparison key"));
     const legacyProjectionHash = projectionHash(validatedLegacy);
     const sqliteProjectionHash = projectionHash(validatedSqlite);
     if (legacyProjectionHash === sqliteProjectionHash) {
@@ -138,11 +133,7 @@ function projectionHash(projection) {
 
 /** @param {unknown} value @returns {unknown} */
 function canonicalize(value) {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
     return value;
   }
   if (typeof value === "number") {
