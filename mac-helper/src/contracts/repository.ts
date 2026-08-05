@@ -1,7 +1,4 @@
-import type {
-  PairingCredentialRecord,
-  PairingInvitationRecord,
-} from "./pairing.js";
+import type { PairingCredentialRecord, PairingInvitationRecord } from "./pairing.js";
 
 export interface SchemaMigration {
   version: number;
@@ -46,20 +43,17 @@ export interface LegacyImportCheckpointRepository extends SynchronousRepositoryT
   upsert(checkpoint: LegacyImportCheckpoint): void;
 }
 
-export interface PairingStateSnapshot {
-  credential: PairingCredentialRecord | null;
-  invitations: readonly PairingInvitationRecord[];
+export interface PairingCredentialRepository {
+  get(installationID: string): PairingCredentialRecord | null;
+  list(): PairingCredentialRecord[];
+  upsert(record: PairingCredentialRecord): void;
+  replaceAll(records: readonly PairingCredentialRecord[]): void;
 }
 
-/**
- * Owns an entire normalized pairing snapshot. Replacement is atomic: callers
- * cannot publish a credential without its matching invitation set or leave a
- * partially replaced invitation collection behind.
- */
-export interface PairingStateRepository {
-  read(): PairingStateSnapshot;
-  replace(snapshot: PairingStateSnapshot): void;
-  getCredential(installationID: string): PairingCredentialRecord | null;
-  getInvitation(id: string): PairingInvitationRecord | null;
-  findInvitationByInviteHash(inviteHash: string): PairingInvitationRecord | null;
+export interface PairingInvitationRepository {
+  get(id: string): PairingInvitationRecord | null;
+  findByInviteHash(inviteHash: string): PairingInvitationRecord | null;
+  list(): PairingInvitationRecord[];
+  upsert(record: PairingInvitationRecord): void;
+  replaceAll(records: readonly PairingInvitationRecord[]): void;
 }
