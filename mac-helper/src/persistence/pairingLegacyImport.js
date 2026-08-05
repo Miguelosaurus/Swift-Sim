@@ -221,10 +221,10 @@ export class PairingLegacyImportCoordinator {
       this.#fileStore.writeTextSync(backupPath, loaded.raw, BACKUP_WRITE_OPTIONS);
     } catch (error) {
       if (!hasErrorCode(error, "EEXIST")) throw error;
-      const existing = this.#fileStore.readTextSync(backupPath);
-      if (existing !== loaded.raw) {
-        throw new Error(`Pairing legacy backup content mismatch: ${backupPath}.`);
-      }
+    }
+    const persisted = this.#fileStore.readTextSync(backupPath);
+    if (persisted !== loaded.raw) {
+      throw new Error(`Pairing legacy backup content mismatch: ${backupPath}.`);
     }
     loaded.backupPath = backupPath;
   }

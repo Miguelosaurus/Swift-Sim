@@ -25,6 +25,7 @@ const CREDENTIAL = Object.freeze({
 
 test("pairing legacy locks use locale-independent bytewise path order", () => {
   const lockOrder: string[] = [];
+  let backupReadCount = 0;
   let pairingState: PairingStateSnapshot = { credential: null, invitations: [] };
   const checkpoints = new Map<string, LegacyImportCheckpoint>();
   const files = new Map<string, string>([
@@ -72,6 +73,7 @@ test("pairing legacy locks use locale-independent bytewise path order", () => {
       return this.readTextSync(path);
     },
     readTextSync(path) {
+      if (path.startsWith("/backups/")) backupReadCount += 1;
       const value = files.get(path);
       if (value === undefined) throw missingFileError(path);
       return value;
@@ -140,6 +142,7 @@ test("pairing legacy locks use locale-independent bytewise path order", () => {
   coordinator.run();
 
   assert.deepEqual(lockOrder, ["/Z.lock", "/a.lock"]);
+  assert.equal(backupReadCount, 2);
 });
 
 function writeFile(
