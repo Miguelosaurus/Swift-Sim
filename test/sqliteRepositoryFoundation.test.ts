@@ -340,10 +340,7 @@ test("foreign-key violations fail closed even when integrity_check is clean", as
     INSERT INTO foreign_key_child(id, parent_id) VALUES (1, 999);`);
   corrupter.close();
 
-  assert.throws(
-    () => new SwiftSimSqliteDatabase({ path }),
-    /foreign_key_violations=1/,
-  );
+  assert.throws(() => new SwiftSimSqliteDatabase({ path }), /foreign_key_violations=1/);
 });
 
 test("invalid checkpoint values fail before SQLite mutation", async (t) => {
