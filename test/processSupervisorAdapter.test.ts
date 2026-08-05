@@ -4,13 +4,19 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  kernelProcessIdentity,
+  liveEngineProcessRecordIsCurrent,
+  prepareKernelProcessIdentity,
+} from "../mac-helper/src/liveEngineOwnershipPreload.js";
+import {
+  ownedWorkerProcessState,
+  prepareOwnedWorkerProcessIdentity,
+  requiredOwnedWorkerProcessRecord,
+} from "../mac-helper/src/ownedWorkerIdentity.js";
 import { NodeProcessSupervisor } from "../mac-helper/src/infrastructure/nodeProcessSupervisor.js";
 import { NodeRuntimeJournalStore } from "../mac-helper/src/infrastructure/nodeRuntimeJournalStore.js";
-import type {
-  ProcessRole,
-  RuntimeJournalStore,
-  SpawnRequest,
-} from "../mac-helper/src/infrastructure/ports.js";
+import type { RuntimeJournalStore } from "../mac-helper/src/infrastructure/ports.js";
 
 const runtime = {
   spawn,
@@ -18,9 +24,29 @@ const runtime = {
   signal: process.kill.bind(process),
 };
 
+const identity = {
+  prepareWorker: prepareOwnedWorkerProcessIdentity,
+  workerRecord: requiredOwnedWorkerProcessRecord,
+  workerState: ownedWorkerProcessState,
+  prepareKernel: prepareKernelProcessIdentity,
+  kernelIdentity: kernelProcessIdentity,
+  liveEngineCurrent: liveEngineProcessRecordIsCurrent,
+};
+
 function environment(overrides: Record<string, string | undefined> = {}) {
   return { inherit: [], overrides, unset: [] } as const;
 }
+
+test("NodeProcessSupervisor requires explicit runtime and identity authorities", () => {
+  assert.throws(
+    () => new NodeProcessSupervisor({ runtime: undefined as never, identity }),
+    /requires an explicit process runtime/,
+  );
+  assert.throws(
+    () => new NodeProcessSupervisor({ runtime, identity: undefined as never }),
+    /requires a process identity authority/,
+  );
+});
 
 test("NodeProcessSupervisor rolls back a spawned worker when journal publication fails", async () => {
   let spawnedPID = 0;
@@ -38,6 +64,7 @@ test("NodeProcessSupervisor rolls back a spawned worker when journal publication
         return child;
       },
     },
+    identity,
     journalStore: failingJournal,
   });
 
@@ -64,7 +91,7 @@ test("NodeProcessSupervisor publishes and terminates a strong worker process gro
   const descendantPath = join(workspace, "descendant.pid");
   const journalPath = join(workspace, "worker.json");
   const journal = new NodeRuntimeJournalStore();
-  const supervisor = new NodeProcessSupervisor({ runtime, journalStore: journal });
+  const supervisor = new NodeProcessSupervisor({ runtime, identity, journalStore: journal });
 
   const supervised = supervisor.spawn({
     role: "worker",
@@ -94,7 +121,7 @@ test("NodeProcessSupervisor gives weak delivery records exact-PID authority only
   const workspace = await mkdtemp(join(tmpdir(), "swift-sim-supervisor-delivery-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
   const descendantPath = join(workspace, "descendant.pid");
-  const supervisor = new NodeProcessSupervisor({ runtime });
+  const supervisor = new NodeProcessSupervisor({ runtime, identity });
 
   const supervised = supervisor.spawn({
     role: "manager",
@@ -123,7 +150,7 @@ test("NodeProcessSupervisor gives weak delivery records exact-PID authority only
 test("NodeProcessSupervisor publishes a nonce-bound live-engine record", async (t) => {
   const workspace = await mkdtemp(join(tmpdir(), "swift-sim-supervisor-engine-"));
   t.after(async () => rm(workspace, { recursive: true, force: true }));
-  const supervisor = new NodeProcessSupervisor({ runtime });
+  const supervisor = new NodeProcessSupervisor({ runtime, identity });
 
   const supervised = supervisor.spawn({
     role: "live-engine",
@@ -195,7 +222,7 @@ test("NodeProcessSupervisor refuses SIGKILL escalation after identity replacemen
 });
 
 test("NodeProcessSupervisor classifies invalid, replaced, and unverifiable records", () => {
-  const supervisor = new NodeProcessSupervisor({ runtime });
+  const supervisor = new NodeProcessSupervisor({ runtime, identity });
   assert.deepEqual(supervisor.inspect({ pid: 1 } as never), { state: "invalid" });
 
   const replaced = {
@@ -210,6 +237,7 @@ test("NodeProcessSupervisor classifies invalid, replaced, and unverifiable recor
       ...runtime,
       spawnSync: (() => ({ status: 1, stdout: "" })) as typeof spawnSync,
     },
+    identity,
   });
   assert.equal(unverifiableSupervisor.inspect(replaced).state, "unverifiable");
 });
@@ -277,5 +305,3 @@ function journalStore(overrides: Partial<RuntimeJournalStore>): RuntimeJournalSt
 function hasCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
-
-void (null as unknown as SpawnRequest<ProcessRole>);
