@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   normalizePairingShadowProjection,
@@ -178,6 +179,22 @@ test("shadow import is transactional, deterministic, and exactly idempotent", as
   assert.equal(changedRevision.importedAt, UPDATED_IMPORTED_AT);
   assert.equal(clockCalls, 2);
   assert.equal(stores.checkpoints.get("pairing-json")?.sourceRevision, "legacy-revision-2");
+
+  const projectionBeforeConflict = importer.read();
+  const checkpointBeforeConflict = stores.checkpoints.get("pairing-json");
+  assert.throws(
+    () =>
+      importer.import({
+        source: "pairing-json",
+        sourceRevision: "legacy-revision-2",
+        credential: CREDENTIAL,
+        invitations: [INVITATION_A],
+      }),
+    /already recorded with a different projection/,
+  );
+  assert.equal(clockCalls, 2);
+  assert.deepEqual(importer.read(), projectionBeforeConflict);
+  assert.deepEqual(stores.checkpoints.get("pairing-json"), checkpointBeforeConflict);
 });
 
 test("read-back mismatch rolls back rows and checkpoint evidence", async (t) => {
@@ -231,6 +248,21 @@ test("read-back mismatch rolls back rows and checkpoint evidence", async (t) => 
   );
   assert.deepEqual(baselineImporter.read(), baselineProjection);
   assert.deepEqual(stores.checkpoints.get("pairing-json"), baselineCheckpoint);
+});
+
+test("database refuses pairing schema with a missing required table", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const stores = openRepositories(path);
+  stores.database.close();
+
+  const raw = new DatabaseSync(path);
+  try {
+    raw.exec("DROP TABLE pairing_invitations");
+  } finally {
+    raw.close();
+  }
+
+  assert.throws(() => openRepositories(path), /missing_tables=pairing_invitations/);
 });
 
 test("invalid projections and foreign-key violations fail closed", async (t) => {
