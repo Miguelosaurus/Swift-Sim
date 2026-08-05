@@ -225,7 +225,10 @@ test("stale transition requests cannot act on a later authority epoch", async (t
     cutoverAt: "2026-08-07T18:00:00.000Z",
     rollbackExpiresAt: "2026-08-14T18:00:00.000Z",
   };
-  assert.deepEqual(stores.repository.activateSqlite(secondCutover), rollbackState(secondCutover, 3));
+  assert.deepEqual(
+    stores.repository.activateSqlite(secondCutover),
+    rollbackState(secondCutover, 3),
+  );
   assert.throws(
     () =>
       stores.repository.rollbackToLegacy({
