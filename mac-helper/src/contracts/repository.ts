@@ -1,3 +1,5 @@
+import type { PairingCredentialRecord } from "./pairing.js";
+
 export interface SchemaMigration {
   version: number;
   name: string;
@@ -32,4 +34,13 @@ export interface LegacyImportCheckpointRepository {
   get(source: string): LegacyImportCheckpoint | null;
   list(): LegacyImportCheckpoint[];
   upsert(checkpoint: LegacyImportCheckpoint): void;
+}
+
+export interface PairingCredentialRepository {
+  get(): PairingCredentialRecord | null;
+  replace(record: PairingCredentialRecord): void;
+}
+
+export interface RepositoryTransactionOwner {
+  transaction<T>(operation: () => T): T;
 }
