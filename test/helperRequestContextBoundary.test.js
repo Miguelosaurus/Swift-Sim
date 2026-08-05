@@ -83,3 +83,39 @@ test("public build capability authorization preserves bearer precedence over que
   assert.equal(response.status, 200);
   assert.match(response.body, /build-1/);
 });
+
+test("non-GET compatibility handlers do not touch URL or header metadata", () => {
+  const request = {
+    method: "POST",
+    get url() {
+      throw new Error("URL must not be read");
+    },
+    get headers() {
+      throw new Error("headers must not be read");
+    },
+  };
+  const response = responseRecorder();
+  const unusedPairingStore = {
+    current: () => {
+      throw new Error("pairing store must not be read");
+    },
+    tokenMatches: () => false,
+  };
+
+  assert.equal(
+    handlePairingFallback(request, response, unusedPairingStore, {}, {}),
+    false,
+  );
+  assert.equal(
+    handlePublicBuildLogs(request, response, {
+      pairingStore: { tokenMatches: () => false },
+      deviceBuildStore: {
+        get: () => {
+          throw new Error("build store must not be read");
+        },
+      },
+    }),
+    false,
+  );
+  assert.equal(response.status, 0);
+});
