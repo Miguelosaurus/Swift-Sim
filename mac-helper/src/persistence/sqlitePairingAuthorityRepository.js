@@ -169,10 +169,7 @@ function mapAuthorityRow(row) {
     throw new Error("SQLite returned no pairing authority state.");
   }
   const values = /** @type {Record<string, unknown>} */ (row);
-  const revision = Number(values.revision);
-  if (!Number.isSafeInteger(revision) || revision < 0) {
-    throw new Error("SQLite returned an invalid pairing authority revision.");
-  }
+  const revision = requireSafeInteger(values.revision, "Pairing authority revision");
   if (values.mode === "legacy") {
     requireNullEvidence(values, "legacy");
     return {
@@ -261,9 +258,24 @@ function requireOneChange(result, action) {
     throw new Error(`Could not ${action} because SQLite returned no change result.`);
   }
   const values = /** @type {Record<string, unknown>} */ (result);
-  if (Number(values.changes) !== 1) {
+  if (requireSafeInteger(values.changes, "SQLite change count") !== 1) {
     throw new Error(`Could not ${action} because the authority revision changed.`);
   }
+}
+
+/** @param {unknown} value @param {string} label */
+function requireSafeInteger(value, label) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  if (
+    typeof value === "bigint" &&
+    value >= 0n &&
+    value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  throw new Error(`${label} must be a non-negative safe integer.`);
 }
 
 /** @param {unknown} value @param {string} label */
