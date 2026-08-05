@@ -122,13 +122,16 @@ export interface PairingAuthorityCutoverEvidence {
   rollbackExpiresAt: string;
 }
 
+export interface PairingAuthorityReader {
+  current(): PairingAuthorityState;
+}
+
 /**
  * Persists only the source-of-truth decision. Every transition is bound to the
  * authority revision observed by its caller so stale recovery work cannot act
  * on a later cutover epoch.
  */
-export interface PairingAuthorityRepository {
-  current(): PairingAuthorityState;
+export interface PairingAuthorityRepository extends PairingAuthorityReader {
   activateSqlite(evidence: PairingAuthorityCutoverEvidence): PairingAuthorityState;
   rollbackToLegacy(input: {
     expectedRevision: number;

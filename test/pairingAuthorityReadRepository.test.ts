@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import type {
-  PairingAuthorityRepository,
+  PairingAuthorityReader,
   PairingAuthorityState,
   PairingStateReader,
 } from "../mac-helper/src/contracts/repository.js";
@@ -61,7 +61,7 @@ test("legacy authority routes every read to legacy without exposing a writer", (
   const calls: string[] = [];
   let authorityReads = 0;
   const repository = new PairingAuthorityReadRepository({
-    authorityRepository: authorityRepository(() => {
+    authorityReader: authorityReader(() => {
       authorityReads += 1;
       return LEGACY_AUTHORITY;
     }),
@@ -92,7 +92,7 @@ test("each operation re-reads authority and routes both SQLite modes to SQLite",
   let authority: PairingAuthorityState = ROLLBACK_AUTHORITY;
   let authorityReads = 0;
   const repository = new PairingAuthorityReadRepository({
-    authorityRepository: authorityRepository(() => {
+    authorityReader: authorityReader(() => {
       authorityReads += 1;
       return authority;
     }),
@@ -122,7 +122,7 @@ test("selected backend failure propagates without a dual-read fallback", () => {
     throw new Error("sqlite unavailable");
   };
   const repository = new PairingAuthorityReadRepository({
-    authorityRepository: authorityRepository(() => ROLLBACK_AUTHORITY),
+    authorityReader: authorityReader(() => ROLLBACK_AUTHORITY),
     legacyReader: pairingReader("legacy", calls),
     sqliteReader,
   });
@@ -144,9 +144,7 @@ test("malformed authority fails before either backend is called", () => {
     { ...LEGACY_AUTHORITY, mode: "unknown" },
   ]) {
     const repository = new PairingAuthorityReadRepository({
-      authorityRepository: authorityRepository(
-        () => authority as unknown as PairingAuthorityState,
-      ),
+      authorityReader: authorityReader(() => authority as unknown as PairingAuthorityState),
       legacyReader,
       sqliteReader,
     });
@@ -155,7 +153,7 @@ test("malformed authority fails before either backend is called", () => {
   assert.deepEqual(calls, []);
 });
 
-test("constructor validates distinct complete readers and authority failures stay fail-closed", () => {
+test("constructor validates narrow authority and distinct complete readers", () => {
   const calls: string[] = [];
   const legacyReader = pairingReader("legacy", calls);
   const sqliteReader = pairingReader("sqlite", calls);
@@ -163,7 +161,7 @@ test("constructor validates distinct complete readers and authority failures sta
   assert.throws(
     () =>
       new PairingAuthorityReadRepository({
-        authorityRepository: authorityRepository(() => LEGACY_AUTHORITY),
+        authorityReader: authorityReader(() => LEGACY_AUTHORITY),
         legacyReader,
         sqliteReader: legacyReader,
       }),
@@ -172,7 +170,7 @@ test("constructor validates distinct complete readers and authority failures sta
   assert.throws(
     () =>
       new PairingAuthorityReadRepository({
-        authorityRepository: authorityRepository(() => LEGACY_AUTHORITY),
+        authorityReader: authorityReader(() => LEGACY_AUTHORITY),
         legacyReader: {
           read() {
             return { credential: null, invitations: [] };
@@ -182,9 +180,18 @@ test("constructor validates distinct complete readers and authority failures sta
       }),
     /must implement getCredential/,
   );
+  assert.throws(
+    () =>
+      new PairingAuthorityReadRepository({
+        authorityReader: {} as PairingAuthorityReader,
+        legacyReader,
+        sqliteReader,
+      }),
+    /must implement current/,
+  );
 
   const repository = new PairingAuthorityReadRepository({
-    authorityRepository: authorityRepository(() => {
+    authorityReader: authorityReader(() => {
       throw new Error("authority unavailable");
     }),
     legacyReader,
@@ -209,19 +216,8 @@ test("authority normalization returns a canonical immutable copy", () => {
   );
 });
 
-function authorityRepository(current: () => PairingAuthorityState): PairingAuthorityRepository {
-  return {
-    current,
-    activateSqlite() {
-      throw new Error("not used by read repository");
-    },
-    rollbackToLegacy() {
-      throw new Error("not used by read repository");
-    },
-    finalizeSqlite() {
-      throw new Error("not used by read repository");
-    },
-  };
+function authorityReader(current: () => PairingAuthorityState): PairingAuthorityReader {
+  return { current };
 }
 
 function pairingReader(name: string, calls: string[]): PairingStateReader {

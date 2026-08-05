@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {import("../contracts/repository.js").PairingAuthorityRepository} PairingAuthorityRepository */
+/** @typedef {import("../contracts/repository.js").PairingAuthorityReader} PairingAuthorityReader */
 /** @typedef {import("../contracts/repository.js").PairingAuthorityState} PairingAuthorityState */
 /** @typedef {import("../contracts/repository.js").PairingStateReader} PairingStateReader */
 
@@ -12,8 +12,8 @@ const PAIRING_READER_METHODS = Object.freeze([
 ]);
 
 export class PairingAuthorityReadRepository {
-  /** @type {PairingAuthorityRepository} */
-  #authorityRepository;
+  /** @type {PairingAuthorityReader} */
+  #authorityReader;
   /** @type {PairingStateReader} */
   #legacyReader;
   /** @type {PairingStateReader} */
@@ -21,7 +21,7 @@ export class PairingAuthorityReadRepository {
 
   /**
    * @param {{
-   *   authorityRepository: PairingAuthorityRepository,
+   *   authorityReader: PairingAuthorityReader,
    *   legacyReader: PairingStateReader,
    *   sqliteReader: PairingStateReader,
    * }} options
@@ -30,7 +30,7 @@ export class PairingAuthorityReadRepository {
     if (!options || typeof options !== "object" || Array.isArray(options)) {
       throw new Error("Pairing authority read repository options must be an object.");
     }
-    this.#authorityRepository = requireAuthorityRepository(options.authorityRepository);
+    this.#authorityReader = requireAuthorityReader(options.authorityReader);
     this.#legacyReader = requirePairingStateReader(options.legacyReader, "Legacy pairing reader");
     this.#sqliteReader = requirePairingStateReader(options.sqliteReader, "SQLite pairing reader");
     if (this.#legacyReader === this.#sqliteReader) {
@@ -59,7 +59,7 @@ export class PairingAuthorityReadRepository {
 
   /** @returns {PairingStateReader} */
   #selectedReader() {
-    const authority = normalizePairingAuthorityState(this.#authorityRepository.current());
+    const authority = normalizePairingAuthorityState(this.#authorityReader.current());
     return authority.mode === "legacy" ? this.#legacyReader : this.#sqliteReader;
   }
 }
@@ -139,16 +139,16 @@ export function normalizePairingAuthorityState(value) {
   });
 }
 
-/** @param {unknown} value @returns {PairingAuthorityRepository} */
-function requireAuthorityRepository(value) {
+/** @param {unknown} value @returns {PairingAuthorityReader} */
+function requireAuthorityReader(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Pairing authority repository must be an object.");
+    throw new Error("Pairing authority reader must be an object.");
   }
-  const repository = /** @type {Record<string, unknown>} */ (value);
-  if (typeof repository.current !== "function") {
-    throw new Error("Pairing authority repository must implement current().");
+  const reader = /** @type {Record<string, unknown>} */ (value);
+  if (typeof reader.current !== "function") {
+    throw new Error("Pairing authority reader must implement current().");
   }
-  return /** @type {PairingAuthorityRepository} */ (value);
+  return /** @type {PairingAuthorityReader} */ (value);
 }
 
 /** @param {unknown} value @param {string} label @returns {PairingStateReader} */
