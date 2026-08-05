@@ -130,7 +130,7 @@ Verify:
 
 Validate the checkpoint metrics where practical:
 
-- 92 production source files;
+- 95 production source files;
 - 9 production TypeScript files;
 - 10 named ports;
 - 30 preload/runtime-patch modules;
