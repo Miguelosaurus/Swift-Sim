@@ -29,14 +29,12 @@ class ResponseRecorder {
 }
 
 test("credential shadow observer compares SQLite without changing legacy authority", () => {
-  let compared:
-    | {
-        surface: "credential";
-        key: string;
-        legacy: PairingCredentialRecord;
-        sqlite: PairingCredentialRecord | null;
-      }
-    | null = null;
+  let compared: {
+    surface: "credential";
+    key: string;
+    legacy: PairingCredentialRecord;
+    sqlite: PairingCredentialRecord | null;
+  } | null = null;
   const expected: PairingShadowComparisonResult = {
     matched: true,
     surface: "credential",

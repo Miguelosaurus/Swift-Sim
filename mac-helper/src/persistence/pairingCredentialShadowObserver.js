@@ -60,9 +60,7 @@ export class PairingCredentialShadowObserver {
   observeCredential(legacyCredential) {
     try {
       const credential = parsePairingCredential(legacyCredential);
-      const sqliteCredential = this.#pairingRepository.getCredential(
-        credential.installationID,
-      );
+      const sqliteCredential = this.#pairingRepository.getCredential(credential.installationID);
       return this.#comparator.compare({
         surface: "credential",
         key: credential.installationID,
