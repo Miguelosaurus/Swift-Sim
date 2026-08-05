@@ -21,7 +21,7 @@ const ACTIVE_BUILD_STATES = new Set([
  * }} DeliveryCleanupJob
  * @typedef {{
  *   id: string,
- *   state?: unknown,
+ *   state?: string,
  *   expiresAt?: string,
  *   delivery?: DeliveryReference,
  *   capabilities?: Array<{
@@ -30,7 +30,7 @@ const ACTIVE_BUILD_STATES = new Set([
  *   }>,
  *   pendingRenewal?: { id?: unknown },
  * }} DeliveryBuild
- * @typedef {{ generation: string, references?: unknown[] }} DeliveryStatus
+ * @typedef {{ generation: string, references?: string[] }} DeliveryStatus
  * @typedef {{
  *   listDeliveryReferenceCleanupJobs(): DeliveryCleanupJob[],
  *   completeDeliveryReferenceCleanupJob(jobID: string): unknown,
@@ -46,6 +46,7 @@ const ACTIVE_BUILD_STATES = new Set([
  *   deviceDelivery: DeliveryMaintenanceAdapter,
  *   now?: number,
  * }} DeliveryMaintenanceOptions
+ * @typedef {DeliveryMaintenanceOptions | (() => DeliveryMaintenanceOptions)} DeliveryMaintenanceInput
  */
 
 /**
@@ -110,7 +111,7 @@ export class DeliveryMaintenanceCoordinator {
           if (build.pendingRenewal?.id) {
             liveReferences.add(`renewal:${build.pendingRenewal.id}`);
           }
-          if (ACTIVE_BUILD_STATES.has(build.state)) {
+          if (ACTIVE_BUILD_STATES.has(build.state || "")) {
             liveReferences.add(`build:${build.id}`);
           }
         }
@@ -119,9 +120,7 @@ export class DeliveryMaintenanceCoordinator {
           for (const referenceID of Array.isArray(status.references) ? status.references : []) {
             if (!isManagedReference(referenceID) || liveReferences.has(referenceID)) continue;
             try {
-              deviceDelivery.stopGeneration(status.generation, {
-                referenceID: String(referenceID),
-              });
+              deviceDelivery.stopGeneration(status.generation, { referenceID });
             } catch {
               // A later maintenance pass retries surviving state. Never make
               // helper startup depend on best-effort orphan reconciliation.
@@ -135,12 +134,18 @@ export class DeliveryMaintenanceCoordinator {
     return this.#reconciliationPromise;
   }
 
-  /** @param {DeliveryMaintenanceOptions} options */
-  runOnce(options) {
+  /**
+   * @param {DeliveryMaintenanceInput} input
+   *
+   * A provider is resolved separately for reconciliation and cleanup, matching
+   * the compatibility wrapper's historical default timestamp behavior.
+   */
+  runOnce(input) {
     if (this.#maintenancePromise) return this.#maintenancePromise;
+    const options = typeof input === "function" ? input : () => input;
     this.#maintenancePromise = Promise.resolve()
-      .then(() => this.reconcileReferencesOnce(options))
-      .then(() => this.drainCleanupJobsOnce(options))
+      .then(() => this.reconcileReferencesOnce(options()))
+      .then(() => this.drainCleanupJobsOnce(options()))
       .finally(() => {
         this.#maintenancePromise = undefined;
       });
