@@ -187,11 +187,13 @@ test("migration history name, body, and sequence drift fail closed", async (t) =
   const bodyPath = await temporaryDatabasePath(t);
   const bodyDatabase = new SwiftSimSqliteDatabase({ path: bodyPath });
   bodyDatabase.close();
+  const initialMigration = SWIFT_SIM_SQLITE_MIGRATIONS[0];
+  assert.ok(initialMigration);
   const changedBody: readonly SchemaMigration[] = [
     {
-      ...SWIFT_SIM_SQLITE_MIGRATIONS[0],
+      ...initialMigration,
       statements: [
-        ...SWIFT_SIM_SQLITE_MIGRATIONS[0].statements,
+        ...initialMigration.statements,
         "CREATE TABLE changed_body_probe(id INTEGER PRIMARY KEY) STRICT",
       ],
     },
