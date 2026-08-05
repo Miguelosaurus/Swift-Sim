@@ -37,6 +37,7 @@ export interface CommandRunner {
 }
 
 export type ProcessRole = "worker" | "live-engine" | "gateway" | "manager" | "tunnel";
+export type DeliveryProcessRole = Exclude<ProcessRole, "worker" | "live-engine">;
 export type GroupOwnedProcessRecord = OwnedWorkerProcessRecord | LiveEngineProcessRecord;
 export type SupervisedProcessRecord = DeliveryProcessIdentity | GroupOwnedProcessRecord;
 
@@ -46,15 +47,37 @@ export type ProcessRecordForRole<Role extends ProcessRole> = Role extends "worke
     ? LiveEngineProcessRecord
     : DeliveryProcessIdentity;
 
-export interface SpawnRequest<Role extends ProcessRole = ProcessRole> {
+interface SpawnRequestCommon<Role extends ProcessRole> {
   executable: string;
   args: readonly string[];
   cwd?: string;
   environment: CommandEnvironmentPolicy;
-  processGroup: "inherit" | "new";
   journalPath: string;
   role: Role;
 }
+
+export type WorkerSpawnRequest = SpawnRequestCommon<"worker"> & {
+  processGroup: "new";
+  command: string;
+};
+
+export type LiveEngineSpawnRequest = SpawnRequestCommon<"live-engine"> & {
+  processGroup: "new";
+};
+
+export type DeliverySpawnRequest<Role extends DeliveryProcessRole = DeliveryProcessRole> =
+  SpawnRequestCommon<Role> & {
+    processGroup: "inherit" | "new";
+    commandFragments: readonly string[];
+  };
+
+export type SpawnRequest<Role extends ProcessRole = ProcessRole> = Role extends "worker"
+  ? WorkerSpawnRequest
+  : Role extends "live-engine"
+    ? LiveEngineSpawnRequest
+    : Role extends DeliveryProcessRole
+      ? DeliverySpawnRequest<Role>
+      : never;
 
 export interface SupervisedProcess<Role extends ProcessRole = ProcessRole> {
   pid: number;
@@ -134,7 +157,7 @@ export interface LockManager {
   withLockSync<T>(request: LockRequest, operation: (lease: LockLease) => T): T;
 }
 
-export type RuntimeJournalRecord = GroupOwnedProcessRecord | RuntimeJournal;
+export type RuntimeJournalRecord = SupervisedProcessRecord | RuntimeJournal;
 
 export interface RuntimeJournalStore {
   publish(path: string, record: RuntimeJournalRecord): Promise<void>;
