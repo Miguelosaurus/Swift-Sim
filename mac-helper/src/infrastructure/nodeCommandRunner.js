@@ -1,8 +1,5 @@
 // @ts-check
-import {
-  terminateOwnedProcess,
-  waitForOwnedProcessExit,
-} from "./nodeProcessControl.js";
+import { terminateOwnedProcess, waitForOwnedProcessExit } from "./nodeProcessControl.js";
 
 /** @typedef {import("../contracts/command.js").CommandResult} CommandResult */
 /** @typedef {import("./ports.js").CommandEnvironmentPolicy} CommandEnvironmentPolicy */
@@ -113,13 +110,7 @@ export class NodeCommandRunner {
         ...(result.signal ? { signal: result.signal } : {}),
       };
     }
-    return completedResult(
-      normalized,
-      result.status,
-      output.stdout,
-      output.stderr,
-      result.signal,
-    );
+    return completedResult(normalized, result.status, output.stdout, output.stderr, result.signal);
   }
 }
 
@@ -333,7 +324,11 @@ function commandEnvironment(policy) {
   }
   const inherit = normalizedEnvironmentNames(policy.inherit, "inherited environment names");
   const unset = new Set(normalizedEnvironmentNames(policy.unset, "unset environment names"));
-  if (!policy.overrides || typeof policy.overrides !== "object" || Array.isArray(policy.overrides)) {
+  if (
+    !policy.overrides ||
+    typeof policy.overrides !== "object" ||
+    Array.isArray(policy.overrides)
+  ) {
     throw new TypeError("Command environment overrides must be an object.");
   }
   /** @type {Record<string, string>} */
