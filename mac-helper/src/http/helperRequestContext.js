@@ -35,10 +35,7 @@ import { URL } from "node:url";
  * @param {{ defaultHost?: string }} [options]
  * @returns {HelperRequestContext | null}
  */
-export function createHelperRequestContext(
-  request,
-  { defaultHost = "127.0.0.1" } = {},
-) {
+export function createHelperRequestContext(request, { defaultHost = "127.0.0.1" } = {}) {
   if (typeof defaultHost !== "string" || defaultHost.length === 0) {
     throw new TypeError("Helper request context requires a non-empty default host.");
   }
@@ -57,12 +54,8 @@ export function createHelperRequestContext(
   const bearerToken = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice(7).trim()
     : "";
-  const forwardedHostHeader = normalizedRequestHeader(
-    request?.headers?.["x-forwarded-host"],
-  );
-  const forwardedProtoHeader = normalizedRequestHeader(
-    request?.headers?.["x-forwarded-proto"],
-  );
+  const forwardedHostHeader = normalizedRequestHeader(request?.headers?.["x-forwarded-host"]);
+  const forwardedProtoHeader = normalizedRequestHeader(request?.headers?.["x-forwarded-proto"]);
 
   return {
     method: typeof request?.method === "string" ? request.method : "",
