@@ -235,7 +235,10 @@ export class PairingLegacyImportCoordinator {
   #writeAndVerifyCheckpoint(checkpoint) {
     this.#checkpointRepository.upsert(checkpoint);
     const persisted = this.#checkpointRepository.get(checkpoint.source);
-    if (!checkpointMatches(persisted, checkpoint) || persisted?.importedAt !== checkpoint.importedAt) {
+    if (
+      !checkpointMatches(persisted, checkpoint) ||
+      persisted?.importedAt !== checkpoint.importedAt
+    ) {
       throw new Error("Pairing legacy import checkpoint did not persist exactly.");
     }
   }
@@ -250,11 +253,15 @@ function parseLegacySnapshot(credentialSource, invitationSource) {
   if (credentialSource.raw === null) {
     throw new Error("Required pairing credential source was not loaded.");
   }
-  const credential = parsePairingCredential(parseJSON(credentialSource.raw, credentialSource.source));
+  const credential = parsePairingCredential(
+    parseJSON(credentialSource.raw, credentialSource.source),
+  );
   const rawInvitations =
     invitationSource.raw === null ? [] : parseJSON(invitationSource.raw, invitationSource.source);
   if (!Array.isArray(rawInvitations)) {
-    throw new Error(`Pairing legacy invitation source must contain an array: ${invitationSource.source.path}.`);
+    throw new Error(
+      `Pairing legacy invitation source must contain an array: ${invitationSource.source.path}.`,
+    );
   }
   const invitations = rawInvitations.map((value) => parsePairingInvitation(value));
   return normalizePairingStateSnapshot({ credential, invitations });
@@ -372,7 +379,9 @@ function requireNonEmptyString(value, label) {
 /** @param {unknown} value @param {string} label */
 function requireTimestamp(value, label) {
   const timestamp = requireNonEmptyString(value, label);
-  if (!Number.isFinite(Date.parse(timestamp))) throw new Error(`${label} must be a valid timestamp.`);
+  if (!Number.isFinite(Date.parse(timestamp))) {
+    throw new Error(`${label} must be a valid timestamp.`);
+  }
   return timestamp;
 }
 
