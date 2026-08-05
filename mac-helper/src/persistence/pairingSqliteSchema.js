@@ -35,5 +35,6 @@ export const PAIRING_SHADOW_SQLITE_MIGRATIONS = Object.freeze([
       `CREATE INDEX pairing_invitations_installation_id_idx
         ON pairing_invitations(installation_id)`,
     ]),
+    requiredTables: Object.freeze(["pairing_credentials", "pairing_invitations"]),
   }),
 ]);
