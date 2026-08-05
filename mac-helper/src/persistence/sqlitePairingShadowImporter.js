@@ -69,16 +69,26 @@ export class SqlitePairingShadowImporter {
       invitations: input?.invitations,
     });
     const projectionHash = pairingShadowProjectionHash(projection);
-    const importedAt = requireNonEmptyString(this.#now(), "Pairing shadow importedAt");
     const recordCount = pairingShadowProjectionRecordCount(projection);
 
     return this.#database.transaction(() => {
+      const currentCheckpoint = this.#checkpoints.get(source);
+      const currentProjectionHash = pairingShadowProjectionHash(this.read());
+      if (
+        currentCheckpoint?.sourceRevision === sourceRevision &&
+        currentCheckpoint.projectionHash === projectionHash &&
+        currentCheckpoint.recordCount === recordCount &&
+        currentProjectionHash === projectionHash
+      ) {
+        return currentCheckpoint;
+      }
+
+      const importedAt = requireNonEmptyString(this.#now(), "Pairing shadow importedAt");
       this.#invitations.replaceAll([]);
       this.#credentials.replaceAll(projection.credential ? [projection.credential] : []);
       this.#invitations.replaceAll(projection.invitations);
 
-      const stored = this.read();
-      const storedHash = pairingShadowProjectionHash(stored);
+      const storedHash = pairingShadowProjectionHash(this.read());
       if (storedHash !== projectionHash) {
         throw new Error(
           `Pairing shadow projection mismatch: imported ${projectionHash}, read back ${storedHash}.`,
