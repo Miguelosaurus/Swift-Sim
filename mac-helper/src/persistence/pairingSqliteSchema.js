@@ -81,4 +81,58 @@ export const PAIRING_SQLITE_MIGRATIONS = Object.freeze([
     ]),
     requiredTables: Object.freeze(["pairing_shadow_mismatches"]),
   }),
+  Object.freeze({
+    version: 4,
+    name: "pairing_authority_state",
+    statements: Object.freeze([
+      `CREATE TABLE pairing_authority_state (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        mode TEXT NOT NULL CHECK (mode IN ('legacy', 'sqlite-rollback', 'sqlite-final')),
+        source_revision TEXT CHECK (
+          source_revision IS NULL OR (
+            length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'
+          )
+        ),
+        projection_hash TEXT CHECK (
+          projection_hash IS NULL OR (
+            length(projection_hash) = 64 AND projection_hash NOT GLOB '*[^0-9a-f]*'
+          )
+        ),
+        cutover_at TEXT CHECK (cutover_at IS NULL OR length(cutover_at) > 0),
+        rollback_expires_at TEXT CHECK (
+          rollback_expires_at IS NULL OR length(rollback_expires_at) > 0
+        ),
+        finalized_at TEXT CHECK (finalized_at IS NULL OR length(finalized_at) > 0),
+        revision INTEGER NOT NULL CHECK (revision >= 0),
+        CHECK (
+          (
+            mode = 'legacy' AND
+            source_revision IS NULL AND projection_hash IS NULL AND
+            cutover_at IS NULL AND rollback_expires_at IS NULL AND finalized_at IS NULL
+          ) OR
+          (
+            mode = 'sqlite-rollback' AND
+            source_revision IS NOT NULL AND projection_hash IS NOT NULL AND
+            cutover_at IS NOT NULL AND rollback_expires_at IS NOT NULL AND finalized_at IS NULL
+          ) OR
+          (
+            mode = 'sqlite-final' AND
+            source_revision IS NOT NULL AND projection_hash IS NOT NULL AND
+            cutover_at IS NOT NULL AND rollback_expires_at IS NOT NULL AND finalized_at IS NOT NULL
+          )
+        )
+      ) STRICT`,
+      `INSERT INTO pairing_authority_state(
+        singleton,
+        mode,
+        source_revision,
+        projection_hash,
+        cutover_at,
+        rollback_expires_at,
+        finalized_at,
+        revision
+      ) VALUES (1, 'legacy', NULL, NULL, NULL, NULL, NULL, 0)`,
+    ]),
+    requiredTables: Object.freeze(["pairing_authority_state"]),
+  }),
 ]);

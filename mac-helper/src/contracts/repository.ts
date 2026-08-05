@@ -98,3 +98,39 @@ export interface PairingShadowComparisonResult {
   sqliteProjectionHash: string | null;
   evidence: PairingShadowMismatchEvidence | null;
 }
+
+export type PairingAuthorityMode = "legacy" | "sqlite-rollback" | "sqlite-final";
+
+export interface PairingAuthorityState {
+  mode: PairingAuthorityMode;
+  sourceRevision: string | null;
+  projectionHash: string | null;
+  cutoverAt: string | null;
+  rollbackExpiresAt: string | null;
+  finalizedAt: string | null;
+  revision: number;
+}
+
+export interface PairingAuthorityCutoverEvidence {
+  expectedRevision: number;
+  sourceRevision: string;
+  projectionHash: string;
+  cutoverAt: string;
+  rollbackExpiresAt: string;
+}
+
+/**
+ * Persists only the source-of-truth decision. Every transition is bound to the
+ * authority revision observed by its caller so stale recovery work cannot act
+ * on a later cutover epoch.
+ */
+export interface PairingAuthorityRepository {
+  current(): PairingAuthorityState;
+  activateSqlite(evidence: PairingAuthorityCutoverEvidence): PairingAuthorityState;
+  rollbackToLegacy(input: {
+    expectedRevision: number;
+    sourceRevision: string;
+    rolledBackAt: string;
+  }): PairingAuthorityState;
+  finalizeSqlite(input: { expectedRevision: number; finalizedAt: string }): PairingAuthorityState;
+}
