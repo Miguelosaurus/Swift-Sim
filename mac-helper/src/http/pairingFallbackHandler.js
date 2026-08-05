@@ -80,10 +80,7 @@ export function handlePairingFallbackRequest(
       },
       base,
     ).customScheme;
-    writeHelperHtml(
-      response,
-      pairingPage(customScheme, pairing.macName, invitation.expiresAt),
-    );
+    writeHelperHtml(response, pairingPage(customScheme, pairing.macName, invitation.expiresAt));
     return true;
   }
 
