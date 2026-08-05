@@ -98,3 +98,36 @@ export interface PairingShadowComparisonResult {
   sqliteProjectionHash: string | null;
   evidence: PairingShadowMismatchEvidence | null;
 }
+
+export type PairingAuthorityMode = "legacy" | "sqlite-rollback" | "sqlite-final";
+
+export interface PairingAuthorityState {
+  mode: PairingAuthorityMode;
+  sourceRevision: string | null;
+  projectionHash: string | null;
+  cutoverAt: string | null;
+  rollbackExpiresAt: string | null;
+  finalizedAt: string | null;
+  revision: number;
+}
+
+export interface PairingAuthorityCutoverEvidence {
+  sourceRevision: string;
+  projectionHash: string;
+  cutoverAt: string;
+  rollbackExpiresAt: string;
+}
+
+/**
+ * Persists only the source-of-truth decision. Runtime readers and writers must
+ * not infer authority from file existence or database contents.
+ */
+export interface PairingAuthorityRepository {
+  current(): PairingAuthorityState;
+  activateSqlite(evidence: PairingAuthorityCutoverEvidence): PairingAuthorityState;
+  rollbackToLegacy(input: {
+    sourceRevision: string;
+    rolledBackAt: string;
+  }): PairingAuthorityState;
+  finalizeSqlite(input: { finalizedAt: string }): PairingAuthorityState;
+}
