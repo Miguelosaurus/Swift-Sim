@@ -81,8 +81,9 @@ export class SqlitePairingCredentialRepository {
     if (records.length > 1) {
       throw new Error("Pairing shadow state may contain at most one credential.");
     }
+    const credential = records[0] ? parsePairingCredential(records[0]) : null;
     this.#deleteAllStatement.run();
-    if (records[0]) this.upsert(records[0]);
+    if (credential) this.upsert(credential);
   }
 }
 
