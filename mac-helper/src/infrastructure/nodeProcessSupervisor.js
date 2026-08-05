@@ -19,8 +19,14 @@ import { SystemIdGenerator } from "./systemIdGenerator.js";
 /** @typedef {import("./ports.js").ProcessRole} ProcessRole */
 /** @typedef {import("./ports.js").ProcessSupervisor} ProcessSupervisor */
 /** @typedef {import("./ports.js").RuntimeJournalStore} RuntimeJournalStore */
-/** @typedef {import("./ports.js").SpawnRequest} SpawnRequest */
-/** @typedef {import("./ports.js").SupervisedProcess} SupervisedProcess */
+/**
+ * @template {ProcessRole} Role
+ * @typedef {import("./ports.js").SpawnRequest<Role>} SpawnRequest
+ */
+/**
+ * @template {ProcessRole} Role
+ * @typedef {import("./ports.js").SupervisedProcess<Role>} SupervisedProcess
+ */
 /** @typedef {import("./ports.js").SupervisedProcessRecord} SupervisedProcessRecord */
 /** @typedef {import("./ports.js").TerminationRequest} TerminationRequest */
 /** @typedef {import("./ports.js").WorkerSpawnRequest} WorkerSpawnRequest */
@@ -363,14 +369,23 @@ function assertIdentityAuthority(identity) {
 function normalizeSpawnRequest(request) {
   const common = normalizeSpawnCommon(request);
   if (request.role === "worker") {
-    if (request.processGroup !== "new") throw new TypeError("worker processes must own a new process group.");
-    return { ...common, role: "worker", processGroup: "new", command: nonempty(request.command, "Worker command identity") };
+    if (request.processGroup !== "new") {
+      throw new TypeError("worker processes must own a new process group.");
+    }
+    return {
+      ...common,
+      role: "worker",
+      processGroup: "new",
+      command: nonempty(request.command, "Worker command identity"),
+    };
   }
   if (request.role === "live-engine") {
-    if (request.processGroup !== "new") throw new TypeError("live-engine processes must own a new process group.");
+    if (request.processGroup !== "new") {
+      throw new TypeError("live-engine processes must own a new process group.");
+    }
     return { ...common, role: "live-engine", processGroup: "new" };
   }
-  if (!['gateway', 'manager', 'tunnel'].includes(request.role)) {
+  if (!["gateway", "manager", "tunnel"].includes(request.role)) {
     throw new TypeError("The supervised process role is invalid.");
   }
   if (request.processGroup !== "inherit" && request.processGroup !== "new") {
@@ -386,7 +401,9 @@ function normalizeSpawnRequest(request) {
 
 /** @param {AnySpawnRequest} request */
 function normalizeSpawnCommon(request) {
-  if (!request || typeof request !== "object") throw new TypeError("A supervised process request is required.");
+  if (!request || typeof request !== "object") {
+    throw new TypeError("A supervised process request is required.");
+  }
   return {
     executable: nonempty(request.executable, "Process executable"),
     args: strings(request.args, "Process arguments", true),
@@ -398,7 +415,9 @@ function normalizeSpawnCommon(request) {
 
 /** @param {TerminationRequest} request @returns {TerminationRequest} */
 function normalizeTerminationRequest(request) {
-  if (!request || typeof request !== "object") throw new TypeError("A process termination request is required.");
+  if (!request || typeof request !== "object") {
+    throw new TypeError("A process termination request is required.");
+  }
   if (request.signal !== "SIGTERM" && request.signal !== "SIGKILL") {
     throw new TypeError("Process termination signal must be SIGTERM or SIGKILL.");
   }
@@ -458,7 +477,9 @@ function environmentPolicy(policy) {
 
 /** @param {readonly string[]} values */
 function environmentNames(values) {
-  if (!Array.isArray(values)) throw new TypeError("Process environment names must be an array.");
+  if (!Array.isArray(values)) {
+    throw new TypeError("Process environment names must be an array.");
+  }
   return values.map((value) => environmentName(value));
 }
 
@@ -478,7 +499,9 @@ function strings(values, label, allowEmpty = false) {
 
 /** @param {readonly string[]} values @param {string} label */
 function nonemptyStrings(values, label) {
-  if (!Array.isArray(values) || values.length === 0) throw new TypeError(`${label} must contain at least one value.`);
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new TypeError(`${label} must contain at least one value.`);
+  }
   return values.map((value) => nonempty(value, label));
 }
 
@@ -490,26 +513,35 @@ function nonempty(value, label) {
 /** @param {unknown} value @param {string} label @param {boolean} allowEmpty */
 function checkedString(value, label, allowEmpty) {
   if (typeof value !== "string" || (!allowEmpty && !value) || value.includes("\0")) {
-    throw new TypeError(`${label} must be a ${allowEmpty ? "NUL-free" : "non-empty NUL-free"} string.`);
+    throw new TypeError(
+      `${label} must be a ${allowEmpty ? "NUL-free" : "non-empty NUL-free"} string.`,
+    );
   }
   return value;
 }
 
 /** @param {number} value @param {string} label */
 function nonnegativeInteger(value, label) {
-  if (!Number.isInteger(value) || value < 0) throw new RangeError(`${label} must be a nonnegative integer.`);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`${label} must be a nonnegative integer.`);
+  }
   return value;
 }
 
 /** @param {SpawnSyncFunction} implementation @param {number} pid @param {string} field */
 function psValue(implementation, pid, field) {
-  const result = implementation("/bin/ps", ["-p", String(pid), "-o", field], { encoding: "utf8", timeout: 5_000 });
+  const result = implementation("/bin/ps", ["-p", String(pid), "-o", field], {
+    encoding: "utf8",
+    timeout: 5_000,
+  });
   return result.status === 0 ? String(result.stdout || "").trim() : "";
 }
 
 /** @param {import("node:child_process").ChildProcess} child */
 function terminateChild(child) {
-  try { child.kill("SIGKILL"); } catch {}
+  try {
+    child.kill("SIGKILL");
+  } catch {}
 }
 
 /** @param {number} milliseconds */
@@ -529,7 +561,12 @@ function hasCode(error, code) {
 
 /** @param {unknown} error */
 function spawnError(error) {
-  return Object.assign(new Error(`Unable to spawn the supervised process: ${error instanceof Error ? error.message : String(error)}`), { code: "SWIFT_SIM_PROCESS_SPAWN_FAILED" });
+  return Object.assign(
+    new Error(
+      `Unable to spawn the supervised process: ${error instanceof Error ? error.message : String(error)}`,
+    ),
+    { code: "SWIFT_SIM_PROCESS_SPAWN_FAILED" },
+  );
 }
 
 /** @param {string} message */
@@ -539,5 +576,8 @@ function identityError(message) {
 
 /** @param {string} state */
 function identityChangedError(state) {
-  return Object.assign(new Error(`The supervised process identity is ${state}; termination was refused.`), { code: "SWIFT_SIM_PROCESS_IDENTITY_CHANGED" });
+  return Object.assign(
+    new Error(`The supervised process identity is ${state}; termination was refused.`),
+    { code: "SWIFT_SIM_PROCESS_IDENTITY_CHANGED" },
+  );
 }
