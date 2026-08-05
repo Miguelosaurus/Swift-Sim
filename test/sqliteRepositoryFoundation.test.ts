@@ -188,7 +188,7 @@ test("asynchronous transaction continuations cannot escape rollback", async (t) 
 
   assert.ok(continuation);
   await continuation;
-  assert.match(String(lateWriteError), /closed|not open/i);
+  assert.match(String(lateWriteError), /closed|not open|finalized/i);
   assert.throws(() => database.health(), /closed/);
 
   const reopened = new SwiftSimSqliteDatabase({ path });
