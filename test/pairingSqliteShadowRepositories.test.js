@@ -16,12 +16,18 @@ import { SqlitePairingShadowImporter } from "../mac-helper/src/persistence/sqlit
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
 const IMPORTED_AT = "2026-08-05T16:15:00.000Z";
+const UPDATED_IMPORTED_AT = "2026-08-05T16:16:00.000Z";
 const CREDENTIAL = Object.freeze({
   token: "pairing-token",
   installationID: "installation-1",
   macName: "Miguel Mac",
   createdAt: "2026-08-05T16:00:00.000Z",
   updatedAt: "2026-08-05T16:01:00.000Z",
+});
+const OTHER_CREDENTIAL = Object.freeze({
+  ...CREDENTIAL,
+  token: "other-pairing-token",
+  installationID: "installation-2",
 });
 const INVITATION_A = Object.freeze({
   id: "invite-a",
@@ -81,6 +87,12 @@ test("pairing repositories persist normalized records across reopen", async (t) 
     first.invitations.findByInviteHash(INVITATION_B.inviteHash),
     INVITATION_B,
   );
+  assert.throws(
+    () => first.credentials.replaceAll([CREDENTIAL, OTHER_CREDENTIAL]),
+    /at most one credential/,
+  );
+  assert.deepEqual(first.credentials.list(), [CREDENTIAL]);
+  assert.deepEqual(first.invitations.list(), [INVITATION_A, INVITATION_B]);
   first.database.close();
 
   const reopened = openRepositories(path);
@@ -89,16 +101,20 @@ test("pairing repositories persist normalized records across reopen", async (t) 
   assert.deepEqual(reopened.invitations.get(INVITATION_A.id), INVITATION_A);
 });
 
-test("shadow import is transactional, deterministic, and idempotent", async (t) => {
+test("shadow import is transactional, deterministic, and exactly idempotent", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepositories(path);
   t.after(() => stores.database.close());
+  let clockCalls = 0;
   const importer = new SqlitePairingShadowImporter({
     database: stores.database,
     credentials: stores.credentials,
     invitations: stores.invitations,
     checkpoints: stores.checkpoints,
-    now: () => IMPORTED_AT,
+    now: () => {
+      clockCalls += 1;
+      return clockCalls === 1 ? IMPORTED_AT : UPDATED_IMPORTED_AT;
+    },
   });
 
   const first = importer.import({
@@ -109,18 +125,30 @@ test("shadow import is transactional, deterministic, and idempotent", async (t) 
   });
   assert.match(first.projectionHash, /^[a-f0-9]{64}$/);
   assert.equal(first.recordCount, 3);
+  assert.equal(clockCalls, 1);
   assert.deepEqual(importer.read(), {
     credential: CREDENTIAL,
     invitations: [INVITATION_A, INVITATION_B],
   });
 
-  const second = importer.import({
+  const repeated = importer.import({
+    source: "pairing-json",
+    sourceRevision: "legacy-revision-1",
+    credential: CREDENTIAL,
+    invitations: [INVITATION_A, INVITATION_B],
+  });
+  assert.deepEqual(repeated, first);
+  assert.equal(clockCalls, 1);
+
+  const changedRevision = importer.import({
     source: "pairing-json",
     sourceRevision: "legacy-revision-2",
     credential: CREDENTIAL,
     invitations: [INVITATION_A, INVITATION_B],
   });
-  assert.equal(second.projectionHash, first.projectionHash);
+  assert.equal(changedRevision.projectionHash, first.projectionHash);
+  assert.equal(changedRevision.importedAt, UPDATED_IMPORTED_AT);
+  assert.equal(clockCalls, 2);
   assert.equal(stores.checkpoints.get("pairing-json")?.sourceRevision, "legacy-revision-2");
 });
 
@@ -144,6 +172,7 @@ test("read-back mismatch rolls back rows and checkpoint evidence", async (t) => 
   const baselineProjection = baselineImporter.read();
   const baselineCheckpoint = stores.checkpoints.get("pairing-json");
 
+  /** @type {import("../mac-helper/src/contracts/repository.js").PairingInvitationRepository} */
   const corruptingInvitations = {
     get: (id) => stores.invitations.get(id),
     findByInviteHash: (inviteHash) => stores.invitations.findByInviteHash(inviteHash),
@@ -159,7 +188,7 @@ test("read-back mismatch rolls back rows and checkpoint evidence", async (t) => 
     credentials: stores.credentials,
     invitations: corruptingInvitations,
     checkpoints: stores.checkpoints,
-    now: () => "2026-08-05T16:16:00.000Z",
+    now: () => UPDATED_IMPORTED_AT,
   });
 
   assert.throws(
