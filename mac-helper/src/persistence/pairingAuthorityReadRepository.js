@@ -109,19 +109,13 @@ export function normalizePairingAuthorityState(value) {
     );
   }
   const preparationID = requireHash(values.preparationID, "Pairing preparationID");
-  const cutoverAt = requireCanonicalTimestamp(values.cutoverAt, "Pairing cutoverAt");
-  const rollbackExpiresAt = requireCanonicalTimestamp(
-    values.rollbackExpiresAt,
-    "Pairing rollbackExpiresAt",
-  );
-  if (rollbackExpiresAt.time <= cutoverAt.time) {
-    throw new Error("Pairing rollbackExpiresAt must follow cutoverAt.");
-  }
 
   if (values.mode === "legacy-preparing") {
     if (
       values.sourceRevision !== null ||
       values.projectionHash !== null ||
+      values.cutoverAt !== null ||
+      values.rollbackExpiresAt !== null ||
       values.finalizedAt !== null
     ) {
       throw new Error("Pairing preparation cannot contain cutover evidence.");
@@ -131,8 +125,8 @@ export function normalizePairingAuthorityState(value) {
       preparationID,
       sourceRevision: null,
       projectionHash: null,
-      cutoverAt: cutoverAt.value,
-      rollbackExpiresAt: rollbackExpiresAt.value,
+      cutoverAt: null,
+      rollbackExpiresAt: null,
       finalizedAt: null,
       revision,
     });
@@ -140,6 +134,14 @@ export function normalizePairingAuthorityState(value) {
 
   const sourceRevision = requireHash(values.sourceRevision, "Pairing sourceRevision");
   const projectionHash = requireHash(values.projectionHash, "Pairing projectionHash");
+  const cutoverAt = requireCanonicalTimestamp(values.cutoverAt, "Pairing cutoverAt");
+  const rollbackExpiresAt = requireCanonicalTimestamp(
+    values.rollbackExpiresAt,
+    "Pairing rollbackExpiresAt",
+  );
+  if (rollbackExpiresAt.time <= cutoverAt.time) {
+    throw new Error("Pairing rollbackExpiresAt must follow cutoverAt.");
+  }
   if (values.mode === "sqlite-rollback") {
     if (values.finalizedAt !== null) {
       throw new Error("SQLite rollback authority cannot contain finalization evidence.");

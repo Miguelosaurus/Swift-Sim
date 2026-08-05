@@ -15,14 +15,14 @@ import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSq
 const PREPARATION: PairingAuthorityPreparation = Object.freeze({
   expectedRevision: 0,
   preparationID: digest("pairing-cutover-preparation"),
-  cutoverAt: "2026-08-05T18:00:00.000Z",
-  rollbackExpiresAt: "2026-08-12T18:00:00.000Z",
 });
 const EVIDENCE: PairingAuthorityCutoverEvidence = Object.freeze({
   expectedRevision: 1,
   preparationID: PREPARATION.preparationID,
   sourceRevision: digest("legacy-pairing-source"),
   projectionHash: digest("normalized-pairing-projection"),
+  cutoverAt: "2026-08-05T18:00:00.000Z",
+  rollbackExpiresAt: "2026-08-12T18:00:00.000Z",
 });
 
 async function temporaryDatabasePath(t: TestContext) {
@@ -60,8 +60,8 @@ test("v5 migration preserves existing SQLite authority with deterministic prepar
     SET mode = 'sqlite-rollback',
         source_revision = '${EVIDENCE.sourceRevision}',
         projection_hash = '${EVIDENCE.projectionHash}',
-        cutover_at = '${PREPARATION.cutoverAt}',
-        rollback_expires_at = '${PREPARATION.rollbackExpiresAt}',
+        cutover_at = '${EVIDENCE.cutoverAt}',
+        rollback_expires_at = '${EVIDENCE.rollbackExpiresAt}',
         revision = 7
     WHERE singleton = 1`);
   old.close();
@@ -82,7 +82,7 @@ test("v5 migration preserves existing SQLite authority with deterministic prepar
   assert.equal(migrated.database.health().schemaVersion, 5);
 });
 
-test("preparation is revision-fenced, idempotent, persistent, and remains legacy-readable", async (t) => {
+test("preparation is revision-fenced, idempotent, persistent, and has no rollback deadline", async (t) => {
   const path = await temporaryDatabasePath(t);
   const first = openRepository(path);
 
@@ -93,6 +93,8 @@ test("preparation is revision-fenced, idempotent, persistent, and remains legacy
   const prepared = first.repository.prepareSqlite(PREPARATION);
   assert.deepEqual(prepared, preparingState(PREPARATION, 1));
   assert.deepEqual(first.repository.prepareSqlite(PREPARATION), prepared);
+  assert.equal(prepared.cutoverAt, null);
+  assert.equal(prepared.rollbackExpiresAt, null);
   assert.throws(
     () =>
       first.repository.prepareSqlite({
@@ -108,7 +110,7 @@ test("preparation is revision-fenced, idempotent, persistent, and remains legacy
   assert.deepEqual(reopened.repository.current(), prepared);
 });
 
-test("preparation rejects malformed identifiers, revisions, and rollback windows", async (t) => {
+test("preparation rejects malformed identifiers and revisions", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
@@ -133,26 +135,10 @@ test("preparation rejects malformed identifiers, revisions, and rollback windows
       }),
     /cannot be incremented safely/,
   );
-  assert.throws(
-    () =>
-      stores.repository.prepareSqlite({
-        ...PREPARATION,
-        cutoverAt: "2026-08-05T18:00:00Z",
-      }),
-    /canonical UTC timestamp/,
-  );
-  assert.throws(
-    () =>
-      stores.repository.prepareSqlite({
-        ...PREPARATION,
-        rollbackExpiresAt: PREPARATION.cutoverAt,
-      }),
-    /must follow cutoverAt/,
-  );
   assert.deepEqual(stores.repository.current(), legacyState(0));
 });
 
-test("SQLite activation requires the exact durable preparation and import evidence", async (t) => {
+test("activation starts the rollback window and requires exact preparation and import evidence", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
@@ -166,6 +152,18 @@ test("SQLite activation requires the exact durable preparation and import eviden
       }),
     /does not match the active preparation/,
   );
+  assert.throws(
+    () => stores.repository.activateSqlite({ ...EVIDENCE, cutoverAt: "2026-08-05T18:00:00Z" }),
+    /canonical UTC timestamp/,
+  );
+  assert.throws(
+    () =>
+      stores.repository.activateSqlite({
+        ...EVIDENCE,
+        rollbackExpiresAt: EVIDENCE.cutoverAt,
+      }),
+    /must follow cutoverAt/,
+  );
   const activated = stores.repository.activateSqlite(EVIDENCE);
   assert.deepEqual(activated, rollbackState(PREPARATION, EVIDENCE, 2));
   assert.deepEqual(stores.repository.activateSqlite(EVIDENCE), activated);
@@ -173,13 +171,13 @@ test("SQLite activation requires the exact durable preparation and import eviden
     () =>
       stores.repository.activateSqlite({
         ...EVIDENCE,
-        projectionHash: digest("different-projection"),
+        rollbackExpiresAt: "2026-08-13T18:00:00.000Z",
       }),
     /expected pairing authority revision 1, found 2/,
   );
 });
 
-test("preparation cancellation is retry-safe and allows a new preparation epoch", async (t) => {
+test("preparation cancellation is retry-safe and allows a delayed new preparation epoch", async (t) => {
   const path = await temporaryDatabasePath(t);
   const stores = openRepository(path);
   t.after(() => stores.database.close());
@@ -202,11 +200,8 @@ test("preparation cancellation is retry-safe and allows a new preparation epoch"
   assert.deepEqual(stores.repository.cancelPreparation(cancellation), cancelled);
 
   const resumed: PairingAuthorityPreparation = {
-    ...PREPARATION,
     expectedRevision: 2,
     preparationID: digest("resumed-preparation"),
-    cutoverAt: "2026-08-06T18:00:00.000Z",
-    rollbackExpiresAt: "2026-08-13T18:00:00.000Z",
   };
   assert.deepEqual(stores.repository.prepareSqlite(resumed), preparingState(resumed, 3));
 });
@@ -241,7 +236,7 @@ test("rollback requires the frozen source and a half-open rollback window", asyn
       stores.repository.rollbackToLegacy({
         expectedRevision: 2,
         sourceRevision: EVIDENCE.sourceRevision,
-        rolledBackAt: PREPARATION.rollbackExpiresAt,
+        rolledBackAt: EVIDENCE.rollbackExpiresAt,
       }),
     /window has expired/,
   );
@@ -273,9 +268,9 @@ test("finalization waits for rollback expiry and permanently closes rollback", a
   );
   const finalized = stores.repository.finalizeSqlite({
     expectedRevision: 2,
-    finalizedAt: PREPARATION.rollbackExpiresAt,
+    finalizedAt: EVIDENCE.rollbackExpiresAt,
   });
-  assert.deepEqual(finalized, finalState(PREPARATION, EVIDENCE, PREPARATION.rollbackExpiresAt, 3));
+  assert.deepEqual(finalized, finalState(PREPARATION, EVIDENCE, EVIDENCE.rollbackExpiresAt, 3));
   assert.deepEqual(
     stores.repository.finalizeSqlite({
       expectedRevision: 2,
@@ -288,7 +283,7 @@ test("finalization waits for rollback expiry and permanently closes rollback", a
       stores.repository.rollbackToLegacy({
         expectedRevision: 2,
         sourceRevision: EVIDENCE.sourceRevision,
-        rolledBackAt: PREPARATION.rollbackExpiresAt,
+        rolledBackAt: EVIDENCE.rollbackExpiresAt,
       }),
     /expected pairing authority revision 2, found 3/,
   );
@@ -309,11 +304,8 @@ test("stale preparation and activation requests cannot act on a later epoch", as
     /expected pairing authority revision 0, found 2/,
   );
   const secondPreparation: PairingAuthorityPreparation = {
-    ...PREPARATION,
     expectedRevision: 2,
     preparationID: digest("second-preparation"),
-    cutoverAt: "2026-08-07T18:00:00.000Z",
-    rollbackExpiresAt: "2026-08-14T18:00:00.000Z",
   };
   stores.repository.prepareSqlite(secondPreparation);
   assert.throws(
@@ -370,8 +362,8 @@ function preparingState(preparation: PairingAuthorityPreparation, revision: numb
     preparationID: preparation.preparationID,
     sourceRevision: null,
     projectionHash: null,
-    cutoverAt: preparation.cutoverAt,
-    rollbackExpiresAt: preparation.rollbackExpiresAt,
+    cutoverAt: null,
+    rollbackExpiresAt: null,
     finalizedAt: null,
     revision,
   };
@@ -387,8 +379,8 @@ function rollbackState(
     preparationID: preparation.preparationID,
     sourceRevision: evidence.sourceRevision,
     projectionHash: evidence.projectionHash,
-    cutoverAt: preparation.cutoverAt,
-    rollbackExpiresAt: preparation.rollbackExpiresAt,
+    cutoverAt: evidence.cutoverAt,
+    rollbackExpiresAt: evidence.rollbackExpiresAt,
     finalizedAt: null,
     revision,
   };
@@ -405,8 +397,8 @@ function finalState(
     preparationID: preparation.preparationID,
     sourceRevision: evidence.sourceRevision,
     projectionHash: evidence.projectionHash,
-    cutoverAt: preparation.cutoverAt,
-    rollbackExpiresAt: preparation.rollbackExpiresAt,
+    cutoverAt: evidence.cutoverAt,
+    rollbackExpiresAt: evidence.rollbackExpiresAt,
     finalizedAt,
     revision,
   };

@@ -122,8 +122,6 @@ export interface PairingAuthorityState {
 export interface PairingAuthorityPreparation {
   expectedRevision: number;
   preparationID: string;
-  cutoverAt: string;
-  rollbackExpiresAt: string;
 }
 
 export interface PairingAuthorityCutoverEvidence {
@@ -131,6 +129,8 @@ export interface PairingAuthorityCutoverEvidence {
   preparationID: string;
   sourceRevision: string;
   projectionHash: string;
+  cutoverAt: string;
+  rollbackExpiresAt: string;
 }
 
 export interface PairingAuthorityReader {

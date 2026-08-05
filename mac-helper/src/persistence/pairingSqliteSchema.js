@@ -178,8 +178,7 @@ export const PAIRING_SQLITE_MIGRATIONS = Object.freeze([
             mode = 'legacy-preparing' AND
             preparation_id IS NOT NULL AND
             source_revision IS NULL AND projection_hash IS NULL AND
-            cutover_at IS NOT NULL AND rollback_expires_at IS NOT NULL AND
-            rollback_expires_at > cutover_at AND finalized_at IS NULL
+            cutover_at IS NULL AND rollback_expires_at IS NULL AND finalized_at IS NULL
           ) OR
           (
             mode = 'sqlite-rollback' AND

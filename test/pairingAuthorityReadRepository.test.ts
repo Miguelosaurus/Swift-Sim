@@ -48,8 +48,8 @@ const PREPARING_AUTHORITY: PairingAuthorityState = {
   preparationID: PREPARATION_ID,
   sourceRevision: null,
   projectionHash: null,
-  cutoverAt: CUTOVER_AT,
-  rollbackExpiresAt: ROLLBACK_EXPIRES_AT,
+  cutoverAt: null,
+  rollbackExpiresAt: null,
   finalizedAt: null,
   revision: 1,
 };
@@ -160,6 +160,8 @@ test("malformed authority fails before either backend is called", () => {
     { ...LEGACY_AUTHORITY, preparationID: PREPARATION_ID },
     { ...PREPARING_AUTHORITY, sourceRevision: SOURCE_REVISION },
     { ...PREPARING_AUTHORITY, preparationID: "not-a-hash" },
+    { ...PREPARING_AUTHORITY, cutoverAt: CUTOVER_AT },
+    { ...PREPARING_AUTHORITY, rollbackExpiresAt: ROLLBACK_EXPIRES_AT },
     { ...ROLLBACK_AUTHORITY, finalizedAt: ROLLBACK_EXPIRES_AT },
     { ...FINAL_AUTHORITY, finalizedAt: CUTOVER_AT },
     { ...LEGACY_AUTHORITY, revision: "0" },
@@ -235,7 +237,11 @@ test("authority normalization returns canonical immutable copies for preparation
     assert.equal(normalized.revision, authority.revision);
   }
   assert.throws(
-    () => normalizePairingAuthorityState({ ...PREPARING_AUTHORITY, rollbackExpiresAt: CUTOVER_AT }),
+    () => normalizePairingAuthorityState({ ...PREPARING_AUTHORITY, cutoverAt: CUTOVER_AT }),
+    /cannot contain cutover evidence/,
+  );
+  assert.throws(
+    () => normalizePairingAuthorityState({ ...ROLLBACK_AUTHORITY, rollbackExpiresAt: CUTOVER_AT }),
     /must follow cutoverAt/,
   );
 });
