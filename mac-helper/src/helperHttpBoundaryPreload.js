@@ -1,12 +1,15 @@
-import { createRequire, syncBuiltinESMExports } from "node:module";
 import { timingSafeEqual } from "node:crypto";
-import { URL } from "node:url";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { PairingStore } from "./pairingStore.js";
 import { PairingInviteStore } from "./pairingInviteStore.js";
 import { buildPairingLinks } from "./links.js";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
 import { sanitizePublicBuildLogs } from "./publicBuildLogs.js";
+import {
+  createHelperRequestContext,
+  helperRequestToken,
+} from "./http/helperRequestContext.js";
 import { LoopbackRequestOriginPolicy } from "./infrastructure/loopbackRequestOriginPolicy.js";
 
 const require = createRequire(import.meta.url);
@@ -74,24 +77,18 @@ export function handlePairingFallback(
   invites = pairingInviteStore(),
   originPolicy = requestOriginPolicy(),
 ) {
-  if (req?.method !== "GET") return false;
-  let url;
-  try {
-    url = new URL(req.url || "/", `http://${req.headers?.host || "127.0.0.1"}`);
-  } catch {
-    return false;
-  }
-  if (url.pathname !== "/pair") return false;
+  const context = createHelperRequestContext(req);
+  if (!context || context.method !== "GET" || context.pathname !== "/pair") return false;
 
   const pairing = store.current();
-  const invite = url.searchParams.get("invite") || "";
+  const invite = context.url.searchParams.get("invite") || "";
   if (invite) {
     const invitation = invites.inspect(invite, pairing);
     if (!invitation || invitation.claimed) {
       writeJson(res, 410, { error: "Pairing invitation expired or already used." });
       return true;
     }
-    const base = externalBaseURL(req, url, originPolicy);
+    const base = externalBaseURL(context, originPolicy);
     const customScheme = buildPairingLinks({
       ...pairing,
       invite,
@@ -101,12 +98,12 @@ export function handlePairingFallback(
     return true;
   }
 
-  const token = url.searchParams.get("token") || "";
+  const token = helperRequestToken(context);
   if (!store.tokenMatches(token)) {
     writeJson(res, 401, { error: "Unauthorized." });
     return true;
   }
-  const base = externalBaseURL(req, url, originPolicy);
+  const base = externalBaseURL(context, originPolicy);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHtml(res, pairingPage(customScheme, pairing.macName));
   return true;
@@ -116,19 +113,13 @@ export function handlePublicBuildExpiry(req, res, {
   pairingStore: pairings = pairingStore(),
   deviceBuildStore: builds = buildStore(),
 } = {}) {
-  let url;
-  try {
-    url = new URL(req?.url || "/", `http://${req?.headers?.host || "127.0.0.1"}`);
-  } catch {
-    return false;
-  }
-  const match = url.pathname.match(
+  const context = createHelperRequestContext(req);
+  if (!context) return false;
+  const match = context.pathname.match(
     /^\/(?:d\/([^/]+)|api\/device-builds\/([^/]+)(?:\/(?:logs|links|install-request|verify|artifact\/(?:ipa|manifest)))?)$/
   );
   if (!match) return false;
-  const header = String(req?.headers?.authorization || "");
-  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
-  const token = bearer || url.searchParams.get("token") || "";
+  const token = helperRequestToken(context);
   if (pairings.tokenMatches(token)) return false;
 
   const build = builds.get(match[1] || match[2]);
@@ -146,18 +137,11 @@ export function handlePublicBuildLogs(req, res, {
   pairingStore: pairings = pairingStore(),
   deviceBuildStore: builds = buildStore(),
 } = {}) {
-  if (req?.method !== "GET") return false;
-  let url;
-  try {
-    url = new URL(req.url || "/", `http://${req.headers?.host || "127.0.0.1"}`);
-  } catch {
-    return false;
-  }
-  const match = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/logs$/);
+  const context = createHelperRequestContext(req);
+  if (!context || context.method !== "GET") return false;
+  const match = context.pathname.match(/^\/api\/device-builds\/([^/]+)\/logs$/);
   if (!match) return false;
-  const header = String(req.headers?.authorization || "");
-  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
-  const token = bearer || url.searchParams.get("token") || "";
+  const token = helperRequestToken(context);
   if (pairings.tokenMatches(token)) return false;
 
   const build = builds.get(match[1]);
@@ -310,24 +294,20 @@ function deliveryStore() {
   return defaultDeviceDelivery;
 }
 
-function externalBaseURL(req, url, originPolicy) {
+function externalBaseURL(context, originPolicy) {
+  const { url } = context;
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return `${url.protocol}//${url.host}`;
   }
   const decision = originPolicy.evaluate({
-    socketRemoteAddress: String(req?.socket?.remoteAddress || ""),
+    socketRemoteAddress: context.socketRemoteAddress,
     requestProtocol: url.protocol,
-    hostHeader: String(req?.headers?.host || url.host || ""),
-    forwardedHostHeader: headerValue(req?.headers?.["x-forwarded-host"]),
-    forwardedProtoHeader: headerValue(req?.headers?.["x-forwarded-proto"]),
+    hostHeader: context.hostHeader || url.host || "",
+    forwardedHostHeader: context.forwardedHostHeader,
+    forwardedProtoHeader: context.forwardedProtoHeader,
     requestedExternalBaseURL: url.searchParams.get("base") || undefined,
   });
   return decision.valid ? decision.externalBaseURL : `${url.protocol}//${url.host}`;
-}
-
-function headerValue(value) {
-  if (Array.isArray(value)) return value.join(",");
-  return value == null ? undefined : String(value);
 }
 
 installHelperHttpBoundary();
