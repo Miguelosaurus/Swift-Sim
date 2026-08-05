@@ -156,5 +156,3 @@ function httpBoundaryRuntime() {
   });
   return defaultHttpRuntime;
 }
-
-installHelperHttpBoundary();
