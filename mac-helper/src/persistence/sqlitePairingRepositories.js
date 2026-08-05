@@ -24,7 +24,7 @@ export class SqlitePairingCredentialRepository {
       created_at,
       updated_at
     FROM pairing_credentials
-    WHERE installation_id = ?`);
+    WHERE singleton = 1 AND installation_id = ?`);
     this.#listStatement = database.prepare(`SELECT
       installation_id,
       token,
@@ -32,15 +32,17 @@ export class SqlitePairingCredentialRepository {
       created_at,
       updated_at
     FROM pairing_credentials
-    ORDER BY installation_id`);
+    WHERE singleton = 1`);
     this.#upsertStatement = database.prepare(`INSERT INTO pairing_credentials(
+      singleton,
       installation_id,
       token,
       mac_name,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(installation_id) DO UPDATE SET
+    ) VALUES (1, ?, ?, ?, ?, ?)
+    ON CONFLICT(singleton) DO UPDATE SET
+      installation_id = excluded.installation_id,
       token = excluded.token,
       mac_name = excluded.mac_name,
       created_at = excluded.created_at,
@@ -75,13 +77,12 @@ export class SqlitePairingCredentialRepository {
 
   /** @param {readonly PairingCredentialRecord[]} records */
   replaceAll(records) {
-    assertUnique(
-      records,
-      (record) => parsePairingCredential(record).installationID,
-      "installationID",
-    );
+    if (!Array.isArray(records)) throw new Error("Replacement records must be an array.");
+    if (records.length > 1) {
+      throw new Error("Pairing shadow state may contain at most one credential.");
+    }
     this.#deleteAllStatement.run();
-    for (const record of records) this.upsert(record);
+    if (records[0]) this.upsert(records[0]);
   }
 }
 
