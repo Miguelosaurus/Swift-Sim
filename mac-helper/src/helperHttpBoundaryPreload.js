@@ -2,7 +2,7 @@ import { createRequire, syncBuiltinESMExports } from "node:module";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
 import { DeliveryMaintenanceCoordinator } from "./http/deliveryMaintenanceCoordinator.js";
-import { HelperHttpBoundaryRuntime } from "./http/helperHttpBoundaryRuntime.js";
+import { HelperHttpBoundaryRuntime } from "./http/helperServerRuntime.js";
 import { writeHelperJson } from "./http/helperHttpResponses.js";
 import { handlePairingFallbackRequest } from "./http/pairingFallbackHandler.js";
 import {
