@@ -416,7 +416,7 @@ function firstPragmaValue(row) {
   return String(value ?? "");
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value @returns {value is PromiseLike<unknown>} */
 function isPromiseLike(value) {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return false;
   const candidate = /** @type {{ then?: unknown }} */ (value);
