@@ -221,6 +221,6 @@ export const PAIRING_SQLITE_MIGRATIONS = Object.freeze([
       FROM pairing_authority_state_v4`,
       "DROP TABLE pairing_authority_state_v4",
     ]),
-    requiredTables: Object.freeze(["pairing_authority_state"]),
+    requiredTables: Object.freeze([]),
   }),
 ]);
