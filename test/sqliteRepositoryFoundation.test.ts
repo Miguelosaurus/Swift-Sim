@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
-import type { SchemaMigration } from "../mac-helper/src/contracts/repository.js";
+import type {
+  LegacyImportCheckpoint,
+  SchemaMigration,
+} from "../mac-helper/src/contracts/repository.js";
 import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
 import {
   SWIFT_SIM_SQLITE_MIGRATIONS,
@@ -142,6 +146,28 @@ test("transactions commit synchronously and roll back all checkpoint writes on f
   );
 });
 
+test("a busy transaction begin does not poison the connection guard", async (t) => {
+  const path = await temporaryDatabasePath(t);
+  const database = new SwiftSimSqliteDatabase({ path });
+  const lockHolder = new DatabaseSync(path);
+  let lockHeld = false;
+  t.after(() => {
+    if (lockHeld) lockHolder.exec("ROLLBACK");
+    lockHolder.close();
+    database.close();
+  });
+
+  database.exec("PRAGMA busy_timeout = 1");
+  lockHolder.exec("PRAGMA busy_timeout = 1");
+  lockHolder.exec("BEGIN IMMEDIATE");
+  lockHeld = true;
+  assert.throws(() => database.transaction(() => "blocked"), /busy|locked/i);
+
+  lockHolder.exec("ROLLBACK");
+  lockHeld = false;
+  assert.equal(database.transaction(() => "recovered"), "recovered");
+});
+
 test("failed migrations roll back their schema and do not record a version", async (t) => {
   const path = await temporaryDatabasePath(t);
   const brokenMigrations: readonly SchemaMigration[] = [
@@ -218,17 +244,24 @@ test("invalid checkpoint values fail before SQLite mutation", async (t) => {
   const database = new SwiftSimSqliteDatabase({ path });
   t.after(() => database.close());
   const checkpoints = new SqliteLegacyImportCheckpointRepository(database);
-  assert.throws(
-    () =>
-      checkpoints.upsert({
-        source: "bad.json",
-        sourceRevision: "sha256:bad",
-        projectionHash: "sha256:bad-projection",
-        importedAt: APPLIED_AT,
-        recordCount: -1,
-      }),
-    /non-negative safe integer/,
-  );
+  const validCheckpoint = {
+    source: "bad.json",
+    sourceRevision: "sha256:bad",
+    projectionHash: "sha256:bad-projection",
+    importedAt: APPLIED_AT,
+    recordCount: 1,
+  };
+
+  for (const recordCount of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "1", false]) {
+    assert.throws(
+      () =>
+        checkpoints.upsert({
+          ...validCheckpoint,
+          recordCount,
+        } as unknown as LegacyImportCheckpoint),
+      /non-negative safe integer/,
+    );
+  }
   assert.equal(checkpoints.get("bad.json"), null);
 });
 
