@@ -41,7 +41,7 @@ export function normalizePairingShadowProjection(value) {
     }
     return invitation;
   });
-  invitations.sort((left, right) => left.id.localeCompare(right.id));
+  invitations.sort((left, right) => compareStrings(left.id, right.id));
 
   assertUnique(invitations, (record) => record.id, "id");
   assertUnique(invitations, (record) => record.inviteHash, "inviteHash");
@@ -96,6 +96,13 @@ function canonicalInvitation(record) {
     expiresAt: record.expiresAt,
     ...(record.claimedAt === undefined ? {} : { claimedAt: record.claimedAt }),
   };
+}
+
+/** @param {string} left @param {string} right */
+function compareStrings(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 /**
