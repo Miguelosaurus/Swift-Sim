@@ -1,6 +1,7 @@
 // @ts-check
 
 /** @typedef {import("../contracts/repository.js").PairingAuthorityCutoverEvidence} PairingAuthorityCutoverEvidence */
+/** @typedef {import("../contracts/repository.js").PairingAuthorityPreparation} PairingAuthorityPreparation */
 /** @typedef {import("../contracts/repository.js").PairingAuthorityState} PairingAuthorityState */
 /** @typedef {import("./swiftSimSqliteDatabase.js").SwiftSimSqliteDatabase} SwiftSimSqliteDatabase */
 
@@ -8,6 +9,8 @@ export class SqlitePairingAuthorityRepository {
   /** @type {SwiftSimSqliteDatabase} */
   #database;
   #readStatement;
+  #prepareStatement;
+  #cancelStatement;
   #activateStatement;
   #rollbackStatement;
   #finalizeStatement;
@@ -17,6 +20,7 @@ export class SqlitePairingAuthorityRepository {
     this.#database = database;
     this.#readStatement = database.prepare(`SELECT
       mode,
+      preparation_id,
       source_revision,
       projection_hash,
       cutover_at,
@@ -25,17 +29,29 @@ export class SqlitePairingAuthorityRepository {
       revision
     FROM pairing_authority_state
     WHERE singleton = 1`);
+    this.#prepareStatement = database.prepare(`UPDATE pairing_authority_state
+      SET mode = 'legacy-preparing',
+          preparation_id = ?,
+          cutover_at = ?,
+          rollback_expires_at = ?,
+          revision = revision + 1
+      WHERE singleton = 1 AND mode = 'legacy' AND revision = ?`);
+    this.#cancelStatement = database.prepare(`UPDATE pairing_authority_state
+      SET mode = 'legacy',
+          preparation_id = NULL,
+          cutover_at = NULL,
+          rollback_expires_at = NULL,
+          revision = revision + 1
+      WHERE singleton = 1 AND mode = 'legacy-preparing' AND revision = ?`);
     this.#activateStatement = database.prepare(`UPDATE pairing_authority_state
       SET mode = 'sqlite-rollback',
           source_revision = ?,
           projection_hash = ?,
-          cutover_at = ?,
-          rollback_expires_at = ?,
-          finalized_at = NULL,
           revision = revision + 1
-      WHERE singleton = 1 AND mode = 'legacy' AND revision = ?`);
+      WHERE singleton = 1 AND mode = 'legacy-preparing' AND preparation_id = ? AND revision = ?`);
     this.#rollbackStatement = database.prepare(`UPDATE pairing_authority_state
       SET mode = 'legacy',
+          preparation_id = NULL,
           source_revision = NULL,
           projection_hash = NULL,
           cutover_at = NULL,
@@ -55,6 +71,65 @@ export class SqlitePairingAuthorityRepository {
     return mapAuthorityRow(this.#readStatement.get());
   }
 
+  /** @param {PairingAuthorityPreparation} preparation @returns {PairingAuthorityState} */
+  prepareSqlite(preparation) {
+    const normalized = normalizePreparation(preparation);
+    return this.#database.transaction(() => {
+      const current = this.current();
+      if (
+        current.mode === "legacy-preparing" &&
+        current.revision === normalized.expectedRevision + 1 &&
+        samePreparation(current, normalized)
+      ) {
+        return current;
+      }
+      requireExpectedRevision(current, normalized.expectedRevision, "prepare SQLite pairing authority");
+      if (current.mode !== "legacy") {
+        throw new Error(`Pairing authority cannot prepare SQLite from ${current.mode}.`);
+      }
+      requireOneChange(
+        this.#prepareStatement.run(
+          normalized.preparationID,
+          normalized.cutoverAt,
+          normalized.rollbackExpiresAt,
+          normalized.expectedRevision,
+        ),
+        "prepare SQLite pairing authority",
+      );
+      return this.current();
+    });
+  }
+
+  /**
+   * @param {{ expectedRevision: number, preparationID: string }} input
+   * @returns {PairingAuthorityState}
+   */
+  cancelPreparation(input) {
+    const expectedRevision = requireTransitionRevision(
+      input?.expectedRevision,
+      "Pairing cancellation expectedRevision",
+    );
+    const preparationID = requireHash(input?.preparationID, "Pairing preparationID");
+    return this.#database.transaction(() => {
+      const current = this.current();
+      if (current.mode === "legacy" && current.revision === expectedRevision + 1) {
+        return current;
+      }
+      requireExpectedRevision(current, expectedRevision, "cancel SQLite pairing preparation");
+      if (current.mode !== "legacy-preparing") {
+        throw new Error(`Pairing authority cannot cancel preparation from ${current.mode}.`);
+      }
+      if (current.preparationID !== preparationID) {
+        throw new Error("Pairing preparationID does not match the active preparation.");
+      }
+      requireOneChange(
+        this.#cancelStatement.run(expectedRevision),
+        "cancel SQLite pairing preparation",
+      );
+      return this.current();
+    });
+  }
+
   /** @param {PairingAuthorityCutoverEvidence} evidence @returns {PairingAuthorityState} */
   activateSqlite(evidence) {
     const normalized = normalizeCutoverEvidence(evidence);
@@ -63,7 +138,7 @@ export class SqlitePairingAuthorityRepository {
       if (
         current.mode === "sqlite-rollback" &&
         current.revision === normalized.expectedRevision + 1 &&
-        sameCutover(current, normalized)
+        sameActivation(current, normalized)
       ) {
         return current;
       }
@@ -72,15 +147,17 @@ export class SqlitePairingAuthorityRepository {
         normalized.expectedRevision,
         "activate SQLite pairing authority",
       );
-      if (current.mode !== "legacy") {
+      if (current.mode !== "legacy-preparing") {
         throw new Error(`Pairing authority cannot activate SQLite from ${current.mode}.`);
+      }
+      if (current.preparationID !== normalized.preparationID) {
+        throw new Error("Pairing preparationID does not match the active preparation.");
       }
       requireOneChange(
         this.#activateStatement.run(
           normalized.sourceRevision,
           normalized.projectionHash,
-          normalized.cutoverAt,
-          normalized.rollbackExpiresAt,
+          normalized.preparationID,
           normalized.expectedRevision,
         ),
         "activate SQLite pairing authority",
@@ -166,10 +243,10 @@ export class SqlitePairingAuthorityRepository {
   }
 }
 
-/** @param {unknown} value @returns {PairingAuthorityCutoverEvidence} */
-function normalizeCutoverEvidence(value) {
+/** @param {unknown} value @returns {PairingAuthorityPreparation} */
+function normalizePreparation(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Pairing cutover evidence must be an object.");
+    throw new Error("Pairing preparation must be an object.");
   }
   const values = /** @type {Record<string, unknown>} */ (value);
   const cutoverAt = requireCanonicalTimestamp(values.cutoverAt, "Pairing cutoverAt");
@@ -183,12 +260,28 @@ function normalizeCutoverEvidence(value) {
   return {
     expectedRevision: requireTransitionRevision(
       values.expectedRevision,
-      "Pairing cutover expectedRevision",
+      "Pairing preparation expectedRevision",
     ),
-    sourceRevision: requireHash(values.sourceRevision, "Pairing sourceRevision"),
-    projectionHash: requireHash(values.projectionHash, "Pairing projectionHash"),
+    preparationID: requireHash(values.preparationID, "Pairing preparationID"),
     cutoverAt: cutoverAt.value,
     rollbackExpiresAt: rollbackExpiresAt.value,
+  };
+}
+
+/** @param {unknown} value @returns {PairingAuthorityCutoverEvidence} */
+function normalizeCutoverEvidence(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Pairing cutover evidence must be an object.");
+  }
+  const values = /** @type {Record<string, unknown>} */ (value);
+  return {
+    expectedRevision: requireTransitionRevision(
+      values.expectedRevision,
+      "Pairing cutover expectedRevision",
+    ),
+    preparationID: requireHash(values.preparationID, "Pairing preparationID"),
+    sourceRevision: requireHash(values.sourceRevision, "Pairing sourceRevision"),
+    projectionHash: requireHash(values.projectionHash, "Pairing projectionHash"),
   };
 }
 
@@ -203,6 +296,7 @@ function mapAuthorityRow(row) {
     requireNullEvidence(values, "legacy");
     return {
       mode: "legacy",
+      preparationID: null,
       sourceRevision: null,
       projectionHash: null,
       cutoverAt: null,
@@ -211,11 +305,14 @@ function mapAuthorityRow(row) {
       revision,
     };
   }
-  if (values.mode !== "sqlite-rollback" && values.mode !== "sqlite-final") {
+  if (
+    values.mode !== "legacy-preparing" &&
+    values.mode !== "sqlite-rollback" &&
+    values.mode !== "sqlite-final"
+  ) {
     throw new Error("SQLite returned an invalid pairing authority mode.");
   }
-  const sourceRevision = requireHash(values.source_revision, "Pairing sourceRevision");
-  const projectionHash = requireHash(values.projection_hash, "Pairing projectionHash");
+  const preparationID = requireHash(values.preparation_id, "Pairing preparationID");
   const cutoverAt = requireCanonicalTimestamp(values.cutover_at, "Pairing cutoverAt");
   const rollbackExpiresAt = requireCanonicalTimestamp(
     values.rollback_expires_at,
@@ -224,12 +321,34 @@ function mapAuthorityRow(row) {
   if (rollbackExpiresAt.time <= cutoverAt.time) {
     throw new Error("SQLite returned an invalid pairing rollback interval.");
   }
+  if (values.mode === "legacy-preparing") {
+    if (
+      values.source_revision !== null ||
+      values.projection_hash !== null ||
+      values.finalized_at !== null
+    ) {
+      throw new Error("SQLite returned cutover evidence during pairing preparation.");
+    }
+    return {
+      mode: "legacy-preparing",
+      preparationID,
+      sourceRevision: null,
+      projectionHash: null,
+      cutoverAt: cutoverAt.value,
+      rollbackExpiresAt: rollbackExpiresAt.value,
+      finalizedAt: null,
+      revision,
+    };
+  }
+  const sourceRevision = requireHash(values.source_revision, "Pairing sourceRevision");
+  const projectionHash = requireHash(values.projection_hash, "Pairing projectionHash");
   if (values.mode === "sqlite-rollback") {
     if (values.finalized_at !== null) {
       throw new Error("SQLite returned finalized evidence during the rollback window.");
     }
     return {
       mode: "sqlite-rollback",
+      preparationID,
       sourceRevision,
       projectionHash,
       cutoverAt: cutoverAt.value,
@@ -244,6 +363,7 @@ function mapAuthorityRow(row) {
   }
   return {
     mode: "sqlite-final",
+    preparationID,
     sourceRevision,
     projectionHash,
     cutoverAt: cutoverAt.value,
@@ -256,6 +376,7 @@ function mapAuthorityRow(row) {
 /** @param {Record<string, unknown>} values @param {string} mode */
 function requireNullEvidence(values, mode) {
   for (const key of [
+    "preparation_id",
     "source_revision",
     "projection_hash",
     "cutover_at",
@@ -270,14 +391,25 @@ function requireNullEvidence(values, mode) {
 
 /**
  * @param {PairingAuthorityState} current
+ * @param {PairingAuthorityPreparation} preparation
+ */
+function samePreparation(current, preparation) {
+  return (
+    current.preparationID === preparation.preparationID &&
+    current.cutoverAt === preparation.cutoverAt &&
+    current.rollbackExpiresAt === preparation.rollbackExpiresAt
+  );
+}
+
+/**
+ * @param {PairingAuthorityState} current
  * @param {PairingAuthorityCutoverEvidence} evidence
  */
-function sameCutover(current, evidence) {
+function sameActivation(current, evidence) {
   return (
+    current.preparationID === evidence.preparationID &&
     current.sourceRevision === evidence.sourceRevision &&
-    current.projectionHash === evidence.projectionHash &&
-    current.cutoverAt === evidence.cutoverAt &&
-    current.rollbackExpiresAt === evidence.rollbackExpiresAt
+    current.projectionHash === evidence.projectionHash
   );
 }
 

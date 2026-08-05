@@ -102,10 +102,15 @@ export interface PairingShadowComparisonResult {
   evidence: PairingShadowMismatchEvidence | null;
 }
 
-export type PairingAuthorityMode = "legacy" | "sqlite-rollback" | "sqlite-final";
+export type PairingAuthorityMode =
+  | "legacy"
+  | "legacy-preparing"
+  | "sqlite-rollback"
+  | "sqlite-final";
 
 export interface PairingAuthorityState {
   mode: PairingAuthorityMode;
+  preparationID: string | null;
   sourceRevision: string | null;
   projectionHash: string | null;
   cutoverAt: string | null;
@@ -114,12 +119,18 @@ export interface PairingAuthorityState {
   revision: number;
 }
 
-export interface PairingAuthorityCutoverEvidence {
+export interface PairingAuthorityPreparation {
   expectedRevision: number;
-  sourceRevision: string;
-  projectionHash: string;
+  preparationID: string;
   cutoverAt: string;
   rollbackExpiresAt: string;
+}
+
+export interface PairingAuthorityCutoverEvidence {
+  expectedRevision: number;
+  preparationID: string;
+  sourceRevision: string;
+  projectionHash: string;
 }
 
 export interface PairingAuthorityReader {
@@ -132,6 +143,11 @@ export interface PairingAuthorityReader {
  * on a later cutover epoch.
  */
 export interface PairingAuthorityRepository extends PairingAuthorityReader {
+  prepareSqlite(preparation: PairingAuthorityPreparation): PairingAuthorityState;
+  cancelPreparation(input: {
+    expectedRevision: number;
+    preparationID: string;
+  }): PairingAuthorityState;
   activateSqlite(evidence: PairingAuthorityCutoverEvidence): PairingAuthorityState;
   rollbackToLegacy(input: {
     expectedRevision: number;

@@ -11,6 +11,7 @@ import {
   PairingAuthorityReadRepository,
 } from "../mac-helper/src/persistence/pairingAuthorityReadRepository.js";
 
+const PREPARATION_ID = digest("pairing-preparation");
 const SOURCE_REVISION = digest("legacy-source");
 const PROJECTION_HASH = digest("pairing-projection");
 const CUTOVER_AT = "2026-08-05T18:00:00.000Z";
@@ -34,6 +35,7 @@ const INVITATION = Object.freeze({
 
 const LEGACY_AUTHORITY: PairingAuthorityState = {
   mode: "legacy",
+  preparationID: null,
   sourceRevision: null,
   projectionHash: null,
   cutoverAt: null,
@@ -41,20 +43,31 @@ const LEGACY_AUTHORITY: PairingAuthorityState = {
   finalizedAt: null,
   revision: 0,
 };
-const ROLLBACK_AUTHORITY: PairingAuthorityState = {
-  mode: "sqlite-rollback",
-  sourceRevision: SOURCE_REVISION,
-  projectionHash: PROJECTION_HASH,
+const PREPARING_AUTHORITY: PairingAuthorityState = {
+  mode: "legacy-preparing",
+  preparationID: PREPARATION_ID,
+  sourceRevision: null,
+  projectionHash: null,
   cutoverAt: CUTOVER_AT,
   rollbackExpiresAt: ROLLBACK_EXPIRES_AT,
   finalizedAt: null,
   revision: 1,
 };
+const ROLLBACK_AUTHORITY: PairingAuthorityState = {
+  mode: "sqlite-rollback",
+  preparationID: PREPARATION_ID,
+  sourceRevision: SOURCE_REVISION,
+  projectionHash: PROJECTION_HASH,
+  cutoverAt: CUTOVER_AT,
+  rollbackExpiresAt: ROLLBACK_EXPIRES_AT,
+  finalizedAt: null,
+  revision: 2,
+};
 const FINAL_AUTHORITY: PairingAuthorityState = {
   ...ROLLBACK_AUTHORITY,
   mode: "sqlite-final",
   finalizedAt: ROLLBACK_EXPIRES_AT,
-  revision: 2,
+  revision: 3,
 };
 
 test("legacy authority routes every read to legacy without exposing a writer", () => {
@@ -87,13 +100,20 @@ test("legacy authority routes every read to legacy without exposing a writer", (
   assert.equal("replace" in repository, false);
 });
 
-test("each operation re-reads authority and routes both SQLite modes to SQLite", () => {
+test("preparation remains legacy-readable and every operation refreshes authority", () => {
   const calls: string[] = [];
-  let authority: PairingAuthorityState = ROLLBACK_AUTHORITY;
+  const authorities: PairingAuthorityState[] = [
+    PREPARING_AUTHORITY,
+    ROLLBACK_AUTHORITY,
+    FINAL_AUTHORITY,
+    LEGACY_AUTHORITY,
+  ];
   let authorityReads = 0;
   const repository = new PairingAuthorityReadRepository({
     authorityReader: authorityReader(() => {
+      const authority = authorities[authorityReads];
       authorityReads += 1;
+      if (!authority) throw new Error("unexpected authority read");
       return authority;
     }),
     legacyReader: pairingReader("legacy", calls),
@@ -101,16 +121,16 @@ test("each operation re-reads authority and routes both SQLite modes to SQLite",
   });
 
   repository.read();
-  authority = FINAL_AUTHORITY;
   repository.getCredential(CREDENTIAL.installationID);
-  authority = LEGACY_AUTHORITY;
   repository.getInvitation(INVITATION.id);
+  repository.findInvitationByInviteHash(INVITATION.inviteHash);
 
-  assert.equal(authorityReads, 3);
+  assert.equal(authorityReads, 4);
   assert.deepEqual(calls, [
-    "sqlite.read",
+    "legacy.read",
     `sqlite.getCredential:${CREDENTIAL.installationID}`,
-    `legacy.getInvitation:${INVITATION.id}`,
+    `sqlite.getInvitation:${INVITATION.id}`,
+    `legacy.findInvitationByInviteHash:${INVITATION.inviteHash}`,
   ]);
 });
 
@@ -137,7 +157,9 @@ test("malformed authority fails before either backend is called", () => {
   const sqliteReader = pairingReader("sqlite", calls);
 
   for (const authority of [
-    { ...LEGACY_AUTHORITY, sourceRevision: SOURCE_REVISION },
+    { ...LEGACY_AUTHORITY, preparationID: PREPARATION_ID },
+    { ...PREPARING_AUTHORITY, sourceRevision: SOURCE_REVISION },
+    { ...PREPARING_AUTHORITY, preparationID: "not-a-hash" },
     { ...ROLLBACK_AUTHORITY, finalizedAt: ROLLBACK_EXPIRES_AT },
     { ...FINAL_AUTHORITY, finalizedAt: CUTOVER_AT },
     { ...LEGACY_AUTHORITY, revision: "0" },
@@ -201,17 +223,19 @@ test("constructor validates narrow authority and distinct complete readers", () 
   assert.deepEqual(calls, []);
 });
 
-test("authority normalization returns a canonical immutable copy", () => {
-  const mutable = { ...FINAL_AUTHORITY };
-  const normalized = normalizePairingAuthorityState(mutable);
+test("authority normalization returns canonical immutable copies for preparation and final state", () => {
+  for (const authority of [PREPARING_AUTHORITY, FINAL_AUTHORITY]) {
+    const mutable = { ...authority };
+    const normalized = normalizePairingAuthorityState(mutable);
 
-  assert.deepEqual(normalized, FINAL_AUTHORITY);
-  assert.equal(Object.isFrozen(normalized), true);
-  assert.notEqual(normalized, mutable);
-  mutable.revision = 9;
-  assert.equal(normalized.revision, 2);
+    assert.deepEqual(normalized, authority);
+    assert.equal(Object.isFrozen(normalized), true);
+    assert.notEqual(normalized, mutable);
+    mutable.revision = 9;
+    assert.equal(normalized.revision, authority.revision);
+  }
   assert.throws(
-    () => normalizePairingAuthorityState({ ...ROLLBACK_AUTHORITY, rollbackExpiresAt: CUTOVER_AT }),
+    () => normalizePairingAuthorityState({ ...PREPARING_AUTHORITY, rollbackExpiresAt: CUTOVER_AT }),
     /must follow cutoverAt/,
   );
 });
