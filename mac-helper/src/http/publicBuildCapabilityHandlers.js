@@ -109,9 +109,11 @@ export function handlePublicBuildLogsRequest(
  */
 function capabilityForToken(build, token) {
   if (secretsMatch(build?.token, token)) return build;
-  return (Array.isArray(build?.capabilities) ? build.capabilities : []).find((item) =>
-    secretsMatch(item?.token, token),
-  ) || null;
+  return (
+    (Array.isArray(build?.capabilities) ? build.capabilities : []).find((item) =>
+      secretsMatch(item?.token, token),
+    ) || null
+  );
 }
 
 /** @param {unknown} expected @param {unknown} actual */
