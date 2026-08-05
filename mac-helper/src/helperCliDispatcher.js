@@ -8,10 +8,7 @@ import {
   deviceDeliveryCommandIsSupported,
   dispatchDeviceDeliveryCommand,
 } from "./commands/deviceDeliveryCommands.js";
-import {
-  dispatchPairingCommand,
-  pairingCommandIsSupported,
-} from "./commands/pairingCommands.js";
+import { dispatchPairingCommand, pairingCommandIsSupported } from "./commands/pairingCommands.js";
 import {
   dispatchServeSimCommand,
   serveSimCommandIsSupported,
