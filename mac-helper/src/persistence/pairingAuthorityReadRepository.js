@@ -1,60 +1,66 @@
 // @ts-check
 
 /** @typedef {import("../contracts/repository.js").PairingAuthorityRepository} PairingAuthorityRepository */
-/** @typedef {import("../contracts/repository.js").PairingAuthoritySelection} PairingAuthoritySelection */
 /** @typedef {import("../contracts/repository.js").PairingAuthorityState} PairingAuthorityState */
-/** @typedef {import("../contracts/repository.js").PairingStateRepository} PairingStateRepository */
+/** @typedef {import("../contracts/repository.js").PairingStateReader} PairingStateReader */
 
-const PAIRING_STATE_METHODS = Object.freeze([
+const PAIRING_READER_METHODS = Object.freeze([
   "read",
-  "replace",
   "getCredential",
   "getInvitation",
   "findInvitationByInviteHash",
 ]);
 
-export class PairingAuthoritySelector {
+export class PairingAuthorityReadRepository {
   /** @type {PairingAuthorityRepository} */
   #authorityRepository;
-  /** @type {PairingStateRepository} */
-  #legacyRepository;
-  /** @type {PairingStateRepository} */
-  #sqliteRepository;
+  /** @type {PairingStateReader} */
+  #legacyReader;
+  /** @type {PairingStateReader} */
+  #sqliteReader;
 
   /**
    * @param {{
    *   authorityRepository: PairingAuthorityRepository,
-   *   legacyRepository: PairingStateRepository,
-   *   sqliteRepository: PairingStateRepository,
+   *   legacyReader: PairingStateReader,
+   *   sqliteReader: PairingStateReader,
    * }} options
    */
   constructor(options) {
     if (!options || typeof options !== "object" || Array.isArray(options)) {
-      throw new Error("Pairing authority selector options must be an object.");
+      throw new Error("Pairing authority read repository options must be an object.");
     }
     this.#authorityRepository = requireAuthorityRepository(options.authorityRepository);
-    this.#legacyRepository = requirePairingStateRepository(
-      options.legacyRepository,
-      "Legacy pairing repository",
-    );
-    this.#sqliteRepository = requirePairingStateRepository(
-      options.sqliteRepository,
-      "SQLite pairing repository",
-    );
-    if (this.#legacyRepository === this.#sqliteRepository) {
-      throw new Error("Legacy and SQLite pairing repositories must be distinct.");
+    this.#legacyReader = requirePairingStateReader(options.legacyReader, "Legacy pairing reader");
+    this.#sqliteReader = requirePairingStateReader(options.sqliteReader, "SQLite pairing reader");
+    if (this.#legacyReader === this.#sqliteReader) {
+      throw new Error("Legacy and SQLite pairing readers must be distinct.");
     }
   }
 
-  /** @returns {Readonly<PairingAuthoritySelection>} */
-  select() {
+  read() {
+    return this.#selectedReader().read();
+  }
+
+  /** @param {string} installationID */
+  getCredential(installationID) {
+    return this.#selectedReader().getCredential(installationID);
+  }
+
+  /** @param {string} id */
+  getInvitation(id) {
+    return this.#selectedReader().getInvitation(id);
+  }
+
+  /** @param {string} inviteHash */
+  findInvitationByInviteHash(inviteHash) {
+    return this.#selectedReader().findInvitationByInviteHash(inviteHash);
+  }
+
+  /** @returns {PairingStateReader} */
+  #selectedReader() {
     const authority = normalizePairingAuthorityState(this.#authorityRepository.current());
-    const target = authority.mode === "legacy" ? "legacy" : "sqlite";
-    return Object.freeze({
-      authority,
-      target,
-      repository: target === "legacy" ? this.#legacyRepository : this.#sqliteRepository,
-    });
+    return authority.mode === "legacy" ? this.#legacyReader : this.#sqliteReader;
   }
 }
 
@@ -145,18 +151,18 @@ function requireAuthorityRepository(value) {
   return /** @type {PairingAuthorityRepository} */ (value);
 }
 
-/** @param {unknown} value @param {string} label @returns {PairingStateRepository} */
-function requirePairingStateRepository(value, label) {
+/** @param {unknown} value @param {string} label @returns {PairingStateReader} */
+function requirePairingStateReader(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
   }
-  const repository = /** @type {Record<string, unknown>} */ (value);
-  for (const method of PAIRING_STATE_METHODS) {
-    if (typeof repository[method] !== "function") {
+  const reader = /** @type {Record<string, unknown>} */ (value);
+  for (const method of PAIRING_READER_METHODS) {
+    if (typeof reader[method] !== "function") {
       throw new Error(`${label} must implement ${method}().`);
     }
   }
-  return /** @type {PairingStateRepository} */ (value);
+  return /** @type {PairingStateReader} */ (value);
 }
 
 /** @param {unknown} value @param {string} label */

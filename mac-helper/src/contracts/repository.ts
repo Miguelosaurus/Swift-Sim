@@ -48,17 +48,20 @@ export interface PairingStateSnapshot {
   invitations: readonly PairingInvitationRecord[];
 }
 
+export interface PairingStateReader {
+  read(): PairingStateSnapshot;
+  getCredential(installationID: string): PairingCredentialRecord | null;
+  getInvitation(id: string): PairingInvitationRecord | null;
+  findInvitationByInviteHash(inviteHash: string): PairingInvitationRecord | null;
+}
+
 /**
  * Owns an entire normalized pairing snapshot. Replacement is atomic: callers
  * cannot publish a credential without its matching invitation set or leave a
  * partially replaced invitation collection behind.
  */
-export interface PairingStateRepository {
-  read(): PairingStateSnapshot;
+export interface PairingStateRepository extends PairingStateReader {
   replace(snapshot: PairingStateSnapshot): void;
-  getCredential(installationID: string): PairingCredentialRecord | null;
-  getInvitation(id: string): PairingInvitationRecord | null;
-  findInvitationByInviteHash(inviteHash: string): PairingInvitationRecord | null;
 }
 
 export type PairingShadowSurface = "credential" | "invitation";
@@ -133,21 +136,4 @@ export interface PairingAuthorityRepository {
     rolledBackAt: string;
   }): PairingAuthorityState;
   finalizeSqlite(input: { expectedRevision: number; finalizedAt: string }): PairingAuthorityState;
-}
-
-export type PairingAuthorityTarget = "legacy" | "sqlite";
-
-export interface PairingAuthoritySelection {
-  authority: Readonly<PairingAuthorityState>;
-  target: PairingAuthorityTarget;
-  repository: PairingStateRepository;
-}
-
-/**
- * Selects one complete pairing repository from one validated authority read.
- * Selection itself performs no domain reads or writes and exposes no dual-write
- * operation.
- */
-export interface PairingAuthoritySelector {
-  select(): Readonly<PairingAuthoritySelection>;
 }
