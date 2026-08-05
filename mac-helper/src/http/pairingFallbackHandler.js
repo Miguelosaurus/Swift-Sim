@@ -41,6 +41,7 @@ import { writeHelperHtml, writeHelperJson } from "./helperHttpResponses.js";
  *     requestedExternalBaseURL?: string,
  *   }): { valid: boolean, externalBaseURL: string },
  * }} RequestOriginPolicyPort
+ * @typedef {{ observeCredential(pairing: unknown): unknown }} PairingShadowObserverPort
  */
 
 /**
@@ -51,6 +52,7 @@ import { writeHelperHtml, writeHelperJson } from "./helperHttpResponses.js";
  * @param {PairingStorePort} pairingStore
  * @param {PairingInviteStorePort} pairingInvites
  * @param {RequestOriginPolicyPort} originPolicy
+ * @param {PairingShadowObserverPort} [shadowObserver]
  */
 export function handlePairingFallbackRequest(
   request,
@@ -58,6 +60,7 @@ export function handlePairingFallbackRequest(
   pairingStore,
   pairingInvites,
   originPolicy,
+  shadowObserver = undefined,
 ) {
   if (request?.method !== "GET") return false;
   const context = createHelperRequestContext(request);
@@ -81,6 +84,7 @@ export function handlePairingFallbackRequest(
       base,
     ).customScheme;
     writeHelperHtml(response, pairingPage(customScheme, pairing.macName, invitation.expiresAt));
+    observeCredentialSafely(shadowObserver, pairing);
     return true;
   }
 
@@ -92,7 +96,22 @@ export function handlePairingFallbackRequest(
   const base = externalBaseURL(context, originPolicy);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHelperHtml(response, pairingPage(customScheme, pairing.macName));
+  observeCredentialSafely(shadowObserver, pairing);
   return true;
+}
+
+/**
+ * @param {PairingShadowObserverPort | undefined} shadowObserver
+ * @param {PairingState} pairing
+ */
+function observeCredentialSafely(shadowObserver, pairing) {
+  if (!shadowObserver || typeof shadowObserver.observeCredential !== "function") return;
+  try {
+    const result = shadowObserver.observeCredential(pairing);
+    void Promise.resolve(result).catch(() => {});
+  } catch {
+    // Shadow diagnostics never affect JSON authorization or HTTP responses.
+  }
 }
 
 /**
