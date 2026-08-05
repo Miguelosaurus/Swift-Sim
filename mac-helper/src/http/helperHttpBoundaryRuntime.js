@@ -1,7 +1,12 @@
 // @ts-check
 
 /**
- * @typedef {{ headersSent?: boolean, destroy(error?: Error): unknown }} HelperResponseLike
+ * @typedef {{
+ *   headersSent?: boolean,
+ *   writeHead(status: number, headers: Record<string, string>): unknown,
+ *   end(body?: string): unknown,
+ *   destroy(error?: Error): unknown,
+ * }} HelperResponseLike
  * @typedef {(request: unknown, response: HelperResponseLike) => unknown} RequestListener
  * @typedef {object | RequestListener | undefined} CreateServerInput
  * @typedef {(optionsOrListener?: CreateServerInput, listener?: RequestListener) => unknown} CreateServerLike
