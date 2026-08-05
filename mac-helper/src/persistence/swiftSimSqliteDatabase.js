@@ -1,5 +1,6 @@
 // @ts-check
 
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 /** @typedef {import("../contracts/repository.js").RepositoryHealth} RepositoryHealth */
@@ -73,15 +74,22 @@ export class SwiftSimSqliteDatabase {
     this.#database.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY CHECK (version > 0),
       name TEXT NOT NULL UNIQUE CHECK (length(name) > 0),
+      checksum TEXT NOT NULL CHECK (length(checksum) = 64),
       applied_at TEXT NOT NULL CHECK (length(applied_at) > 0)
     ) STRICT`);
 
     const applied = this.#database
-      .prepare("SELECT version, name FROM schema_migrations ORDER BY version")
+      .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
       .all()
       .map(parseAppliedMigrationRow);
     const expectedByVersion = new Map(this.#migrations.map((migration) => [migration.version, migration]));
+    let expectedAppliedVersion = 1;
     for (const row of applied) {
+      if (row.version !== expectedAppliedVersion) {
+        throw new Error(
+          `SQLite migration history is non-contiguous; expected version ${expectedAppliedVersion}, found ${row.version}.`,
+        );
+      }
       const expected = expectedByVersion.get(row.version);
       if (!expected) {
         throw new Error(`SQLite schema version ${row.version} is newer than this Swift Sim build.`);
@@ -91,17 +99,29 @@ export class SwiftSimSqliteDatabase {
           `SQLite migration ${row.version} is recorded as ${row.name}, expected ${expected.name}.`,
         );
       }
+      const expectedChecksum = migrationChecksum(expected);
+      if (row.checksum !== expectedChecksum) {
+        throw new Error(
+          `SQLite migration ${row.version} checksum does not match this Swift Sim build.`,
+        );
+      }
+      expectedAppliedVersion += 1;
     }
 
     const appliedVersions = new Set(applied.map((row) => row.version));
     const recordMigration = this.#database.prepare(
-      "INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)",
+      "INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
     );
     for (const migration of this.#migrations) {
       if (appliedVersions.has(migration.version)) continue;
       this.transaction(() => {
         for (const statement of migration.statements) this.#database.exec(statement);
-        recordMigration.run(migration.version, migration.name, this.#now());
+        recordMigration.run(
+          migration.version,
+          migration.name,
+          migrationChecksum(migration),
+          requireNonEmptyString(this.#now(), "SQLite migration appliedAt"),
+        );
       });
     }
   }
@@ -168,7 +188,12 @@ export class SwiftSimSqliteDatabase {
     );
     const latestSchemaVersion = this.#migrations.at(-1)?.version || 0;
     return {
-      ok: integrity === "ok" && foreignKeys && schemaVersion === latestSchemaVersion,
+      ok:
+        integrity === "ok" &&
+        journalMode === "wal" &&
+        foreignKeys &&
+        schemaVersion === latestSchemaVersion &&
+        migrationsApplied === latestSchemaVersion,
       path: this.#path,
       integrity,
       journalMode,
@@ -230,7 +255,29 @@ function parseAppliedMigrationRow(row) {
   return {
     version,
     name: requireNonEmptyString(values.name, "SQLite migration name"),
+    checksum: requireChecksum(values.checksum),
   };
+}
+
+/** @param {SchemaMigration} migration */
+function migrationChecksum(migration) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: migration.version,
+        name: migration.name,
+        statements: [...migration.statements],
+      }),
+    )
+    .digest("hex");
+}
+
+/** @param {unknown} value */
+function requireChecksum(value) {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error("SQLite migration checksum is invalid.");
+  }
+  return value;
 }
 
 /** @param {unknown} row @param {string} key @param {string} label */
