@@ -228,8 +228,10 @@ export class SwiftSimSqliteDatabase {
 
 /** @param {RepositoryHealth} health */
 function databaseHealthError(health) {
+  /** @type {string[]} */
   const failures = [];
-  if (health.integrity !== "ok") failures.push(`integrity=${health.integrity || "unknown"}`);
+  if (health.integrity !== "ok")
+    failures.push(`integrity=${health.integrity || "unknown"}`);
   if (health.journalMode !== "wal") {
     failures.push(`journal_mode=${health.journalMode || "unknown"}`);
   }
