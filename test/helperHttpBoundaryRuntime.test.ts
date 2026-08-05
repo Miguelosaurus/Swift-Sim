@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HelperHttpBoundaryRuntime } from "../mac-helper/src/http/helperHttpBoundaryRuntime.js";
+import { HelperHttpBoundaryRuntime } from "../mac-helper/src/http/helperServerRuntime.js";
 
 type HelperResponse = {
   headersSent?: boolean;
