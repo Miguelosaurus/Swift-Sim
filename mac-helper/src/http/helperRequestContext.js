@@ -42,7 +42,10 @@ export function createHelperRequestContext(request, { defaultHost = "127.0.0.1" 
   const hostHeader = normalizedRequestHeader(request?.headers?.host) || defaultHost;
   let url;
   try {
-    url = new URL(typeof request?.url === "string" && request.url ? request.url : "/", `http://${hostHeader}`);
+    url = new URL(
+      typeof request?.url === "string" && request.url ? request.url : "/",
+      `http://${hostHeader}`,
+    );
   } catch {
     return null;
   }
@@ -51,6 +54,12 @@ export function createHelperRequestContext(request, { defaultHost = "127.0.0.1" 
   const bearerToken = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice(7).trim()
     : "";
+  const forwardedHostHeader = normalizedRequestHeader(
+    request?.headers?.["x-forwarded-host"],
+  );
+  const forwardedProtoHeader = normalizedRequestHeader(
+    request?.headers?.["x-forwarded-proto"],
+  );
 
   return {
     method: typeof request?.method === "string" ? request.method : "",
@@ -59,8 +68,8 @@ export function createHelperRequestContext(request, { defaultHost = "127.0.0.1" 
     bearerToken,
     socketRemoteAddress: String(request?.socket?.remoteAddress || ""),
     hostHeader,
-    forwardedHostHeader: normalizedRequestHeader(request?.headers?.["x-forwarded-host"]),
-    forwardedProtoHeader: normalizedRequestHeader(request?.headers?.["x-forwarded-proto"]),
+    ...(forwardedHostHeader === undefined ? {} : { forwardedHostHeader }),
+    ...(forwardedProtoHeader === undefined ? {} : { forwardedProtoHeader }),
   };
 }
 
