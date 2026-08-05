@@ -5,11 +5,11 @@ import { SWIFT_SIM_SQLITE_MIGRATIONS } from "./swiftSimSqliteDatabase.js";
 /** @typedef {import("../contracts/repository.js").SchemaMigration} SchemaMigration */
 
 /** @type {readonly SchemaMigration[]} */
-export const PAIRING_SHADOW_SQLITE_MIGRATIONS = Object.freeze([
+export const PAIRING_SQLITE_MIGRATIONS = Object.freeze([
   ...SWIFT_SIM_SQLITE_MIGRATIONS,
   Object.freeze({
     version: 2,
-    name: "pairing_shadow_state",
+    name: "pairing_state",
     statements: Object.freeze([
       `CREATE TABLE pairing_credentials (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -21,13 +21,23 @@ export const PAIRING_SHADOW_SQLITE_MIGRATIONS = Object.freeze([
       ) STRICT`,
       `CREATE TABLE pairing_invitations (
         id TEXT PRIMARY KEY CHECK (length(id) > 0),
-        invite_hash TEXT NOT NULL UNIQUE CHECK (length(invite_hash) = 64),
+        invite_hash TEXT NOT NULL UNIQUE CHECK (
+          length(invite_hash) = 64 AND invite_hash NOT GLOB '*[^0-9a-f]*'
+        ),
         installation_id TEXT NOT NULL,
         client_nonce TEXT,
         claimed INTEGER NOT NULL CHECK (claimed IN (0, 1)),
         created_at TEXT NOT NULL CHECK (length(created_at) > 0),
         expires_at TEXT NOT NULL CHECK (length(expires_at) > 0),
         claimed_at TEXT,
+        CHECK (
+          (claimed = 0 AND client_nonce IS NULL AND claimed_at IS NULL) OR
+          (
+            claimed = 1 AND
+            client_nonce IS NOT NULL AND length(client_nonce) > 0 AND
+            claimed_at IS NOT NULL AND length(claimed_at) > 0
+          )
+        ),
         FOREIGN KEY (installation_id)
           REFERENCES pairing_credentials(installation_id)
           ON DELETE CASCADE
