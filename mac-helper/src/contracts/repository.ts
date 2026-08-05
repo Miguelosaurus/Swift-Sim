@@ -1,3 +1,8 @@
+import type {
+  PairingCredentialRecord,
+  PairingInvitationRecord,
+} from "./pairing.js";
+
 export interface SchemaMigration {
   version: number;
   name: string;
@@ -32,4 +37,19 @@ export interface LegacyImportCheckpointRepository {
   get(source: string): LegacyImportCheckpoint | null;
   list(): LegacyImportCheckpoint[];
   upsert(checkpoint: LegacyImportCheckpoint): void;
+}
+
+export interface PairingCredentialRepository {
+  get(installationID: string): PairingCredentialRecord | null;
+  list(): PairingCredentialRecord[];
+  upsert(record: PairingCredentialRecord): void;
+  replaceAll(records: readonly PairingCredentialRecord[]): void;
+}
+
+export interface PairingInvitationRepository {
+  get(id: string): PairingInvitationRecord | null;
+  findByInviteHash(inviteHash: string): PairingInvitationRecord | null;
+  list(): PairingInvitationRecord[];
+  upsert(record: PairingInvitationRecord): void;
+  replaceAll(records: readonly PairingInvitationRecord[]): void;
 }
