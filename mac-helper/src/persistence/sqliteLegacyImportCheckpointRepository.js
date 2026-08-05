@@ -81,26 +81,27 @@ export class SqliteLegacyImportCheckpointRepository {
   }
 }
 
-/** @param {LegacyImportCheckpoint} checkpoint */
+/** @param {unknown} checkpoint @returns {LegacyImportCheckpoint} */
 function validateCheckpoint(checkpoint) {
-  if (!checkpoint || typeof checkpoint !== "object") {
+  if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) {
     throw new Error("Legacy import checkpoint must be an object.");
   }
-  const recordCount = Number(checkpoint.recordCount);
+  const values = /** @type {Record<string, unknown>} */ (checkpoint);
+  const recordCount = Number(values.recordCount);
   if (!Number.isSafeInteger(recordCount) || recordCount < 0) {
     throw new Error("Legacy import checkpoint recordCount must be a non-negative safe integer.");
   }
   return {
-    source: requireNonEmptyString(checkpoint.source, "Legacy import source"),
+    source: requireNonEmptyString(values.source, "Legacy import source"),
     sourceRevision: requireNonEmptyString(
-      checkpoint.sourceRevision,
+      values.sourceRevision,
       "Legacy import sourceRevision",
     ),
     projectionHash: requireNonEmptyString(
-      checkpoint.projectionHash,
+      values.projectionHash,
       "Legacy import projectionHash",
     ),
-    importedAt: requireNonEmptyString(checkpoint.importedAt, "Legacy import importedAt"),
+    importedAt: requireNonEmptyString(values.importedAt, "Legacy import importedAt"),
     recordCount,
   };
 }
