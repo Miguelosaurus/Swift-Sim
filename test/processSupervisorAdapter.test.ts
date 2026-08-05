@@ -4,6 +4,10 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type {
+  LiveEngineProcessRecord,
+  OwnedWorkerProcessRecord,
+} from "../mac-helper/src/contracts/process.js";
 import {
   kernelProcessIdentity,
   liveEngineProcessRecordIsCurrent,
@@ -26,11 +30,15 @@ const runtime = {
 
 const identity = {
   prepareWorker: prepareOwnedWorkerProcessIdentity,
-  workerRecord: requiredOwnedWorkerProcessRecord,
-  workerState: ownedWorkerProcessState,
+  workerRecord: (pid: number, command: string): OwnedWorkerProcessRecord =>
+    requiredOwnedWorkerProcessRecord(pid, command) as OwnedWorkerProcessRecord,
+  workerState: (record: OwnedWorkerProcessRecord) => ownedWorkerProcessState(record),
   prepareKernel: prepareKernelProcessIdentity,
   kernelIdentity: kernelProcessIdentity,
-  liveEngineCurrent: liveEngineProcessRecordIsCurrent,
+  liveEngineCurrent: (
+    record: LiveEngineProcessRecord,
+    options: { engineExecutable: string },
+  ) => liveEngineProcessRecordIsCurrent(record, options),
 };
 
 function environment(overrides: Record<string, string | undefined> = {}) {
@@ -55,16 +63,16 @@ test("NodeProcessSupervisor rolls back a spawned worker when journal publication
       throw new Error("journal unavailable");
     },
   });
-  const supervisor = new NodeProcessSupervisor({
-    runtime: {
-      ...runtime,
-      spawn: (...args) => {
-        const child = spawn(...args);
-        spawnedPID = Number(child.pid);
-        return child;
-      },
+  const capturingIdentity = {
+    ...identity,
+    workerRecord: (pid: number, command: string): OwnedWorkerProcessRecord => {
+      spawnedPID = pid;
+      return requiredOwnedWorkerProcessRecord(pid, command) as OwnedWorkerProcessRecord;
     },
-    identity,
+  };
+  const supervisor = new NodeProcessSupervisor({
+    runtime,
+    identity: capturingIdentity,
     journalStore: failingJournal,
   });
 
@@ -176,8 +184,8 @@ test("NodeProcessSupervisor publishes a nonce-bound live-engine record", async (
 });
 
 test("NodeProcessSupervisor refuses SIGKILL escalation after identity replacement", () => {
-  const record = {
-    version: 2 as const,
+  const record: OwnedWorkerProcessRecord = {
+    version: 2,
     pid: 4242,
     processGroup: 4242,
     startToken: "start-token",
@@ -191,7 +199,7 @@ test("NodeProcessSupervisor refuses SIGKILL escalation after identity replacemen
     runtime: {
       spawn: (() => {
         throw new Error("unused");
-      }) as typeof spawn,
+      }) as unknown as typeof spawn,
       spawnSync,
       signal: ((pid: number, signal?: string | number) => {
         if (signal !== 0) signals.push(signal);
@@ -232,11 +240,17 @@ test("NodeProcessSupervisor classifies invalid, replaced, and unverifiable recor
   };
   assert.equal(supervisor.inspect(replaced).state, "replaced");
 
+  const unavailableSpawnSync = (() => ({
+    pid: 0,
+    output: [null, null, null],
+    stdout: "",
+    stderr: "",
+    status: 1,
+    signal: null,
+    error: undefined,
+  })) as unknown as typeof spawnSync;
   const unverifiableSupervisor = new NodeProcessSupervisor({
-    runtime: {
-      ...runtime,
-      spawnSync: (() => ({ status: 1, stdout: "" })) as typeof spawnSync,
-    },
+    runtime: { ...runtime, spawnSync: unavailableSpawnSync },
     identity,
   });
   assert.equal(unverifiableSupervisor.inspect(replaced).state, "unverifiable");
