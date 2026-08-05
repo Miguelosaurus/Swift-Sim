@@ -94,7 +94,7 @@ Still legacy-owned:
 
 | Metric | Phase 0 baseline | Checkpoint 1 | Interpretation |
 | --- | ---: | ---: | --- |
-| Production source files | 74 | 92 | New contracts/adapters were added without helper decomposition |
+| Production source files | 74 | 95 | New contracts/adapters were added without helper decomposition |
 | Production TypeScript files | 0 | 9 | Typed contracts and port definitions now exist |
 | Named infrastructure ports | 0 | 10 | Planned Phase 2 boundary is complete |
 | Preload/runtime-patch modules | 30 | 30 | No premature preload removal |
