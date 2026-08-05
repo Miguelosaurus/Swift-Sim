@@ -41,6 +41,7 @@ import { writeHelperHtml, writeHelperJson } from "./helperHttpResponses.js";
  *     requestedExternalBaseURL?: string,
  *   }): { valid: boolean, externalBaseURL: string },
  * }} RequestOriginPolicyPort
+ * @typedef {{ observeCredential(pairing: unknown): unknown }} PairingShadowObserverPort
  */
 
 /**
@@ -51,6 +52,7 @@ import { writeHelperHtml, writeHelperJson } from "./helperHttpResponses.js";
  * @param {PairingStorePort} pairingStore
  * @param {PairingInviteStorePort} pairingInvites
  * @param {RequestOriginPolicyPort} originPolicy
+ * @param {PairingShadowObserverPort} [shadowObserver]
  */
 export function handlePairingFallbackRequest(
   request,
@@ -58,6 +60,7 @@ export function handlePairingFallbackRequest(
   pairingStore,
   pairingInvites,
   originPolicy,
+  shadowObserver = undefined,
 ) {
   if (request?.method !== "GET") return false;
   const context = createHelperRequestContext(request);
@@ -81,6 +84,7 @@ export function handlePairingFallbackRequest(
       base,
     ).customScheme;
     writeHelperHtml(response, pairingPage(customScheme, pairing.macName, invitation.expiresAt));
+    deferCredentialObservation(shadowObserver, pairing);
     return true;
   }
 
@@ -92,7 +96,31 @@ export function handlePairingFallbackRequest(
   const base = externalBaseURL(context, originPolicy);
   const customScheme = buildPairingLinks(pairing, base).customScheme;
   writeHelperHtml(response, pairingPage(customScheme, pairing.macName));
+  deferCredentialObservation(shadowObserver, pairing);
   return true;
+}
+
+/**
+ * @param {PairingShadowObserverPort | undefined} shadowObserver
+ * @param {PairingState} pairing
+ */
+function deferCredentialObservation(shadowObserver, pairing) {
+  try {
+    if (!shadowObserver) return;
+    const observeCredential = shadowObserver.observeCredential;
+    if (typeof observeCredential !== "function") return;
+    const snapshot = { ...pairing };
+    setImmediate(() => {
+      try {
+        const result = Reflect.apply(observeCredential, shadowObserver, [snapshot]);
+        void Promise.resolve(result).catch(() => {});
+      } catch {
+        // Shadow diagnostics never affect JSON authorization or HTTP responses.
+      }
+    });
+  } catch {
+    // Accessor, snapshot, or scheduling failures are best-effort diagnostics only.
+  }
 }
 
 /**
