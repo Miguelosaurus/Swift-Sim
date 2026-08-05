@@ -9,7 +9,10 @@ type HelperResponse = {
   destroy(error?: Error): unknown;
 };
 type RequestListener = (request: unknown, response: HelperResponse) => unknown;
-type CreateServerInput = object | RequestListener | undefined;
+type CreateServerInput =
+  | Record<string, unknown>
+  | RequestListener
+  | undefined;
 type CreateServer = (
   optionsOrListener?: CreateServerInput,
   listener?: RequestListener,
