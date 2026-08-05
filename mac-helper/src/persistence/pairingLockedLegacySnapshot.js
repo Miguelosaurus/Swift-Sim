@@ -60,13 +60,7 @@ export class PairingLockedLegacySnapshotReader {
    *   backupDirectory: string,
    * }} options
    */
-  constructor({
-    fileStore,
-    lockManager,
-    credentialSource,
-    invitationSource,
-    backupDirectory,
-  }) {
+  constructor({ fileStore, lockManager, credentialSource, invitationSource, backupDirectory }) {
     if (!fileStore || typeof fileStore.readTextSync !== "function") {
       throw new Error("Pairing legacy atomic file store is required.");
     }
@@ -222,8 +216,7 @@ function parseLegacySnapshot(credentialSource, invitationSource) {
 function immutablePairingSnapshot(snapshot) {
   const normalized = normalizePairingStateSnapshot(snapshot);
   return Object.freeze({
-    credential:
-      normalized.credential === null ? null : Object.freeze({ ...normalized.credential }),
+    credential: normalized.credential === null ? null : Object.freeze({ ...normalized.credential }),
     invitations: Object.freeze(
       normalized.invitations.map((invitation) => Object.freeze({ ...invitation })),
     ),
@@ -315,7 +308,7 @@ function isThenable(value) {
     value !== null &&
     (typeof value === "object" || typeof value === "function") &&
     "then" in value &&
-    typeof /** @type {{ then?: unknown }} */ (value).then === "function"
+    typeof (/** @type {{ then?: unknown }} */ (value).then) === "function"
   );
 }
 
