@@ -41,8 +41,8 @@ Checkpoint 1 records:
 
 | Metric | Phase 0 baseline | Current at Checkpoint 1 | Target |
 | --- | ---: | ---: | ---: |
-| Production source files | 74 | 92 | Responsibility-oriented modules without framework-shaped sprawl |
-| Production JavaScript files | 67 | 76 | 0 canonical JS implementation files after migration, excluding intentional wrappers |
+| Production source files | 74 | 95 | Responsibility-oriented modules without framework-shaped sprawl |
+| Production JavaScript files | 67 | 79 | 0 canonical JS implementation files after migration, excluding intentional wrappers |
 | Production TypeScript files | 0 | 9 | Canonical Node implementation |
 | Production Swift files | 7 | 7 | Feature-organized |
 | Named infrastructure ports | 0 | 10 | Stable narrow boundary |
