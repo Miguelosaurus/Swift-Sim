@@ -58,6 +58,8 @@ import {
 } from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { serveFile } from "../src/fileServer.js";
+import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
+import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -321,6 +323,27 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     void scheduleDeliveryReferenceCleanup();
   });
   const activeSockets = new Set();
+  const sessionRouteService = createSessionHttpApplicationService({
+    pairingTokenMatches,
+    getSession: (sessionId) => store.get(sessionId),
+    tokenMatches,
+    projectSession: publicSession,
+    startSession: ({ remoteBaseUrl, ...values }) => startOrReuseSession({
+      ...values,
+      "remote-base-url": remoteBaseUrl,
+    }),
+    stopSession,
+    sessionLinks: (session) => buildCompanionLinks(session, session.remoteBaseUrl),
+    streamSession: proxyStream,
+    frameMask: (session) => simulatorProfiles.readMask(session.simulatorUDID),
+    typeText: typeIntoSimulator,
+    sendKey: sendNamedKey,
+    tap: tapSimulator,
+    gesture: sendGesture,
+    multitouch: sendMultiTouch,
+    control: sendControl,
+    sessionPage: sessionFallbackHtml,
+  });
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
@@ -394,21 +417,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         });
       }
 
-      if (req.method === "POST" && url.pathname === "/api/sessions/start") {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        const body = await readJson(req);
-        const session = await startOrReuseSession({
-          project: body.project,
-          scheme: body.scheme,
-          simulator: body.simulatorUDID || body.simulator,
-          "remote-base-url": body.remoteBaseUrl,
-          port: body.port,
-          transport: body.transport,
-        });
-        return json(res, 201, session);
-      }
+      if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
 
       if (req.method === "GET" && url.pathname === "/api/device-builds") {
         if (!pairingTokenMatches(req, url)) {
@@ -609,147 +618,6 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
           filename: `${build.app.name || build.scheme || "App"}.ipa`,
           notFound,
         });
-      }
-
-      const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(logs|stop|links))?$/);
-      if (sessionMatch) {
-        const [, sessionId, action] = sessionMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        if (req.method === "GET" && !action) {
-          return json(res, 200, publicSession(session));
-        }
-        if (req.method === "GET" && action === "logs") {
-          return json(res, 200, { sessionId, logs: session.logs.slice(-200) });
-        }
-        if (req.method === "POST" && action === "stop") {
-          await stopSession(sessionId);
-          return json(res, 200, { stopped: true, sessionId });
-        }
-        if (req.method === "GET" && action === "links") {
-          return json(res, 200, buildCompanionLinks(session, session.remoteBaseUrl));
-        }
-      }
-
-      const streamMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
-      if (streamMatch && req.method === "GET") {
-        const [, sessionId] = streamMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        return proxyStream(res, session);
-      }
-
-      const frameMaskMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/frame-mask$/);
-      if (frameMaskMatch && req.method === "GET") {
-        const [, sessionId] = frameMaskMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const mask = simulatorProfiles.readMask(session.simulatorUDID);
-        if (!mask) return notFound(res, "Simulator frame mask is unavailable.");
-        res.writeHead(200, {
-          "content-type": mask.contentType,
-          "content-length": mask.data.length,
-          "cache-control": "private, max-age=86400",
-          "x-swift-sim-frame-width": mask.width,
-          "x-swift-sim-frame-height": mask.height,
-        });
-        return res.end(mask.data);
-      }
-
-      const typeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/type$/);
-      if (typeMatch && req.method === "POST") {
-        const [, sessionId] = typeMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const body = await readJson(req);
-        const result = await typeIntoSimulator(session, body.text || "");
-        return json(res, 200, result);
-      }
-
-      const keyMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/key$/);
-      if (keyMatch && req.method === "POST") {
-        const [, sessionId] = keyMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const body = await readJson(req);
-        const result = await sendNamedKey(session, body.key || "");
-        return json(res, 200, result);
-      }
-
-      const tapMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/tap$/);
-      if (tapMatch && req.method === "POST") {
-        const [, sessionId] = tapMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const body = await readJson(req);
-        const result = await tapSimulator(session, body.x, body.y);
-        return json(res, 200, result);
-      }
-
-      const gestureMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/gesture$/);
-      if (gestureMatch && req.method === "POST") {
-        const [, sessionId] = gestureMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const body = await readJson(req);
-        const result = await sendGesture(session, body);
-        return json(res, 200, result);
-      }
-
-      const multiTouchMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/multitouch$/);
-      if (multiTouchMatch && req.method === "POST") {
-        const [, sessionId] = multiTouchMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const body = await readJson(req);
-        const result = await sendMultiTouch(session, body);
-        return json(res, 200, result);
-      }
-
-      const controlMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/control\/([a-z-]+)$/);
-      if (controlMatch && req.method === "POST") {
-        const [, sessionId, control] = controlMatch;
-        const session = store.get(sessionId);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const result = await sendControl(session, control);
-        return json(res, 200, result);
-      }
-
-      const webMatch = url.pathname.match(/^\/s\/([^/]+)$/);
-      if (webMatch) {
-        const session = store.get(webMatch[1]);
-        if (!session) return notFound(res, "Unknown session.");
-        if (!tokenMatches(session, url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        return text(res, 200, sessionFallbackHtml(session), "text/html; charset=utf-8");
       }
 
       const deviceWebMatch = url.pathname.match(/^\/d\/([^/]+)$/);

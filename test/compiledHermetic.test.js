@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ const packageRoot = isSourceTree ? compiledOrSourceRoot : dirname(compiledOrSour
 const distRoot = isSourceTree ? join(packageRoot, "dist") : compiledOrSourceRoot;
 const cli = join(distRoot, "mac-helper", "bin", "swift-sim-entry.js");
 const helper = join(distRoot, "mac-helper", "bin", "swift-sim-helper-entry.js");
+const gateway = join(distRoot, "mac-helper", "bin", "swift-sim-device-gateway.js");
 
 test("compiled runtime works without the source tree", async () => {
   if (isSourceTree) return;
@@ -87,6 +88,44 @@ writeFileSync(${JSON.stringify(brewInvocation)}, process.argv.slice(2).join(" ")
 
 });
 
+test("compiled public gateway returns 404 for every private session route", async () => {
+  if (isSourceTree) return;
+  const home = mkdtempSync(join(tmpdir(), "swift-sim-gateway-isolation-"));
+  mkdirSync(join(home, ".swift-sim"), { recursive: true });
+  const port = await availablePort();
+  let child;
+  try {
+    child = await startGateway({ ...process.env, HOME: home }, port);
+    const routes = [
+      ["POST", "/api/sessions/start"],
+      ["GET", "/api/sessions/session-1"],
+      ["GET", "/api/sessions/session-1/logs"],
+      ["POST", "/api/sessions/session-1/stop"],
+      ["GET", "/api/sessions/session-1/links"],
+      ["GET", "/api/sessions/session-1/stream"],
+      ["GET", "/api/sessions/session-1/frame-mask"],
+      ["POST", "/api/sessions/session-1/type"],
+      ["POST", "/api/sessions/session-1/key"],
+      ["POST", "/api/sessions/session-1/tap"],
+      ["POST", "/api/sessions/session-1/gesture"],
+      ["POST", "/api/sessions/session-1/multitouch"],
+      ["POST", "/api/sessions/session-1/control/home"],
+      ["GET", "/s/session-1"],
+      ["POST", "/s/session-1"],
+    ];
+    for (const [method, pathname] of routes) {
+      const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+        method,
+        ...(method === "POST" ? { body: "{}", headers: { "content-type": "application/json" } } : {}),
+      });
+      assert.equal(response.status, 404, `${method} ${pathname}`);
+    }
+  } finally {
+    if (child) await stopHelper(child);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 function run(script, args, env = process.env) {
   return spawnSync(process.execPath, [script, ...args], { encoding: "utf8", env });
 }
@@ -106,6 +145,25 @@ async function startHelper(env, port) {
   }
   child.kill("SIGKILL");
   throw new Error(`Hermetic compiled helper did not become healthy: ${errorOutput}`);
+}
+
+async function startGateway(env, port) {
+  const child = spawn(process.execPath, [gateway, "--host", "127.0.0.1", "--port", String(port)], {
+    env,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const exitPromise = new Promise((resolve) => child.once("exit", resolve));
+  let errorOutput = "";
+  child.stderr.on("data", (chunk) => { errorOutput += String(chunk); });
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return child;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  child.kill("SIGKILL");
+  await exitPromise;
+  throw new Error(`Hermetic compiled gateway did not become healthy: ${errorOutput}`);
 }
 
 async function stopHelper(child) {

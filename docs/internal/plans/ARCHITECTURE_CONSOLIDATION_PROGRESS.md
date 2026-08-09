@@ -243,15 +243,23 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 
 ## Phase 3 — Helper and HTTP decomposition
 
-- Status: Partially implemented in draft PRs #34–#40; the master-plan Phase 3 gate is not met.
+- Status: Partially implemented in draft PRs #34–#40 and corrective PR #56; the master-plan Phase 3 gate is not met.
 - Stack base: Checkpoint 1 final metadata head `f21e344ea18eb0a976630a4ce38cf52bf30a3f47`.
 - Current Phase 3G head: `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
+- Corrective active-ancestry head: PR #56 / `1956dac`, stacked after the Phase 4 pairing tranche and helper-state reliability correction so validated history remains intact.
 
 ### Implemented slices
 
 - #34–#35 extract seven bounded one-shot CLI commands and command-specific composition.
 - #36–#37 add typed request context plus pairing-fallback and public-build capability handlers.
 - #38–#40 extract delivery maintenance and HTTP server/timer behavior and make the compatibility boundary installation explicit.
+- #56 extracts all 14 Simulator-session HTTP contracts behind one typed application service. Each route owns only matching and HTTP projection; authorization, input decoding, store access, operation orchestration, and persisted-session projection are behind one `execute` call. The compiled public gateway returns 404 for every private session route, including GET and POST for the legacy any-method session page.
+
+### Corrective Phase 3H evidence
+
+- Independent review initially found four P2 boundary/evidence gaps: an inaccurate session-page method matrix, an unenforced service façade, shallow authorization/completion coverage, and incomplete real-gateway proof. Corrections added the accurate `ANY /s/:id` contract, a `@ts-check` and runtime-validated application-service surface, every-route authorization/signature/outcome/malformed/unsupported-method tests, headers-sent-safe stream failure handling, and compiled all-route gateway isolation. Final re-review reported P0 0, P1 0, P2 0.
+- Node 24 `npm run check` at `1956dac` passed syntax for 460 JavaScript files, architecture inventory for 124 production sources, 55 Markdown links, strict types, formatting, lint, 506/506 source tests, 139/139 compiled contract tests, 2/2 hermetic process tests, compiled entrypoint equivalence, 265 package paths, isolated package installation, and formula validation.
+- This is a bounded corrective slice, not a Phase 3 completion claim. The compatibility helper still owns the remaining build, pairing, transport, and lifecycle route families plus module-global construction and direct process/persistence work.
 
 ### Gate correction
 
@@ -330,7 +338,7 @@ The E4 pairing rollback slice has no remaining finding from its focused audit. F
 
 The port preserves the original 500-line/64-KiB newest diagnostic tail, version-6 legacy compaction, healthy-helper startup short circuit, and disposable-HOME compiled-runtime verification. It replaces the old source-text startup assertions with compiled-package behavior evidence and does not increase the architecture ratchets. Independent review found three P2 evidence/durability gaps in the initial port: bespoke publication lacked fsync/fault proof, duplicate-start proof needed the real process entrypoint, and verifier-HOME isolation needed a behavioral mutation sentinel. The final implementation uses `NodeAtomicFileStore` publication with file and directory synchronization, proves byte-identical legacy state after injected publication failure, exercises the official compiled entrypoint against a healthy helper, and verifies caller state remains unchanged before cleaning the isolated probe root. The corrective re-review reported no remaining P0–P3 findings.
 
-Local Node 24 validation passed 46/46 focused device-build tests, 468/468 source tests, 139/139 compiled tests, the hermetic compiled runtime, 122-source architecture inventory, 55-file documentation check, strict types, formatting, lint, 261 package paths, isolated package installation, and formula validation. The clean Homebrew gate passed isolated archive installation, Node 24 launchers, unique-port service identity/restart, assets, setup, and doctor while preserving existing launchers; the known dylib-header/link warning remained diagnostic only. Workflow YAML and required shell syntax gates passed. The exact workflow iOS Simulator command passed 30/30 tests with 0 failures on simulator `FC06262E-96E4-4B4E-ADAB-C9D5FFE8927D`. The PR remains draft and requires its natural exact-head Verify plus later persistent-service/release-candidate evidence before merge.
+Local Node 24 validation passed 46/46 focused device-build tests, 468/468 source tests, 139/139 compiled tests, the hermetic compiled runtime, 122-source architecture inventory, 55-file documentation check, strict types, formatting, lint, 261 package paths, isolated package installation, and formula validation. The clean Homebrew gate passed isolated archive installation, Node 24 launchers, unique-port service identity/restart, assets, setup, and doctor while preserving existing launchers; the known dylib-header/link warning remained diagnostic only. Workflow YAML and required shell syntax gates passed. The exact workflow iOS Simulator command passed 30/30 tests with 0 failures on simulator `FC06262E-96E4-4B4E-ADAB-C9D5FFE8927D`. PR #55 exact-head Verify run `31319696947` passed; the PR remains draft and later persistent-service/release-candidate evidence is still required before merge.
 
 ## Decision log index
 
