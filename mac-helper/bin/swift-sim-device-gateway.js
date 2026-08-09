@@ -49,7 +49,7 @@ const server = createServer(async (req, res) => {
     }
 
     const buildMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/);
-    if (buildMatch) {
+    if (buildMatch && buildMatch[1] !== "start") {
       const [, buildID, action] = buildMatch;
       const resolved = authorizedBuild(buildID, url.searchParams.get("token"));
       if (!resolved) return unauthorized(res);

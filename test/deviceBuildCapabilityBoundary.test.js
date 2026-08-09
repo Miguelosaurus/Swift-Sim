@@ -85,6 +85,16 @@ test("unknown build IDs do not reveal existence to unauthenticated capability ca
   assert.equal(response.status, 401);
 });
 
+test("private start command is not interpreted as a public build capability", async () => {
+  const response = responseRecorder();
+  assert.equal(await handlePublicDeviceBuildCapability({
+    method: "POST",
+    url: "/api/device-builds/start",
+    headers: { host: "example.test" },
+  }, response, dependencies(readyBuild())), false);
+  assert.equal(response.status, 0);
+});
+
 test("public status is redacted while paired-Mac authorization falls through", async () => {
   const build = readyBuild({ installation: { state: "verified", devices: [{ name: "iPhone 17 Pro" }] } });
   const publicResponse = responseRecorder();
