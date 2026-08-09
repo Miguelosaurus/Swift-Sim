@@ -6,6 +6,11 @@ SOURCE_CLI="$ROOT/mac-helper/bin/swift-sim.js"
 COMPILED_CLI="$ROOT/dist/mac-helper/bin/swift-sim.js"
 SOURCE_HELPER="$ROOT/mac-helper/bin/swift-sim-helper-entry.js"
 COMPILED_HELPER="$ROOT/dist/mac-helper/bin/swift-sim-helper-entry.js"
+HELPER_TEST_ROOT="$(mktemp -d -t swift-sim-helper-equivalence)"
+trap 'rm -rf "$HELPER_TEST_ROOT"' EXIT
+mkdir -p \
+  "$HELPER_TEST_ROOT/source-home/.swift-sim" \
+  "$HELPER_TEST_ROOT/compiled-home/.swift-sim"
 
 for command in version help; do
   source_output="$(node "$SOURCE_CLI" "$command")"
@@ -17,8 +22,8 @@ for command in version help; do
   fi
 done
 
-source_helper_output="$(node "$SOURCE_HELPER" --help 2>&1 || true)"
-compiled_helper_output="$(node "$COMPILED_HELPER" --help 2>&1 || true)"
+source_helper_output="$(HOME="$HELPER_TEST_ROOT/source-home" node "$SOURCE_HELPER" --help 2>&1 || true)"
+compiled_helper_output="$(HOME="$HELPER_TEST_ROOT/compiled-home" node "$COMPILED_HELPER" --help 2>&1 || true)"
 if [[ "$source_helper_output" != "$compiled_helper_output" ]]; then
   echo "Source/compiled helper entrypoint mismatch for '--help'" >&2
   diff -u <(printf '%s\n' "$source_helper_output") <(printf '%s\n' "$compiled_helper_output") >&2 || true

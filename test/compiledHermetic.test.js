@@ -40,9 +40,28 @@ test("compiled runtime works without the source tree", async () => {
   let first = await startHelper(env, port);
   try {
     assert.equal((await fetch(`http://127.0.0.1:${port}/health`)).ok, true);
-    const setup = run(cli, ["setup", "--skip-service", "--skip-agents", "--skip-plugin", "--json"], env);
+    const fakeBin = join(home, "fake-bin");
+    const brewInvocation = join(home, "unexpected-brew-invocation.txt");
+    const fakeBrew = join(fakeBin, "brew");
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(fakeBrew, `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(brewInvocation)}, process.argv.slice(2).join(" "));
+`, { mode: 0o700 });
+    const setupEnv = {
+      ...env,
+      PATH: `${fakeBin}:${process.env.PATH || ""}`,
+      SWIFT_SIM_MARKETPLACE_ROOT: packageRoot,
+    };
+    const setup = run(cli, ["setup", "--skip-agents", "--skip-plugin", "--json"], setupEnv);
     assert.equal(setup.status, 0, setup.stderr);
-    assert.equal(JSON.parse(setup.stdout).version, "0.6.1");
+    const setupReport = JSON.parse(setup.stdout);
+    assert.equal(setupReport.version, "0.6.1");
+    assert.deepEqual(
+      setupReport.actions.find((action) => action.id === "helper"),
+      { id: "helper", state: "unchanged", detail: "Mac helper is already running" },
+    );
+    assert.equal(existsSync(brewInvocation), false);
     const doctor = run(cli, ["doctor", "--json"], env);
     assert.equal(doctor.status, 0, doctor.stderr);
     assert.equal(JSON.parse(doctor.stdout).version, "0.6.1");

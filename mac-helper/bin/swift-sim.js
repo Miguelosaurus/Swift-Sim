@@ -463,6 +463,7 @@ function installAgentIntegrations() {
 
 async function ensureHelperRunning() {
   const wasHealthy = (await helperHealth()).ok;
+  if (wasHealthy) return { id: "helper", state: "unchanged", detail: "Mac helper is already running" };
 
   const brew = findCommand("brew");
   if (brew && process.env.SWIFT_SIM_MARKETPLACE_ROOT) {
@@ -471,8 +472,6 @@ async function ensureHelperRunning() {
       return { id: "helper", state: "configured", detail: "Mac helper starts automatically with Homebrew services" };
     }
   }
-
-  if (wasHealthy) return { id: "helper", state: "unchanged", detail: "Mac helper is already running" };
 
   const logDirectory = join(homedir(), ".swift-sim");
   mkdirSync(logDirectory, { recursive: true });
