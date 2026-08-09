@@ -11,7 +11,7 @@ The active execution control is [the batched-execution amendment](ARCHITECTURE_C
 | 0 | Baseline and guardrails | Merged | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | `4dfa15f` | `2a2239c`; merge `6f356df` | Existing debt is baselined and decrease-only |
 | 1 | TypeScript and package foundation | Merged | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | `6f356df` | `2151d35`; merge `820ff2e` | Mixed JS/TS transition remains; compiled `dist` is runtime output |
 | 2 | Explicit infrastructure primitives | Checkpoint 1 hosted-green; draft stack unmerged | [#26–#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | `820ff2e` | `d441798` | Weak delivery identity and unmigrated command/process call sites |
-| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3J; draft stack unmerged | [#34–#40, #56–#58](https://github.com/Miguelosaurus/Swift-Sim/pull/58) | Phase 2 final metadata / `f21e344` | Corrective implementation `b5dbb73` | The 1,894-line compatibility helper still owns device-build delivery, pairing-page, lifecycle, process, persistence, and composition work; the Phase 3 gate is not met |
+| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3K; draft stack unmerged | [#34–#40, #56–#59](https://github.com/Miguelosaurus/Swift-Sim/pull/59) | Phase 2 final metadata / `f21e344` | Corrective implementation `9a17315` | The 1,852-line compatibility helper still owns device-build capability/artifact/install-page, pairing-page, lifecycle, process, persistence, and composition work; the Phase 3 gate is not met |
 | 4 | Repository interfaces and SQLite migration | Pairing tranche implemented through E4; full phase incomplete and draft | [#41, #44–#50, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | Phase 3G / `7367fa2` | Pairing rollback implementation `7ce31e6`; final E4 head `b1fac0d` | Non-pairing domain repositories, production composition, doctor/export, previous-release upgrade, and full cutover evidence remain required |
 | 5 | Preload removal | Not started | — | — | — | Checkpoint 2 required before Phase 6 |
 | 6 | Live reload module split | Not started | — | — | — | — |
@@ -243,10 +243,10 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 
 ## Phase 3 — Helper and HTTP decomposition
 
-- Status: Partially implemented in draft PRs #34–#40 and corrective PRs #56–#58; the master-plan Phase 3 gate is not met.
+- Status: Partially implemented in draft PRs #34–#40 and corrective PRs #56–#59; the master-plan Phase 3 gate is not met.
 - Stack base: Checkpoint 1 final metadata head `f21e344ea18eb0a976630a4ce38cf52bf30a3f47`.
 - Current Phase 3G head: `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
-- Corrective active-ancestry implementation head: PR #58 / `b5dbb73`, stacked after the Phase 4 pairing tranche, helper-state reliability correction, and PRs #56–#57 so validated history remains intact.
+- Corrective active-ancestry implementation head: PR #59 / `9a17315`, stacked after the Phase 4 pairing tranche, helper-state reliability correction, and PRs #56–#58 so validated history remains intact.
 
 ### Implemented slices
 
@@ -256,6 +256,7 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 - #56 extracts all 14 Simulator-session HTTP contracts behind one typed application service. Each route owns only matching and HTTP projection; authorization, input decoding, store access, operation orchestration, and persisted-session projection are behind one `execute` call. The compiled public gateway returns 404 for every private session route, including GET and POST for the legacy any-method session page.
 - #57 extracts seven helper-control routes: health, association, serve-sim inspection, transport inspection, pairing status, pairing claim, and pairing rotation. Route modules own matching and HTTP projection; the application service owns authorization, input, store access, and result projection through one `execute` call. The compiled public gateway exposes health but returns 404 for every other extracted route.
 - #58 extracts six paired-Mac device-build/app catalogue and mutation routes. The application service owns authorization, persistence access, rebuild deduplication, recipe validation, build start, archive/delete mutation, and delivery-reference cleanup; the route owns matching and HTTP projection through one `execute` call.
+- #59 extracts paired-Mac device-build start and renewal commands. The application service owns authorization, input projection, persistence orchestration, renewal rollback, and public projection; lazy keyed tracking coalesces a shared renewal lease and prevents a stale completion from deleting a replacement task. The private `start` command is excluded from public capability dispatch so the isolated gateway returns 404 rather than an authentication response.
 
 ### Corrective Phase 3H evidence
 
@@ -274,12 +275,19 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 
 - The first independent review reported P0 0, P1 0, P2 2, P3 2. Corrections added compiled public-gateway 404 proof for all six routes, active-rebuild reuse and missing-recipe evidence, response-completion assertions, and exact archive/query/delete default and cleanup-suppression coverage. Final re-review reported P0 0, P1 0, P2 0, P3 0.
 - Node 24 `npm run check` at `b5dbb73` passed syntax for 476 JavaScript files, architecture inventory for 128 production sources, 55 Markdown links, strict types, formatting, lint, 543/543 source tests, 139/139 compiled contract tests, 2/2 hermetic runtime tests, compiled entrypoint equivalence, 273 package paths, isolated package installation, and Homebrew formula/Node 24 entrypoint validation. The destructive clean-Homebrew installation gate was intentionally not run.
-- PR #57 final metadata head `f7b6add` passed Verify run `31321514451`. PR #58 remains open, draft, and unmerged; its natural Verify run was in progress when this ledger entry was written.
+- PR #57 final metadata head `f7b6add` passed Verify run `31321514451`. PR #58 final metadata head `98081e4` passed Verify run `31322007847`.
 - This remains a bounded corrective slice. The 1,894-line compatibility helper still owns device-build start, renewal, capability/artifact/install-page routes, the pairing HTML route, lifecycle/process work, persistence construction, and module-global composition.
+
+### Corrective Phase 3K evidence
+
+- The first independent review reported P0 0, P1 0, P2 2, P3 2. Corrections replaced already-started renewal promises with lazy keyed registration, joined shared leases onto the owning delivery result, fenced task-map deletion by promise identity, removed the new broad `any`, proved detached start, and covered every renewal precondition. The hermetic gate also exposed the private `start` command being parsed as a public build ID; both capability preload and gateway dispatch now reserve that path. Final re-review reported P0 0, P1 0, P2 0, P3 0.
+- Node 24 `npm run check` at `9a17315` passed syntax for 486 JavaScript files, architecture inventory for 131 production sources, 55 Markdown links, strict types, formatting, lint, 559/559 source tests, 139/139 compiled contract tests, 2/2 hermetic runtime tests, compiled entrypoint equivalence, 279 package paths, isolated package installation, and Homebrew formula/Node 24 entrypoint validation. The destructive clean-Homebrew installation gate was intentionally not run.
+- PR #59 is open, draft, mergeable, and unmerged on PR #58 final head `98081e4`. Its natural Verify run `31322722122` was in progress when this ledger entry was written.
+- This remains a bounded corrective slice. The 1,852-line compatibility helper still owns public build capability/artifact/install-page routes, the pairing HTML route, lifecycle/process work, persistence construction, and module-global composition.
 
 ### Gate correction
 
-The 2026-08-09 independent stack audit found that PR #40's earlier Phase 3 completion claim was broader than the implemented scope. After corrective PRs #56–#58, `mac-helper/bin/swift-sim-helper.js` remains a 1,894-line compatibility implementation that constructs module-global stores, owns the remaining helper router, directly imports child-process APIs, and combines build, Simulator, delivery, recovery, persistence, and lifecycle behavior. Therefore:
+The 2026-08-09 independent stack audit found that PR #40's earlier Phase 3 completion claim was broader than the implemented scope. After corrective PRs #56–#59, `mac-helper/bin/swift-sim-helper.js` remains a 1,852-line compatibility implementation that constructs module-global stores, owns the remaining helper router, directly imports child-process APIs, and combines build, Simulator, delivery, recovery, persistence, and lifecycle behavior. Therefore:
 
 - the helper entrypoint is not yet primarily wiring for the complete product surface;
 - routes have not all been separated by authorization boundary;

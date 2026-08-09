@@ -110,6 +110,8 @@ test("compiled public gateway exposes health and returns 404 for every private h
       ["POST", "/api/apps/app-1/archive"],
       ["POST", "/api/apps/app-1/build-current-source"],
       ["DELETE", "/api/apps/app-1"],
+      ["POST", "/api/device-builds/start"],
+      ["POST", "/api/device-builds/build-1/renew"],
       ["POST", "/api/sessions/start"],
       ["GET", "/api/sessions/session-1"],
       ["GET", "/api/sessions/session-1/logs"],

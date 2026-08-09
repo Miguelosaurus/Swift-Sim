@@ -147,7 +147,7 @@ function parseBuildRoute(req) {
   match = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/);
   if (match) return { url, buildID: match[1], kind: "artifact" };
   match = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/);
-  if (!match) return null;
+  if (!match || match[1] === "start") return null;
   return {
     url,
     buildID: match[1],

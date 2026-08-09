@@ -60,6 +60,9 @@ import { externalRequestBase } from "../src/requestOrigin.js";
 import { serveFile } from "../src/fileServer.js";
 import { createDeviceAppApplicationService } from "../src/http/deviceAppApplicationService.js";
 import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
+import { createDeviceBuildCommandApplicationService } from "../src/http/deviceBuildCommandApplicationService.js";
+import { handleDeviceBuildCommandRoutes } from "../src/http/deviceBuildCommandRoutes.js";
+import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "../src/deviceBuildTaskTracker.js";
 import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
 import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
 import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
@@ -343,6 +346,18 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     deleteApp: (appID, options) => deviceBuildStore.deleteApp(appID, options),
     drainDeliveryReferences: drainDeliveryReferenceCleanupJobs,
   });
+  const deviceBuildCommandService = createDeviceBuildCommandApplicationService({
+    pairingTokenMatches,
+    createBuild: createDeviceBuild,
+    startBuild: startManagedDeviceBuild,
+    getBuild: (buildID) => deviceBuildStore.get(buildID),
+    pathExists: existsSync,
+    renewInstallLink: (buildID, options) => deviceBuildStore.renewInstallLink(buildID, options),
+    trackTask: trackDeviceBuildTask,
+    prepareDelivery: prepareDeviceDelivery,
+    saveBuild: (build) => deviceBuildStore.save(build),
+    projectBuild: publicDeviceBuild,
+  });
   const helperControlService = createHelperControlApplicationService({
     pairingTokenMatches,
     association: appleAppSiteAssociation,
@@ -390,61 +405,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
 
       if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
       if (await handleDeviceAppRoutes({ req, res, url, service: deviceAppService })) return;
-
-      if (req.method === "POST" && url.pathname === "/api/device-builds/start") {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        const body = await readJson(req);
-        const build = await createDeviceBuild({
-          project: body.project,
-          workspace: body.workspace,
-          scheme: body.scheme,
-          configuration: body.configuration,
-          "remote-base-url": body.remoteBaseUrl,
-          delivery: body.delivery,
-          "export-method": body.exportMethod,
-          "ttl-minutes": body.ttlMinutes,
-          "build-setting": body.buildSettings,
-          "allow-provisioning-updates": Boolean(body.allowProvisioningUpdates),
-          "replace-app-data": Boolean(body.replaceAppData),
-        });
-        startManagedDeviceBuild(build);
-        return json(res, 202, publicDeviceBuild(build));
-      }
-
-      const deviceBuildRenewMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/renew$/);
-      if (deviceBuildRenewMatch && req.method === "POST") {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        const build = deviceBuildStore.get(deviceBuildRenewMatch[1]);
-        if (!build) return notFound(res, "That saved app is no longer available on this Mac.");
-        if (build.state !== "ready" || !build.artifacts?.ipaPath || !existsSync(build.artifacts.ipaPath)) {
-          return badRequest(res, 409, "The saved app is no longer available. Build it again to create a new link.");
-        }
-        const previousDelivery = {
-          expiresAt: build.expiresAt,
-          remoteBaseUrl: build.remoteBaseUrl,
-          delivery: build.delivery ? { ...build.delivery } : null,
-        };
-        const renewedBuild = deviceBuildStore.renewInstallLink(build.id, { ttlMinutes: build.installTTLMinutes });
-        const renewalKey = `renewal:${build.id}:${renewedBuild.pendingRenewal?.id || "unknown"}`;
-        await trackDeviceBuildTask(renewalKey, renewedBuild, (async () => {
-          try {
-            await prepareDeviceDelivery(renewedBuild, { markBuildFailed: false });
-          } catch (error) {
-            renewedBuild.expiresAt = previousDelivery.expiresAt;
-            renewedBuild.remoteBaseUrl = previousDelivery.remoteBaseUrl;
-            renewedBuild.delivery = previousDelivery.delivery;
-            deviceBuildStore.save(renewedBuild);
-            throw error;
-          }
-          renewedBuild.logs.push("A new install link was generated from the saved app.");
-          deviceBuildStore.save(renewedBuild);
-        })());
-        return json(res, 200, publicDeviceBuild(renewedBuild));
-      }
+      if (await handleDeviceBuildCommandRoutes({ req, res, url, service: deviceBuildCommandService })) return;
 
       const deviceBuildMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/);
       if (deviceBuildMatch) {
@@ -1647,37 +1608,34 @@ async function runCLIDeviceBuild(build) {
 }
 
 function trackDeviceBuildTask(key, build, operation) {
-  const promise = Promise.resolve(operation).finally(() => {
-    activeDeviceBuildTasks.delete(key);
-  });
-  activeDeviceBuildTasks.set(key, { build, promise });
-  return promise;
+  return trackRegisteredDeviceBuildTask(activeDeviceBuildTasks, key, build, operation);
 }
 
 function startManagedDeviceBuild(build) {
-  const operation = runDeviceBuild(build, {
-    save: (next) => deviceBuildStore.save(next),
-    nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
-  })
-    .then(() => {
-      build.state = "delivering";
-      build.logs.push("Creating temporary install link.");
-      deviceBuildStore.save(build);
-      return prepareDeviceDelivery(build).then((readyBuild) => {
-        readyBuild.logs.push("Install link is ready.");
-        deviceBuildStore.save(readyBuild);
-        return readyBuild;
-      });
+  return trackDeviceBuildTask(`build:${build.id}`, build, () =>
+    runDeviceBuild(build, {
+      save: (next) => deviceBuildStore.save(next),
+      nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
     })
-    .catch((error) => {
-      if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") {
-        build.state = "failed";
-        build.logs = Array.isArray(build.logs) ? build.logs : [];
-        build.logs.push("Build was interrupted before completion.");
-        try { deviceBuildStore.save(build); } catch {}
-      }
-    });
-  return trackDeviceBuildTask(`build:${build.id}`, build, operation);
+      .then(() => {
+        build.state = "delivering";
+        build.logs.push("Creating temporary install link.");
+        deviceBuildStore.save(build);
+        return prepareDeviceDelivery(build).then((readyBuild) => {
+          readyBuild.logs.push("Install link is ready.");
+          deviceBuildStore.save(readyBuild);
+          return readyBuild;
+        });
+      })
+      .catch((error) => {
+        if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") {
+          build.state = "failed";
+          build.logs = Array.isArray(build.logs) ? build.logs : [];
+          build.logs.push("Build was interrupted before completion.");
+          try { deviceBuildStore.save(build); } catch {}
+        }
+      })
+  );
 }
 
 async function recoverInterruptedDeviceBuilds() {
