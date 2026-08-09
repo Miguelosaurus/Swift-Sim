@@ -1,9 +1,10 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import { runRequiredBuildValidation } from "./buildValidation.js";
+import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 export const MAX_DEVICE_BUILD_LOG_BYTES = 64 * 1024;
@@ -15,9 +16,13 @@ const OWNERLESS_LOCK_GRACE_MS = 250;
 const ACTIVE_INSTALL_OBSERVATION_STATES = new Set(["requested", "not-installed", "different-version"]);
 
 export class DeviceBuildStore {
-  constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
+  constructor({
+    path = join(homedir(), ".swift-sim", "device-builds.json"),
+    atomicFileStore = new NodeAtomicFileStore(),
+  } = {}) {
     this.path = path;
     this.lockPath = `${path}.lock`;
+    this.atomicFileStore = atomicFileStore;
     this.builds = new Map();
     this.apps = new Map();
     this.artifactCleanupJobs = new Map();
@@ -364,16 +369,18 @@ export class DeviceBuildStore {
   }
 
   writeState(state) {
-    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
-    const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify({
+    this.atomicFileStore.writeJSONSync(this.path, {
       version: BUILD_STATE_VERSION,
       apps: Object.fromEntries(state.apps),
       artifactCleanupJobs: Object.fromEntries(state.artifactCleanupJobs),
       deliveryReferenceCleanupJobs: Object.fromEntries(state.deliveryReferenceCleanupJobs || []),
       builds: [...state.builds.values()],
-    }, null, 2), { mode: 0o600 });
-    renameSync(temporaryPath, this.path);
+    }, {
+      mode: 0o600,
+      createParentMode: 0o700,
+      replace: true,
+      syncDirectory: true,
+    });
   }
 
   applyState(state) {
