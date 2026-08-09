@@ -223,13 +223,7 @@ function requireActiveSnapshot(authority, locked) {
  * @param {string} cutoverAt
  * @param {string} rollbackExpiresAt
  */
-function requireActivatedState(
-  authority,
-  request,
-  locked,
-  cutoverAt,
-  rollbackExpiresAt,
-) {
+function requireActivatedState(authority, request, locked, cutoverAt, rollbackExpiresAt) {
   if (
     authority.mode !== "sqlite-rollback" ||
     authority.revision !== request.expectedRevision + 2 ||
@@ -315,7 +309,7 @@ function requireSnapshotReader(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Pairing locked snapshot reader is required.");
   }
-  const operation = (/** @type {Record<string, unknown>} */ (value)).withLockedSnapshot;
+  const operation = /** @type {Record<string, unknown>} */ (value).withLockedSnapshot;
   if (typeof operation !== "function") {
     throw new Error("Pairing locked snapshot reader must implement withLockedSnapshot().");
   }
@@ -328,7 +322,7 @@ function requireImportApplier(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Pairing legacy import applier is required.");
   }
-  const operation = (/** @type {Record<string, unknown>} */ (value)).apply;
+  const operation = /** @type {Record<string, unknown>} */ (value).apply;
   if (typeof operation !== "function") {
     throw new Error("Pairing legacy import applier must implement apply().");
   }

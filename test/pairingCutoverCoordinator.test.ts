@@ -43,9 +43,13 @@ test("fresh cutover imports and activates before releasing the legacy locks", ()
   const authority = authorityHarness(legacyState(0), events, () => lockHeld);
   const coordinator = new PairingCutoverCoordinator({
     authorityRepository: authority.repository,
-    snapshotReader: lockedSnapshotReader(events, () => lockHeld, (value) => {
-      lockHeld = value;
-    }),
+    snapshotReader: lockedSnapshotReader(
+      events,
+      () => lockHeld,
+      (value) => {
+        lockHeld = value;
+      },
+    ),
     importApplier: {
       apply(snapshot) {
         assert.equal(lockHeld, true);
@@ -90,9 +94,13 @@ test("a durable preparation resumes without preparing a second epoch", () => {
   const authority = authorityHarness(preparingState(1), events, () => lockHeld);
   const coordinator = new PairingCutoverCoordinator({
     authorityRepository: authority.repository,
-    snapshotReader: lockedSnapshotReader(events, () => lockHeld, (value) => {
-      lockHeld = value;
-    }),
+    snapshotReader: lockedSnapshotReader(
+      events,
+      () => lockHeld,
+      (value) => {
+        lockHeld = value;
+      },
+    ),
     importApplier: {
       apply() {
         events.push("import");
@@ -116,9 +124,13 @@ test("retry after activation verifies the locked source without reimporting or r
   const authority = authorityHarness(activeState(2), events, () => lockHeld);
   const coordinator = new PairingCutoverCoordinator({
     authorityRepository: authority.repository,
-    snapshotReader: lockedSnapshotReader(events, () => lockHeld, (value) => {
-      lockHeld = value;
-    }),
+    snapshotReader: lockedSnapshotReader(
+      events,
+      () => lockHeld,
+      (value) => {
+        lockHeld = value;
+      },
+    ),
     importApplier: {
       apply() {
         throw new Error("retry must not reapply the snapshot");
@@ -179,9 +191,13 @@ test("import evidence mismatch fails before the clock or authority activation", 
   const authority = authorityHarness(preparingState(1), events, () => lockHeld);
   const coordinator = new PairingCutoverCoordinator({
     authorityRepository: authority.repository,
-    snapshotReader: lockedSnapshotReader(events, () => lockHeld, (value) => {
-      lockHeld = value;
-    }),
+    snapshotReader: lockedSnapshotReader(
+      events,
+      () => lockHeld,
+      (value) => {
+        lockHeld = value;
+      },
+    ),
     importApplier: {
       apply() {
         events.push("import");
@@ -238,7 +254,11 @@ test("request, clock, import, activation, and synchronous-boundary failures stay
   };
   const baseOptions = {
     authorityRepository: countingAuthority,
-    snapshotReader: lockedSnapshotReader([], () => false, () => undefined),
+    snapshotReader: lockedSnapshotReader(
+      [],
+      () => false,
+      () => undefined,
+    ),
     importApplier: { apply: () => importResult("applied") },
   };
 
@@ -459,10 +479,7 @@ function legacyState(revision: number): PairingAuthorityState {
   };
 }
 
-function preparingState(
-  revision: number,
-  preparationID = PREPARATION_ID,
-): PairingAuthorityState {
+function preparingState(revision: number, preparationID = PREPARATION_ID): PairingAuthorityState {
   return {
     mode: "legacy-preparing",
     preparationID,
