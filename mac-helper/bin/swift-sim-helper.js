@@ -58,6 +58,8 @@ import {
 } from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { serveFile } from "../src/fileServer.js";
+import { createDeviceAppApplicationService } from "../src/http/deviceAppApplicationService.js";
+import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
 import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
 import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
 import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
@@ -325,6 +327,22 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     void scheduleDeliveryReferenceCleanup();
   });
   const activeSockets = new Set();
+  const deviceAppService = createDeviceAppApplicationService({
+    pairingTokenMatches,
+    listBuilds: () => deviceBuildStore.list(),
+    projectBuild: publicDeviceBuild,
+    listApps: (options) => deviceBuildStore.listApps(options),
+    projectApp: publicDeviceApp,
+    getApp: (appID) => deviceBuildStore.getApp(appID),
+    setAppArchived: (appID, archived) => deviceBuildStore.setAppArchived(appID, archived),
+    findRebuild: (options) => deviceBuildStore.findRebuild(options),
+    latestReusableBuildForApp: (appID) => deviceBuildStore.latestReusableBuildForApp(appID),
+    pathExists: existsSync,
+    createRebuild: (source, options) => deviceBuildStore.createRebuild(source, options),
+    startBuild: startManagedDeviceBuild,
+    deleteApp: (appID, options) => deviceBuildStore.deleteApp(appID, options),
+    drainDeliveryReferences: drainDeliveryReferenceCleanupJobs,
+  });
   const helperControlService = createHelperControlApplicationService({
     pairingTokenMatches,
     association: appleAppSiteAssociation,
@@ -371,87 +389,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       if (await handleHelperControlRoutes({ req, res, url, service: helperControlService })) return;
 
       if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
-
-      if (req.method === "GET" && url.pathname === "/api/device-builds") {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        return json(res, 200, {
-          builds: deviceBuildStore.list().slice(0, 20).map(publicDeviceBuild),
-        });
-      }
-
-      if (req.method === "GET" && url.pathname === "/api/apps") {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        const includeArchived = url.searchParams.get("archived") === "true";
-        return json(res, 200, {
-          apps: deviceBuildStore.listApps({ includeArchived }).map(publicDeviceApp),
-        });
-      }
-
-      const appMatch = url.pathname.match(/^\/api\/apps\/([^/]+)(?:\/(archive|build-current-source))?$/);
-      if (appMatch) {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        const [, appID, action] = appMatch;
-        if (req.method === "GET" && !action) {
-          const app = deviceBuildStore.getApp(appID);
-          return app ? json(res, 200, publicDeviceApp(app)) : notFound(res, "Unknown app.");
-        }
-        if (req.method === "POST" && action === "archive") {
-          const body = await readJson(req);
-          const app = deviceBuildStore.setAppArchived(appID, body.archived !== false);
-          return app ? json(res, 200, publicDeviceApp(app)) : notFound(res, "Unknown app.");
-        }
-        if (req.method === "POST" && action === "build-current-source") {
-          const body = await readJson(req);
-          const idempotencyKey = String(body.idempotencyKey || "");
-          if (!/^[A-Za-z0-9_-]{8,128}$/.test(idempotencyKey)) {
-            return badRequest(res, 400, "A valid idempotency key is required.");
-          }
-
-          const existing = deviceBuildStore.findRebuild({ appID, idempotencyKey });
-          if (existing) {
-            return json(res, 200, publicDeviceBuild(existing));
-          }
-
-          const active = deviceBuildStore.findRebuild({ appID, activeOnly: true });
-          if (active) {
-            return json(res, 200, publicDeviceBuild(active));
-          }
-
-          const source = deviceBuildStore.latestReusableBuildForApp(appID);
-          if (!source) {
-            return badRequest(
-              res,
-              409,
-              "No successful device build is available as a trusted build recipe. Create one from the Mac first."
-            );
-          }
-          const sourcePath = source.workspace || source.project;
-          if (!existsSync(sourcePath)) {
-            return badRequest(
-              res,
-              409,
-              "The saved Xcode project is no longer available at its original location on this Mac."
-            );
-          }
-
-          const build = deviceBuildStore.createRebuild(source, { appID, idempotencyKey });
-          startManagedDeviceBuild(build);
-          return json(res, 202, publicDeviceBuild(build));
-        }
-        if (req.method === "DELETE" && !action) {
-          const deleted = deviceBuildStore.deleteApp(appID, {
-            deleteArtifacts: url.searchParams.get("keepArtifacts") !== "true",
-          });
-          if (deleted) void drainDeliveryReferenceCleanupJobs();
-          return deleted ? json(res, 200, { deleted: true, appId: appID }) : notFound(res, "Unknown app.");
-        }
-      }
+      if (await handleDeviceAppRoutes({ req, res, url, service: deviceAppService })) return;
 
       if (req.method === "POST" && url.pathname === "/api/device-builds/start") {
         if (!pairingTokenMatches(req, url)) {
