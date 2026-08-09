@@ -58,6 +58,8 @@ import {
 } from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { serveFile } from "../src/fileServer.js";
+import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
+import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
 import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
 import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
 
@@ -323,6 +325,20 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     void scheduleDeliveryReferenceCleanup();
   });
   const activeSockets = new Set();
+  const helperControlService = createHelperControlApplicationService({
+    pairingTokenMatches,
+    association: appleAppSiteAssociation,
+    inspectServeSim: () => adapter.inspect(),
+    defaultTransport: defaultTransportPreference,
+    inspectTransports,
+    pairingTokenMatchesQuery: (token) => pairingStore.tokenMatches(token),
+    pairingStatus: () => pairingStore.status(),
+    currentPairing: () => pairingStore.current(),
+    claimToken: bearerToken,
+    claimInvite: (invite, clientNonce, pairing) => pairingInviteStore.claim(invite, clientNonce, pairing),
+    rotatePairing: () => pairingStore.rotate(),
+    pairingLinks: buildPairingLinks,
+  });
   const sessionRouteService = createSessionHttpApplicationService({
     pairingTokenMatches,
     getSession: (sessionId) => store.get(sessionId),
@@ -352,70 +368,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         return notFound(res, "Not found.");
       }
 
-      if (req.method === "GET" && url.pathname === "/health") {
-        return json(res, 200, {
-          ok: true,
-          helper: "swift-sim-helper",
-        });
-      }
-
-      if (req.method === "GET" && url.pathname === "/.well-known/apple-app-site-association") {
-        return json(res, 200, appleAppSiteAssociation());
-      }
-
-      if (req.method === "GET" && url.pathname === "/api/serve-sim") {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        return json(res, 200, await adapter.inspect());
-      }
-
-      if (req.method === "GET" && url.pathname === "/api/transports") {
-        if (!pairingTokenMatches(req, url)) {
-          return unauthorized(res);
-        }
-        return json(res, 200, {
-          default: defaultTransportPreference(),
-          transports: await inspectTransports(),
-        });
-      }
-
-      if (req.method === "GET" && url.pathname === "/api/pairing/status") {
-        if (!pairingStore.tokenMatches(url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        return json(res, 200, pairingStore.status());
-      }
-
-      if (req.method === "POST" && url.pathname === "/api/pairing/claim") {
-        const body = await readJson(req);
-        const invite = bearerToken(req) || body.invite || "";
-        const clientNonce = body.clientNonce || "";
-        const pairing = pairingStore.current();
-        const result = pairingInviteStore.claim(invite, clientNonce, pairing);
-        if (!result.ok) {
-          const status = result.code === "malformed" ? 400 : result.code === "consumed" ? 409 : 410;
-          return json(res, status, { error: `Pairing invitation ${result.code}.` });
-        }
-        return json(res, 200, {
-          token: result.pairing.token,
-          installationID: result.pairing.installationID,
-          macName: result.pairing.macName,
-          expiresAt: result.expiresAt,
-        });
-      }
-
-      if (req.method === "POST" && url.pathname === "/api/pairing/rotate") {
-        if (!pairingStore.tokenMatches(url.searchParams.get("token"))) {
-          return unauthorized(res);
-        }
-        const pairing = pairingStore.rotate();
-        const remoteBaseUrl = url.searchParams.get("remoteBaseUrl") || "";
-        return json(res, 200, {
-          macName: pairing.macName,
-          links: buildPairingLinks(pairing, remoteBaseUrl),
-        });
-      }
+      if (await handleHelperControlRoutes({ req, res, url, service: helperControlService })) return;
 
       if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
 

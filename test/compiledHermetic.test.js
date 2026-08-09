@@ -88,7 +88,7 @@ writeFileSync(${JSON.stringify(brewInvocation)}, process.argv.slice(2).join(" ")
 
 });
 
-test("compiled public gateway returns 404 for every private session route", async () => {
+test("compiled public gateway exposes health and returns 404 for every private helper route", async () => {
   if (isSourceTree) return;
   const home = mkdtempSync(join(tmpdir(), "swift-sim-gateway-isolation-"));
   mkdirSync(join(home, ".swift-sim"), { recursive: true });
@@ -96,7 +96,14 @@ test("compiled public gateway returns 404 for every private session route", asyn
   let child;
   try {
     child = await startGateway({ ...process.env, HOME: home }, port);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/health`)).status, 200);
     const routes = [
+      ["GET", "/.well-known/apple-app-site-association"],
+      ["GET", "/api/serve-sim"],
+      ["GET", "/api/transports"],
+      ["GET", "/api/pairing/status"],
+      ["POST", "/api/pairing/claim"],
+      ["POST", "/api/pairing/rotate"],
       ["POST", "/api/sessions/start"],
       ["GET", "/api/sessions/session-1"],
       ["GET", "/api/sessions/session-1/logs"],
