@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -305,8 +305,8 @@ test("rollback exports the current SQLite snapshot atomically before authority r
     finalizedAt: null,
     revision: 3,
   });
-  assert.equal(readFileSync(harness.credentialPath, "utf8"), currentCredentialRaw);
-  assert.equal(readFileSync(harness.invitationPath, "utf8"), currentInvitationRaw);
+  assert.equal(harness.fileStore.readTextSync(harness.credentialPath), currentCredentialRaw);
+  assert.equal(harness.fileStore.readTextSync(harness.invitationPath), currentInvitationRaw);
   assert.equal(modeOf(harness.credentialPath), 0o600);
   assert.equal(modeOf(harness.invitationPath), 0o600);
   assert.equal(modeOf(harness.backupDirectory), 0o700);
@@ -315,19 +315,17 @@ test("rollback exports the current SQLite snapshot atomically before authority r
     `invitations-pairing-invites.json.${digest(legacyInvitationRaw)}.bak`,
   ]);
   assert.equal(
-    readFileSync(
+    harness.fileStore.readTextSync(
       join(harness.backupDirectory, `credential-pairing.json.${digest(legacyCredentialRaw)}.bak`),
-      "utf8",
     ),
     legacyCredentialRaw,
   );
   assert.equal(
-    readFileSync(
+    harness.fileStore.readTextSync(
       join(
         harness.backupDirectory,
         `invitations-pairing-invites.json.${digest(legacyInvitationRaw)}.bak`,
       ),
-      "utf8",
     ),
     legacyInvitationRaw,
   );
@@ -438,11 +436,11 @@ test("rollback refuses a missing SQLite credential before backup or legacy mutat
   assert.equal(harness.authorityRepository.current().mode, "sqlite-rollback");
   assert.equal(existsSync(harness.backupDirectory), false);
   assert.equal(
-    readFileSync(harness.credentialPath, "utf8"),
+    harness.fileStore.readTextSync(harness.credentialPath),
     JSON.stringify(LEGACY_CREDENTIAL, null, 2),
   );
   assert.equal(
-    readFileSync(harness.invitationPath, "utf8"),
+    harness.fileStore.readTextSync(harness.invitationPath),
     JSON.stringify([LEGACY_INVITATION], null, 2),
   );
   assertNoLocks(harness);
@@ -606,11 +604,11 @@ function recordingLockManager(events: string[]): LockManager {
 
 function assertCurrentLegacyFiles(harness: Harness): void {
   assert.equal(
-    readFileSync(harness.credentialPath, "utf8"),
+    harness.fileStore.readTextSync(harness.credentialPath),
     JSON.stringify(CURRENT_CREDENTIAL, null, 2),
   );
   assert.equal(
-    readFileSync(harness.invitationPath, "utf8"),
+    harness.fileStore.readTextSync(harness.invitationPath),
     JSON.stringify([CURRENT_INVITATION], null, 2),
   );
   assert.equal(modeOf(harness.credentialPath), 0o600);
@@ -619,11 +617,11 @@ function assertCurrentLegacyFiles(harness: Harness): void {
 
 function assertLegacySourceFiles(harness: Harness): void {
   assert.equal(
-    readFileSync(harness.credentialPath, "utf8"),
+    harness.fileStore.readTextSync(harness.credentialPath),
     JSON.stringify(LEGACY_CREDENTIAL, null, 2),
   );
   assert.equal(
-    readFileSync(harness.invitationPath, "utf8"),
+    harness.fileStore.readTextSync(harness.invitationPath),
     JSON.stringify([LEGACY_INVITATION], null, 2),
   );
 }

@@ -272,7 +272,7 @@ PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; it is not pa
 
 ### E4 local validation
 
-- Node 24 `npm run check`: passed syntax for 452 JavaScript files, architecture inventory for 121 production sources, 55 Markdown links, strict TypeScript, formatting, lint, 463 source tests, 139 compiled tests, hermetic/compiled runtime checks, 261 package paths, isolated package install, and formula validation.
+- Node 24 `npm run check`: passed syntax for 452 JavaScript files, architecture inventory for 122 production sources, 55 Markdown links, strict TypeScript, formatting, lint, 463 source tests, 139 compiled tests, hermetic/compiled runtime checks, 261 package paths, isolated package install, and formula validation.
 - `SWIFT_SIM_RUN_CLEAN_HOMEBREW=1 bash scripts/verify-homebrew-package.sh`: passed isolated archive installation, Node 24 launchers, unique-port service identity/restart, assets, setup, and doctor. Existing Homebrew launchers remained untouched; the known dylib header warning remains diagnostic only.
 - All four workflow YAML files and the required release shell scripts passed their syntax gates.
 - The exact workflow iOS Simulator command passed 30/30 tests with 0 failures on simulator `FC06262E-96E4-4B4E-ADAB-C9D5FFE8927D`.
