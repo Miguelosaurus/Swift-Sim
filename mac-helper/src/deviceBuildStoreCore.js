@@ -1,20 +1,28 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import { runRequiredBuildValidation } from "./buildValidation.js";
+import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
+export const MAX_DEVICE_BUILD_LOG_BYTES = 64 * 1024;
 export const BUILD_STATE_LOCK_TIMEOUT_CODE = "SWIFT_SIM_BUILD_STATE_LOCK_TIMEOUT";
+const BUILD_STATE_VERSION = 6;
+const LOG_TRUNCATION_MARKER = "[earlier build output truncated]";
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
 const ACTIVE_INSTALL_OBSERVATION_STATES = new Set(["requested", "not-installed", "different-version"]);
 
 export class DeviceBuildStore {
-  constructor({ path = join(homedir(), ".swift-sim", "device-builds.json") } = {}) {
+  constructor({
+    path = join(homedir(), ".swift-sim", "device-builds.json"),
+    atomicFileStore = new NodeAtomicFileStore(),
+  } = {}) {
     this.path = path;
     this.lockPath = `${path}.lock`;
+    this.atomicFileStore = atomicFileStore;
     this.builds = new Map();
     this.apps = new Map();
     this.artifactCleanupJobs = new Map();
@@ -262,7 +270,11 @@ export class DeviceBuildStore {
   }
 
   load() {
-    const state = this.withLock(() => this.readState());
+    const state = this.withLock(() => {
+      const loaded = this.readState();
+      if (loaded.needsCompaction) this.writeState(loaded);
+      return loaded;
+    });
     this.applyState(state);
   }
 
@@ -329,14 +341,18 @@ export class DeviceBuildStore {
   readState() {
     try {
       const parsed = JSON.parse(readFileSync(this.path, "utf8"));
+      let needsCompaction = Number(parsed.version || 0) < BUILD_STATE_VERSION;
       return {
         builds: new Map((parsed.builds || []).map((build) => {
+          const previousLogs = Array.isArray(build.logs) ? build.logs : [];
           const normalized = normalizeBuild(build);
+          if (!sameLogs(previousLogs, normalized.logs)) needsCompaction = true;
           return [normalized.id, normalized];
         })),
         apps: new Map(Object.entries(parsed.apps || {})),
         artifactCleanupJobs: new Map(Object.entries(parsed.artifactCleanupJobs || {})),
         deliveryReferenceCleanupJobs: new Map(Object.entries(parsed.deliveryReferenceCleanupJobs || {})),
+        needsCompaction,
       };
     } catch (error) {
       if (error?.code === "ENOENT") {
@@ -345,6 +361,7 @@ export class DeviceBuildStore {
           apps: new Map(),
           artifactCleanupJobs: new Map(),
           deliveryReferenceCleanupJobs: new Map(),
+          needsCompaction: false,
         };
       }
       throw new Error(`Unable to read Swift Sim build state: ${error instanceof Error ? error.message : String(error)}`);
@@ -352,16 +369,18 @@ export class DeviceBuildStore {
   }
 
   writeState(state) {
-    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
-    const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify({
-      version: 5,
+    this.atomicFileStore.writeJSONSync(this.path, {
+      version: BUILD_STATE_VERSION,
       apps: Object.fromEntries(state.apps),
       artifactCleanupJobs: Object.fromEntries(state.artifactCleanupJobs),
       deliveryReferenceCleanupJobs: Object.fromEntries(state.deliveryReferenceCleanupJobs || []),
       builds: [...state.builds.values()],
-    }, null, 2), { mode: 0o600 });
-    renameSync(temporaryPath, this.path);
+    }, {
+      mode: 0o600,
+      createParentMode: 0o700,
+      replace: true,
+      syncDirectory: true,
+    });
   }
 
   applyState(state) {
@@ -450,7 +469,7 @@ function normalizeBuild(build) {
   build.app = build.app || {};
   build.app.identity = build.app.identity || deviceAppIdentity(build.app);
   build.installation = normalizeInstallation(build.installation);
-  build.logs = Array.isArray(build.logs) ? build.logs.slice(-MAX_DEVICE_BUILD_LOG_LINES) : [];
+  build.logs = boundBuildLogs(build.logs);
   build.revision = Number(build.revision || 0);
   build.tokenExpiredAt = build.tokenExpiredAt || "";
   build.installTTLMinutes = normalizeDeviceBuildTTLMinutes(
@@ -490,7 +509,61 @@ function mergeLogs(first = [], second = []) {
     if (left.every((line, index) => line === right[index])) break;
     overlap -= 1;
   }
-  return [...prefix, ...suffix.slice(overlap)].slice(-MAX_DEVICE_BUILD_LOG_LINES);
+  return boundBuildLogs([...prefix, ...suffix.slice(overlap)]);
+}
+
+export function boundBuildLogs(logs) {
+  const source = Array.isArray(logs)
+    ? logs.slice(-MAX_DEVICE_BUILD_LOG_LINES).map((line) => String(line))
+    : [];
+  const bounded = [];
+  let remainingBytes = MAX_DEVICE_BUILD_LOG_BYTES;
+  let droppedForBytes = false;
+
+  for (let index = source.length - 1; index >= 0; index -= 1) {
+    const line = source[index];
+    const separatorBytes = bounded.length > 0 ? 1 : 0;
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    if (lineBytes + separatorBytes <= remainingBytes) {
+      bounded.unshift(line);
+      remainingBytes -= lineBytes + separatorBytes;
+      continue;
+    }
+
+    droppedForBytes = true;
+    if (bounded.length === 0 && remainingBytes > 0) {
+      bounded.unshift(truncatedLogTail(line, remainingBytes));
+      remainingBytes = 0;
+    }
+    break;
+  }
+
+  const markerBytes = Buffer.byteLength(LOG_TRUNCATION_MARKER, "utf8");
+  if (droppedForBytes && remainingBytes >= markerBytes + (bounded.length > 0 ? 1 : 0)) {
+    bounded.unshift(LOG_TRUNCATION_MARKER);
+  }
+  return bounded;
+}
+
+function truncatedLogTail(line, maxBytes) {
+  const marker = `${LOG_TRUNCATION_MARKER} `;
+  const markerBytes = Buffer.byteLength(marker, "utf8");
+  if (maxBytes <= markerBytes) return utf8Tail(marker.trimEnd(), maxBytes);
+  return marker + utf8Tail(line, maxBytes - markerBytes);
+}
+
+function utf8Tail(value, maxBytes) {
+  if (maxBytes <= 0) return "";
+  const bytes = Buffer.from(String(value), "utf8");
+  if (bytes.length <= maxBytes) return String(value);
+  let start = bytes.length - maxBytes;
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1;
+  return bytes.subarray(start).toString("utf8");
+}
+
+function sameLogs(first, second) {
+  if (!Array.isArray(first) || first.length !== second.length) return false;
+  return first.every((line, index) => typeof line === "string" && line === second[index]);
 }
 
 function ownerlessLockIsStale(lockPath) {

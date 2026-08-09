@@ -11,8 +11,8 @@ The active execution control is [the batched-execution amendment](ARCHITECTURE_C
 | 0 | Baseline and guardrails | Merged | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | `4dfa15f` | `2a2239c`; merge `6f356df` | Existing debt is baselined and decrease-only |
 | 1 | TypeScript and package foundation | Merged | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | `6f356df` | `2151d35`; merge `820ff2e` | Mixed JS/TS transition remains; compiled `dist` is runtime output |
 | 2 | Explicit infrastructure primitives | Checkpoint 1 hosted-green; draft stack unmerged | [#26–#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | `820ff2e` | `d441798` | Weak delivery identity and unmigrated command/process call sites |
-| 3 | Helper and HTTP decomposition | Not started | — | Phase 2 stack tip after final checkpoint metadata | — | Provisional continuation only after final Checkpoint 1 documentation Verify |
-| 4 | Repository interfaces and SQLite migration | Implementation complete through Phase 4E4; draft stack unmerged | [#48–#50, #49, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | Phase 4D2 / `1364fa1` | `7ce31e6` | E5 optional work not attempted; production cutover/rollback wiring remains deliberately unwired |
+| 3 | Helper and HTTP decomposition | Partial implementation through 3G; draft stack unmerged | [#34–#40](https://github.com/Miguelosaurus/Swift-Sim/pull/40) | Phase 2 final metadata / `f21e344` | `7367fa2` | The 2,135-line compatibility helper still owns the main router, process work, persistence, and service orchestration; the Phase 3 gate is not met |
+| 4 | Repository interfaces and SQLite migration | Pairing tranche implemented through E4; full phase incomplete and draft | [#41, #44–#50, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | Phase 3G / `7367fa2` | Pairing rollback implementation `7ce31e6`; final E4 head `b1fac0d` | Non-pairing domain repositories, production composition, doctor/export, previous-release upgrade, and full cutover evidence remain required |
 | 5 | Preload removal | Not started | — | — | — | Checkpoint 2 required before Phase 6 |
 | 6 | Live reload module split | Not started | — | — | — | — |
 | 7 | SwiftSyntax analyzer | Not started | — | — | — | Newly permissive cases remain disabled without physical proof |
@@ -37,6 +37,8 @@ Checkpoint 1 records:
 - Remaining severity: P0 0, P1 0, P2 2, P3 1.
 - Merge authorization: not granted; persistent-local/device evidence remains delegated to Luna.
 
+The live Checkpoint 1 PR head is `f21e344ea18eb0a976630a4ce38cf52bf30a3f47`; `d441798` is the code implementation head. PR #33 metadata must keep those roles distinct.
+
 ## Current architecture metrics
 
 | Metric | Phase 0 baseline | Current at Checkpoint 1 | Target |
@@ -56,6 +58,8 @@ Checkpoint 1 records:
 | Largest Swift production file | 2,562 (`Companion/SwiftSimCompanion/SessionStore.swift`) | 2,562 | <= 800 lines or ADR |
 | Writable JSON domain-state candidates | 29 | 29 | 0 writable domain stores after migration window |
 | Supported Node line | >=20 | 24.x | Supported pinned LTS |
+
+Current audit at the PR #55 parent records 122 production files (104 JavaScript, 11 TypeScript, 7 Swift), 30 preload/runtime-patch entries, 28 source-text implementation tests, 28 direct child-process importers, and 27 writable JSON-state candidates. The table above remains the Checkpoint 1 snapshot rather than a claim that those counts describe the current tip.
 
 ## Phase 0 — Baseline and architectural guardrails
 
@@ -237,17 +241,46 @@ Hosted isolated Homebrew and Simulator evidence is real but does not replace tho
 
 After the final checkpoint-documentation head passes Verify, create Phase 3 from that exact PR #33 head and target the Phase 2H branch. Phase 3 must decompose helper/HTTP responsibilities through explicit application services and route modules, inject only required Phase 2 ports, preserve route/projection contracts, and keep lifecycle/process authority visible. It must not remove preloads, migrate SQLite, or redesign the companion outside its assigned phase.
 
+## Phase 3 — Helper and HTTP decomposition
+
+- Status: Partially implemented in draft PRs #34–#40; the master-plan Phase 3 gate is not met.
+- Stack base: Checkpoint 1 final metadata head `f21e344ea18eb0a976630a4ce38cf52bf30a3f47`.
+- Current Phase 3G head: `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
+
+### Implemented slices
+
+- #34–#35 extract seven bounded one-shot CLI commands and command-specific composition.
+- #36–#37 add typed request context plus pairing-fallback and public-build capability handlers.
+- #38–#40 extract delivery maintenance and HTTP server/timer behavior and make the compatibility boundary installation explicit.
+
+### Gate correction
+
+The 2026-08-09 independent stack audit found that PR #40's earlier Phase 3 completion claim was broader than the implemented scope. `mac-helper/bin/swift-sim-helper.js` remains a 2,135-line compatibility implementation that constructs module-global stores, owns the main helper router, directly imports child-process APIs, and combines session, Simulator, build, delivery, recovery, persistence, and lifecycle behavior. Therefore:
+
+- the helper entrypoint is not yet primarily wiring for the complete product surface;
+- routes have not all been separated by authorization boundary;
+- route/service code can still directly own process and persistence work;
+- service startup, timers, sockets, and graceful shutdown do not yet have the complete target lifecycle owner.
+
+Phase 3 must be completed in bounded corrective slices before the stack may claim the Phase 3 gate or use Phase 4 completion as authority to start Phase 5. Existing validated PR history remains unchanged; the correction must be recorded transparently in later ancestry.
+
 ## Phase 4 — Repository interfaces and SQLite migration
 
-- Status: Phase 4E1, E2, E3, E3B, and E4 implementation work is locally complete in the draft stack; all production cutover and rollback wiring remains disabled.
-- Stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
+- Status: The pairing migration tranche through E4 is locally complete in the draft stack; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.
+- Full Phase 4 stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
+- Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
 - Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.
-- E5: not attempted; it remains optional and requires genuinely complete Workstreams 0–2 plus additional capacity.
+- Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence.
 
 ### Stack order and live state
 
 | Unit | PR | Base | Validated implementation head | Verify evidence | State |
 | --- | ---: | --- | --- | --- | --- |
+| 4A — SQLite foundation | [#41](https://github.com/Miguelosaurus/Swift-Sim/pull/41) | Phase 3G / `7367fa2` | `d653b3f` | `31026437268` passed | Open, draft, unmerged |
+| 4B — pairing repositories | [#44](https://github.com/Miguelosaurus/Swift-Sim/pull/44) | #41 / `d653b3f` | `0f8e65a` | `31028680549` passed | Open, draft, unmerged |
+| 4C — pairing import/resume | [#45](https://github.com/Miguelosaurus/Swift-Sim/pull/45) | #44 / `0f8e65a` | `6781dea` | `31033205619` passed | Open, draft, unmerged |
+| 4D1 — pairing shadow comparison | [#46](https://github.com/Miguelosaurus/Swift-Sim/pull/46) | #45 / `6781dea` | `7443e7e` | `31036122449` passed | Open, draft, unmerged |
+| 4D2 — pairing shadow observer | [#47](https://github.com/Miguelosaurus/Swift-Sim/pull/47) | #46 / `7443e7e` | `1364fa1` | `31039161870` passed | Open, draft, unmerged |
 | E1 — pairing authority state | [#48](https://github.com/Miguelosaurus/Swift-Sim/pull/48) | Phase 4D2 / `1364fa1` | `974db19` | `31041703590` passed | Open, draft, unmerged |
 | E2 — locked legacy snapshot | [#50](https://github.com/Miguelosaurus/Swift-Sim/pull/50) | #48 / `974db19` | `bf7830c` | `31043513490` passed | Open, draft, unmerged |
 | E2 — authority selector | [#49](https://github.com/Miguelosaurus/Swift-Sim/pull/49) | #50 / `bf7830c` | `ff96203` | `31045149408` passed | Open, draft, unmerged |
@@ -255,7 +288,7 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 | E3B — cutover coordinator | [#53](https://github.com/Miguelosaurus/Swift-Sim/pull/53) | #52 / `8ff4ae8` | `ec1bd4e` | `31315600274` passed | Open, draft, unmerged |
 | E4 — rollback export | [#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | #53 / `ec1bd4e` | `3100bc0` | `31316795096` passed | Open, draft, unmerged |
 
-PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; it is not part of the live stack. No Phase 4E4 branch or PR existed before this work. The initial E4 Verify run `31316632344` at `7ce31e6` and the ledger-only run `31316708706` failed on the architecture source-text-test cap; `3100bc0` removed that classification by using the injected file-store reader, and final Verify `31316795096` passed.
+PRs #42 and #43 are closed and superseded by clean PR #44. PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; none is part of the live ancestry. The initial E4 Verify run `31316632344` at `7ce31e6` and the ledger-only run `31316708706` failed on the architecture source-text-test cap; `3100bc0` removed that classification by using the injected file-store reader, Verify `31316795096` passed, and the final documentation head `b1fac0d` passed `31317114243`.
 
 ### E3B completion record
 
@@ -286,7 +319,18 @@ PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; it is not pa
 | P2 | 0 | 0 | 0 |
 | P3 | 0 | 0 | 0 |
 
-Remaining work is intentional: PR #54 still needs independent review; production rollback/cutover wiring is not authorized; final Luna persistent-local/device evidence and Miguel merge authorization remain pending; and optional E5 was not attempted.
+The E4 pairing rollback slice has no remaining finding from its focused audit. Full Phase 4 nevertheless remains incomplete: non-pairing domain repositories, staged production composition, legacy read-only handling, schema/migration/permission/orphan diagnostics, redacted export, corruption guidance, and previous-tag upgrade proof are still required. Production rollback/cutover remains unauthorized, and final persistent-local/device evidence and Miguel merge authorization remain pending.
+
+## Cross-phase reliability correction — helper state growth
+
+- Source fix preserved at `origin/codex/fix-helper-state-growth` / `36d3fd4d03495f0c373a85d55e0a01e1a272cbe0`.
+- Active-ancestry port: [PR #55](https://github.com/Miguelosaurus/Swift-Sim/pull/55), stacked from PR #54 final head `b1fac0df3360fdc68ca76d910e467b8a1f4944d7`.
+- Initial behavior port: `9d49cdfa97c27fb152914e73a454e80e4f188376`.
+- Corrected implementation after independent adversarial review: `97c305b`.
+
+The port preserves the original 500-line/64-KiB newest diagnostic tail, version-6 legacy compaction, healthy-helper startup short circuit, and disposable-HOME compiled-runtime verification. It replaces the old source-text startup assertions with compiled-package behavior evidence and does not increase the architecture ratchets. Independent review found three P2 evidence/durability gaps in the initial port: bespoke publication lacked fsync/fault proof, duplicate-start proof needed the real process entrypoint, and verifier-HOME isolation needed a behavioral mutation sentinel. The final implementation uses `NodeAtomicFileStore` publication with file and directory synchronization, proves byte-identical legacy state after injected publication failure, exercises the official compiled entrypoint against a healthy helper, and verifies caller state remains unchanged before cleaning the isolated probe root. The corrective re-review reported no remaining P0–P3 findings.
+
+Local Node 24 validation passed 46/46 focused device-build tests, 468/468 source tests, 139/139 compiled tests, the hermetic compiled runtime, 122-source architecture inventory, 55-file documentation check, strict types, formatting, lint, 261 package paths, isolated package installation, and formula validation. The clean Homebrew gate passed isolated archive installation, Node 24 launchers, unique-port service identity/restart, assets, setup, and doctor while preserving existing launchers; the known dylib-header/link warning remained diagnostic only. Workflow YAML and required shell syntax gates passed. The exact workflow iOS Simulator command passed 30/30 tests with 0 failures on simulator `FC06262E-96E4-4B4E-ADAB-C9D5FFE8927D`. The PR remains draft and requires its natural exact-head Verify plus later persistent-service/release-candidate evidence before merge.
 
 ## Decision log index
 

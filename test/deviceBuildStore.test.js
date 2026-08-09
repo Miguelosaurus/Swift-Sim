@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DeviceBuildStore,
+  MAX_DEVICE_BUILD_LOG_BYTES,
   MAX_DEVICE_BUILD_LOG_LINES,
   deviceAppIdentity,
 } from "../mac-helper/src/deviceBuildStore.js";
@@ -118,12 +119,107 @@ test("device build logs stay bounded to the user-visible diagnostic tail", () =>
   assert.equal(saved.logs.at(-1), `line-${MAX_DEVICE_BUILD_LOG_LINES + 24}`);
 }));
 
+test("device build logs retain the newest output within a byte budget", () => withStore((store) => {
+  const build = store.create({ scheme: "Example" });
+  const finalDiagnostic = "error: signing failed for the selected provisioning profile";
+  build.logs = [
+    "x".repeat(MAX_DEVICE_BUILD_LOG_BYTES),
+    finalDiagnostic,
+  ];
+  store.save(build);
+
+  const saved = store.get(build.id);
+  assert.ok(buildLogBytes(saved.logs) <= MAX_DEVICE_BUILD_LOG_BYTES);
+  assert.equal(saved.logs.at(-1), finalDiagnostic);
+  assert.match(saved.logs[0], /earlier build output truncated/);
+}));
+
+test("an oversized final log line preserves its diagnostic tail", () => withStore((store) => {
+  const build = store.create({ scheme: "Example" });
+  const finalDiagnostic = "fatal: archive failed after compiling Example.app";
+  build.logs = [`${"x".repeat(MAX_DEVICE_BUILD_LOG_BYTES)}${finalDiagnostic}`];
+  store.save(build);
+
+  const saved = store.get(build.id);
+  assert.ok(buildLogBytes(saved.logs) <= MAX_DEVICE_BUILD_LOG_BYTES);
+  assert.match(saved.logs[0], /^\[earlier build output truncated\]/);
+  assert.ok(saved.logs[0].endsWith(finalDiagnostic));
+}));
+
+test("an oversized multibyte log tail remains valid UTF-8", () => withStore((store) => {
+  const build = store.create({ scheme: "Example" });
+  const finalDiagnostic = "fatal: unicode diagnostic tail";
+  build.logs = [`${"🙂".repeat(MAX_DEVICE_BUILD_LOG_BYTES)}${finalDiagnostic}`];
+  store.save(build);
+
+  const saved = store.get(build.id);
+  assert.ok(buildLogBytes(saved.logs) <= MAX_DEVICE_BUILD_LOG_BYTES);
+  assert.equal(saved.logs[0].includes("�"), false);
+  assert.ok(saved.logs[0].endsWith(finalDiagnostic));
+}));
+
+test("legacy build state is compacted once without deleting build history", () => withStore((store, directory) => {
+  const statePath = join(directory, "builds.json");
+  const build = completeBuild(store, "Example", "com.example.logs", "TEAM123", "1.0", "1");
+  const legacy = JSON.parse(readFileSync(statePath, "utf8"));
+  legacy.version = 5;
+  legacy.builds[0].logs = Array.from(
+    { length: MAX_DEVICE_BUILD_LOG_LINES },
+    (_, index) => `${index}:${"x".repeat(2048)}`,
+  );
+  writeFileSync(statePath, JSON.stringify(legacy, null, 2));
+
+  const restarted = new DeviceBuildStore({ path: statePath });
+  const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+  const compacted = readFileSync(statePath, "utf8");
+  const saved = restarted.get(build.id);
+  assert.equal(persisted.version, 6);
+  assert.equal(persisted.builds.length, 1);
+  assert.equal(saved.id, build.id);
+  const { logs: legacyLogs, ...legacyBuild } = legacy.builds[0];
+  const { logs: persistedLogs, ...persistedBuild } = persisted.builds[0];
+  assert.deepEqual(persistedBuild, legacyBuild);
+  assert.deepEqual(persisted.apps, legacy.apps);
+  assert.deepEqual(persisted.artifactCleanupJobs, legacy.artifactCleanupJobs);
+  assert.deepEqual(persisted.deliveryReferenceCleanupJobs, legacy.deliveryReferenceCleanupJobs);
+  assert.ok(buildLogBytes(persisted.builds[0].logs) <= MAX_DEVICE_BUILD_LOG_BYTES);
+  assert.equal(persistedLogs.at(-1), legacyLogs.at(-1));
+  assert.equal(readFileSync(statePath, "utf8"), compacted);
+}));
+
+test("failed legacy compaction leaves the version-5 state byte-identical", () => withStore((store, directory) => {
+  const statePath = join(directory, "builds.json");
+  const build = completeBuild(store, "Example", "com.example.failure", "TEAM123", "1.0", "1");
+  const legacy = JSON.parse(readFileSync(statePath, "utf8"));
+  legacy.version = 5;
+  legacy.builds[0].logs = ["x".repeat(MAX_DEVICE_BUILD_LOG_BYTES + 1)];
+  writeFileSync(statePath, JSON.stringify(legacy, null, 2));
+  const before = readFileSync(statePath, "utf8");
+  const failure = new Error("injected atomic publication failure");
+
+  assert.throws(
+    () => new DeviceBuildStore({
+      path: statePath,
+      atomicFileStore: { writeJSONSync: () => { throw failure; } },
+    }),
+    failure,
+  );
+  assert.equal(readFileSync(statePath, "utf8"), before);
+}));
+
 test("queued builds preserve TTL without starting the install-link clock", () => withStore((store) => {
   const build = store.create({ scheme: "Example", ttlMinutes: 45 });
   assert.equal(build.ttlMinutes, 45);
   assert.equal(build.expiresAt, "");
   assert.equal(build.delivery.expiresAt, "");
 }));
+
+function buildLogBytes(logs) {
+  return logs.reduce(
+    (total, line, index) => total + Buffer.byteLength(line, "utf8") + (index > 0 ? 1 : 0),
+    0,
+  );
+}
 
 test("archive hides an app without deleting its build history", () => withStore((store) => {
   const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");

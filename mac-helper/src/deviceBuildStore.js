@@ -6,11 +6,13 @@ import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import {
   DeviceBuildStore as DeviceBuildStoreCore,
   BUILD_STATE_LOCK_TIMEOUT_CODE,
+  MAX_DEVICE_BUILD_LOG_BYTES,
   MAX_DEVICE_BUILD_LOG_LINES,
+  boundBuildLogs,
   deviceAppIdentity,
 } from "./deviceBuildStoreCore.js";
 
-export { MAX_DEVICE_BUILD_LOG_LINES, deviceAppIdentity };
+export { MAX_DEVICE_BUILD_LOG_BYTES, MAX_DEVICE_BUILD_LOG_LINES, deviceAppIdentity };
 
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
@@ -360,7 +362,8 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
   runMaintenance() {
     return this.withLock(() => {
       const state = this.readState();
-      if (!recoverStaleRenewals(state.builds)) return false;
+      const recoveredRenewals = recoverStaleRenewals(state.builds);
+      if (!state.needsCompaction && !recoveredRenewals) return false;
       this.writeState(state);
       this.applyState(state);
       return true;
@@ -370,7 +373,8 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
   readOnly(operation) {
     return this.withLock(() => {
       const state = this.readState();
-      if (recoverStaleRenewals(state.builds)) {
+      const recoveredRenewals = recoverStaleRenewals(state.builds);
+      if (state.needsCompaction || recoveredRenewals) {
         this.writeState(state);
         this.applyState(state);
       }
@@ -510,7 +514,7 @@ function normalizeIncomingBuild(build) {
   build.app = build.app || {};
   build.app.identity = build.app.identity || deviceAppIdentity(build.app);
   build.installation = normalizeInstallation(build.installation);
-  build.logs = Array.isArray(build.logs) ? build.logs.slice(-MAX_DEVICE_BUILD_LOG_LINES) : [];
+  build.logs = boundBuildLogs(build.logs);
   build.revision = Number(build.revision || 0);
   build.tokenExpiredAt = build.tokenExpiredAt || "";
   build.installTTLMinutes = normalizeDeviceBuildTTLMinutes(
@@ -601,7 +605,7 @@ function mergeLogs(first = [], second = []) {
     if (left.every((line, index) => line === right[index])) break;
     overlap -= 1;
   }
-  return [...prefix, ...suffix.slice(overlap)].slice(-MAX_DEVICE_BUILD_LOG_LINES);
+  return boundBuildLogs([...prefix, ...suffix.slice(overlap)]);
 }
 
 function sortedBuilds(builds) {
