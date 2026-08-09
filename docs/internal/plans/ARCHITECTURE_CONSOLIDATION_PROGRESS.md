@@ -253,9 +253,9 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 | E2 — authority selector | [#49](https://github.com/Miguelosaurus/Swift-Sim/pull/49) | #50 / `bf7830c` | `ff96203` | `31045149408` passed | Open, draft, unmerged |
 | E3 — cutover preparation | [#52](https://github.com/Miguelosaurus/Swift-Sim/pull/52) | #49 / `ff96203` | `8ff4ae8` | `31047728488` passed | Open, draft, unmerged |
 | E3B — cutover coordinator | [#53](https://github.com/Miguelosaurus/Swift-Sim/pull/53) | #52 / `8ff4ae8` | `ec1bd4e` | `31315600274` passed | Open, draft, unmerged |
-| E4 — rollback export | [#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | #53 / `ec1bd4e` | `7ce31e6` | `31316632344` running at initial PR head | Open, draft, unmerged |
+| E4 — rollback export | [#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | #53 / `ec1bd4e` | `3100bc0` | `31316795096` passed | Open, draft, unmerged |
 
-PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; it is not part of the live stack. No Phase 4E4 branch or PR existed before this work.
+PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; it is not part of the live stack. No Phase 4E4 branch or PR existed before this work. The initial E4 Verify run `31316632344` at `7ce31e6` and the ledger-only run `31316708706` failed on the architecture source-text-test cap; `3100bc0` removed that classification by using the injected file-store reader, and final Verify `31316795096` passed.
 
 ### E3B completion record
 
@@ -286,7 +286,7 @@ PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; it is not pa
 | P2 | 0 | 0 | 0 |
 | P3 | 0 | 0 | 0 |
 
-Remaining work is intentional: PR #54 still needs independent review and its natural Verify run at the final ledger head; production rollback/cutover wiring is not authorized; final Luna persistent-local/device evidence and Miguel merge authorization remain pending; and optional E5 was not attempted.
+Remaining work is intentional: PR #54 still needs independent review; production rollback/cutover wiring is not authorized; final Luna persistent-local/device evidence and Miguel merge authorization remain pending; and optional E5 was not attempted.
 
 ## Decision log index
 
