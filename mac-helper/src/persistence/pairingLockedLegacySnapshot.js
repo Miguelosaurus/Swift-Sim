@@ -69,8 +69,8 @@ export class PairingLockedLegacySnapshotReader {
     }
     this.#fileStore = fileStore;
     this.#lockManager = lockManager;
-    this.#credentialSource = validateSource(credentialSource, "credential");
-    this.#invitationSource = validateSource(invitationSource, "invitation");
+    this.#credentialSource = validatePairingLegacySource(credentialSource, "credential");
+    this.#invitationSource = validatePairingLegacySource(invitationSource, "invitation");
     if (this.#credentialSource.lockRequest.path === this.#invitationSource.lockRequest.path) {
       throw new Error("Pairing legacy sources must use distinct lock paths.");
     }
@@ -95,18 +95,19 @@ export class PairingLockedLegacySnapshotReader {
     if (operation.constructor?.name === "AsyncFunction") {
       throw new Error("Pairing locked snapshot operation must complete synchronously.");
     }
-    const lockRequests = [
-      this.#credentialSource.lockRequest,
-      this.#invitationSource.lockRequest,
-    ].sort(compareLockPaths);
-    return withLocksSync(this.#lockManager, lockRequests, () => {
-      const lockedSnapshot = this.#readLockedSnapshot();
-      const result = operation(lockedSnapshot);
-      if (isThenable(result)) {
-        throw new Error("Pairing locked snapshot operation must complete synchronously.");
-      }
-      return result;
-    });
+    return withPairingLegacyLocksSync(
+      this.#lockManager,
+      this.#credentialSource,
+      this.#invitationSource,
+      () => {
+        const lockedSnapshot = this.#readLockedSnapshot();
+        const result = operation(lockedSnapshot);
+        if (isThenable(result)) {
+          throw new Error("Pairing locked snapshot operation must complete synchronously.");
+        }
+        return result;
+      },
+    );
   }
 
   /** @returns {LockedPairingLegacySnapshot} */
@@ -250,6 +251,26 @@ function sourceRevisionFor(sources) {
 /**
  * @template T
  * @param {LockManager} lockManager
+ * @param {LegacySource} credentialSource
+ * @param {LegacySource} invitationSource
+ * @param {() => T} operation
+ * @returns {T}
+ */
+export function withPairingLegacyLocksSync(
+  lockManager,
+  credentialSource,
+  invitationSource,
+  operation,
+) {
+  const lockRequests = [credentialSource.lockRequest, invitationSource.lockRequest].sort(
+    compareLockPaths,
+  );
+  return withLocksSync(lockManager, lockRequests, operation);
+}
+
+/**
+ * @template T
+ * @param {LockManager} lockManager
  * @param {readonly LockRequest[]} requests
  * @param {() => T} operation
  * @param {number} [index]
@@ -271,7 +292,7 @@ function compareLockPaths(left, right) {
 }
 
 /** @param {LegacySource} source @param {string} label */
-function validateSource(source, label) {
+export function validatePairingLegacySource(source, label) {
   if (!source || typeof source !== "object" || Array.isArray(source)) {
     throw new Error(`Pairing legacy ${label} source is required.`);
   }

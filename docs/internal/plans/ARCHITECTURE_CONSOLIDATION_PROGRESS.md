@@ -12,7 +12,7 @@ The active execution control is [the batched-execution amendment](ARCHITECTURE_C
 | 1 | TypeScript and package foundation | Merged | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | `6f356df` | `2151d35`; merge `820ff2e` | Mixed JS/TS transition remains; compiled `dist` is runtime output |
 | 2 | Explicit infrastructure primitives | Checkpoint 1 hosted-green; draft stack unmerged | [#26–#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | `820ff2e` | `d441798` | Weak delivery identity and unmigrated command/process call sites |
 | 3 | Helper and HTTP decomposition | Not started | — | Phase 2 stack tip after final checkpoint metadata | — | Provisional continuation only after final Checkpoint 1 documentation Verify |
-| 4 | Repository interfaces and SQLite migration | Not started | — | — | — | Legacy reader/rollback must remain until final local verification |
+| 4 | Repository interfaces and SQLite migration | Implementation complete through Phase 4E4; draft stack unmerged | [#48–#50, #49, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | Phase 4D2 / `1364fa1` | `7ce31e6` | E5 optional work not attempted; production cutover/rollback wiring remains deliberately unwired |
 | 5 | Preload removal | Not started | — | — | — | Checkpoint 2 required before Phase 6 |
 | 6 | Live reload module split | Not started | — | — | — | — |
 | 7 | SwiftSyntax analyzer | Not started | — | — | — | Newly permissive cases remain disabled without physical proof |
@@ -236,6 +236,57 @@ Hosted isolated Homebrew and Simulator evidence is real but does not replace tho
 ### Next phase
 
 After the final checkpoint-documentation head passes Verify, create Phase 3 from that exact PR #33 head and target the Phase 2H branch. Phase 3 must decompose helper/HTTP responsibilities through explicit application services and route modules, inject only required Phase 2 ports, preserve route/projection contracts, and keep lifecycle/process authority visible. It must not remove preloads, migrate SQLite, or redesign the companion outside its assigned phase.
+
+## Phase 4 — Repository interfaces and SQLite migration
+
+- Status: Phase 4E1, E2, E3, E3B, and E4 implementation work is locally complete in the draft stack; all production cutover and rollback wiring remains disabled.
+- Stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
+- Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.
+- E5: not attempted; it remains optional and requires genuinely complete Workstreams 0–2 plus additional capacity.
+
+### Stack order and live state
+
+| Unit | PR | Base | Validated implementation head | Verify evidence | State |
+| --- | ---: | --- | --- | --- | --- |
+| E1 — pairing authority state | [#48](https://github.com/Miguelosaurus/Swift-Sim/pull/48) | Phase 4D2 / `1364fa1` | `974db19` | `31041703590` passed | Open, draft, unmerged |
+| E2 — locked legacy snapshot | [#50](https://github.com/Miguelosaurus/Swift-Sim/pull/50) | #48 / `974db19` | `bf7830c` | `31043513490` passed | Open, draft, unmerged |
+| E2 — authority selector | [#49](https://github.com/Miguelosaurus/Swift-Sim/pull/49) | #50 / `bf7830c` | `ff96203` | `31045149408` passed | Open, draft, unmerged |
+| E3 — cutover preparation | [#52](https://github.com/Miguelosaurus/Swift-Sim/pull/52) | #49 / `ff96203` | `8ff4ae8` | `31047728488` passed | Open, draft, unmerged |
+| E3B — cutover coordinator | [#53](https://github.com/Miguelosaurus/Swift-Sim/pull/53) | #52 / `8ff4ae8` | `ec1bd4e` | `31315600274` passed | Open, draft, unmerged |
+| E4 — rollback export | [#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | #53 / `ec1bd4e` | `3100bc0` | `31316795096` passed | Open, draft, unmerged |
+
+PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; it is not part of the live stack. No Phase 4E4 branch or PR existed before this work. The initial E4 Verify run `31316632344` at `7ce31e6` and the ledger-only run `31316708706` failed on the architecture source-text-test cap; `3100bc0` removed that classification by using the injected file-store reader, and final Verify `31316795096` passed.
+
+### E3B completion record
+
+- Preserved the existing history, including diagnostic commit `7083ad2`; applied the canonical Prettier output in normal commit `ec1bd4e` without rewriting or force-pushing.
+- Restored the repository-wide formatter gate and passed the focused coordinator suite (8/8), the full local Node 24 check, the isolated Homebrew gate, workflow YAML/shell gates, and iOS Simulator tests (30/30).
+- PR #53 Verify run `31315600274` passed at the exact `ec1bd4e` head.
+
+### E4 outcome and invariants
+
+- Added an unwired `PairingLockedLegacyWriter` and `PairingRollbackCoordinator` that keep credential and invitation locks held in bytewise order through SQLite read, pre-overwrite backups, atomic 0600 writes, 0600 backup publication under 0700 parents, rereads, validators, normalization, projection-hash comparison, and the revision/source/window-fenced rollback CAS.
+- The exporter requires a non-null SQLite credential, preserves the PairingStore credential object and PairingInviteStore invitation-array shapes, uses the current SQLite snapshot (including post-import changes), never deletes backups, and recognizes only the exact completed legacy epoch on retry.
+- Real temporary filesystem/SQLite fault-injection coverage passed 14/14 focused tests: backup publication; credential and invitation writes; credential and invitation rereads; projection verification; interruption immediately before CAS; interruption immediately after successful CAS; SQLite CAS failure; missing credential; expiry/finalization refusal; contention; lock ordering/release; immutable results; and retry behavior.
+- No production composition, migration invocation, service, credential, installation, or real `~/.swift-sim` state was touched.
+
+### E4 local validation
+
+- Node 24 `npm run check`: passed syntax for 452 JavaScript files, architecture inventory for 122 production sources, 55 Markdown links, strict TypeScript, formatting, lint, 463 source tests, 139 compiled tests, hermetic/compiled runtime checks, 261 package paths, isolated package install, and formula validation.
+- `SWIFT_SIM_RUN_CLEAN_HOMEBREW=1 bash scripts/verify-homebrew-package.sh`: passed isolated archive installation, Node 24 launchers, unique-port service identity/restart, assets, setup, and doctor. Existing Homebrew launchers remained untouched; the known dylib header warning remains diagnostic only.
+- All four workflow YAML files and the required release shell scripts passed their syntax gates.
+- The exact workflow iOS Simulator command passed 30/30 tests with 0 failures on simulator `FC06262E-96E4-4B4E-ADAB-C9D5FFE8927D`.
+
+### E4 self-review and residuals
+
+| Severity | Found | Fixed | Remaining |
+| --- | ---: | ---: | ---: |
+| P0 | 0 | 0 | 0 |
+| P1 | 0 | 0 | 0 |
+| P2 | 0 | 0 | 0 |
+| P3 | 0 | 0 | 0 |
+
+Remaining work is intentional: PR #54 still needs independent review; production rollback/cutover wiring is not authorized; final Luna persistent-local/device evidence and Miguel merge authorization remain pending; and optional E5 was not attempted.
 
 ## Decision log index
 
