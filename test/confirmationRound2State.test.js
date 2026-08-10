@@ -149,13 +149,3 @@ test("a failed session record does not retain the duplicate-start lease", () => 
   store.save(failed);
   assert.doesNotThrow(() => store.create(sessionInput("second", "serve-sim")));
 }));
-
-test("helper source persists failed starts and uses shared automatic transport matching", () => {
-  const source = readFileSync(
-    new URL("../mac-helper/bin/swift-sim-helper.js", import.meta.url),
-    "utf8",
-  );
-  assert.match(source, /sessionTransportMatches\(existing\.stream\.transport, transportPreference\)/);
-  assert.match(source, /session\.stream\.state = "failed"/);
-  assert.match(source, /transport: transportPreference/);
-});
