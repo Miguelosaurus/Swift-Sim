@@ -1,0 +1,69 @@
+name: Temporary Phase 3N Ledger Render
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: agent/tmp-phase3n-ledger-update
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Render exact Phase 3N ledger metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_SHA='4463be4f9b18e7dd29e6ee019251980ffe583949'
+          test "$(git rev-parse "$TARGET_SHA")" = "$TARGET_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md')
+          source = path.read_text()
+          replacements = [
+            (
+              '| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3M; draft stack unmerged | [#34–#40, #56–#60, #63](https://github.com/Miguelosaurus/Swift-Sim/pull/63) | Phase 2 final metadata / `f21e344` | Corrective implementation `ba97946` | HTTP route families are extracted; lifecycle/reconciliation/process behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |',
+              '| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3N; draft stack unmerged | [#34–#40, #56–#60, #63, #66](https://github.com/Miguelosaurus/Swift-Sim/pull/66) | Phase 2 final metadata / `f21e344` | Corrective implementation `73b8ec8` | HTTP route families and reconciliation policy are extracted; service lifecycle/scheduling/socket/signal/shutdown behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |',
+            ),
+            (
+              'Corrective PRs #56–#60 and #63 have now completed the HTTP-route decomposition portion without rewriting the previously validated history:',
+              'Corrective PRs #56–#60, #63, and #66 have now completed the HTTP-route decomposition and reconciliation-policy portions without rewriting the previously validated history:',
+            ),
+            (
+              '- service startup, reconciliation timers, socket tracking, signal handling, graceful drain, and forced shutdown do not yet have the complete target lifecycle owner;',
+              '- service startup, reconciliation scheduling, socket tracking, signal handling, graceful drain, and forced shutdown do not yet have the complete target lifecycle owner;',
+            ),
+          ]
+          for old, new in replacements:
+              assert source.count(old) == 1, old
+              source = source.replace(old, new, 1)
+          anchor = '- #63 extracts the final embedded `GET /pair` HTML route behind a pairing-page application service, renderer, and route boundary, preserving invite precedence, token authorization, request-origin handling, HTML escaping, exact security headers, and public-gateway 404 isolation.\n'
+          addition = '- #66 extracts device-installation reconciliation policy and its single-flight state into an injected coordinator while preserving deadline/requested-at semantics, sequential verification, failure projection, and legacy persistence retry behavior. Scheduling cadence remains in the composition root for the next lifecycle slice.\n'
+          assert source.count(anchor) == 1
+          source = source.replace(anchor, anchor + addition, 1)
+          section_anchor = '### Gate correction\n'
+          section = '''### Corrective Phase 3N evidence
+
+- PR #66 implementation `73b8ec8` extracted device-installation reconciliation policy and single-flight state from the compatibility helper into an injected coordinator. The final Miguel-authored trigger head `4463be4` points to the exact same implementation tree and exists only to obtain normal hosted Actions execution after the bot-authored implementation run was marked `action_required` with no jobs.
+- Adversarial publication review caught and corrected three refactor-integrity defects before acceptance: the Phase 3M base had advanced with ledger metadata, a manual rebase temporarily stripped the helper executable bit, and the first coordinator draft introduced runtime `String` coercion not present in the legacy state comparison. Final ancestry preserves the current 3M metadata, helper mode `100755`, and legacy raw state equality plus native `Date.parse` coercion.
+- Repository-native Node 24 builder validation passed 12/12 focused reconciliation tests, 604/604 source tests, strict types, formatting, lint, 139/139 compiled focused tests, hermetic compiled/runtime checks, and package validation for 291 intended paths. Authoritative hosted Verify run `31423177915` (#787) passed on the identical final implementation tree, including the isolated clean Homebrew installation/service gate, workflow YAML, release-shell syntax, and iOS Simulator tests.
+- This remains a bounded corrective slice. The helper still owns reconciliation scheduling, server listen, socket tracking, signal registration, graceful/forced shutdown, persistence construction, module-global composition, and remaining CLI/orchestration work.
+
+'''
+          assert source.count(section_anchor) == 1
+          source = source.replace(section_anchor, section + section_anchor, 1)
+          path.write_text(source)
+          PY
+          git diff --check "$TARGET_SHA" -- docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md
+          test "$(git diff --name-only "$TARGET_SHA" -- docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md)" = 'docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phase3n-ledger-render
+          path: docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md
+          if-no-files-found: error
+          retention-days: 1
