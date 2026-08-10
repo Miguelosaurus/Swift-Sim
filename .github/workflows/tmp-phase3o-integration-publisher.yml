@@ -30,6 +30,7 @@ jobs:
           test "$remote_head" = "$BASE"
           git worktree add /tmp/product "$BASE"
           cd /tmp/product
+          npm ci
           git show "$LIFECYCLE_HEAD:mac-helper/src/http/helperServiceLifecycle.js" > mac-helper/src/http/helperServiceLifecycle.js
           git show "$LIFECYCLE_HEAD:test/helperServiceLifecycle.test.js" > test/helperServiceLifecycle.test.js
 
@@ -119,25 +120,38 @@ jobs:
           if stale not in source:
               raise SystemExit("stale startup source-text test sentinel missing")
           integration_test.write_text(source.replace(stale, '\n', 1))
+
+          policy_path = Path("scripts/architecture/baseline-policy.json")
+          policy = policy_path.read_text()
+          caps_at = policy.index('  "caps": {')
+          head, caps = policy[:caps_at], policy[caps_at:]
+          for entry in [
+              '      "test/deliveryCleanupScheduler.test.js": 1,\n',
+              '      "test/mainPostMergeIntegration.test.js": 1,\n',
+          ]:
+              if caps.count(entry) != 1:
+                  raise SystemExit(f"expected one caps entry for {entry.strip()}")
+              caps = caps.replace(entry, '', 1)
+          policy_path.write_text(head + caps)
           PY
 
           npx prettier --write \
             mac-helper/src/http/helperServiceLifecycle.js \
             test/helperServiceLifecycle.test.js \
             test/deliveryCleanupScheduler.test.js \
-            test/mainPostMergeIntegration.test.js
+            test/mainPostMergeIntegration.test.js \
+            scripts/architecture/baseline-policy.json
           git diff --check
           node --test --test-concurrency=1 \
             test/helperServiceLifecycle.test.js \
             test/deviceInstallationReconciliationCoordinator.test.js \
             test/deliveryCleanupScheduler.test.js
-          npm run check
-          git diff --check
 
           files="$(git diff --name-only "$BASE" | sort)"
           expected="$(printf '%s\n' \
             mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperServiceLifecycle.js \
+            scripts/architecture/baseline-policy.json \
             test/deliveryCleanupScheduler.test.js \
             test/helperServiceLifecycle.test.js \
             test/mainPostMergeIntegration.test.js | sort)"
@@ -151,11 +165,22 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mac-helper/bin/swift-sim-helper.js mac-helper/src/http/helperServiceLifecycle.js test/deliveryCleanupScheduler.test.js test/helperServiceLifecycle.test.js test/mainPostMergeIntegration.test.js
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/http/helperServiceLifecycle.js \
+            scripts/architecture/baseline-policy.json \
+            test/deliveryCleanupScheduler.test.js \
+            test/helperServiceLifecycle.test.js \
+            test/mainPostMergeIntegration.test.js
           git diff --cached --check
           git commit -m "Phase 3O: integrate helper lifecycle and reconciliation"
           candidate="$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD^)" = "$BASE"
+
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
           remote_head="$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')"
           test "$remote_head" = "$BASE"
           git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
