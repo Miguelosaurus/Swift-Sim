@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { pathToFileURL, URL } from "node:url";
@@ -29,10 +29,6 @@ import {
   readJson,
 } from "../src/http.js";
 import { buildCompanionLinks, buildPairingLinks, publicSession } from "../src/links.js";
-import {
-  selectTailscaleProbe,
-  tailscaleBackendsConflict,
-} from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { claimDeviceVerification } from "../src/deviceVerificationGate.js";
 import { createDeviceInstallationReconciliationCoordinator } from "../src/http/deviceInstallationReconciliationCoordinator.js";
@@ -55,6 +51,8 @@ import { createCompatibilityHelperRuntime } from "../src/infrastructure/compatib
 import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";
 import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";
 import { createSessionRuntimeController } from "../src/sessionRuntimeController.js";
+import { createSetupStatusService } from "../src/commands/setupStatusService.js";
+import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -71,6 +69,7 @@ let activeDeviceBuildTasks;
 let deliveryReferenceCleanupRunning;
 let transports;
 let sessionRuntime;
+let setupStatusRuntime;
 let compatibilityRuntimeInitialized = false;
 
 export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
@@ -107,6 +106,18 @@ function initializeCompatibilityRuntime() {
     idGenerator: runtime.idGenerator,
     clock: runtime.clock,
   });
+  const commandRunner = new NodeCommandRunner({ spawn, spawnSync });
+  setupStatusRuntime = createSetupStatusService({
+    commandRunner,
+    pathExists: existsSync,
+    homeDirectory: homedir,
+    environmentNames: () => Object.keys(process.env),
+    preferredTailscaleMode: () => process.env.SWIFT_SIM_TAILSCALE_MODE || "",
+    fetchImpl: (input, init) => fetch(input, init),
+    inspectTransports,
+    deviceDeliveryStatus: () => deviceDelivery.status(),
+    defaultTransportPreference,
+  });
   deliveryReferenceCleanupRunning = false;
   compatibilityRuntimeInitialized = true;
 }
@@ -125,7 +136,7 @@ async function main(argv) {
         ensureToken(session, token);
         return buildCompanionLinks(session, remoteBaseUrl);
       },
-      setupStatus,
+      setupStatus: (values) => setupStatusRuntime.setupStatus(values),
       async buildDevice(values) {
         const build = await createDeviceBuild(values);
         await runCLIDeviceBuild(build);
@@ -287,65 +298,6 @@ function verifyDeviceBuild(build) {
   });
 }
 
-async function setupStatus({ host, port }) {
-  const [tailscaleInspection, helperHealth, transportInfo] = await Promise.all([
-    inspectTailscaleBackends(),
-    readHelperHealth(host, port),
-    inspectTransports(),
-  ]);
-  const tailscale = publicTailscaleStatus(tailscaleInspection);
-  const serveStatus = await readTailscaleServeStatus(port, tailscaleInspection.selected);
-  const defaultRemoteBaseUrl = tailscale.dnsName ? `https://${tailscale.dnsName.replace(/\.$/, "")}` : "";
-  const remoteBaseUrl = serveStatus.remoteBaseUrl || defaultRemoteBaseUrl;
-  const nextSteps = [];
-
-  if (tailscale.conflict) {
-    nextSteps.push("Swift Sim found multiple Tailscale backends for different Mac identities. Keep one Tailscale connection, or set SWIFT_SIM_TAILSCALE_MODE explicitly before pairing.");
-  } else if (!tailscale.available) {
-    nextSteps.push("Install Tailscale on the Mac and sign in to the same Tailnet as the iPhone.");
-  } else if (!tailscale.online) {
-    nextSteps.push("Open Tailscale on the Mac and connect it.");
-  }
-
-  if (!helperHealth.ok) {
-    nextSteps.push("Run swift-sim setup to start the Mac helper.");
-  }
-
-  if (!tailscale.conflict && tailscale.online && !serveStatus.configured) {
-    nextSteps.push(`Expose the helper privately: ${tailscaleServeCommand(tailscale.mode, port)}`);
-  }
-
-  if (!tailscale.conflict && remoteBaseUrl && helperHealth.ok && serveStatus.configured) {
-    nextSteps.push("Generate an iPhone pairing link: swift-sim pair");
-  }
-
-  return {
-    ok: !tailscale.conflict && tailscale.online && helperHealth.ok && serveStatus.configured,
-    helper: helperHealth,
-    tailscale,
-    tailscaleServe: serveStatus,
-    phoneConnection: {
-      pairingCableRequired: false,
-      installCableRequired: false,
-      sameWifiRequired: false,
-      sameTailnetRequired: true,
-      internetRequired: true,
-      macAwakeRequired: true,
-      firstXcodeTrustMayRequireCable: true,
-      detail: "For first-time pairing, install Tailscale on both devices, sign in to the same Tailnet, and keep the Mac awake with internet access. The devices may use different Wi-Fi networks or cellular. No cable is needed for Swift Sim pairing; connect one only if Xcode separately asks to trust or register this iPhone for its first signed device build.",
-    },
-    deviceDelivery: deviceDelivery.status(),
-    deviceBuildReady: helperHealth.ok,
-    transport: {
-      default: defaultTransportPreference(),
-      activeForPhone: preferredPhoneTransport(transportInfo),
-      transports: transportInfo,
-    },
-    suggestedRemoteBaseUrl: remoteBaseUrl,
-    nextSteps,
-  };
-}
-
 async function inspectTransports() {
   return Object.fromEntries(await Promise.all(
     Object.entries(transports).map(async ([id, transport]) => [id, await transport.inspect()])
@@ -354,199 +306,6 @@ async function inspectTransports() {
 
 function defaultTransportPreference() {
   return process.env.SWIFT_SIM_TRANSPORT || "auto";
-}
-
-function preferredPhoneTransport(info) {
-  if (info["native-companion"]?.available) {
-    return "native-companion";
-  }
-  return "serve-sim";
-}
-
-async function inspectTailscaleBackends() {
-  const probes = [];
-  for (const candidate of tailscaleCandidates()) {
-    const result = await runTailscaleCandidate(candidate, ["status", "--json"]);
-    let parsed;
-    let parseError = "";
-    if (!result.error) {
-      try {
-        parsed = JSON.parse(result.stdout);
-      } catch (error) {
-        parseError = error instanceof Error ? error.message : String(error);
-      }
-    }
-    probes.push({
-      candidate,
-      result,
-      parsed,
-      error: result.error || parseError,
-    });
-  }
-
-  const preferredMode = process.env.SWIFT_SIM_TAILSCALE_MODE || "";
-  const selected = selectTailscaleProbe(probes, preferredMode);
-  const conflict = tailscaleBackendsConflict(probes, selected, preferredMode);
-
-  return {
-    selected,
-    probes,
-    conflict,
-    preferredMode,
-  };
-}
-
-function publicTailscaleStatus(inspection) {
-  const selected = inspection.selected;
-  const parsed = selected?.parsed;
-  return {
-    available: Boolean(selected),
-    online: Boolean(parsed?.Self?.Online),
-    backendState: parsed?.BackendState || "",
-    dnsName: parsed?.Self?.DNSName || "",
-    hostName: parsed?.Self?.HostName || "",
-    ips: parsed?.Self?.TailscaleIPs || parsed?.TailscaleIPs || [],
-    tailnet: parsed?.CurrentTailnet?.Name || "",
-    mode: selected?.candidate.mode || "",
-    conflict: inspection.conflict,
-    backends: inspection.probes.map((probe) => ({
-      mode: probe.candidate.mode,
-      available: Boolean(probe.parsed),
-      online: Boolean(probe.parsed?.Self?.Online),
-      dnsName: probe.parsed?.Self?.DNSName || "",
-      error: probe.error || "",
-    })),
-  };
-}
-
-async function readTailscaleServeStatus(port, selected) {
-  if (!selected) {
-    return {
-      configured: false,
-      error: "No working Tailscale backend was found.",
-      raw: "",
-      mode: "",
-    };
-  }
-  const result = await runTailscaleCandidate(selected.candidate, ["serve", "status"]);
-  const mode = selected.candidate.mode;
-  if (result.error) {
-    return {
-      configured: false,
-      error: result.error,
-      raw: "",
-      mode,
-    };
-  }
-  return {
-    configured: result.stdout.includes(String(port)),
-    remoteBaseUrl: parseServeRemoteBaseUrl(result.stdout, port),
-    raw: result.stdout.trim(),
-    mode,
-  };
-}
-
-function runTailscaleCandidate(candidate, args) {
-  return runCommand(candidate.command, [...candidate.args, ...args], { timeoutMs: 2500 });
-}
-
-function tailscaleCandidates() {
-  const candidates = [{ mode: "default", command: "tailscale", args: [] }];
-  const appCommand = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
-  if (existsSync(appCommand)) {
-    candidates.push({ mode: "app", command: appCommand, args: [] });
-  }
-  const userspaceSocket = `${homedir()}/.tailscale-userspace/tailscaled.sock`;
-  if (existsSync(userspaceSocket)) {
-    candidates.push({ mode: "userspace", command: "tailscale", args: [`--socket=${userspaceSocket}`] });
-  }
-  return candidates;
-}
-
-function tailscaleServeCommand(mode, port) {
-  if (mode === "userspace") {
-    return `tailscale --socket ~/.tailscale-userspace/tailscaled.sock serve ${port}`;
-  }
-  return `tailscale serve ${port}`;
-}
-
-function parseServeRemoteBaseUrl(output, port) {
-  let currentUrl = "";
-  for (const line of output.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("https://")) {
-      currentUrl = trimmed.split(/\s+/)[0].replace(/\/$/, "");
-      continue;
-    }
-    if (currentUrl && trimmed.includes(`proxy http://127.0.0.1:${port}`)) {
-      return currentUrl;
-    }
-  }
-  return "";
-}
-
-async function readHelperHealth(host, port) {
-  try {
-    const response = await fetchWithTimeout(`http://${host}:${port}/health`, 1200);
-    return {
-      ok: response.ok,
-      url: `http://${host}:${port}`,
-      status: response.status,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      url: `http://${host}:${port}`,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-async function runCommand(command, args, { timeoutMs }) {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGTERM");
-      resolve({ code: null, stdout, stderr, error: `${command} ${args.join(" ")} timed out` });
-    }, timeoutMs);
-
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code: null, stdout, stderr, error: error.message });
-    });
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        code,
-        stdout,
-        stderr,
-        error: code === 0 ? "" : (stderr || stdout || `${command} exited with code ${code}`),
-      });
-    });
-  });
-}
-
-async function fetchWithTimeout(url, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 async function createDeviceBuild(values) {

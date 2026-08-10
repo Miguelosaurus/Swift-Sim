@@ -255,7 +255,6 @@
       "Companion/SwiftSimCompanion/ContentView.swift",
       "Companion/SwiftSimCompanion/SessionStore.swift",
       "Companion/SwiftSimCompanion/SimulatorStreamView.swift",
-      "mac-helper/bin/swift-sim-helper.js",
       "mac-helper/bin/swift-sim.js",
       "mac-helper/src/deviceBuilderCore.js",
       "mac-helper/src/liveReload.js"
