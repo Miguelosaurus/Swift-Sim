@@ -211,18 +211,10 @@ jobs:
         run: node --test test/sessionRuntimeController.test.js test/compatibilityHelperRuntime.test.js
       - name: Strict type gate
         run: npm run check:types
-      - name: Full Node/package gate
-        run: npm run check
-      - run: git diff --check
-      - name: Commit and publish exact fast-forward correction
+      - name: Commit candidate locally
         shell: bash
         run: |
           set -euo pipefail
-          CURRENT=$(git ls-remote origin "refs/heads/${PRODUCT_BRANCH}" | cut -f1)
-          if [[ "$CURRENT" != "$BASE_SHA" ]]; then
-            echo "Product ref moved: expected $BASE_SHA, found $CURRENT" >&2
-            exit 1
-          fi
           git config user.name "Miguel"
           git config user.email "serram1994@gmail.com"
           git add \
@@ -233,9 +225,20 @@ jobs:
             test/sessionRuntimeController.test.js
           git diff --cached --check
           git commit -m "Phase 3S: inject clock into session runtime"
+          test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
+      - name: Full Node/package gate
+        env:
+          GITHUB_EVENT_PATH: ""
+        run: npm run check
+      - run: git diff --check
+      - name: Publish exact fast-forward correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
           CURRENT=$(git ls-remote origin "refs/heads/${PRODUCT_BRANCH}" | cut -f1)
           if [[ "$CURRENT" != "$BASE_SHA" ]]; then
-            echo "Product ref moved before publication: expected $BASE_SHA, found $CURRENT" >&2
+            echo "Product ref moved: expected $BASE_SHA, found $CURRENT" >&2
             exit 1
           fi
           git push origin "HEAD:refs/heads/${PRODUCT_BRANCH}"
