@@ -34,10 +34,10 @@ jobs:
           from pathlib import Path
 
           source = Path('.github/workflows/tmp-phase3r-remaining-cli-publisher.yml').read_text()
-          old = '''          function valuesRecord(values) {\n            return /** @type {Record<string, unknown>} */ (values);\n          }'''
-          new = '''          function valuesRecord(values) {\n            return { .../** @type {Record<string, unknown>} */ (values) };\n          }'''
+          old = 'return /** @type {Record<string, unknown>} */ (values);'
+          new = 'return { .../** @type {Record<string, unknown>} */ (values) };'
           if source.count(old) != 1:
-              raise SystemExit('valuesRecord correction sentinel missing or duplicated')
+              raise SystemExit(f'valuesRecord return sentinel expected once, found {source.count(old)}')
           source = source.replace(old, new, 1)
 
           marker = '        run: |\n'
