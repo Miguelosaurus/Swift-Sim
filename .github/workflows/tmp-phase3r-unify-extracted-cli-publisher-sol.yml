@@ -1,0 +1,109 @@
+name: Temporary Phase 3R Unified Extracted CLI Publisher Sol
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Reconcile, validate, and publish exact Phase 3R candidate
+        shell: bash
+        env:
+          BASE: ad9dd22721b0f5f99143d1f47fc8d02ff42cd7ce
+          SOURCE_BRANCH: agent/architecture-consolidation-phase-3q-delete-app-cli
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3r-unify-extracted-cli-dispatch
+          SIBLING_BRANCH: agent/architecture-consolidation-phase-3q-unify-extracted-cli-dispatch
+          SIBLING: d28ba88be0e4cef30588f7764b7997d391b62aea
+        run: |
+          set -euo pipefail
+          remote_sha() {
+            git ls-remote origin "refs/heads/$1" | awk '{print $1}'
+          }
+          test "$(remote_sha "$SOURCE_BRANCH")" = "$BASE"
+          test "$(remote_sha "$PRODUCT_BRANCH")" = "$BASE"
+          test "$(remote_sha "$SIBLING_BRANCH")" = "$SIBLING"
+          git cat-file -e "$SIBLING^{commit}"
+
+          git worktree add /tmp/product "$BASE"
+          cd /tmp/product
+          npm ci
+
+          git show "${SIBLING}:mac-helper/bin/swift-sim-helper.js" > mac-helper/bin/swift-sim-helper.js
+          git show "${SIBLING}:test/compatibilityHelperImport.test.js" > test/compatibilityHelperImport.test.js
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          helper_path = Path("mac-helper/bin/swift-sim-helper.js")
+          helper = helper_path.read_text()
+          delete_block = '''  if (command === "delete-app") {
+            const { values } = parseArgs({
+              args: rest,
+              options: {
+                "app-id": { type: "string" },
+                "keep-artifacts": { type: "boolean" },
+              },
+            });
+            const appID = required(values["app-id"], "app-id");
+            const deleted = deviceBuildStore.deleteApp(appID, { deleteArtifacts: !values["keep-artifacts"] });
+            if (!deleted) throw new Error("Unknown app id.");
+            await drainDeliveryReferenceCleanupJobs();
+            console.log(JSON.stringify({ deleted: true, appId: appID }, null, 2));
+            return;
+          }
+
+          '''
+          if helper.count(delete_block) != 1:
+              raise SystemExit("delete-app compatibility block sentinel missing or duplicated")
+          helper_path.write_text(helper.replace(delete_block, "", 1))
+          PY
+
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mac-helper/bin/swift-sim-helper.js test/compatibilityHelperImport.test.js
+
+          files="$(git diff --cached --name-only "$BASE" | sort)"
+          expected="$(printf '%s\n' \
+            mac-helper/bin/swift-sim-helper.js \
+            test/compatibilityHelperImport.test.js | sort)"
+          test "$files" = "$expected"
+          git diff --cached --check
+          grep -q 'if (await runExtractedHelperCommand(argv)) return;' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "pair")' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "list-apps")' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "archive-app")' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "delete-app")' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "verify-device-build")' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "device-delivery-status")' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "device-delivery-stop")' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command === "serve-sim-info")' mac-helper/bin/swift-sim-helper.js
+
+          git commit -m "Phase 3R: unify extracted CLI dispatch"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+
+          node --test --test-concurrency=1 \
+            test/compatibilityHelperImport.test.js \
+            test/helperCliDispatcher.test.ts
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+          test "$(remote_sha "$SOURCE_BRANCH")" = "$BASE"
+          test "$(remote_sha "$PRODUCT_BRANCH")" = "$BASE"
+          test "$(remote_sha "$SIBLING_BRANCH")" = "$SIBLING"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "Published Phase 3R candidate $candidate"
