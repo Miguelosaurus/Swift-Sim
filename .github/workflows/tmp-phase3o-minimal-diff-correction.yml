@@ -1,0 +1,176 @@
+name: Temporary Phase 3O Minimal Diff Correction
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  correct:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Restore legacy formatting and validate bounded correction
+        shell: bash
+        env:
+          SOURCE_BASE: 4463be4f9b18e7dd29e6ee019251980ffe583949
+          PRODUCT_HEAD: bc5d4d94f8eedbaee5fc07a336e06801488f58ef
+          SOURCE_BRANCH: agent/architecture-consolidation-phase-3n-device-installation-reconciliation
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3o-lifecycle-integration
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | awk '{print $1}')" = "$SOURCE_BASE"
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$PRODUCT_HEAD"
+
+          git worktree add /tmp/product "$PRODUCT_HEAD"
+          cd /tmp/product
+          npm ci
+
+          git show "$SOURCE_BASE:mac-helper/bin/swift-sim-helper.js" > mac-helper/bin/swift-sim-helper.js
+          git show "$SOURCE_BASE:test/deliveryCleanupScheduler.test.js" > test/deliveryCleanupScheduler.test.js
+          git show "$SOURCE_BASE:test/mainPostMergeIntegration.test.js" > test/mainPostMergeIntegration.test.js
+          git show "$SOURCE_BASE:scripts/architecture/baseline-policy.json" > scripts/architecture/baseline-policy.json
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          helper_path = Path("mac-helper/bin/swift-sim-helper.js")
+          helper = helper_path.read_text()
+          anchor = 'import { createDeviceInstallationReconciliationCoordinator } from "../src/http/deviceInstallationReconciliationCoordinator.js";\n'
+          lifecycle_import = 'import { createHelperServiceLifecycle } from "../src/http/helperServiceLifecycle.js";\n'
+          if helper.count(anchor) != 1 or lifecycle_import in helper:
+              raise SystemExit("unexpected lifecycle import state")
+          helper = helper.replace(anchor, anchor + lifecycle_import, 1)
+
+          old_prelude = '''async function serve({ host, port, deviceBuildsOnly = false }) {
+            await recoverInterruptedDeviceBuilds();
+            setImmediate(() => {
+              void scheduleDeliveryReferenceCleanup();
+            });
+            const activeSockets = new Set();
+          '''
+          new_prelude = '''async function serve({ host, port, deviceBuildsOnly = false }) {
+            const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
+              listBuilds: () => deviceBuildStore.list(),
+              verifyBuild: (build) => verifyDeviceBuild(build),
+              saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
+              nowMs: () => Date.now(),
+              nowIso: () => new Date().toISOString(),
+            });
+            const lifecycle = createHelperServiceLifecycle({
+              createServer,
+              host,
+              port,
+              deviceBuildsOnly,
+              recoverInterruptedBuilds: recoverInterruptedDeviceBuilds,
+              scheduleDeliveryCleanup: scheduleDeliveryReferenceCleanup,
+              reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
+              activeBuildTasks: () => [...activeDeviceBuildTasks.values()],
+              cancelBuild: requestDeviceBuildCancellation,
+              listSessions: () => (typeof store.list === "function" ? store.list() : []),
+              stopSession: (sessionID) => stopSession(sessionID),
+            });
+            await lifecycle.prepare();
+          '''
+          if helper.count(old_prelude) != 1:
+              raise SystemExit("serve prelude sentinel missing")
+          helper = helper.replace(old_prelude, new_prelude, 1)
+
+          server_start = helper.find('  const server = createServer(async (req, res) => {\n')
+          connection_start = helper.find('  server.on("connection", (socket) => {\n', server_start)
+          tail_marker = '  await new Promise(() => {});\n}\n\nfunction verifyDeviceBuild(build) {'
+          tail_end = helper.find(tail_marker, connection_start)
+          if min(server_start, connection_start, tail_end) < 0:
+              raise SystemExit("serve lifecycle sentinels missing")
+          listener = helper[server_start:connection_start]
+          if not listener.endswith('  });\n'):
+              raise SystemExit("request listener terminator changed")
+          listener = listener.replace(
+              '  const server = createServer(async (req, res) => {\n',
+              '  const requestListener = async (req, res) => {\n',
+              1,
+          )
+          listener = listener[:-len('  });\n')] + '  };\n'
+          replacement = listener + '  await lifecycle.start(requestListener);\n  await lifecycle.wait();\n}\n\nfunction verifyDeviceBuild(build) {'
+          helper = helper[:server_start] + replacement + helper[tail_end + len(tail_marker):]
+          helper_path.write_text(helper)
+
+          cleanup_path = Path("test/deliveryCleanupScheduler.test.js")
+          cleanup = cleanup_path.read_text()
+          cleanup = cleanup.replace('import { readFileSync } from "node:fs";\n', '', 1)
+          stale_cleanup = '''\ntest("helper maintenance routes startup and interval cleanup through the safe scheduler", () => {
+            const source = readFileSync("mac-helper/bin/swift-sim-helper.js", "utf8");
+            assert.match(source, /setImmediate\\(\\(\\) => \\{\\n\\s+void scheduleDeliveryReferenceCleanup\\(\\);/);
+            assert.match(source, /deliveryCleanupTimer = setInterval\\(\\(\\) => \\{\\n\\s+void scheduleDeliveryReferenceCleanup\\(\\);/);
+          });\n'''
+          if cleanup.count(stale_cleanup) != 1:
+              raise SystemExit("stale cleanup source-text block missing")
+          cleanup_path.write_text(cleanup.replace(stale_cleanup, '\n', 1))
+
+          main_path = Path("test/mainPostMergeIntegration.test.js")
+          main = main_path.read_text()
+          stale_main = '''\ntest("delivery reference cleanup no longer blocks helper startup", () => {
+            const source = readFileSync("mac-helper/bin/swift-sim-helper.js", "utf8");
+            const serveStart = source.indexOf("async function serve(");
+            const createServer = source.indexOf("const server = createServer", serveStart);
+            const startup = source.slice(serveStart, createServer);
+            assert.doesNotMatch(startup, /await drainDeliveryReferenceCleanupJobs\\(\\)/);
+            assert.match(startup, /setImmediate\\(\\(\\) =>/);
+          });\n'''
+          if main.count(stale_main) != 1:
+              raise SystemExit("stale main integration block missing")
+          main_path.write_text(main.replace(stale_main, '\n', 1))
+
+          policy_path = Path("scripts/architecture/baseline-policy.json")
+          policy = policy_path.read_text()
+          caps_at = policy.index('  "caps": {')
+          head, caps = policy[:caps_at], policy[caps_at:]
+          entry = '      "test/deliveryCleanupScheduler.test.js": 1,\n'
+          if caps.count(entry) != 1:
+              raise SystemExit("delivery cleanup cap missing")
+          policy_path.write_text(head + caps.replace(entry, '', 1))
+          PY
+
+          git diff --check
+          node --test --test-concurrency=1 \
+            test/helperServiceLifecycle.test.js \
+            test/deviceInstallationReconciliationCoordinator.test.js \
+            test/deliveryCleanupScheduler.test.js
+
+          test "$(grep -c 'createHelperServiceLifecycle' mac-helper/bin/swift-sim-helper.js)" -eq 2
+          test "$(grep -c 'createDeviceInstallationReconciliationCoordinator' mac-helper/bin/swift-sim-helper.js)" -eq 2
+          ! grep -q 'server.on("connection"' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'const activeSockets = new Set' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'reconcileRequestedDeviceBuilds' mac-helper/bin/swift-sim-helper.js
+          grep -q 'reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce()' mac-helper/bin/swift-sim-helper.js
+          grep -q '"test/mainPostMergeIntegration.test.js": 1' scripts/architecture/baseline-policy.json
+          ! sed -n '/"caps": {/,/"allowlists": {/p' scripts/architecture/baseline-policy.json | grep -q '"test/deliveryCleanupScheduler.test.js": 1'
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            scripts/architecture/baseline-policy.json \
+            test/deliveryCleanupScheduler.test.js \
+            test/mainPostMergeIntegration.test.js
+          git diff --cached --check
+          git commit -m "Phase 3O: keep lifecycle integration diff bounded"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$PRODUCT_HEAD"
+
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | awk '{print $1}')" = "$SOURCE_BASE"
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$PRODUCT_HEAD"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "Published bounded Phase 3O correction $candidate"
