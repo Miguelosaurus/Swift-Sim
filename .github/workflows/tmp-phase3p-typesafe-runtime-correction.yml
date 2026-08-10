@@ -1,0 +1,171 @@
+name: Temporary Phase 3P Type-safe Runtime Correction
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  correct:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Type-check and validate explicit compatibility runtime
+        shell: bash
+        env:
+          PRODUCT_HEAD: df1f82e6ff476919404768c85e13ad721afb513a
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3p-explicit-compatibility-runtime
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$PRODUCT_HEAD"
+
+          git worktree add /tmp/product "$PRODUCT_HEAD"
+          cd /tmp/product
+          npm ci
+
+          cat > mac-helper/src/infrastructure/compatibilityHelperRuntime.js <<'EOF'
+          // @ts-check
+
+          import { DeviceBuildStore } from "../deviceBuildStore.js";
+          import { DeviceDeliveryAdapter } from "../deviceDelivery.js";
+          import { DeviceInventoryAdapter } from "../deviceInventory.js";
+          import { PairingInviteStore } from "../pairingInviteStore.js";
+          import { PairingStore } from "../pairingStore.js";
+          import { ServeSimAdapter } from "../serveSimAdapter.js";
+          import { SessionStore } from "../sessionStore.js";
+          import { SimulatorProfileResolver } from "../simulatorProfile.js";
+          import { NativeCompanionTransport } from "../transports/nativeCompanionTransport.js";
+          import { ServeSimTransport } from "../transports/serveSimTransport.js";
+
+          /**
+           * @typedef {{
+           *   createSessionStore(): SessionStore,
+           *   createDeviceBuildStore(): DeviceBuildStore,
+           *   createDeviceDelivery(): DeviceDeliveryAdapter,
+           *   createPairingStore(): PairingStore,
+           *   createPairingInviteStore(): PairingInviteStore,
+           *   createSimulatorProfiles(): SimulatorProfileResolver,
+           *   createDeviceInventory(): DeviceInventoryAdapter,
+           *   createServeSimAdapter(): ServeSimAdapter,
+           *   createServeSimTransport(input: { adapter: ServeSimAdapter }): ServeSimTransport,
+           *   createNativeCompanionTransport(input: { adapter: ServeSimAdapter }): NativeCompanionTransport,
+           * }} CompatibilityHelperFactories
+           * @typedef {{
+           *   store: SessionStore,
+           *   deviceBuildStore: DeviceBuildStore,
+           *   deviceDelivery: DeviceDeliveryAdapter,
+           *   pairingStore: PairingStore,
+           *   pairingInviteStore: PairingInviteStore,
+           *   simulatorProfiles: SimulatorProfileResolver,
+           *   deviceInventory: DeviceInventoryAdapter,
+           *   adapter: ServeSimAdapter,
+           *   activeDeviceBuildTasks: Map<string, unknown>,
+           *   transports: {
+           *     "serve-sim": ServeSimTransport,
+           *     "native-companion": NativeCompanionTransport,
+           *   },
+           * }} CompatibilityHelperRuntime
+           */
+
+          /** @returns {CompatibilityHelperFactories} */
+          function defaultFactories() {
+            return {
+              createSessionStore: () => new SessionStore(),
+              createDeviceBuildStore: () => new DeviceBuildStore(),
+              createDeviceDelivery: () => new DeviceDeliveryAdapter(),
+              createPairingStore: () => new PairingStore(),
+              createPairingInviteStore: () => new PairingInviteStore(),
+              createSimulatorProfiles: () => new SimulatorProfileResolver(),
+              createDeviceInventory: () => new DeviceInventoryAdapter(),
+              createServeSimAdapter: () => new ServeSimAdapter(),
+              createServeSimTransport: ({ adapter }) => new ServeSimTransport({ adapter }),
+              createNativeCompanionTransport: ({ adapter }) => new NativeCompanionTransport({ adapter }),
+            };
+          }
+
+          /**
+           * @param {{ factories?: Partial<CompatibilityHelperFactories> }} [options]
+           * @returns {CompatibilityHelperRuntime}
+           */
+          export function createCompatibilityHelperRuntime({ factories = defaultFactories() } = {}) {
+            const resolved = requireFactories(factories);
+            // PairingStore is the compatibility owner of the shared private state root.
+            // Construct it before repositories that acquire files/locks beneath that root.
+            const pairingStore = resolved.createPairingStore();
+            const adapter = resolved.createServeSimAdapter();
+            return {
+              store: resolved.createSessionStore(),
+              deviceBuildStore: resolved.createDeviceBuildStore(),
+              deviceDelivery: resolved.createDeviceDelivery(),
+              pairingStore,
+              pairingInviteStore: resolved.createPairingInviteStore(),
+              simulatorProfiles: resolved.createSimulatorProfiles(),
+              deviceInventory: resolved.createDeviceInventory(),
+              adapter,
+              activeDeviceBuildTasks: new Map(),
+              transports: {
+                "serve-sim": resolved.createServeSimTransport({ adapter }),
+                "native-companion": resolved.createNativeCompanionTransport({ adapter }),
+              },
+            };
+          }
+
+          /**
+           * @param {Partial<CompatibilityHelperFactories>} factories
+           * @returns {CompatibilityHelperFactories}
+           */
+          function requireFactories(factories) {
+            /** @type {(keyof CompatibilityHelperFactories)[]} */
+            const required = [
+              "createPairingStore",
+              "createServeSimAdapter",
+              "createSessionStore",
+              "createDeviceBuildStore",
+              "createDeviceDelivery",
+              "createPairingInviteStore",
+              "createSimulatorProfiles",
+              "createDeviceInventory",
+              "createServeSimTransport",
+              "createNativeCompanionTransport",
+            ];
+            for (const name of required) {
+              if (typeof factories?.[name] !== "function") {
+                throw new TypeError(`Compatibility helper runtime requires ${name}.`);
+              }
+            }
+            return /** @type {CompatibilityHelperFactories} */ (/** @type {unknown} */ (factories));
+          }
+          EOF
+
+          npx prettier --write mac-helper/src/infrastructure/compatibilityHelperRuntime.js
+          git diff --check
+          npm run check:types
+          node --test --test-concurrency=1 \
+            test/compatibilityHelperRuntime.test.js \
+            test/compatibilityHelperImport.test.js
+
+          grep -q '^// @ts-check$' mac-helper/src/infrastructure/compatibilityHelperRuntime.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mac-helper/src/infrastructure/compatibilityHelperRuntime.js
+          git diff --cached --check
+          test "$(git diff --cached --name-only)" = "mac-helper/src/infrastructure/compatibilityHelperRuntime.js"
+          git commit -m "Phase 3P: type-check compatibility runtime composition"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$PRODUCT_HEAD"
+
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$PRODUCT_HEAD"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "Published Phase 3P type-safety correction $candidate"
