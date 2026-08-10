@@ -47,6 +47,7 @@ jobs:
               'block_start = helper.find("async function fetchWithTimeout(url, timeoutMs) {\\n")\nblock_end = helper.find("async function createDeviceBuild(values) {\\n", block_start)': 'fetch_start = helper.find("async function fetchWithTimeout(url, timeoutMs) {\\n")\nblock_start = helper.find("async function proxyStream(res, session) {\\n", fetch_start)\nblock_end = helper.find("async function createDeviceBuild(values) {\\n", block_start)',
               'if block_start < 0 or block_end < 0:\n    raise SystemExit("session runtime block sentinels missing")\nsession_block = helper[block_start:block_end].rstrip() + "\\n"': 'if fetch_start < 0 or block_start < 0 or block_end < 0:\n    raise SystemExit("session runtime block sentinels missing")\nfetch_block = helper[fetch_start:block_start].rstrip() + "\\n\\n"\nsession_block = helper[block_start:block_end].rstrip() + "\\n"',
               'module += indent(session_block, "  ")': 'module += indent(fetch_block + session_block, "  ")',
+              'helper = helper[:block_start] + helper[block_end:]': 'remove_start = helper.find("async function proxyStream(res, session) {\\n")\nremove_end = helper.find("async function createDeviceBuild(values) {\\n", remove_start)\nif remove_start < 0 or remove_end < 0:\n    raise SystemExit("updated session removal sentinels missing")\nhelper = helper[:remove_start] + helper[remove_end:]',
           }
           for old, new in replacements.items():
               if script.count(old) != 1:
