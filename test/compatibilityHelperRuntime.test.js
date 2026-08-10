@@ -14,6 +14,7 @@ test("compatibility runtime constructs the state-root owner before dependent rep
     "createSimulatorProfiles",
     "createDeviceInventory",
     "createIdGenerator",
+    "createClock",
   ].map((name) => [name, { name }]));
   const factories = Object.fromEntries(
     Object.entries(values).map(([name, value]) => [name, () => {
@@ -47,6 +48,7 @@ test("compatibility runtime constructs the state-root owner before dependent rep
   assert.strictEqual(runtime.deviceInventory, values.createDeviceInventory);
   assert.strictEqual(runtime.adapter, adapter);
   assert.strictEqual(runtime.idGenerator, values.createIdGenerator);
+  assert.strictEqual(runtime.clock, values.createClock);
   assert.deepEqual(runtime.transports["serve-sim"], { kind: "serve", adapter });
   assert.deepEqual(runtime.transports["native-companion"], { kind: "native", adapter });
   assert.equal(runtime.activeDeviceBuildTasks.size, 0);
@@ -54,6 +56,7 @@ test("compatibility runtime constructs the state-root owner before dependent rep
     "createPairingStore",
     "createServeSimAdapter",
     "createIdGenerator",
+    "createClock",
     "createSessionStore",
     "createDeviceBuildStore",
     "createDeviceDelivery",
@@ -79,6 +82,7 @@ test("compatibility runtime owns fresh task state per composition", () => {
     createServeSimTransport: factory,
     createNativeCompanionTransport: factory,
     createIdGenerator: factory,
+    createClock: factory,
   };
   const first = createCompatibilityHelperRuntime({ factories });
   const second = createCompatibilityHelperRuntime({ factories });

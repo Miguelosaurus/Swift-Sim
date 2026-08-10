@@ -8,6 +8,7 @@ import { resolvedSessionTransport, sessionTransportMatches } from "./sessionTran
 
 /** @typedef {import("./contracts/session.js").SessionStreamRecord} SessionStreamRecord */
 /** @typedef {import("./infrastructure/ports.js").IdGenerator} IdGenerator */
+/** @typedef {import("./infrastructure/ports.js").Clock} Clock */
 /** @typedef {Omit<import("./contracts/session.js").SessionRecord, "logs" | "stream" | "simulatorUDID" | "remoteBaseUrl"> & {
  *   simulatorUDID: string,
  *   logs: string[],
@@ -34,6 +35,7 @@ import { resolvedSessionTransport, sessionTransportMatches } from "./sessionTran
  *   adapter: SimulatorUiPort,
  *   defaultTransportPreference(): string,
  *   idGenerator: IdGenerator,
+ *   clock: Clock,
  * }} SessionRuntimeDependencies
  * @typedef {{ project?: string, scheme?: string, simulator?: string, transport?: string, "remote-base-url"?: string, port?: string | number }} SessionStartInput
  * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource
@@ -47,7 +49,7 @@ import { resolvedSessionTransport, sessionTransportMatches } from "./sessionTran
 /** @param {SessionRuntimeDependencies} dependencies */
 export function createSessionRuntimeController(dependencies) {
   validateDependencies(dependencies);
-  const { store, transports, adapter, defaultTransportPreference } = dependencies;
+  const { store, transports, adapter, defaultTransportPreference, clock } = dependencies;
 
   /** @param {string} url @param {number} timeoutMs */
   async function fetchWithTimeout(url, timeoutMs) {
@@ -225,7 +227,7 @@ export function createSessionRuntimeController(dependencies) {
       sessionTransportMatches(existing.stream.transport, transportPreference)
     ) {
       existing.remoteBaseUrl = input["remote-base-url"] || existing.remoteBaseUrl;
-      existing.updatedAt = new Date().toISOString();
+      existing.updatedAt = clock.now().toISOString();
       store.save(existing);
       return includeCodexMetadata ? codexSession(existing) : publicSession(existing);
     }
@@ -297,7 +299,7 @@ export function createSessionRuntimeController(dependencies) {
     await transportForSession(session).stop(session);
     closeInputChannel(session);
     session.stream.state = "stopped";
-    session.updatedAt = new Date().toISOString();
+    session.updatedAt = clock.now().toISOString();
     store.save(session);
   }
 
@@ -421,7 +423,7 @@ export function createSessionRuntimeController(dependencies) {
   async function sendKeyboardEvents(session, events) {
     for (const event of events) {
       await sendServeSimMessage(session, 6, event);
-      await sleep(4);
+      await clock.sleep(4);
     }
   }
 
@@ -435,7 +437,7 @@ export function createSessionRuntimeController(dependencies) {
     const clampedX = Math.max(0, Math.min(1, normalizedX));
     const clampedY = Math.max(0, Math.min(1, normalizedY));
     await sendTouch(session, { type: "begin", x: clampedX, y: clampedY });
-    await sleep(40);
+    await clock.sleep(40);
     await sendTouch(session, { type: "end", x: clampedX, y: clampedY });
     session.logs.push(`tap: ${clampedX.toFixed(3)}, ${clampedY.toFixed(3)}`);
     store.save(session);
@@ -621,11 +623,6 @@ export function createSessionRuntimeController(dependencies) {
     }
   }
 
-  /** @param {number} ms */
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
   /** @param {GestureInput} event @returns {NormalizedGesture} */
   function normalizeGestureEvent(event) {
     if (!event || typeof event !== "object") {
@@ -711,6 +708,15 @@ function validateDependencies(dependencies) {
   }
   if (typeof dependencies?.idGenerator?.randomToken !== "function") {
     throw new TypeError("Session runtime controller requires idGenerator.randomToken().");
+  }
+  if (
+    typeof dependencies?.clock?.now !== "function" ||
+    typeof dependencies.clock.monotonicMilliseconds !== "function" ||
+    typeof dependencies.clock.sleep !== "function"
+  ) {
+    throw new TypeError(
+      "Session runtime controller requires clock.now(), clock.monotonicMilliseconds(), and clock.sleep().",
+    );
   }
 }
 

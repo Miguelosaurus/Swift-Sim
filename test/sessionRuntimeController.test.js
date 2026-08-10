@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSessionRuntimeController } from "../mac-helper/src/sessionRuntimeController.js";
 
+const FIXED_NOW = "2026-08-10T21:00:00.000Z";
+
 function session(overrides = {}) {
   return {
     id: "session-1",
@@ -79,6 +81,11 @@ function createStore({ reusable = null, initial = [] } = {}) {
 function controllerHarness({ store = createStore(), nativeStart, serveStart, restart } = {}) {
   const calls = [];
   const uiCalls = [];
+  const clock = {
+    now: () => new Date(FIXED_NOW),
+    monotonicMilliseconds: () => 0,
+    async sleep() {},
+  };
   const transports = {
     "native-companion": {
       async start(input) {
@@ -154,6 +161,7 @@ function controllerHarness({ store = createStore(), nativeStart, serveStart, res
       adapter,
       defaultTransportPreference: () => "auto",
       idGenerator: { randomUUID: () => "uuid-1", randomToken: (bytes) => `token-${bytes}` },
+      clock,
     }),
   };
 }
@@ -186,6 +194,17 @@ test("validates the explicit session runtime dependency graph", () => {
       }),
     /idGenerator\.randomToken/,
   );
+  assert.throws(
+    () =>
+      createSessionRuntimeController({
+        store,
+        transports: {},
+        adapter: { async ui() {} },
+        defaultTransportPreference: () => "auto",
+        idGenerator: { randomUUID: () => "uuid-1", randomToken: () => "token" },
+      }),
+    /clock\.now/,
+  );
 });
 
 test("reuses a compatible running session without restarting transport", async () => {
@@ -204,6 +223,7 @@ test("reuses a compatible running session without restarting transport", async (
   assert.equal(result.id, existing.id);
   assert.equal(result.stream.transport, "serve-sim");
   assert.equal(existing.remoteBaseUrl, "https://new.example");
+  assert.equal(existing.updatedAt, FIXED_NOW);
   assert.deepEqual(calls, []);
   assert.equal(store.saves.length, 1);
 });
@@ -282,6 +302,7 @@ test("stop and UI controls mutate session state through the controller", async (
 
   await controller.stopSession(value.id);
   assert.equal(value.stream.state, "stopped");
+  assert.equal(value.updatedAt, FIXED_NOW);
   assert.deepEqual(calls.at(-1), ["serve-stop", value.id]);
 });
 
