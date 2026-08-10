@@ -1,0 +1,141 @@
+name: Temporary Phase 3N Semantics Fix
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: agent/tmp-phase3n-semantics-fix
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build exact Phase 3N semantics fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_BRANCH='agent/architecture-consolidation-phase-3m-pairing-page-route'
+          TARGET_BRANCH='agent/architecture-consolidation-phase-3n-device-installation-reconciliation'
+          BASE_SHA='1a05b2e44cc1064e862a5922605cfb3b2ad63489'
+          TARGET_SHA='b634adabdf5c1b3a61930e49747c158c1b807d9a'
+
+          git fetch origin "$BASE_BRANCH" "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$BASE_BRANCH")" = "$BASE_SHA"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$TARGET_SHA"
+          test "$(git hash-object mac-helper/bin/swift-sim-helper.js)" = '3d7fbe2fab24c05884c81122c57fe6a6ef5089c8'
+          test "$(git ls-files -s mac-helper/bin/swift-sim-helper.js | awk '{print $1}')" = '100755'
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          coordinator = Path('mac-helper/src/http/deviceInstallationReconciliationCoordinator.js')
+          source = coordinator.read_text()
+          old = '''  const state = installation.state || "unknown";
+          if (!["requested", "not-installed", "different-version"].includes(String(state))) {
+            return false;
+          }
+          const deadline = Date.parse(stringValue(installation.verificationDeadlineAt));
+          if (Number.isFinite(deadline)) return deadline > nowMs();
+          const requestedAt = Date.parse(stringValue(installation.requestedAt));
+          return Number.isFinite(requestedAt) && requestedAt + 15 * 60 * 1000 > nowMs();
+          }
+
+          /** @param {unknown} value */
+          function stringValue(value) {
+            return typeof value === "string" ? value : "";
+          }
+          '''
+          new = '''  const state = /** @type {string} */ (installation.state || "unknown");
+          if (!["requested", "not-installed", "different-version"].includes(state)) {
+            return false;
+          }
+          const deadline = Date.parse(
+            /** @type {string} */ (installation.verificationDeadlineAt || ""),
+          );
+          if (Number.isFinite(deadline)) return deadline > nowMs();
+          const requestedAt = Date.parse(
+            /** @type {string} */ (installation.requestedAt || ""),
+          );
+          return Number.isFinite(requestedAt) && requestedAt + 15 * 60 * 1000 > nowMs();
+          }
+          '''
+          assert source.count(old) == 1
+          coordinator.write_text(source.replace(old, new, 1))
+
+          test_file = Path('test/deviceInstallationReconciliationCoordinator.test.js')
+          source = test_file.read_text()
+          anchor = 'test("validates every dependency at construction", () => {'
+          assert source.count(anchor) == 1
+          regression = '''test("preserves legacy raw state equality and Date.parse coercion", async () => {
+            const { coordinator, verified } = harness({
+              builds: [
+                build({
+                  id: "object-state",
+                  installation: {
+                    state: { toString: () => "requested" },
+                    verificationDeadlineAt: "",
+                    requestedAt: new Date(NOW - 1_000).toISOString(),
+                  },
+                }),
+                build({
+                  id: "coercible-deadline",
+                  installation: {
+                    state: "requested",
+                    verificationDeadlineAt: { toString: () => new Date(NOW + 60_000).toISOString() },
+                    requestedAt: new Date(NOW - 20 * 60 * 1000).toISOString(),
+                  },
+                }),
+              ],
+            });
+
+            await coordinator.runOnce();
+
+            assert.deepEqual(verified, ["coercible-deadline"]);
+          });
+
+          '''
+          test_file.write_text(source.replace(anchor, regression + anchor, 1))
+          PY
+
+          npm ci
+          npx prettier --write \
+            mac-helper/src/http/deviceInstallationReconciliationCoordinator.js \
+            test/deviceInstallationReconciliationCoordinator.test.js
+          node --test --test-concurrency=1 test/deviceInstallationReconciliationCoordinator.test.js
+          npm run check
+
+          rm .github/workflows/tmp-phase3n-semantics.yml
+          test "$(git hash-object mac-helper/bin/swift-sim-helper.js)" = '3d7fbe2fab24c05884c81122c57fe6a6ef5089c8'
+          test "$(git ls-files -s mac-helper/bin/swift-sim-helper.js | awk '{print $1}')" = '100755'
+          git diff --check "$BASE_SHA" --
+          ACTUAL=$(git diff --name-only "$BASE_SHA" -- | sort)
+          EXPECTED=$(cat <<'EOF'
+          mac-helper/bin/swift-sim-helper.js
+          mac-helper/src/http/deviceInstallationReconciliationCoordinator.js
+          test/deviceInstallationReconciliationCoordinator.test.js
+          EOF
+          )
+          test "$ACTUAL" = "$EXPECTED"
+          test "$(git diff --numstat "$BASE_SHA" -- mac-helper/bin/swift-sim-helper.js)" = $'9\t39\tmac-helper/bin/swift-sim-helper.js'
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          TREE=$(git write-tree)
+
+          git fetch origin "$BASE_BRANCH" "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$BASE_BRANCH")" = "$BASE_SHA"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$TARGET_SHA"
+          COMMIT=$(printf '%s\n' 'Phase 3N: extract device installation reconciliation' | git commit-tree "$TREE" -p "$BASE_SHA")
+          git push --force-with-lease="refs/heads/$TARGET_BRANCH:$TARGET_SHA" origin "$COMMIT:refs/heads/$TARGET_BRANCH"
+          echo "Published exact Phase 3N semantics fix $COMMIT"
