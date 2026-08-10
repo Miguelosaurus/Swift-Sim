@@ -1,0 +1,81 @@
+name: Temporary Phase 3N Ledger Update
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  update-ledger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: agent/tmp-phase3n-ledger-update
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Publish exact Phase 3N ledger metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_BRANCH='agent/architecture-consolidation-phase-3n-device-installation-reconciliation'
+          TARGET_SHA='4463be4f9b18e7dd29e6ee019251980ffe583949'
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$TARGET_SHA"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md')
+          source = path.read_text()
+
+          old = '| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3M; draft stack unmerged | [#34–#40, #56–#60, #63](https://github.com/Miguelosaurus/Swift-Sim/pull/63) | Phase 2 final metadata / `f21e344` | Corrective implementation `ba97946` | HTTP route families are extracted; lifecycle/reconciliation/process behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |'
+          new = '| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3N; draft stack unmerged | [#34–#40, #56–#60, #63, #66](https://github.com/Miguelosaurus/Swift-Sim/pull/66) | Phase 2 final metadata / `f21e344` | Corrective implementation `73b8ec8` | HTTP route families and reconciliation policy are extracted; service lifecycle/scheduling/socket/signal/shutdown behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |'
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          anchor = '- #63 extracts the final embedded `GET /pair` HTML route behind a pairing-page application service, renderer, and route boundary, preserving invite precedence, token authorization, request-origin handling, HTML escaping, exact security headers, and public-gateway 404 isolation.\n'
+          addition = '- #66 extracts device-installation reconciliation policy and its single-flight state into an injected coordinator while preserving deadline/requested-at semantics, sequential verification, failure projection, and legacy persistence retry behavior. Scheduling cadence remains in the composition root for the next lifecycle slice.\n'
+          assert source.count(anchor) == 1
+          source = source.replace(anchor, anchor + addition, 1)
+
+          section_anchor = '### Gate correction\n'
+          section = '''### Corrective Phase 3N evidence
+
+- PR #66 implementation `73b8ec8` extracted device-installation reconciliation policy and single-flight state from the compatibility helper into an injected coordinator. The final Miguel-authored trigger head `4463be4` points to the exact same implementation tree and exists only to obtain normal hosted Actions execution after the bot-authored implementation run was marked `action_required` with no jobs.
+- Adversarial publication review caught and corrected three refactor-integrity defects before acceptance: the Phase 3M base had advanced with ledger metadata, a manual rebase temporarily stripped the helper executable bit, and the first coordinator draft introduced runtime `String` coercion not present in the legacy state comparison. Final ancestry preserves the current 3M metadata, helper mode `100755`, and legacy raw state equality plus native `Date.parse` coercion.
+- Repository-native Node 24 builder validation passed 12/12 focused reconciliation tests, 604/604 source tests, strict types, formatting, lint, 139/139 compiled focused tests, hermetic compiled/runtime checks, and package validation for 291 intended paths. Authoritative hosted Verify run `31423177915` (#787) passed on the identical final implementation tree, including the isolated clean Homebrew installation/service gate, workflow YAML, release-shell syntax, and iOS Simulator tests.
+- This remains a bounded corrective slice. The helper still owns reconciliation scheduling, server listen, socket tracking, signal registration, graceful/forced shutdown, persistence construction, module-global composition, and remaining CLI/orchestration work.
+
+'''
+          assert source.count(section_anchor) == 1
+          source = source.replace(section_anchor, section + section_anchor, 1)
+
+          old = 'Corrective PRs #56–#60 and #63 have now completed the HTTP-route decomposition portion without rewriting the previously validated history:'
+          new = 'Corrective PRs #56–#60, #63, and #66 have now completed the HTTP-route decomposition and reconciliation-policy portions without rewriting the previously validated history:'
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          old = '- service startup, reconciliation timers, socket tracking, signal handling, graceful drain, and forced shutdown do not yet have the complete target lifecycle owner;'
+          new = '- service startup, reconciliation scheduling, socket tracking, signal handling, graceful drain, and forced shutdown do not yet have the complete target lifecycle owner;'
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          path.write_text(source)
+          PY
+
+          rm .github/workflows/tmp-phase3n-ledger.yml
+          git diff --check "$TARGET_SHA" --
+          test "$(git diff --name-only "$TARGET_SHA" --)" = 'docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md'
+          git diff -- docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          TREE=$(git write-tree)
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$TARGET_SHA"
+          COMMIT=$(printf '%s\n' 'docs: record Phase 3N reconciliation evidence' | git commit-tree "$TREE" -p "$TARGET_SHA")
+          git push origin "$COMMIT:refs/heads/$TARGET_BRANCH"
+          echo "Published Phase 3N ledger metadata $COMMIT"
