@@ -51,7 +51,6 @@ test("compatibility runtime constructs the state-root owner before dependent rep
   assert.strictEqual(runtime.clock, values.createClock);
   assert.deepEqual(runtime.transports["serve-sim"], { kind: "serve", adapter });
   assert.deepEqual(runtime.transports["native-companion"], { kind: "native", adapter });
-  assert.equal(runtime.activeDeviceBuildTasks.size, 0);
   assert.deepEqual(calls, [
     "createPairingStore",
     "createServeSimAdapter",
@@ -66,29 +65,6 @@ test("compatibility runtime constructs the state-root owner before dependent rep
     "createServeSimTransport",
     "createNativeCompanionTransport",
   ]);
-});
-
-test("compatibility runtime owns fresh task state per composition", () => {
-  const factory = () => ({});
-  const factories = {
-    createSessionStore: factory,
-    createDeviceBuildStore: factory,
-    createDeviceDelivery: factory,
-    createPairingStore: factory,
-    createPairingInviteStore: factory,
-    createSimulatorProfiles: factory,
-    createDeviceInventory: factory,
-    createServeSimAdapter: factory,
-    createServeSimTransport: factory,
-    createNativeCompanionTransport: factory,
-    createIdGenerator: factory,
-    createClock: factory,
-  };
-  const first = createCompatibilityHelperRuntime({ factories });
-  const second = createCompatibilityHelperRuntime({ factories });
-  assert.notStrictEqual(first.activeDeviceBuildTasks, second.activeDeviceBuildTasks);
-  assert.equal(first.activeDeviceBuildTasks.size, 0);
-  assert.equal(second.activeDeviceBuildTasks.size, 0);
 });
 
 test("compatibility runtime fails closed when the state-root factory is absent", () => {

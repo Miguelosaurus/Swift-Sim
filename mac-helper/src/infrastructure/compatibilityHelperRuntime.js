@@ -39,7 +39,6 @@ import { ServeSimTransport } from "../transports/serveSimTransport.js";
  *   adapter: ServeSimAdapter,
  *   idGenerator: SystemIdGenerator,
  *   clock: SystemClock,
- *   activeDeviceBuildTasks: Map<string, unknown>,
  *   transports: {
  *     "serve-sim": ServeSimTransport,
  *     "native-companion": NativeCompanionTransport,
@@ -88,7 +87,6 @@ export function createCompatibilityHelperRuntime({ factories = defaultFactories(
     adapter,
     idGenerator,
     clock,
-    activeDeviceBuildTasks: new Map(),
     transports: {
       "serve-sim": resolved.createServeSimTransport({ adapter }),
       "native-companion": resolved.createNativeCompanionTransport({ adapter }),
