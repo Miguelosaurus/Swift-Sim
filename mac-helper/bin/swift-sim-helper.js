@@ -63,6 +63,7 @@ import { createDeviceBuildCapabilityApplicationService } from "../src/http/devic
 import { handleDeviceBuildCapabilityRoutes } from "../src/http/deviceBuildCapabilityRoutes.js";
 import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "../src/deviceBuildTaskTracker.js";
 import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
+import { createHelperServiceLifecycle } from "../src/http/helperServiceLifecycle.js";
 import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
 import { createPairingPageApplicationService } from "../src/http/pairingPageApplicationService.js";
 import { renderPairingPage } from "../src/http/pairingPageRenderer.js";
@@ -327,11 +328,21 @@ function commonDeviceBuildOptions() {
 }
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
-  await recoverInterruptedDeviceBuilds();
-  setImmediate(() => {
-    void scheduleDeliveryReferenceCleanup();
+  const lifecycle = createHelperServiceLifecycle({
+    createServer,
+    host,
+    port,
+    deviceBuildsOnly,
+    recoverInterruptedBuilds: recoverInterruptedDeviceBuilds,
+    scheduleDeliveryCleanup: scheduleDeliveryReferenceCleanup,
+    reconcileRequestedBuilds: reconcileRequestedDeviceBuilds,
+    activeBuildTasks: () => [...activeDeviceBuildTasks.values()],
+    cancelBuild: requestDeviceBuildCancellation,
+    listSessions: () => (typeof store.list === "function" ? store.list() : []),
+    stopSession: (sessionID) => stopSession(sessionID),
   });
-  const activeSockets = new Set();
+  await lifecycle.prepare();
+
   const deviceAppService = createDeviceAppApplicationService({
     pairingTokenMatches,
     listBuilds: () => deviceBuildStore.list(),
@@ -417,7 +428,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     control: sendControl,
     sessionPage: sessionFallbackHtml,
   });
-  const server = createServer(async (req, res) => {
+  const requestListener = async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
@@ -439,83 +450,9 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       const status = error instanceof ServeSimError ? 502 : 400;
       return badRequest(res, status, error instanceof Error ? error.message : String(error));
     }
-  });
-  server.on("connection", (socket) => {
-    activeSockets.add(socket);
-    socket.once("close", () => activeSockets.delete(socket));
-  });
-
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => {
-      server.off("error", reject);
-      console.log(`swift-sim-helper listening at http://${host}:${port}`);
-      if (deviceBuildsOnly) {
-        console.log("Device-build-only gateway ready.");
-      } else {
-        console.log("Expose simulator sessions privately with: tailscale serve " + port);
-      }
-      resolve();
-    });
-  });
-
-  const scheduleReconciliation = () => {
-    void reconcileRequestedDeviceBuilds().catch((error) => {
-      console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
   };
-  let reconciliationTimer;
-  let deliveryCleanupTimer;
-  if (!deviceBuildsOnly) {
-    scheduleReconciliation();
-    reconciliationTimer = setInterval(scheduleReconciliation, 15_000);
-  }
-  deliveryCleanupTimer = setInterval(() => {
-    void scheduleDeliveryReferenceCleanup();
-  }, 30_000);
-  deliveryCleanupTimer.unref?.();
-
-  const keepAlive = setInterval(() => {}, 60 * 60 * 1000);
-  let shuttingDown = false;
-  const shutdown = () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    if (reconciliationTimer) clearInterval(reconciliationTimer);
-    if (deliveryCleanupTimer) clearInterval(deliveryCleanupTimer);
-    clearInterval(keepAlive);
-    for (const { build } of activeDeviceBuildTasks.values()) {
-      requestDeviceBuildCancellation(build, "Swift Sim helper is shutting down.");
-    }
-    server.closeIdleConnections?.();
-    let serverClosed = false;
-    let sessionsStopped = false;
-    const maybeExit = () => {
-      if (serverClosed && sessionsStopped) process.exit(0);
-    };
-    server.close(() => {
-      serverClosed = true;
-      maybeExit();
-    });
-    const sessions = typeof store.list === "function" ? store.list() : [];
-    const buildTasks = [...activeDeviceBuildTasks.values()].map(({ promise }) => promise);
-    void Promise.allSettled([
-      ...sessions.map((session) => stopSession(session.id)),
-      ...buildTasks,
-    ]).finally(() => {
-      sessionsStopped = true;
-      maybeExit();
-    });
-    const closeTimer = setTimeout(() => {
-      for (const socket of activeSockets) socket.destroy();
-      server.closeAllConnections?.();
-    }, 1_000);
-    closeTimer.unref?.();
-    const forceTimer = setTimeout(() => process.exit(1), 8_000);
-    forceTimer.unref?.();
-  };
-  process.once("SIGTERM", shutdown);
-  process.once("SIGINT", shutdown);
-  await new Promise(() => {});
+  await lifecycle.start(requestListener);
+  await lifecycle.wait();
 }
 
 let deviceReconciliationRunning = false;
