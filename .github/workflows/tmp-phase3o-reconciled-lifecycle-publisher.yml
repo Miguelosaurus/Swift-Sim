@@ -31,6 +31,16 @@ jobs:
           git show "$LIFECYCLE_SOURCE:mac-helper/src/http/helperServiceLifecycle.js" > /tmp/product/mac-helper/src/http/helperServiceLifecycle.js
           git show "$LIFECYCLE_SOURCE:test/helperServiceLifecycle.test.js" > /tmp/product/test/helperServiceLifecycle.test.js
           node scripts/tmp-phase3o-reconciled-publisher.mjs /tmp/product
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("/tmp/product")
+          for relative in [
+              "test/deliveryCleanupScheduler.test.js",
+              "test/mainPostMergeIntegration.test.js",
+          ]:
+              path = root / relative
+              path.write_text(path.read_text().rstrip("\n") + "\n")
+          PY
           cd /tmp/product
           npm ci
           npx prettier --write mac-helper/src/http/helperServiceLifecycle.js
