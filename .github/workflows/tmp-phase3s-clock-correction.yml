@@ -1,0 +1,241 @@
+name: Temporary Phase 3S Clock Correction Publisher
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase3s-clock-correction
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tmp-phase3s-clock-correction
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      BASE_SHA: 73e0c131c7d0e7cbbabcf7b4b20292fae84414ae
+      PRODUCT_BRANCH: agent/architecture-consolidation-phase-3s-session-runtime-controller
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: 73e0c131c7d0e7cbbabcf7b4b20292fae84414ae
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply bounded Clock correction
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one anchor, found {count}")
+              path.write_text(text.replace(old, new, 1))
+
+          def replace_count(path: Path, old: str, new: str, expected: int, label: str) -> None:
+              text = path.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{label}: expected {expected} anchors, found {count}")
+              path.write_text(text.replace(old, new))
+
+          controller = Path("mac-helper/src/sessionRuntimeController.js")
+          replace_once(
+              controller,
+              '/** @typedef {import("./infrastructure/ports.js").IdGenerator} IdGenerator */\n',
+              '/** @typedef {import("./infrastructure/ports.js").IdGenerator} IdGenerator */\n/** @typedef {import("./infrastructure/ports.js").Clock} Clock */\n',
+              "controller Clock typedef",
+          )
+          replace_once(
+              controller,
+              ' *   idGenerator: IdGenerator,\n * }} SessionRuntimeDependencies',
+              ' *   idGenerator: IdGenerator,\n *   clock: Clock,\n * }} SessionRuntimeDependencies',
+              "controller Clock dependency",
+          )
+          replace_once(
+              controller,
+              '  const { store, transports, adapter, defaultTransportPreference } = dependencies;\n',
+              '  const { store, transports, adapter, defaultTransportPreference, clock } = dependencies;\n',
+              "controller Clock composition",
+          )
+          replace_count(
+              controller,
+              'new Date().toISOString()',
+              'clock.now().toISOString()',
+              2,
+              "controller wall-clock writes",
+          )
+          replace_once(controller, '      await sleep(4);\n', '      await clock.sleep(4);\n', "keyboard delay")
+          replace_once(controller, '    await sleep(40);\n', '    await clock.sleep(40);\n', "tap delay")
+          replace_once(
+              controller,
+              '  /** @param {number} ms */\n  function sleep(ms) {\n    return new Promise((resolve) => setTimeout(resolve, ms));\n  }\n\n',
+              '',
+              "legacy local sleep helper",
+          )
+          replace_once(
+              controller,
+              '  if (typeof dependencies?.idGenerator?.randomToken !== "function") {\n    throw new TypeError("Session runtime controller requires idGenerator.randomToken().");\n  }\n',
+              '  if (typeof dependencies?.idGenerator?.randomToken !== "function") {\n    throw new TypeError("Session runtime controller requires idGenerator.randomToken().");\n  }\n  if (\n    typeof dependencies?.clock?.now !== "function" ||\n    typeof dependencies.clock.monotonicMilliseconds !== "function" ||\n    typeof dependencies.clock.sleep !== "function"\n  ) {\n    throw new TypeError(\n      "Session runtime controller requires clock.now(), clock.monotonicMilliseconds(), and clock.sleep().",\n    );\n  }\n',
+              "controller Clock validation",
+          )
+
+          runtime = Path("mac-helper/src/infrastructure/compatibilityHelperRuntime.js")
+          replace_once(
+              runtime,
+              'import { SystemIdGenerator } from "./systemIdGenerator.js";\n',
+              'import { SystemIdGenerator } from "./systemIdGenerator.js";\nimport { SystemClock } from "./systemClock.js";\n',
+              "runtime SystemClock import",
+          )
+          replace_once(
+              runtime,
+              ' *   createIdGenerator(): SystemIdGenerator,\n',
+              ' *   createIdGenerator(): SystemIdGenerator,\n *   createClock(): SystemClock,\n',
+              "runtime Clock factory type",
+          )
+          replace_once(
+              runtime,
+              ' *   idGenerator: SystemIdGenerator,\n',
+              ' *   idGenerator: SystemIdGenerator,\n *   clock: SystemClock,\n',
+              "runtime Clock type",
+          )
+          replace_once(
+              runtime,
+              '    createIdGenerator: () => new SystemIdGenerator(),\n',
+              '    createIdGenerator: () => new SystemIdGenerator(),\n    createClock: () => new SystemClock(),\n',
+              "runtime default Clock factory",
+          )
+          replace_once(
+              runtime,
+              '  const idGenerator = resolved.createIdGenerator();\n',
+              '  const idGenerator = resolved.createIdGenerator();\n  const clock = resolved.createClock();\n',
+              "runtime Clock construction",
+          )
+          replace_once(
+              runtime,
+              '    idGenerator,\n    activeDeviceBuildTasks:',
+              '    idGenerator,\n    clock,\n    activeDeviceBuildTasks:',
+              "runtime Clock return",
+          )
+          replace_once(
+              runtime,
+              '    "createIdGenerator",\n    "createSessionStore",\n',
+              '    "createIdGenerator",\n    "createClock",\n    "createSessionStore",\n',
+              "runtime required Clock factory",
+          )
+
+          helper = Path("mac-helper/bin/swift-sim-helper.js")
+          replace_once(
+              helper,
+              '    idGenerator: runtime.idGenerator,\n  });\n',
+              '    idGenerator: runtime.idGenerator,\n    clock: runtime.clock,\n  });\n',
+              "helper Clock injection",
+          )
+
+          runtime_test = Path("test/compatibilityHelperRuntime.test.js")
+          replace_once(
+              runtime_test,
+              '    "createDeviceInventory",\n    "createIdGenerator",\n',
+              '    "createDeviceInventory",\n    "createIdGenerator",\n    "createClock",\n',
+              "runtime test Clock value",
+          )
+          replace_once(
+              runtime_test,
+              '  assert.strictEqual(runtime.idGenerator, values.createIdGenerator);\n',
+              '  assert.strictEqual(runtime.idGenerator, values.createIdGenerator);\n  assert.strictEqual(runtime.clock, values.createClock);\n',
+              "runtime test Clock assertion",
+          )
+          replace_once(
+              runtime_test,
+              '    "createIdGenerator",\n    "createSessionStore",\n',
+              '    "createIdGenerator",\n    "createClock",\n    "createSessionStore",\n',
+              "runtime test Clock ordering",
+          )
+          replace_once(
+              runtime_test,
+              '    createIdGenerator: factory,\n  };\n',
+              '    createIdGenerator: factory,\n    createClock: factory,\n  };\n',
+              "runtime test fresh Clock factory",
+          )
+
+          session_test = Path("test/sessionRuntimeController.test.js")
+          replace_once(
+              session_test,
+              'import { createSessionRuntimeController } from "../mac-helper/src/sessionRuntimeController.js";\n\n',
+              'import { createSessionRuntimeController } from "../mac-helper/src/sessionRuntimeController.js";\n\nconst FIXED_NOW = "2026-08-10T21:00:00.000Z";\n\n',
+              "session test fixed Clock",
+          )
+          replace_once(
+              session_test,
+              '  const calls = [];\n  const uiCalls = [];\n',
+              '  const calls = [];\n  const uiCalls = [];\n  const clock = {\n    now: () => new Date(FIXED_NOW),\n    monotonicMilliseconds: () => 0,\n    async sleep() {},\n  };\n',
+              "session harness Clock",
+          )
+          replace_once(
+              session_test,
+              '      idGenerator: { randomUUID: () => "uuid-1", randomToken: (bytes) => `token-${bytes}` },\n    }),\n',
+              '      idGenerator: { randomUUID: () => "uuid-1", randomToken: (bytes) => `token-${bytes}` },\n      clock,\n    }),\n',
+              "session harness Clock injection",
+          )
+          replace_once(
+              session_test,
+              '  assert.throws(\n    () =>\n      createSessionRuntimeController({\n        store,\n        transports: {},\n        adapter: { async ui() {} },\n        defaultTransportPreference: () => "auto",\n      }),\n    /idGenerator\\.randomToken/,\n  );\n});\n',
+              '  assert.throws(\n    () =>\n      createSessionRuntimeController({\n        store,\n        transports: {},\n        adapter: { async ui() {} },\n        defaultTransportPreference: () => "auto",\n      }),\n    /idGenerator\\.randomToken/,\n  );\n  assert.throws(\n    () =>\n      createSessionRuntimeController({\n        store,\n        transports: {},\n        adapter: { async ui() {} },\n        defaultTransportPreference: () => "auto",\n        idGenerator: { randomUUID: () => "uuid-1", randomToken: () => "token" },\n      }),\n    /clock\\.now/,\n  );\n});\n',
+              "session Clock validation test",
+          )
+          replace_once(
+              session_test,
+              '  assert.equal(existing.remoteBaseUrl, "https://new.example");\n',
+              '  assert.equal(existing.remoteBaseUrl, "https://new.example");\n  assert.equal(existing.updatedAt, FIXED_NOW);\n',
+              "session reuse timestamp assertion",
+          )
+          replace_once(
+              session_test,
+              '  assert.equal(value.stream.state, "stopped");\n',
+              '  assert.equal(value.stream.state, "stopped");\n  assert.equal(value.updatedAt, FIXED_NOW);\n',
+              "session stop timestamp assertion",
+          )
+          PY
+      - name: Focused Clock seam tests
+        run: node --test test/sessionRuntimeController.test.js test/compatibilityHelperRuntime.test.js
+      - name: Strict type gate
+        run: npm run check:types
+      - name: Full Node/package gate
+        run: npm run check
+      - run: git diff --check
+      - name: Commit and publish exact fast-forward correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT=$(git ls-remote origin "refs/heads/${PRODUCT_BRANCH}" | cut -f1)
+          if [[ "$CURRENT" != "$BASE_SHA" ]]; then
+            echo "Product ref moved: expected $BASE_SHA, found $CURRENT" >&2
+            exit 1
+          fi
+          git config user.name "Miguel"
+          git config user.email "serram1994@gmail.com"
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/infrastructure/compatibilityHelperRuntime.js \
+            mac-helper/src/sessionRuntimeController.js \
+            test/compatibilityHelperRuntime.test.js \
+            test/sessionRuntimeController.test.js
+          git diff --cached --check
+          git commit -m "Phase 3S: inject clock into session runtime"
+          CURRENT=$(git ls-remote origin "refs/heads/${PRODUCT_BRANCH}" | cut -f1)
+          if [[ "$CURRENT" != "$BASE_SHA" ]]; then
+            echo "Product ref moved before publication: expected $BASE_SHA, found $CURRENT" >&2
+            exit 1
+          fi
+          git push origin "HEAD:refs/heads/${PRODUCT_BRANCH}"
