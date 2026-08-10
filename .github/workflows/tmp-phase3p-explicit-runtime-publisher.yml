@@ -61,12 +61,15 @@ jobs:
           }
 
           export function createCompatibilityHelperRuntime({ factories = defaultFactories() } = {}) {
+            // PairingStore is the compatibility owner of the shared private state root.
+            // Construct it before repositories that acquire files/locks beneath that root.
+            const pairingStore = callFactory(factories, "createPairingStore");
             const adapter = callFactory(factories, "createServeSimAdapter");
             return {
               store: callFactory(factories, "createSessionStore"),
               deviceBuildStore: callFactory(factories, "createDeviceBuildStore"),
               deviceDelivery: callFactory(factories, "createDeviceDelivery"),
-              pairingStore: callFactory(factories, "createPairingStore"),
+              pairingStore,
               pairingInviteStore: callFactory(factories, "createPairingInviteStore"),
               simulatorProfiles: callFactory(factories, "createSimulatorProfiles"),
               deviceInventory: callFactory(factories, "createDeviceInventory"),
@@ -93,7 +96,7 @@ jobs:
           import test from "node:test";
           import { createCompatibilityHelperRuntime } from "../mac-helper/src/infrastructure/compatibilityHelperRuntime.js";
 
-          test("compatibility runtime constructs one explicit process-scoped graph", () => {
+          test("compatibility runtime constructs the state-root owner before dependent repositories", () => {
             const calls = [];
             const adapter = { id: "adapter" };
             const values = Object.fromEntries([
@@ -140,11 +143,11 @@ jobs:
             assert.deepEqual(runtime.transports["native-companion"], { kind: "native", adapter });
             assert.equal(runtime.activeDeviceBuildTasks.size, 0);
             assert.deepEqual(calls, [
+              "createPairingStore",
               "createServeSimAdapter",
               "createSessionStore",
               "createDeviceBuildStore",
               "createDeviceDelivery",
-              "createPairingStore",
               "createPairingInviteStore",
               "createSimulatorProfiles",
               "createDeviceInventory",
@@ -174,10 +177,10 @@ jobs:
             assert.equal(second.activeDeviceBuildTasks.size, 0);
           });
 
-          test("compatibility runtime fails closed when a required factory is absent", () => {
+          test("compatibility runtime fails closed when the state-root factory is absent", () => {
             assert.throws(
               () => createCompatibilityHelperRuntime({ factories: {} }),
-              /requires createServeSimAdapter/,
+              /requires createPairingStore/,
             );
           });
           EOF
@@ -209,7 +212,7 @@ jobs:
             }
           });
 
-          test("direct compatibility execution still runs the command loop", () => {
+          test("direct compatibility execution still runs the command loop from an empty home", () => {
             const home = mkdtempSync(join(tmpdir(), "swift-sim-helper-direct-"));
             try {
               const result = spawnSync(process.execPath, [helper.pathname, "not-a-command"], {
@@ -218,12 +221,13 @@ jobs:
               });
               assert.equal(result.status, 1);
               assert.match(result.stderr, /Unknown command: not-a-command/);
+              assert.equal(existsSync(join(home, ".swift-sim")), true);
             } finally {
               rmSync(home, { recursive: true, force: true });
             }
           });
 
-          test("official helper entry explicitly runs the compatibility command loop", () => {
+          test("official helper entry explicitly runs the compatibility command loop from an empty home", () => {
             const home = mkdtempSync(join(tmpdir(), "swift-sim-helper-entry-"));
             try {
               const result = spawnSync(process.execPath, [helperEntry.pathname, "not-a-command"], {
@@ -232,6 +236,7 @@ jobs:
               });
               assert.equal(result.status, 1);
               assert.match(result.stderr, /Unknown command: not-a-command/);
+              assert.equal(existsSync(join(home, ".swift-sim")), true);
             } finally {
               rmSync(home, { recursive: true, force: true });
             }
