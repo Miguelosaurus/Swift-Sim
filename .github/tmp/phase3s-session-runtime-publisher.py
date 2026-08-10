@@ -57,11 +57,6 @@ cleanup_code = '''helper_path.write_text(helper)
 
 round2_path = Path("test/confirmationRound2State.test.js")
 round2 = round2_path.read_text()
-old_import = 'import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";\\n'
-new_import = 'import { mkdtempSync, rmSync, writeFileSync } from "node:fs";\\n'
-if round2.count(old_import) != 1:
-    raise SystemExit("confirmationRound2State readFileSync import sentinel missing")
-round2 = round2.replace(old_import, new_import, 1)
 legacy_marker = 'test("helper source persists failed starts and uses shared automatic transport matching", () => {'
 legacy_start = round2.find(legacy_marker)
 if legacy_start < 0:
@@ -69,15 +64,6 @@ if legacy_start < 0:
 round2_path.write_text(round2[:legacy_start].rstrip() + "\\n")
 
 json_module = __import__("json")
-baseline_path = Path("scripts/architecture/baseline-policy.json")
-baseline_document = json_module.loads(baseline_path.read_text())
-source_text_tests = baseline_document.get("caps", {}).get("sourceTextImplementationTests")
-if not isinstance(source_text_tests, dict):
-    raise SystemExit("source-text debt cap policy is missing")
-if source_text_tests.pop("test/confirmationRound2State.test.js", None) != 1:
-    raise SystemExit("session source-text debt cap is missing or changed")
-baseline_path.write_text(json_module.dumps(baseline_document, indent=2) + "\\n")
-
 package_path = Path("package.json")
 package_document = json_module.loads(package_path.read_text())
 scripts = package_document.get("scripts")
@@ -99,20 +85,20 @@ script = replace_once(script, write_anchor, cleanup_code, "post-transform cleanu
 script = replace_once(
     script,
     "npx prettier --write mac-helper/src/sessionRuntimeController.js test/sessionRuntimeController.test.js\n",
-    "npx prettier --write package.json scripts/architecture/baseline-policy.json mac-helper/src/sessionRuntimeController.js test/sessionRuntimeController.test.js\n",
+    "npx prettier --write package.json mac-helper/src/sessionRuntimeController.js test/sessionRuntimeController.test.js\n",
     "prettier coverage",
 )
 
 script = replace_once(
     script,
     "  test/sessionRuntimeController.test.js\n\nfiles=\"$(git diff --cached --name-only \"$BASE\" | sort)\"\n",
-    "  package.json \\\n  scripts/architecture/baseline-policy.json \\\n  test/confirmationRound2State.test.js \\\n  test/sessionRuntimeController.test.js\n\nfiles=\"$(git diff --cached --name-only \"$BASE\" | sort)\"\n",
+    "  package.json \\\n  test/confirmationRound2State.test.js \\\n  test/sessionRuntimeController.test.js\n\nfiles=\"$(git diff --cached --name-only \"$BASE\" | sort)\"\n",
     "staged file set",
 )
 script = replace_once(
     script,
     '  test/sessionRuntimeController.test.js | sort)"\n',
-    '  package.json \\\n  scripts/architecture/baseline-policy.json \\\n  test/confirmationRound2State.test.js \\\n  test/sessionRuntimeController.test.js | sort)"\n',
+    '  package.json \\\n  test/confirmationRound2State.test.js \\\n  test/sessionRuntimeController.test.js | sort)"\n',
     "expected file set",
 )
 script = replace_once(
@@ -121,8 +107,7 @@ script = replace_once(
     "! grep -q 'async function proxyStream' mac-helper/bin/swift-sim-helper.js\n"
     "grep -q 'async function fetchWithTimeout' mac-helper/bin/swift-sim-helper.js\n"
     "grep -q 'async function fetchWithTimeout' mac-helper/src/sessionRuntimeController.js\n"
-    "! grep -q 'helper source persists failed starts' test/confirmationRound2State.test.js\n"
-    "python3 -c 'import json; p=json.load(open(\"scripts/architecture/baseline-policy.json\")); assert \"test/confirmationRound2State.test.js\" in p[\"baseline\"][\"sourceTextImplementationTests\"]; assert \"test/confirmationRound2State.test.js\" not in p[\"caps\"][\"sourceTextImplementationTests\"]'\n",
+    "! grep -q 'helper source persists failed starts' test/confirmationRound2State.test.js\n",
     "post-extraction sentinels",
 )
 
