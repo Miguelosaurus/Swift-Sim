@@ -1,0 +1,21 @@
+name: Temporary Helper Export
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phase3m-helper-base
+          path: mac-helper/bin/swift-sim-helper.js
+          if-no-files-found: error
+          retention-days: 1
