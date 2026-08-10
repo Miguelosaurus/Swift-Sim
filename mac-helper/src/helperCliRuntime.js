@@ -10,6 +10,7 @@ import { buildPairingLinks } from "./links.js";
 import { ServeSimAdapter } from "./serveSimAdapter.js";
 import { printQRCode } from "./terminalQRCode.js";
 import { dispatchHelperCliCommand, helperCliCommandIsExtracted } from "./helperCliDispatcher.js";
+import { DeliveryMaintenanceCoordinator } from "./http/deliveryMaintenanceCoordinator.js";
 
 /**
  * @typedef {{ token: string, installationID: string, macName: string }} PairingState
@@ -97,6 +98,10 @@ export function createExtractedHelperServices(command, options = {}) {
     stateRootStore(factories);
     return createDeviceAppServices(factories);
   }
+  if (command === "delete-app") {
+    stateRootStore(factories);
+    return createDeleteAppServices(factories);
+  }
   if (command === "verify-device-build") {
     stateRootStore(factories);
     return createDeviceBuildVerificationServices(factories);
@@ -179,6 +184,31 @@ function createDeviceAppServices(factories) {
     archiveApp({ appID, archived }) {
       const app = buildStore.setAppArchived(appID, archived);
       return app ? publicDeviceApp(app) : null;
+    },
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} factories
+ * @returns {{ deleteApp(input: { appID: string, deleteArtifacts: boolean }): Promise<boolean> }}
+ */
+function createDeleteAppServices(factories) {
+  const buildStore = /** @type {DeviceBuildStore} */ (
+    /** @type {unknown} */ (requiredFactory(factories, "createDeviceBuildStore")())
+  );
+  const deviceDelivery = /** @type {DeviceDeliveryAdapter} */ (
+    /** @type {unknown} */ (requiredFactory(factories, "createDeviceDelivery")())
+  );
+  const deliveryMaintenance = new DeliveryMaintenanceCoordinator();
+  return {
+    async deleteApp({ appID, deleteArtifacts }) {
+      const deleted = buildStore.deleteApp(appID, { deleteArtifacts });
+      if (!deleted) return false;
+      await deliveryMaintenance.drainCleanupJobsOnce({
+        deviceBuildStore: buildStore,
+        deviceDelivery,
+      });
+      return true;
     },
   };
 }

@@ -11,6 +11,10 @@ import {
 } from "../mac-helper/src/helperCliDispatcher.js";
 import { runHelperBootstrap } from "../mac-helper/src/helperEntrypoint.js";
 import { createExtractedHelperServices } from "../mac-helper/src/helperCliRuntime.js";
+import {
+  compatibilityCommandIsSupported,
+  dispatchCompatibilityCommand,
+} from "../mac-helper/src/commands/compatibilityCommands.js";
 
 function services(overrides: Record<string, unknown> = {}) {
   return {
@@ -27,6 +31,8 @@ function services(overrides: Record<string, unknown> = {}) {
       id: appID,
       archived,
     }),
+    deleteApp: async ({ appID }: { appID: string; deleteArtifacts: boolean }) =>
+      appID !== "missing",
     verifyDeviceBuild: async (buildID: string) => ({ id: buildID, state: "ready" }),
     deviceDeliveryStatus: () => ({ running: true }),
     stopDeviceDelivery: () => true,
@@ -92,6 +98,7 @@ test("helper CLI extraction owns only the declared one-shot commands", async () 
     "pair",
     "list-apps",
     "archive-app",
+    "delete-app",
     "verify-device-build",
     "device-delivery-status",
     "device-delivery-stop",
@@ -104,7 +111,6 @@ test("helper CLI extraction owns only the declared one-shot commands", async () 
     "serve",
     "start-session",
     "build-device",
-    "delete-app",
     "stop-session",
     "unknown",
   ]) {
@@ -133,6 +139,7 @@ test("runtime composition constructs only the selected command owners", () => {
     ["pair", ["state-root", "pairing-invite-store"]],
     ["list-apps", ["state-root", "device-build-store"]],
     ["archive-app", ["state-root", "device-build-store"]],
+    ["delete-app", ["state-root", "device-build-store", "device-delivery"]],
     ["verify-device-build", ["state-root", "device-build-store", "device-inventory"]],
     ["device-delivery-status", ["state-root", "device-delivery"]],
     ["device-delivery-stop", ["state-root", "device-delivery"]],
@@ -248,6 +255,80 @@ test("app, delivery, and inspection commands preserve projections", async () => 
   assert.deepEqual(await run(["serve-sim-info"]), { available: true });
 });
 
+test("delete-app preserves artifact policy and drains queued delivery references", async () => {
+  const events: string[] = [];
+  const factories: Record<string, unknown> = {
+    ...runtimeFactories(events),
+    createDeviceBuildStore() {
+      events.push("device-build-store");
+      return {
+        deleteApp(appID: string, { deleteArtifacts }: { deleteArtifacts: boolean }) {
+          events.push(`delete:${appID}:${deleteArtifacts}`);
+          return appID !== "missing";
+        },
+        listDeliveryReferenceCleanupJobs() {
+          events.push("list-cleanup");
+          return [
+            {
+              id: "cleanup-1",
+              generation: "generation-1",
+              referenceID: "build:build-1",
+              createdAt: "2026-08-05T12:00:00.000Z",
+            },
+          ];
+        },
+        completeDeliveryReferenceCleanupJob(jobID: string) {
+          events.push(`complete:${jobID}`);
+          return true;
+        },
+        failDeliveryReferenceCleanupJob(jobID: string, error: unknown) {
+          events.push(`fail:${jobID}:${error instanceof Error ? error.message : String(error)}`);
+          return true;
+        },
+        list: () => [],
+      };
+    },
+    createDeviceDelivery() {
+      events.push("device-delivery");
+      return {
+        stopGeneration(generation: string, { referenceID }: { referenceID: string }) {
+          events.push(`release:${generation}:${referenceID}`);
+          return true;
+        },
+        statuses: () => [],
+      };
+    },
+  };
+  const deleteServices = createExtractedHelperServices("delete-app", { factories });
+  const lines: string[] = [];
+  assert.equal(
+    await dispatchHelperCliCommand({
+      argv: ["delete-app", "--app-id", "app-1", "--keep-artifacts"],
+      services: deleteServices,
+      writeLine: (line) => lines.push(line),
+    }),
+    true,
+  );
+  assert.deepEqual(JSON.parse(lines.join("\n")), { deleted: true, appId: "app-1" });
+  assert.deepEqual(events, [
+    "state-root",
+    "device-build-store",
+    "device-delivery",
+    "delete:app-1:false",
+    "list-cleanup",
+    "release:generation-1:build:build-1",
+    "complete:cleanup-1",
+  ]);
+
+  await assert.rejects(
+    dispatchHelperCliCommand({
+      argv: ["delete-app", "--app-id", "missing"],
+      services: services({ deleteApp: async () => false }),
+    }),
+    /Unknown app id\./,
+  );
+});
+
 test("helper bootstrap loads only the selected runtime after boundaries", async () => {
   const events: string[] = [];
   assert.equal(
@@ -291,6 +372,174 @@ test("helper bootstrap loads only the selected runtime after boundaries", async 
     "compatibility",
   );
   assert.deepEqual(events, ["boundaries", "compatibility"]);
+});
+
+test("remaining compatibility CLI parser delegates all declared commands and preserves output shapes", async () => {
+  for (const command of [
+    undefined,
+    "serve",
+    "start-session",
+    "companion-link",
+    "setup-status",
+    "build-device",
+    "stop-session",
+  ]) {
+    assert.equal(compatibilityCommandIsSupported(command), true, String(command));
+  }
+  for (const command of ["delete-app", "unknown"]) {
+    assert.equal(compatibilityCommandIsSupported(command), false, command);
+  }
+
+  const calls: Array<[string, unknown]> = [];
+  const fakeServices = {
+    serve: async (input: unknown) => calls.push(["serve", input]),
+    startSession: async (input: unknown) => {
+      calls.push(["start-session", { ...(input as Record<string, unknown>) }]);
+      return { sessionId: "session-1" };
+    },
+    companionLink: async (input: unknown) => {
+      calls.push(["companion-link", input]);
+      return { customScheme: "swiftsim://session/session-1" };
+    },
+    setupStatus: async (input: unknown) => {
+      calls.push(["setup-status", input]);
+      return { ok: true };
+    },
+    buildDevice: async (input: unknown) => {
+      calls.push(["build-device", { ...(input as Record<string, unknown>) }]);
+      return { id: "build-1", state: "ready" };
+    },
+    stopSession: async (input: unknown) => {
+      calls.push(["stop-session", input]);
+      return { stopped: true, sessionId: "session-1" };
+    },
+  };
+  const lines: string[] = [];
+  const run = async (argv: string[]) => {
+    lines.length = 0;
+    assert.equal(
+      await dispatchCompatibilityCommand({
+        argv,
+        services: fakeServices,
+        defaultHost: "127.0.0.1",
+        defaultPort: 47217,
+        writeLine: (line) => lines.push(line),
+      }),
+      true,
+    );
+    return [...lines];
+  };
+
+  assert.deepEqual(
+    await run(["serve", "--host", "0.0.0.0", "-p", "48123", "--device-builds-only"]),
+    [],
+  );
+  assert.deepEqual(calls.pop(), [
+    "serve",
+    { host: "0.0.0.0", port: 48123, deviceBuildsOnly: true },
+  ]);
+
+  assert.deepEqual(
+    await run([
+      "start-session",
+      "--project",
+      "Demo.xcodeproj",
+      "--scheme",
+      "Demo",
+      "--simulator",
+      "SIM-1",
+      "--remote-base-url",
+      "https://example.test",
+      "--port",
+      "48000",
+      "--transport",
+      "serve-sim",
+    ]),
+    [JSON.stringify({ sessionId: "session-1" }, null, 2)],
+  );
+  assert.deepEqual(calls.pop(), [
+    "start-session",
+    {
+      project: "Demo.xcodeproj",
+      scheme: "Demo",
+      simulator: "SIM-1",
+      "remote-base-url": "https://example.test",
+      port: "48000",
+      transport: "serve-sim",
+    },
+  ]);
+
+  assert.deepEqual(
+    await run([
+      "companion-link",
+      "--session-id",
+      "session-1",
+      "--token",
+      "secret",
+      "--remote-base-url",
+      "https://example.test",
+    ]),
+    [JSON.stringify({ customScheme: "swiftsim://session/session-1" }, null, 2)],
+  );
+  assert.deepEqual(calls.pop(), [
+    "companion-link",
+    { sessionId: "session-1", token: "secret", remoteBaseUrl: "https://example.test" },
+  ]);
+
+  assert.deepEqual(await run(["setup-status", "--host", "localhost", "--port", "49000"]), [
+    JSON.stringify({ ok: true }, null, 2),
+  ]);
+  assert.deepEqual(calls.pop(), ["setup-status", { host: "localhost", port: 49000 }]);
+
+  assert.deepEqual(
+    await run([
+      "build-device",
+      "--project",
+      "Demo.xcodeproj",
+      "--scheme",
+      "Demo",
+      "--build-setting",
+      "A=B",
+      "--build-setting",
+      "C=D",
+      "--allow-provisioning-updates",
+      "--replace-app-data",
+    ]),
+    [JSON.stringify({ id: "build-1", state: "ready" }, null, 2)],
+  );
+  assert.deepEqual(calls.pop(), [
+    "build-device",
+    {
+      project: "Demo.xcodeproj",
+      scheme: "Demo",
+      "build-setting": ["A=B", "C=D"],
+      "allow-provisioning-updates": true,
+      "replace-app-data": true,
+    },
+  ]);
+
+  assert.deepEqual(await run(["stop-session", "--session-id", "session-1", "--token", "secret"]), [
+    JSON.stringify({ stopped: true, sessionId: "session-1" }),
+  ]);
+  assert.deepEqual(calls.pop(), ["stop-session", { sessionId: "session-1", token: "secret" }]);
+
+  let accessed = false;
+  const untouched = new Proxy(fakeServices, {
+    get(target, property, receiver) {
+      accessed = true;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  assert.equal(
+    await dispatchCompatibilityCommand({
+      argv: ["delete-app"],
+      services: untouched,
+      defaultHost: "127.0.0.1",
+      defaultPort: 47217,
+    }),
+    false,
+  );
+  assert.equal(accessed, false);
 });
 
 test("compiled official helper owns fresh-home state and matches compatibility output", () => {

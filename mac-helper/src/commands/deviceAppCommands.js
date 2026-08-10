@@ -4,7 +4,12 @@ import { parseArgs } from "node:util";
 
 /** @param {string | undefined} command */
 export function deviceAppCommandIsSupported(command) {
-  return command === "list-apps" || command === "archive-app" || command === "verify-device-build";
+  return (
+    command === "list-apps" ||
+    command === "archive-app" ||
+    command === "delete-app" ||
+    command === "verify-device-build"
+  );
 }
 
 /**
@@ -54,6 +59,25 @@ export async function dispatchDeviceAppCommand({ command, args, services, writeL
     return true;
   }
 
+  if (command === "delete-app") {
+    const deleteApp = requiredDeleteAppMethod(services);
+    const { values } = parseArgs({
+      args,
+      options: {
+        "app-id": { type: "string" },
+        "keep-artifacts": { type: "boolean" },
+      },
+    });
+    const appID = required(optionString(values, "app-id"), "app-id");
+    const deleted = await deleteApp({
+      appID,
+      deleteArtifacts: !optionBoolean(values, "keep-artifacts"),
+    });
+    if (!deleted) throw new Error("Unknown app id.");
+    writeLine(JSON.stringify({ deleted: true, appId: appID }, null, 2));
+    return true;
+  }
+
   const verifyDeviceBuild = requiredVerifyDeviceBuildMethod(services);
   const { values } = parseArgs({
     args,
@@ -80,6 +104,17 @@ function requiredArchiveAppMethod(services) {
     throw new TypeError("Device app command services must provide archiveApp.");
   }
   return /** @type {(input: { appID: string, archived: boolean }) => unknown | null} */ (candidate);
+}
+
+/** @param {Record<string, unknown>} services */
+function requiredDeleteAppMethod(services) {
+  const candidate = services?.deleteApp;
+  if (typeof candidate !== "function") {
+    throw new TypeError("Device app command services must provide deleteApp.");
+  }
+  return /** @type {(input: { appID: string, deleteArtifacts: boolean }) => Promise<boolean>} */ (
+    candidate
+  );
 }
 
 /** @param {Record<string, unknown>} services */
