@@ -1,0 +1,88 @@
+name: Temporary Reconciled Phase 3O Lifecycle Publisher
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build and fully validate reconciled Phase 3O tree
+        env:
+          EXPECTED_BASE: 4463be4f9b18e7dd29e6ee019251980ffe583949
+          EXPECTED_HELPER_BLOB: 3d7fbe2fab24c05884c81122c57fe6a6ef5089c8
+          LIFECYCLE_SOURCE: 91279a62623b406c79a2606fa16fb9f3e0dad68c
+        run: |
+          set -euo pipefail
+          git worktree add /tmp/product "$EXPECTED_BASE"
+          test "$(git -C /tmp/product hash-object mac-helper/bin/swift-sim-helper.js)" = "$EXPECTED_HELPER_BLOB"
+          git show "$LIFECYCLE_SOURCE:mac-helper/src/http/helperServiceLifecycle.js" > /tmp/product/mac-helper/src/http/helperServiceLifecycle.js
+          git show "$LIFECYCLE_SOURCE:test/helperServiceLifecycle.test.js" > /tmp/product/test/helperServiceLifecycle.test.js
+          node scripts/tmp-phase3o-reconciled-publisher.mjs /tmp/product
+          cd /tmp/product
+          npm ci
+          npx prettier --write mac-helper/src/http/helperServiceLifecycle.js
+          git diff --check
+          printf '%s\n' \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/http/helperServiceLifecycle.js \
+            test/deliveryCleanupScheduler.test.js \
+            test/helperServiceLifecycle.test.js \
+            test/mainPostMergeIntegration.test.js | sort > /tmp/expected-files
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/http/helperServiceLifecycle.js \
+            test/deliveryCleanupScheduler.test.js \
+            test/helperServiceLifecycle.test.js \
+            test/mainPostMergeIntegration.test.js
+          git diff --cached --name-only | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          test "$(wc -l < mac-helper/bin/swift-sim-helper.js | tr -d ' ')" -lt 1706
+          grep -q 'reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce()' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'server.on("connection", (socket)' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'helper maintenance routes startup and interval cleanup through the safe scheduler' test/deliveryCleanupScheduler.test.js
+          ! grep -q 'delivery reference cleanup no longer blocks helper startup' test/mainPostMergeIntegration.test.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor: centralize helper service lifecycle"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          git diff HEAD^ HEAD --check
+          git diff --name-only HEAD^ HEAD | sort > /tmp/actual-commit-files
+          diff -u /tmp/expected-files /tmp/actual-commit-files
+          npm run check
+      - name: Publish atomic reconciled Phase 3O implementation
+        env:
+          EXPECTED_BASE: 4463be4f9b18e7dd29e6ee019251980ffe583949
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3o-helper-lifecycle-reconciled
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd /tmp/product
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          REMOTE_HEAD=$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/heads/${PRODUCT_BRANCH}" | awk '{print $1}')
+          test "$REMOTE_HEAD" = "$EXPECTED_BASE"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${PRODUCT_BRANCH}"
+          echo "Published implementation head $(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phase3o-reconciled-product-source
+          path: |
+            /tmp/product/mac-helper/bin/swift-sim-helper.js
+            /tmp/product/mac-helper/src/http/helperServiceLifecycle.js
+            /tmp/product/test/deliveryCleanupScheduler.test.js
+            /tmp/product/test/helperServiceLifecycle.test.js
+            /tmp/product/test/mainPostMergeIntegration.test.js
+          if-no-files-found: error
+          retention-days: 1
