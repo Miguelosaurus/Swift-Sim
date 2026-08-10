@@ -30,7 +30,9 @@ jobs:
         run: |
           set -euo pipefail
           git show origin/agent/tmp-phase3v-helper-presentation-oracle:.github/tmp/phase3v-helper-presentation.py > /tmp/phase3v.py
+          git show origin/agent/tmp-phase3v-helper-presentation-oracle:.github/tmp/phase3v-helper-presentation-typefix.py > /tmp/phase3v-typefix.py
           python3 /tmp/phase3v.py
+          python3 /tmp/phase3v-typefix.py
           npx prettier --write \
             mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperPresentation.js \
