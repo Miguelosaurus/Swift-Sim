@@ -1,0 +1,25 @@
+name: Temporary Phase 3S Typed Controller Publisher
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build, validate, and publish typed Phase 3S correction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/tmp/phase3s-typed-controller-publisher.py
