@@ -136,6 +136,7 @@ jobs:
           PY
 
           npx prettier --write \
+            mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperServiceLifecycle.js \
             test/helperServiceLifecycle.test.js \
             test/deliveryCleanupScheduler.test.js \
@@ -147,22 +148,6 @@ jobs:
             test/deviceInstallationReconciliationCoordinator.test.js \
             test/deliveryCleanupScheduler.test.js
 
-          files="$(git diff --name-only "$BASE" | sort)"
-          expected="$(printf '%s\n' \
-            mac-helper/bin/swift-sim-helper.js \
-            mac-helper/src/http/helperServiceLifecycle.js \
-            scripts/architecture/baseline-policy.json \
-            test/deliveryCleanupScheduler.test.js \
-            test/helperServiceLifecycle.test.js \
-            test/mainPostMergeIntegration.test.js | sort)"
-          test "$files" = "$expected"
-          test "$(grep -c 'createDeviceInstallationReconciliationCoordinator' mac-helper/bin/swift-sim-helper.js)" -eq 2
-          test "$(grep -c 'createHelperServiceLifecycle' mac-helper/bin/swift-sim-helper.js)" -eq 2
-          ! grep -q 'reconcileRequestedDeviceBuilds' mac-helper/bin/swift-sim-helper.js
-          ! grep -q 'server.on("connection"' mac-helper/bin/swift-sim-helper.js
-          ! grep -q 'const activeSockets = new Set' mac-helper/bin/swift-sim-helper.js
-          grep -q 'reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce()' mac-helper/bin/swift-sim-helper.js
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
@@ -172,7 +157,25 @@ jobs:
             test/deliveryCleanupScheduler.test.js \
             test/helperServiceLifecycle.test.js \
             test/mainPostMergeIntegration.test.js
+
+          files="$(git diff --cached --name-only "$BASE" | sort)"
+          expected="$(printf '%s\n' \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/http/helperServiceLifecycle.js \
+            scripts/architecture/baseline-policy.json \
+            test/deliveryCleanupScheduler.test.js \
+            test/helperServiceLifecycle.test.js \
+            test/mainPostMergeIntegration.test.js | sort)"
+          printf 'candidate files:\n%s\n' "$files"
+          test "$files" = "$expected"
+          test "$(grep -c 'createDeviceInstallationReconciliationCoordinator' mac-helper/bin/swift-sim-helper.js)" -eq 2
+          test "$(grep -c 'createHelperServiceLifecycle' mac-helper/bin/swift-sim-helper.js)" -eq 2
+          ! grep -q 'reconcileRequestedDeviceBuilds' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'server.on("connection"' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'const activeSockets = new Set' mac-helper/bin/swift-sim-helper.js
+          grep -q 'reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce()' mac-helper/bin/swift-sim-helper.js
           git diff --cached --check
+
           git commit -m "Phase 3O: integrate helper lifecycle and reconciliation"
           candidate="$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD^)" = "$BASE"
