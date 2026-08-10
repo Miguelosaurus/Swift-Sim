@@ -67,8 +67,8 @@ controller = replace_once(
 )
 controller = replace_once(
     controller,
-    "  const store = dependencies?.store;\\n  for (const method of [\"findReusable\", \"create\", \"save\", \"get\"]) {\\n    if (typeof store?.[method] !== \"function\") {",
-    "  const store = dependencies?.store;\\n  const storeRecord = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (store));\\n  for (const method of [\"findReusable\", \"create\", \"save\", \"get\"]) {\\n    if (typeof storeRecord[method] !== \"function\") {",
+    '  const store = dependencies?.store;\\n  for (const method of ["findReusable", "create", "save", "get"]) {\\n    if (typeof store?.[method] !== "function") {',
+    '  const store = dependencies?.store;\\n  const storeRecord = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (store));\\n  for (const method of ["findReusable", "create", "save", "get"]) {\\n    if (typeof storeRecord[method] !== "function") {',
     "runtime store validation",
 )
 controller_path.write_text(controller)
