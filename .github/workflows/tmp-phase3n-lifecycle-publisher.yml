@@ -38,14 +38,14 @@ jobs:
             mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperServiceLifecycle.js \
             test/helperServiceLifecycle.test.js > /tmp/expected-files
-          git diff --name-only | sort > /tmp/actual-files
-          diff -u /tmp/expected-files /tmp/actual-files
           test "$(wc -l < mac-helper/bin/swift-sim-helper.js | tr -d ' ')" -lt 1706
           grep -q 'createHelperServiceLifecycle' mac-helper/bin/swift-sim-helper.js
           ! grep -q 'server.on("connection", (socket)' mac-helper/bin/swift-sim-helper.js
+          git add mac-helper/bin/swift-sim-helper.js mac-helper/src/http/helperServiceLifecycle.js test/helperServiceLifecycle.test.js
+          git diff --cached --name-only | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mac-helper/bin/swift-sim-helper.js mac-helper/src/http/helperServiceLifecycle.js test/helperServiceLifecycle.test.js
           git commit -m "refactor: extract helper service lifecycle"
           test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
           git diff HEAD^ HEAD --check
