@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   publish:
@@ -21,10 +22,21 @@ jobs:
       - name: Build, validate, and publish exact Phase 3Q candidate
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_VERIFY_RUN: "31427558750"
           BASE: c92668eee8f17c96346279cc75fc0dd9d5492415
           PRODUCT_BRANCH: agent/architecture-consolidation-phase-3q-unify-extracted-cli-dispatch
         run: |
           set -euo pipefail
+          read -r source_status source_conclusion < <(
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/Miguelosaurus/Swift-Sim/actions/runs/$SOURCE_VERIFY_RUN" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d.get("conclusion") or "")'
+          )
+          test "$source_status" = "completed"
+          test "$source_conclusion" = "success"
           test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$BASE"
           git worktree add /tmp/product "$BASE"
           cd /tmp/product
