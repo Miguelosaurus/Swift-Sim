@@ -9,6 +9,7 @@ import { ServeSimAdapter } from "../serveSimAdapter.js";
 import { SessionStore } from "../sessionStore.js";
 import { SimulatorProfileResolver } from "../simulatorProfile.js";
 import { NativeCompanionTransport } from "../transports/nativeCompanionTransport.js";
+import { SystemIdGenerator } from "./systemIdGenerator.js";
 import { ServeSimTransport } from "../transports/serveSimTransport.js";
 
 /**
@@ -23,6 +24,7 @@ import { ServeSimTransport } from "../transports/serveSimTransport.js";
  *   createServeSimAdapter(): ServeSimAdapter,
  *   createServeSimTransport(input: { adapter: ServeSimAdapter }): ServeSimTransport,
  *   createNativeCompanionTransport(input: { adapter: ServeSimAdapter }): NativeCompanionTransport,
+ *   createIdGenerator(): SystemIdGenerator,
  * }} CompatibilityHelperFactories
  * @typedef {{
  *   store: SessionStore,
@@ -33,6 +35,7 @@ import { ServeSimTransport } from "../transports/serveSimTransport.js";
  *   simulatorProfiles: SimulatorProfileResolver,
  *   deviceInventory: DeviceInventoryAdapter,
  *   adapter: ServeSimAdapter,
+ *   idGenerator: SystemIdGenerator,
  *   activeDeviceBuildTasks: Map<string, unknown>,
  *   transports: {
  *     "serve-sim": ServeSimTransport,
@@ -54,6 +57,7 @@ function defaultFactories() {
     createServeSimAdapter: () => new ServeSimAdapter(),
     createServeSimTransport: ({ adapter }) => new ServeSimTransport({ adapter }),
     createNativeCompanionTransport: ({ adapter }) => new NativeCompanionTransport({ adapter }),
+    createIdGenerator: () => new SystemIdGenerator(),
   };
 }
 
@@ -67,6 +71,7 @@ export function createCompatibilityHelperRuntime({ factories = defaultFactories(
   // Construct it before repositories that acquire files/locks beneath that root.
   const pairingStore = resolved.createPairingStore();
   const adapter = resolved.createServeSimAdapter();
+  const idGenerator = resolved.createIdGenerator();
   return {
     store: resolved.createSessionStore(),
     deviceBuildStore: resolved.createDeviceBuildStore(),
@@ -76,6 +81,7 @@ export function createCompatibilityHelperRuntime({ factories = defaultFactories(
     simulatorProfiles: resolved.createSimulatorProfiles(),
     deviceInventory: resolved.createDeviceInventory(),
     adapter,
+    idGenerator,
     activeDeviceBuildTasks: new Map(),
     transports: {
       "serve-sim": resolved.createServeSimTransport({ adapter }),
@@ -93,6 +99,7 @@ function requireFactories(factories) {
   const required = [
     "createPairingStore",
     "createServeSimAdapter",
+    "createIdGenerator",
     "createSessionStore",
     "createDeviceBuildStore",
     "createDeviceDelivery",

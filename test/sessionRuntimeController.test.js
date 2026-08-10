@@ -153,6 +153,7 @@ function controllerHarness({ store = createStore(), nativeStart, serveStart, res
       transports,
       adapter,
       defaultTransportPreference: () => "auto",
+      idGenerator: { randomUUID: () => "uuid-1", randomToken: (bytes) => `token-${bytes}` },
     }),
   };
 }
@@ -167,12 +168,23 @@ test("validates the explicit session runtime dependency graph", () => {
         transports: {},
         adapter: {},
         defaultTransportPreference: () => "auto",
+        idGenerator: { randomUUID: () => "uuid-1", randomToken: () => "token" },
       }),
     /adapter\.ui/,
   );
   assert.throws(
     () => createSessionRuntimeController({ store, transports: {}, adapter: { ui() {} } }),
     /defaultTransportPreference/,
+  );
+  assert.throws(
+    () =>
+      createSessionRuntimeController({
+        store,
+        transports: {},
+        adapter: { async ui() {} },
+        defaultTransportPreference: () => "auto",
+      }),
+    /idGenerator\.randomToken/,
   );
 });
 

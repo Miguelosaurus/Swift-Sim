@@ -104,6 +104,7 @@ function initializeCompatibilityRuntime() {
     transports,
     adapter,
     defaultTransportPreference,
+    idGenerator: runtime.idGenerator,
   });
   deliveryReferenceCleanupRunning = false;
   compatibilityRuntimeInitialized = true;

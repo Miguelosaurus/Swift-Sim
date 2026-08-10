@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+// @ts-check
 import { once } from "node:events";
 import { URL } from "node:url";
 import { badRequest } from "./http.js";
@@ -6,10 +6,50 @@ import { namedKeyEvents, textToKeyEvents } from "./keyboard.js";
 import { codexSession, publicSession } from "./links.js";
 import { resolvedSessionTransport, sessionTransportMatches } from "./sessionTransportPreference.js";
 
+/** @typedef {import("./contracts/session.js").SessionStreamRecord} SessionStreamRecord */
+/** @typedef {import("./infrastructure/ports.js").IdGenerator} IdGenerator */
+/** @typedef {Omit<import("./contracts/session.js").SessionRecord, "logs" | "stream" | "simulatorUDID" | "remoteBaseUrl"> & {
+ *   simulatorUDID: string,
+ *   logs: string[],
+ *   stream: SessionStreamRecord,
+ *   remoteBaseUrl: string,
+ *   orientation?: string,
+ * }} SessionRecord
+ * @typedef {SessionStreamRecord & { logs?: readonly string[] }} TransportStream
+ * @typedef {{
+ *   findReusable(input: { project: string, scheme: string, simulatorUDID: string, transport: string }): SessionRecord | null | undefined,
+ *   create(input: { project: string, scheme: string, simulatorUDID: string, token: string, remoteBaseUrl: string, transport: string }): SessionRecord,
+ *   save(session: SessionRecord): unknown,
+ *   get(id: string): SessionRecord | null | undefined,
+ * }} SessionStorePort
+ * @typedef {{
+ *   start(input: { simulatorUDID: string, port?: number | undefined }): Promise<TransportStream>,
+ *   restart(session: SessionRecord): Promise<TransportStream>,
+ *   stop(session: SessionRecord): Promise<unknown>,
+ * }} SessionTransport
+ * @typedef {{ ui(input: { simulatorUDID: string, args: string[] }): Promise<{ stdout?: string }> }} SimulatorUiPort
+ * @typedef {{
+ *   store: SessionStorePort,
+ *   transports: Record<string, SessionTransport>,
+ *   adapter: SimulatorUiPort,
+ *   defaultTransportPreference(): string,
+ *   idGenerator: IdGenerator,
+ * }} SessionRuntimeDependencies
+ * @typedef {{ project?: string, scheme?: string, simulator?: string, transport?: string, "remote-base-url"?: string, port?: string | number }} SessionStartInput
+ * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource
+ * @typedef {{ done: boolean, value?: Uint8Array | undefined }} StreamReadResult
+ * @typedef {{ type?: unknown, x?: unknown, y?: unknown, scale?: unknown, velocity?: unknown }} GestureInput
+ * @typedef {{ type: string, x: number, y: number, scale?: number, velocity?: number }} NormalizedGesture
+ * @typedef {{ type?: unknown, x1?: unknown, y1?: unknown, x2?: unknown, y2?: unknown }} MultiTouchInput
+ * @typedef {{ type: string, x1: number, y1: number, x2: number, y2: number }} NormalizedMultiTouch
+ */
+
+/** @param {SessionRuntimeDependencies} dependencies */
 export function createSessionRuntimeController(dependencies) {
   validateDependencies(dependencies);
   const { store, transports, adapter, defaultTransportPreference } = dependencies;
 
+  /** @param {string} url @param {number} timeoutMs */
   async function fetchWithTimeout(url, timeoutMs) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -20,11 +60,13 @@ export function createSessionRuntimeController(dependencies) {
     }
   }
 
+  /** @param {import("node:http").ServerResponse} res @param {SessionRecord} session */
   async function proxyStream(res, session) {
     if (!session.stream.localUrl) {
       return badRequest(res, 404, "Stream is not ready.");
     }
 
+    /** @type {StreamingSource} */
     let source;
     try {
       source = await openStreamingSource(session);
@@ -64,7 +106,7 @@ export function createSessionRuntimeController(dependencies) {
         try {
           const result = await readStreamChunk(source.reader, 5_000);
           if (result.done) throw new Error("Simulator stream ended.");
-          await writeChunk(res, result.value);
+          await writeChunk(res, /** @type {Uint8Array} */ (result.value));
         } catch (error) {
           try {
             await source.reader.cancel();
@@ -96,8 +138,12 @@ export function createSessionRuntimeController(dependencies) {
     }
   }
 
+  /** @param {SessionRecord} session @param {number} [timeoutMs] @returns {Promise<StreamingSource>} */
   async function openStreamingSource(session, timeoutMs = 5_000) {
-    const upstream = await fetchWithTimeout(session.stream.localUrl, timeoutMs);
+    const upstream = await fetchWithTimeout(
+      /** @type {string} */ (session.stream.localUrl),
+      timeoutMs,
+    );
     if (!upstream.ok || !upstream.body) {
       throw new Error(`Stream upstream failed with status ${upstream.status}.`);
     }
@@ -111,11 +157,12 @@ export function createSessionRuntimeController(dependencies) {
     }
     return {
       reader,
-      firstChunk: first.value,
+      firstChunk: /** @type {Uint8Array} */ (first.value),
       contentType: upstream.headers.get("content-type") || "application/octet-stream",
     };
   }
 
+  /** @param {ReadableStreamDefaultReader<Uint8Array>} reader @param {number} timeoutMs @returns {Promise<StreamReadResult>} */
   function readStreamChunk(reader, timeoutMs) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Simulator media timed out.")), timeoutMs);
@@ -132,13 +179,16 @@ export function createSessionRuntimeController(dependencies) {
     });
   }
 
+  /** @param {import("node:http").ServerResponse} res @param {Uint8Array} chunk */
   async function writeChunk(res, chunk) {
     if (!chunk?.byteLength || res.destroyed || res.writableEnded) return;
     if (!res.write(Buffer.from(chunk))) await once(res, "drain");
   }
 
+  /** @type {Map<string, Promise<void>>} */
   const streamRestarts = new Map();
 
+  /** @param {SessionRecord} session @returns {Promise<void>} */
   function restartStreamOnce(session) {
     const key = session.simulatorUDID;
     const current = streamRestarts.get(key);
@@ -148,6 +198,7 @@ export function createSessionRuntimeController(dependencies) {
     return restart;
   }
 
+  /** @param {SessionRecord} session */
   async function restartStream(session) {
     closeInputChannel(session);
     const transport = transportForSession(session);
@@ -158,6 +209,7 @@ export function createSessionRuntimeController(dependencies) {
     store.save(session);
   }
 
+  /** @param {SessionStartInput} input @param {{ includeCodexMetadata?: boolean }} [options] */
   async function startOrReuseSession(input, { includeCodexMetadata = false } = {}) {
     const simulatorUDID = required(input.simulator, "simulator");
     const transportPreference = input.transport || defaultTransportPreference();
@@ -182,7 +234,7 @@ export function createSessionRuntimeController(dependencies) {
       project: input.project || "",
       scheme: input.scheme || "",
       simulatorUDID,
-      token: randomBytes(24).toString("base64url"),
+      token: dependencies.idGenerator.randomToken(24),
       remoteBaseUrl: input["remote-base-url"] || "",
       transport: resolvedSessionTransport(transportPreference),
     });
@@ -235,6 +287,7 @@ export function createSessionRuntimeController(dependencies) {
     return includeCodexMetadata ? codexSession(session) : publicSession(session);
   }
 
+  /** @param {string} sessionId */
   async function stopSession(sessionId) {
     const session = store.get(sessionId);
     if (!session) return;
@@ -248,6 +301,7 @@ export function createSessionRuntimeController(dependencies) {
     store.save(session);
   }
 
+  /** @param {SessionRecord} session @returns {SessionTransport} */
   function transportForSession(session) {
     const id = session.stream.transport || "serve-sim";
     const transport = transports[id];
@@ -255,8 +309,9 @@ export function createSessionRuntimeController(dependencies) {
     return transport;
   }
 
+  /** @param {TransportStream} stream @returns {SessionStreamRecord} */
   function publicStream(stream) {
-    return {
+    return /** @type {SessionStreamRecord} */ ({
       state: stream.state,
       transport: stream.transport,
       quality: stream.quality,
@@ -267,9 +322,10 @@ export function createSessionRuntimeController(dependencies) {
       pid: stream.pid,
       raw: stream.raw || {},
       limitations: stream.limitations || [],
-    };
+    });
   }
 
+  /** @param {SessionRecord} session @param {string} control */
   async function sendControl(session, control) {
     if (control === "home") {
       await sendButton(session, "home");
@@ -321,6 +377,7 @@ export function createSessionRuntimeController(dependencies) {
     return { ok: true, control };
   }
 
+  /** @param {string} simulatorUDID @param {string} option */
   async function toggleSimulatorUI(simulatorUDID, option) {
     const current = await adapter.ui({ simulatorUDID, args: [option] });
     const next =
@@ -332,8 +389,10 @@ export function createSessionRuntimeController(dependencies) {
     await adapter.ui({ simulatorUDID, args: [option, next] });
   }
 
+  /** @type {Map<string, "on" | "off">} */
   const caDebugStates = new Map();
 
+  /** @param {SessionRecord} session @param {string} option */
   async function toggleCADebug(session, option) {
     const key = `${session.simulatorUDID}:${option}`;
     const next = caDebugStates.get(key) === "on" ? "off" : "on";
@@ -341,6 +400,7 @@ export function createSessionRuntimeController(dependencies) {
     caDebugStates.set(key, next);
   }
 
+  /** @param {SessionRecord} session @param {string} typedText */
   async function typeIntoSimulator(session, typedText) {
     if (!typedText || typeof typedText !== "string") {
       throw new Error("Missing text.");
@@ -351,11 +411,13 @@ export function createSessionRuntimeController(dependencies) {
     return { ok: true };
   }
 
+  /** @param {SessionRecord} session @param {string} key */
   async function sendNamedKey(session, key) {
     await sendKeyboardEvents(session, namedKeyEvents(key));
     return { ok: true, key };
   }
 
+  /** @param {SessionRecord} session @param {readonly unknown[]} events */
   async function sendKeyboardEvents(session, events) {
     for (const event of events) {
       await sendServeSimMessage(session, 6, event);
@@ -363,6 +425,7 @@ export function createSessionRuntimeController(dependencies) {
     }
   }
 
+  /** @param {SessionRecord} session @param {unknown} x @param {unknown} y */
   async function tapSimulator(session, x, y) {
     const normalizedX = Number(x);
     const normalizedY = Number(y);
@@ -379,6 +442,7 @@ export function createSessionRuntimeController(dependencies) {
     return { ok: true, x: clampedX, y: clampedY };
   }
 
+  /** @param {SessionRecord} session @param {GestureInput} event */
   async function sendGesture(session, event) {
     const normalized = normalizeGestureEvent(event);
     await sendTouch(session, normalized);
@@ -389,6 +453,7 @@ export function createSessionRuntimeController(dependencies) {
     return { ok: true, event: normalized };
   }
 
+  /** @param {SessionRecord} session @param {MultiTouchInput} event */
   async function sendMultiTouch(session, event) {
     const normalized = normalizeMultiTouchEvent(event);
     await sendServeSimMessage(session, 5, normalized);
@@ -397,29 +462,36 @@ export function createSessionRuntimeController(dependencies) {
     return { ok: true, event: normalized };
   }
 
+  /** @param {SessionRecord} session @param {NormalizedGesture} payload */
   async function sendTouch(session, payload) {
     await sendServeSimMessage(session, 3, payload);
   }
 
+  /** @param {SessionRecord} session @param {string} button */
   async function sendButton(session, button) {
     await sendServeSimMessage(session, 4, { button });
   }
 
+  /** @param {SessionRecord} session @param {string} orientation */
   async function sendRotation(session, orientation) {
     await sendServeSimMessage(session, 7, { orientation });
   }
 
+  /** @param {SessionRecord} session @param {string} option @param {boolean} enabled */
   async function sendCADebug(session, option, enabled) {
+    /** @type {Record<string, string>} */
     const options = {
       "slow-animations": "debug_slow_animations",
     };
     await sendServeSimMessage(session, 8, { option: options[option] || option, enabled });
   }
 
+  /** @param {SessionRecord} session */
   async function sendMemoryWarning(session) {
     await sendServeSimMessage(session, 9);
   }
 
+  /** @param {SessionRecord} session @returns {string} */
   function sessionWsUrl(session) {
     if (session.stream?.wsUrl) return session.stream.wsUrl;
     const raw = `${session.stream?.raw?.stdout || ""}\n${session.stream?.raw?.stderr || ""}`;
@@ -440,8 +512,10 @@ export function createSessionRuntimeController(dependencies) {
     return "";
   }
 
+  /** @type {Map<string, ServeSimInputChannel>} */
   const inputChannels = new Map();
 
+  /** @param {SessionRecord} session @param {number} opcode @param {unknown} [payload] @returns {Promise<void>} */
   function sendServeSimMessage(session, opcode, payload) {
     const wsUrl = sessionWsUrl(session);
     if (!wsUrl) {
@@ -455,6 +529,7 @@ export function createSessionRuntimeController(dependencies) {
     return channel.send(opcode, payload);
   }
 
+  /** @param {SessionRecord} session */
   function closeInputChannel(session) {
     const wsUrl = sessionWsUrl(session);
     const channel = inputChannels.get(wsUrl);
@@ -463,13 +538,18 @@ export function createSessionRuntimeController(dependencies) {
   }
 
   class ServeSimInputChannel {
+    /** @param {string} url */
     constructor(url) {
       this.url = url;
+      /** @type {WebSocket | null} */
       this.socket = null;
+      /** @type {Promise<WebSocket> | null} */
       this.connecting = null;
+      /** @type {Promise<void>} */
       this.pending = Promise.resolve();
     }
 
+    /** @param {number} opcode @param {unknown} payload @returns {Promise<void>} */
     send(opcode, payload) {
       const operation = this.pending.then(async () => {
         const socket = await this.connect();
@@ -486,6 +566,7 @@ export function createSessionRuntimeController(dependencies) {
       return operation;
     }
 
+    /** @returns {Promise<WebSocket>} */
     connect() {
       if (this.socket?.readyState === 1) return Promise.resolve(this.socket);
       if (this.connecting) return this.connecting;
@@ -540,10 +621,12 @@ export function createSessionRuntimeController(dependencies) {
     }
   }
 
+  /** @param {number} ms */
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /** @param {GestureInput} event @returns {NormalizedGesture} */
   function normalizeGestureEvent(event) {
     if (!event || typeof event !== "object") {
       throw new Error("Missing gesture event.");
@@ -557,6 +640,7 @@ export function createSessionRuntimeController(dependencies) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       throw new Error("Missing gesture coordinates.");
     }
+    /** @type {NormalizedGesture} */
     const normalized = {
       type,
       x: Math.max(0, Math.min(1, x)),
@@ -573,6 +657,7 @@ export function createSessionRuntimeController(dependencies) {
     return normalized;
   }
 
+  /** @param {MultiTouchInput} event @returns {NormalizedMultiTouch} */
   function normalizeMultiTouchEvent(event) {
     if (!event || typeof event !== "object") {
       throw new Error("Missing multi-touch event.");
@@ -585,7 +670,9 @@ export function createSessionRuntimeController(dependencies) {
     if (!coordinates.every(Number.isFinite)) {
       throw new Error("Missing multi-touch coordinates.");
     }
-    const [x1, y1, x2, y2] = coordinates.map((value) => Math.max(0, Math.min(1, value)));
+    const [x1, y1, x2, y2] = /** @type {[number, number, number, number]} */ (
+      coordinates.map((value) => Math.max(0, Math.min(1, value)))
+    );
     return { type, x1, y1, x2, y2 };
   }
 
@@ -602,10 +689,14 @@ export function createSessionRuntimeController(dependencies) {
   });
 }
 
+/** @param {SessionRuntimeDependencies} dependencies */
 function validateDependencies(dependencies) {
   const store = dependencies?.store;
+  const storeRecord =
+    store == null ? null : /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (store));
   for (const method of ["findReusable", "create", "save", "get"]) {
-    if (typeof store?.[method] !== "function") {
+    const implementation = storeRecord ? storeRecord[method] : undefined;
+    if (typeof implementation !== "function") {
       throw new TypeError(`Session runtime controller requires store.${method}().`);
     }
   }
@@ -618,8 +709,12 @@ function validateDependencies(dependencies) {
   if (typeof dependencies?.defaultTransportPreference !== "function") {
     throw new TypeError("Session runtime controller requires defaultTransportPreference().");
   }
+  if (typeof dependencies?.idGenerator?.randomToken !== "function") {
+    throw new TypeError("Session runtime controller requires idGenerator.randomToken().");
+  }
 }
 
+/** @param {unknown} value @param {string} name @returns {string} */
 function required(value, name) {
   if (!value || typeof value !== "string") {
     throw new Error(`Missing required ${name}.`);
