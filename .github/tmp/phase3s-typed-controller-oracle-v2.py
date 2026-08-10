@@ -28,7 +28,7 @@ source = replace_once(
 source = replace_once(
     source,
     ' * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource\n',
-    ' * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource\n * @typedef {{ done: true, value?: undefined } | { done: false, value: Uint8Array }} StreamReadResult\n',
+    ' * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource\n * @typedef {{ done: boolean, value?: Uint8Array | undefined }} StreamReadResult\n',
     "stream read result typedef",
 )
 source = replace_once(
@@ -46,6 +46,12 @@ controller = replace_once(
     "const upstream = await fetchWithTimeout(session.stream.localUrl, timeoutMs);",
     "const upstream = await fetchWithTimeout(/** @type {string} */ (session.stream.localUrl), timeoutMs);",
     "stream URL narrowing",
+)
+controller = replace_once(
+    controller,
+    "      firstChunk: first.value,",
+    "      firstChunk: /** @type {Uint8Array} */ (first.value),",
+    "first stream chunk narrowing",
 )
 controller = replace_once(
     controller,
