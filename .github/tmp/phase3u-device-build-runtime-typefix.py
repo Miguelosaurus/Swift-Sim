@@ -14,6 +14,16 @@ replacements = [
         '    build.buildSettings = Array.isArray(values["build-setting"])\n      ? values["build-setting"]\n      : [];\n',
         "build-setting identity preservation",
     ),
+    (
+        '/** @typedef {{ mode?: string, provider?: string, expiresAt?: string, generation?: string, referenceID?: string }} BuildDelivery */',
+        '/** @typedef {{ mode?: string, provider?: string | undefined, expiresAt?: string | undefined, generation?: string, referenceID?: string }} BuildDelivery */',
+        "exact optional delivery projection",
+    ),
+    (
+        '    activeTasks: () => [...activeTasks.values()],\n    cancelBuild: (build, reason) => dependencies.requestCancellation(build, reason),\n  });\n\n  /** @param {Record<string, unknown>} values */',
+        '    activeTasks: () => [...activeTasks.values()],\n    cancelBuild,\n  });\n\n  /** @param {BuildRecord} build @param {string} reason */\n  function cancelBuild(build, reason) {\n    return dependencies.requestCancellation(build, reason);\n  }\n\n  /** @param {Record<string, unknown>} values */',
+        "typed cancelBuild boundary",
+    ),
 ]
 
 for old, new, label in replacements:
