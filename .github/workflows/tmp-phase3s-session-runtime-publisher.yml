@@ -1,0 +1,570 @@
+name: Temporary Phase 3S Session Runtime Publisher
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build, validate, and publish exact Phase 3S candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_VERIFY_RUN: "31430219744"
+          BASE: b994cfa3d5a4f4a8aa5fe0aa8760a943745b2cb1
+          SOURCE_BRANCH: agent/architecture-consolidation-phase-3r-remaining-cli-parser
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3s-session-runtime-controller
+        run: |
+          set -euo pipefail
+          read -r source_status source_conclusion < <(
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/Miguelosaurus/Swift-Sim/actions/runs/$SOURCE_VERIFY_RUN" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d.get("conclusion") or "")'
+          )
+          test "$source_status" = "completed"
+          test "$source_conclusion" = "success"
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | awk '{print $1}')" = "$BASE"
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$BASE"
+
+          git worktree add /tmp/product "$BASE"
+          cd /tmp/product
+          npm ci
+
+          python3 <<'PY'
+          from pathlib import Path
+          from textwrap import indent
+
+          helper_path = Path("mac-helper/bin/swift-sim-helper.js")
+          helper = helper_path.read_text()
+
+          block_start = helper.find("async function fetchWithTimeout(url, timeoutMs) {\n")
+          block_end = helper.find("async function createDeviceBuild(values) {\n", block_start)
+          if block_start < 0 or block_end < 0:
+              raise SystemExit("session runtime block sentinels missing")
+          session_block = helper[block_start:block_end].rstrip() + "\n"
+
+          module = '''import { randomBytes } from "node:crypto";
+          import { once } from "node:events";
+          import { URL } from "node:url";
+          import { badRequest } from "./http.js";
+          import { namedKeyEvents, textToKeyEvents } from "./keyboard.js";
+          import { codexSession, publicSession } from "./links.js";
+          import {
+            resolvedSessionTransport,
+            sessionTransportMatches,
+          } from "./sessionTransportPreference.js";
+
+          export function createSessionRuntimeController(dependencies) {
+            validateDependencies(dependencies);
+            const { store, transports, adapter, defaultTransportPreference } = dependencies;
+
+          '''
+          module += indent(session_block, "  ")
+          module += '''
+            return Object.freeze({
+              proxyStream,
+              startOrReuseSession,
+              stopSession,
+              sendControl,
+              typeIntoSimulator,
+              sendNamedKey,
+              tapSimulator,
+              sendGesture,
+              sendMultiTouch,
+            });
+          }
+
+          function validateDependencies(dependencies) {
+            const store = dependencies?.store;
+            for (const method of ["findReusable", "create", "save", "get"]) {
+              if (typeof store?.[method] !== "function") {
+                throw new TypeError(`Session runtime controller requires store.${method}().`);
+              }
+            }
+            if (!dependencies?.transports || typeof dependencies.transports !== "object") {
+              throw new TypeError("Session runtime controller requires transports.");
+            }
+            if (typeof dependencies?.adapter?.ui !== "function") {
+              throw new TypeError("Session runtime controller requires adapter.ui().");
+            }
+            if (typeof dependencies?.defaultTransportPreference !== "function") {
+              throw new TypeError("Session runtime controller requires defaultTransportPreference().");
+            }
+          }
+
+          function required(value, name) {
+            if (!value || typeof value !== "string") {
+              throw new Error(`Missing required ${name}.`);
+            }
+            return value;
+          }
+          '''
+          Path("mac-helper/src/sessionRuntimeController.js").write_text(module)
+
+          replacements = [
+            ('import { randomBytes, timingSafeEqual } from "node:crypto";\n', 'import { timingSafeEqual } from "node:crypto";\n'),
+            ('import { once } from "node:events";\n', ''),
+            ('import {\n  resolvedSessionTransport,\n  sessionTransportMatches,\n} from "../src/sessionTransportPreference.js";\n', ''),
+            ('import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";\n', ''),
+            ('import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../src/links.js";\n', 'import { buildCompanionLinks, buildPairingLinks, publicSession } from "../src/links.js";\n'),
+          ]
+          for old, new in replacements:
+              if helper.count(old) != 1:
+                  raise SystemExit(f"session import sentinel missing: {old!r}")
+              helper = helper.replace(old, new, 1)
+
+          import_anchor = 'import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";\n'
+          controller_import = 'import { createSessionRuntimeController } from "../src/sessionRuntimeController.js";\n'
+          if helper.count(import_anchor) != 1 or controller_import in helper:
+              raise SystemExit("session runtime controller import state unexpected")
+          helper = helper.replace(import_anchor, import_anchor + controller_import, 1)
+
+          transport_decl = 'let transports;\n'
+          if helper.count(transport_decl) != 1 or 'let sessionRuntime;' in helper:
+              raise SystemExit("session runtime declaration state unexpected")
+          helper = helper.replace(transport_decl, transport_decl + 'let sessionRuntime;\n', 1)
+
+          init_anchor = '''  transports = runtime.transports;
+            deliveryReferenceCleanupRunning = false;
+          '''
+          init_replacement = '''  transports = runtime.transports;
+            sessionRuntime = createSessionRuntimeController({
+              store,
+              transports,
+              adapter,
+              defaultTransportPreference,
+            });
+            deliveryReferenceCleanupRunning = false;
+          '''
+          if helper.count(init_anchor) != 1:
+              raise SystemExit("session runtime initialization anchor missing")
+          helper = helper.replace(init_anchor, init_replacement, 1)
+
+          exact_replacements = [
+            ('startSession: (values) => startOrReuseSession(values, { includeCodexMetadata: true }),', 'startSession: (values) => sessionRuntime.startOrReuseSession(values, { includeCodexMetadata: true }),'),
+            ('await stopSession(session.id);', 'await sessionRuntime.stopSession(session.id);'),
+            ('stopSession: (sessionID) => stopSession(sessionID),', 'stopSession: (sessionID) => sessionRuntime.stopSession(sessionID),'),
+            ('startSession: ({ remoteBaseUrl, ...values }) => startOrReuseSession({\n      ...values,\n      "remote-base-url": remoteBaseUrl,\n    }),', 'startSession: ({ remoteBaseUrl, ...values }) => sessionRuntime.startOrReuseSession({\n      ...values,\n      "remote-base-url": remoteBaseUrl,\n    }),'),
+            ('    stopSession,\n', '    stopSession: (sessionID) => sessionRuntime.stopSession(sessionID),\n'),
+            ('    streamSession: proxyStream,\n', '    streamSession: (res, session) => sessionRuntime.proxyStream(res, session),\n'),
+            ('    typeText: typeIntoSimulator,\n', '    typeText: (session, text) => sessionRuntime.typeIntoSimulator(session, text),\n'),
+            ('    sendKey: sendNamedKey,\n', '    sendKey: (session, key) => sessionRuntime.sendNamedKey(session, key),\n'),
+            ('    tap: tapSimulator,\n', '    tap: (session, x, y) => sessionRuntime.tapSimulator(session, x, y),\n'),
+            ('    gesture: sendGesture,\n', '    gesture: (session, event) => sessionRuntime.sendGesture(session, event),\n'),
+            ('    multitouch: sendMultiTouch,\n', '    multitouch: (session, event) => sessionRuntime.sendMultiTouch(session, event),\n'),
+            ('    control: sendControl,\n', '    control: (session, control) => sessionRuntime.sendControl(session, control),\n'),
+          ]
+          for old, new in exact_replacements:
+              if helper.count(old) != 1:
+                  raise SystemExit(f"session wiring sentinel missing: {old!r}")
+              helper = helper.replace(old, new, 1)
+
+          helper = helper[:block_start] + helper[block_end:]
+          helper_path.write_text(helper)
+          PY
+
+          cat > test/sessionRuntimeController.test.js <<'EOF'
+          import assert from "node:assert/strict";
+          import test from "node:test";
+          import { createSessionRuntimeController } from "../mac-helper/src/sessionRuntimeController.js";
+
+          function session(overrides = {}) {
+            return {
+              id: "session-1",
+              token: "token-1",
+              project: "/tmp/Demo.xcodeproj",
+              scheme: "Demo",
+              simulatorUDID: "SIM-1",
+              remoteBaseUrl: "https://old.example",
+              createdAt: "2026-08-10T20:00:00.000Z",
+              updatedAt: "2026-08-10T20:00:00.000Z",
+              build: { state: "external-or-not-run" },
+              orientation: "portrait",
+              stream: {
+                state: "running",
+                transport: "serve-sim",
+                quality: "high",
+                localUrl: "http://127.0.0.1:48000/stream",
+                previewUrl: "http://127.0.0.1:48000/stream",
+                wsUrl: "ws://127.0.0.1:48000/ws",
+                port: 48000,
+                raw: {},
+                limitations: [],
+              },
+              logs: [],
+              ...overrides,
+            };
+          }
+
+          function createStore({ reusable = null, initial = [] } = {}) {
+            const records = new Map(initial.map((value) => [value.id, value]));
+            const saves = [];
+            const creates = [];
+            return {
+              records,
+              saves,
+              creates,
+              findReusable() {
+                return reusable;
+              },
+              create(input) {
+                creates.push(input);
+                const value = session({
+                  id: "session-new",
+                  token: input.token,
+                  project: input.project,
+                  scheme: input.scheme,
+                  simulatorUDID: input.simulatorUDID,
+                  remoteBaseUrl: input.remoteBaseUrl,
+                  stream: {
+                    state: "starting",
+                    transport: input.transport,
+                    quality: "fallback",
+                    localUrl: "",
+                    previewUrl: "",
+                    wsUrl: "",
+                    raw: {},
+                    limitations: [],
+                  },
+                  logs: [],
+                });
+                records.set(value.id, value);
+                return value;
+              },
+              save(value) {
+                saves.push(structuredClone(value));
+                records.set(value.id, value);
+                return value;
+              },
+              get(id) {
+                return records.get(id);
+              },
+            };
+          }
+
+          function controllerHarness({ store = createStore(), nativeStart, serveStart, restart } = {}) {
+            const calls = [];
+            const uiCalls = [];
+            const transports = {
+              "native-companion": {
+                async start(input) {
+                  calls.push(["native-start", input]);
+                  if (nativeStart) return nativeStart(input);
+                  return {
+                    state: "running",
+                    transport: "native-companion",
+                    quality: "native",
+                    localUrl: "http://native/stream",
+                    previewUrl: "http://native/stream",
+                    wsUrl: "ws://native/ws",
+                    raw: {},
+                    limitations: [],
+                  };
+                },
+                async restart(value) {
+                  calls.push(["native-restart", value.id]);
+                  return restart ? restart(value) : value.stream;
+                },
+                async stop(value) {
+                  calls.push(["native-stop", value.id]);
+                },
+              },
+              "serve-sim": {
+                async start(input) {
+                  calls.push(["serve-start", input]);
+                  if (serveStart) return serveStart(input);
+                  return {
+                    state: "running",
+                    transport: "serve-sim",
+                    quality: "high",
+                    localUrl: "http://serve/stream",
+                    previewUrl: "http://serve/stream",
+                    wsUrl: "ws://serve/ws",
+                    raw: {},
+                    limitations: [],
+                  };
+                },
+                async restart(value) {
+                  calls.push(["serve-restart", value.id]);
+                  return restart
+                    ? restart(value)
+                    : {
+                        state: "running",
+                        transport: "serve-sim",
+                        quality: "high",
+                        localUrl: "http://serve/restarted",
+                        previewUrl: "http://serve/restarted",
+                        wsUrl: "ws://serve/restarted",
+                        raw: {},
+                        limitations: [],
+                      };
+                },
+                async stop(value) {
+                  calls.push(["serve-stop", value.id]);
+                },
+              },
+            };
+            const adapter = {
+              async ui(input) {
+                uiCalls.push(input);
+                return { stdout: "off\n" };
+              },
+            };
+            return {
+              store,
+              calls,
+              uiCalls,
+              controller: createSessionRuntimeController({
+                store,
+                transports,
+                adapter,
+                defaultTransportPreference: () => "auto",
+              }),
+            };
+          }
+
+          test("validates the explicit session runtime dependency graph", () => {
+            assert.throws(() => createSessionRuntimeController({}), /store\.findReusable/);
+            const store = createStore();
+            assert.throws(
+              () => createSessionRuntimeController({ store, transports: {}, adapter: {}, defaultTransportPreference: () => "auto" }),
+              /adapter\.ui/,
+            );
+            assert.throws(
+              () => createSessionRuntimeController({ store, transports: {}, adapter: { ui() {} } }),
+              /defaultTransportPreference/,
+            );
+          });
+
+          test("reuses a compatible running session without restarting transport", async () => {
+            const existing = session();
+            const store = createStore({ reusable: existing, initial: [existing] });
+            const { controller, calls } = controllerHarness({ store });
+
+            const result = await controller.startOrReuseSession({
+              project: existing.project,
+              scheme: existing.scheme,
+              simulator: existing.simulatorUDID,
+              transport: "serve-sim",
+              "remote-base-url": "https://new.example",
+            });
+
+            assert.equal(result.id, existing.id);
+            assert.equal(result.stream.transport, "serve-sim");
+            assert.equal(existing.remoteBaseUrl, "https://new.example");
+            assert.deepEqual(calls, []);
+            assert.equal(store.saves.length, 1);
+          });
+
+          test("auto transport falls back from native companion to serve-sim and persists the public stream", async () => {
+            const store = createStore();
+            const { controller, calls } = controllerHarness({
+              store,
+              nativeStart: async () => {
+                throw new Error("native unavailable");
+              },
+            });
+
+            const result = await controller.startOrReuseSession(
+              {
+                project: "/tmp/Demo.xcodeproj",
+                scheme: "Demo",
+                simulator: "SIM-1",
+                transport: "auto",
+                "remote-base-url": "https://phone.example",
+              },
+              { includeCodexMetadata: true },
+            );
+
+            assert.deepEqual(calls.map(([name]) => name), ["native-start", "serve-start"]);
+            assert.equal(store.creates[0].transport, "native-companion");
+            assert.equal(store.saves.at(-1).stream.transport, "serve-sim");
+            assert.match(store.saves.at(-1).logs.join("\n"), /native companion unavailable/);
+            assert.equal(result.codex.simulatorUDID, "SIM-1");
+          });
+
+          test("start failure persists failed state while a post-start save failure stops the transport", async () => {
+            const failingStore = createStore();
+            const first = controllerHarness({
+              store: failingStore,
+              serveStart: async () => {
+                throw new Error("serve failed");
+              },
+            });
+            await assert.rejects(
+              first.controller.startOrReuseSession({ simulator: "SIM-1", transport: "serve-sim" }),
+              /serve failed/,
+            );
+            assert.equal(failingStore.saves.at(-1).stream.state, "failed");
+
+            const saveFailureStore = createStore();
+            let saveCalls = 0;
+            saveFailureStore.save = (value) => {
+              saveCalls += 1;
+              if (saveCalls === 1) throw new Error("persist failed");
+              return value;
+            };
+            const second = controllerHarness({ store: saveFailureStore });
+            await assert.rejects(
+              second.controller.startOrReuseSession({ simulator: "SIM-2", transport: "serve-sim" }),
+              /persist failed/,
+            );
+            assert.deepEqual(second.calls.map(([name]) => name), ["serve-start", "serve-stop"]);
+          });
+
+          test("stop and UI controls mutate session state through the controller", async () => {
+            const value = session();
+            const store = createStore({ initial: [value] });
+            const { controller, calls, uiCalls } = controllerHarness({ store });
+
+            const control = await controller.sendControl(value, "appearance-dark");
+            assert.deepEqual(control, { ok: true, control: "appearance-dark" });
+            assert.deepEqual(uiCalls, [{ simulatorUDID: "SIM-1", args: ["appearance", "dark"] }]);
+            assert.match(store.saves.at(-1).logs.at(-1), /control: appearance-dark/);
+
+            await controller.stopSession(value.id);
+            assert.equal(value.stream.state, "stopped");
+            assert.deepEqual(calls.at(-1), ["serve-stop", value.id]);
+          });
+
+          test("stream recovery is single-controller state and preserves response semantics", async () => {
+            const value = session({
+              stream: {
+                state: "running",
+                transport: "serve-sim",
+                quality: "high",
+                localUrl: "http://stream/initial",
+                previewUrl: "http://stream/initial",
+                wsUrl: "ws://stream/initial",
+                raw: {},
+                limitations: [],
+              },
+            });
+            const store = createStore({ initial: [value] });
+            const { controller, calls } = controllerHarness({ store });
+            const initialReader = {
+              reads: 0,
+              async read() {
+                this.reads += 1;
+                if (this.reads === 1) return { done: false, value: Uint8Array.of(1) };
+                throw new Error("stalled");
+              },
+              async cancel() {},
+            };
+            const recoveredReader = {
+              async read() {
+                return { done: false, value: Uint8Array.of(2) };
+              },
+              async cancel() {},
+            };
+            const originalFetch = globalThis.fetch;
+            let fetchCalls = 0;
+            globalThis.fetch = async () => {
+              fetchCalls += 1;
+              const reader = fetchCalls === 1 ? initialReader : recoveredReader;
+              return {
+                ok: true,
+                status: 200,
+                body: { getReader: () => reader },
+                headers: { get: () => "application/octet-stream" },
+              };
+            };
+            const writes = [];
+            const closeListeners = new Set();
+            const res = {
+              destroyed: false,
+              writableEnded: false,
+              socket: { setNoDelay() {} },
+              writeHead(status, headers) {
+                this.status = status;
+                this.headers = headers;
+              },
+              write(chunk) {
+                writes.push([...chunk]);
+                if (writes.length === 2) this.writableEnded = true;
+                return true;
+              },
+              once(event, listener) {
+                if (event === "close") closeListeners.add(listener);
+              },
+              off(event, listener) {
+                if (event === "close") closeListeners.delete(listener);
+              },
+              destroy(error) {
+                this.destroyed = true;
+                this.error = error;
+              },
+            };
+            try {
+              await controller.proxyStream(res, value);
+            } finally {
+              globalThis.fetch = originalFetch;
+            }
+
+            assert.equal(res.status, 200);
+            assert.deepEqual(writes, [[1], [2]]);
+            assert.equal(fetchCalls, 2);
+            assert.deepEqual(calls.filter(([name]) => name === "serve-restart").length, 1);
+            assert.match(value.logs.join("\n"), /stream stalled; recovering tracked simulator/);
+            assert.equal(closeListeners.size, 0);
+          });
+          EOF
+
+          npx prettier --write mac-helper/src/sessionRuntimeController.js test/sessionRuntimeController.test.js
+          git diff --check
+          node --test --test-concurrency=1 \
+            test/sessionRuntimeController.test.js \
+            test/sessionHttpApplicationService.test.js \
+            test/sessionRoutes.test.js
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/sessionRuntimeController.js \
+            test/sessionRuntimeController.test.js
+
+          files="$(git diff --cached --name-only "$BASE" | sort)"
+          expected="$(printf '%s\n' \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/sessionRuntimeController.js \
+            test/sessionRuntimeController.test.js | sort)"
+          test "$files" = "$expected"
+          git diff --cached --check
+          ! grep -q 'const streamRestarts = new Map' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'const caDebugStates = new Map' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'const inputChannels = new Map' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'async function startOrReuseSession' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'async function stopSession' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'async function proxyStream' mac-helper/bin/swift-sim-helper.js
+          grep -q 'createSessionRuntimeController' mac-helper/bin/swift-sim-helper.js
+          grep -q 'sessionRuntime.startOrReuseSession' mac-helper/bin/swift-sim-helper.js
+          grep -q 'sessionRuntime.proxyStream' mac-helper/bin/swift-sim-helper.js
+
+          git commit -m "Phase 3S: extract session runtime controller"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | awk '{print $1}')" = "$BASE"
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$BASE"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "Published Phase 3S candidate $candidate"
