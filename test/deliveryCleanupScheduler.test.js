@@ -9,9 +9,7 @@ test("delivery cleanup defers build-state lock contention without rejecting", as
   timeout.code = BUILD_STATE_LOCK_TIMEOUT_CODE;
 
   const result = await runDeliveryCleanupSafely(
-    async () => {
-      throw timeout;
-    },
+    async () => { throw timeout; },
     { onError: (message) => errors.push(message) },
   );
 
@@ -22,14 +20,10 @@ test("delivery cleanup defers build-state lock contention without rejecting", as
 test("delivery cleanup contains unexpected timer failures and keeps retry state alive", async () => {
   const errors = [];
   const result = await runDeliveryCleanupSafely(
-    async () => {
-      throw new Error("delivery backend unavailable");
-    },
+    async () => { throw new Error("delivery backend unavailable"); },
     { onError: (message) => errors.push(message) },
   );
 
   assert.deepEqual(result, { deferred: false, failed: true });
-  assert.deepEqual(errors, [
-    "Swift Sim delivery-reference cleanup failed: delivery backend unavailable",
-  ]);
+  assert.deepEqual(errors, ["Swift Sim delivery-reference cleanup failed: delivery backend unavailable"]);
 });
