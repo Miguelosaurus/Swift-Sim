@@ -25,7 +25,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Apply Phase 3U candidate
+      - name: Apply and format Phase 3U candidate
         shell: bash
         run: |
           set -euo pipefail
@@ -33,6 +33,7 @@ jobs:
           git show origin/agent/tmp-phase3u-device-build-runtime-oracle:.github/tmp/phase3u-device-build-runtime-typefix.py > /tmp/phase3u-typefix.py
           python3 /tmp/phase3u.py
           python3 /tmp/phase3u-typefix.py
+          npx prettier --write mac-helper/src/deviceBuildRuntimeController.js
       - name: Focused build-runtime and composition tests
         run: >-
           node --test
