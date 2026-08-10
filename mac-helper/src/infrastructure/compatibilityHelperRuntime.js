@@ -1,3 +1,5 @@
+// @ts-check
+
 import { DeviceBuildStore } from "../deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "../deviceDelivery.js";
 import { DeviceInventoryAdapter } from "../deviceInventory.js";
@@ -9,6 +11,37 @@ import { SimulatorProfileResolver } from "../simulatorProfile.js";
 import { NativeCompanionTransport } from "../transports/nativeCompanionTransport.js";
 import { ServeSimTransport } from "../transports/serveSimTransport.js";
 
+/**
+ * @typedef {{
+ *   createSessionStore(): SessionStore,
+ *   createDeviceBuildStore(): DeviceBuildStore,
+ *   createDeviceDelivery(): DeviceDeliveryAdapter,
+ *   createPairingStore(): PairingStore,
+ *   createPairingInviteStore(): PairingInviteStore,
+ *   createSimulatorProfiles(): SimulatorProfileResolver,
+ *   createDeviceInventory(): DeviceInventoryAdapter,
+ *   createServeSimAdapter(): ServeSimAdapter,
+ *   createServeSimTransport(input: { adapter: ServeSimAdapter }): ServeSimTransport,
+ *   createNativeCompanionTransport(input: { adapter: ServeSimAdapter }): NativeCompanionTransport,
+ * }} CompatibilityHelperFactories
+ * @typedef {{
+ *   store: SessionStore,
+ *   deviceBuildStore: DeviceBuildStore,
+ *   deviceDelivery: DeviceDeliveryAdapter,
+ *   pairingStore: PairingStore,
+ *   pairingInviteStore: PairingInviteStore,
+ *   simulatorProfiles: SimulatorProfileResolver,
+ *   deviceInventory: DeviceInventoryAdapter,
+ *   adapter: ServeSimAdapter,
+ *   activeDeviceBuildTasks: Map<string, unknown>,
+ *   transports: {
+ *     "serve-sim": ServeSimTransport,
+ *     "native-companion": NativeCompanionTransport,
+ *   },
+ * }} CompatibilityHelperRuntime
+ */
+
+/** @returns {CompatibilityHelperFactories} */
 function defaultFactories() {
   return {
     createSessionStore: () => new SessionStore(),
@@ -24,32 +57,55 @@ function defaultFactories() {
   };
 }
 
+/**
+ * @param {{ factories?: Partial<CompatibilityHelperFactories> }} [options]
+ * @returns {CompatibilityHelperRuntime}
+ */
 export function createCompatibilityHelperRuntime({ factories = defaultFactories() } = {}) {
+  const resolved = requireFactories(factories);
   // PairingStore is the compatibility owner of the shared private state root.
   // Construct it before repositories that acquire files/locks beneath that root.
-  const pairingStore = callFactory(factories, "createPairingStore");
-  const adapter = callFactory(factories, "createServeSimAdapter");
+  const pairingStore = resolved.createPairingStore();
+  const adapter = resolved.createServeSimAdapter();
   return {
-    store: callFactory(factories, "createSessionStore"),
-    deviceBuildStore: callFactory(factories, "createDeviceBuildStore"),
-    deviceDelivery: callFactory(factories, "createDeviceDelivery"),
+    store: resolved.createSessionStore(),
+    deviceBuildStore: resolved.createDeviceBuildStore(),
+    deviceDelivery: resolved.createDeviceDelivery(),
     pairingStore,
-    pairingInviteStore: callFactory(factories, "createPairingInviteStore"),
-    simulatorProfiles: callFactory(factories, "createSimulatorProfiles"),
-    deviceInventory: callFactory(factories, "createDeviceInventory"),
+    pairingInviteStore: resolved.createPairingInviteStore(),
+    simulatorProfiles: resolved.createSimulatorProfiles(),
+    deviceInventory: resolved.createDeviceInventory(),
     adapter,
     activeDeviceBuildTasks: new Map(),
     transports: {
-      "serve-sim": callFactory(factories, "createServeSimTransport", { adapter }),
-      "native-companion": callFactory(factories, "createNativeCompanionTransport", { adapter }),
+      "serve-sim": resolved.createServeSimTransport({ adapter }),
+      "native-companion": resolved.createNativeCompanionTransport({ adapter }),
     },
   };
 }
 
-function callFactory(factories, name, input) {
-  const factory = factories?.[name];
-  if (typeof factory !== "function") {
-    throw new TypeError(`Compatibility helper runtime requires ${name}.`);
+/**
+ * @param {Partial<CompatibilityHelperFactories>} factories
+ * @returns {CompatibilityHelperFactories}
+ */
+function requireFactories(factories) {
+  /** @type {(keyof CompatibilityHelperFactories)[]} */
+  const required = [
+    "createPairingStore",
+    "createServeSimAdapter",
+    "createSessionStore",
+    "createDeviceBuildStore",
+    "createDeviceDelivery",
+    "createPairingInviteStore",
+    "createSimulatorProfiles",
+    "createDeviceInventory",
+    "createServeSimTransport",
+    "createNativeCompanionTransport",
+  ];
+  for (const name of required) {
+    if (typeof factories?.[name] !== "function") {
+      throw new TypeError(`Compatibility helper runtime requires ${name}.`);
+    }
   }
-  return input === undefined ? factory() : factory(input);
+  return /** @type {CompatibilityHelperFactories} */ (/** @type {unknown} */ (factories));
 }
