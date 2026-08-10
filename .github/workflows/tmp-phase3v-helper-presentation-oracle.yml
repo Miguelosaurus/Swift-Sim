@@ -31,13 +31,16 @@ jobs:
           set -euo pipefail
           git show origin/agent/tmp-phase3v-helper-presentation-oracle:.github/tmp/phase3v-helper-presentation.py > /tmp/phase3v.py
           git show origin/agent/tmp-phase3v-helper-presentation-oracle:.github/tmp/phase3v-helper-presentation-typefix.py > /tmp/phase3v-typefix.py
+          git show origin/agent/tmp-phase3v-helper-presentation-oracle:.github/tmp/phase3v-source-test-fix.py > /tmp/phase3v-source-test-fix.py
           python3 /tmp/phase3v.py
           python3 /tmp/phase3v-typefix.py
+          python3 /tmp/phase3v-source-test-fix.py
           npx prettier --write \
             mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperPresentation.js \
             test/helperPresentation.test.js \
-            test/publicGatewayAuthorizationMatrix.test.js
+            test/publicGatewayAuthorizationMatrix.test.js \
+            test/cli.test.js
       - name: Focused presentation and authorization gates
         run: >-
           node --test
@@ -50,6 +53,7 @@ jobs:
           test/sessionRoutes.test.js
           test/helperControlRoutes.test.js
           test/pairingPageRoutes.test.js
+          test/cli.test.js
       - name: Strict type gate
         run: npm run check:types
       - name: Helper composition size
@@ -69,9 +73,10 @@ jobs:
             mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperPresentation.js \
             test/helperPresentation.test.js \
-            test/publicGatewayAuthorizationMatrix.test.js
+            test/publicGatewayAuthorizationMatrix.test.js \
+            test/cli.test.js
           git diff --cached --check
-          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = "4"
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = "5"
           git commit -m "Phase 3V: extract helper presentation"
           test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
       - name: Full Node/package gate
