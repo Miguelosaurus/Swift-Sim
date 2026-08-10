@@ -38,7 +38,7 @@ jobs:
 
           replacements = [
               (
-                  'import { ServeSimAdapter,\n  ServeSimError,\n} from "../src/serveSimAdapter.js";\n',
+                  'import {\n  ServeSimAdapter,\n  ServeSimError,\n} from "../src/serveSimAdapter.js";\n',
                   'import { ServeSimError } from "../src/serveSimAdapter.js";\n',
               ),
               ('import { ServeSimTransport } from "../src/transports/serveSimTransport.js";\n', ''),
