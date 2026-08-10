@@ -25,13 +25,15 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Apply reviewed Phase 3T candidate
+      - name: Apply reviewed Phase 3T candidate and debt ratchet
         shell: bash
         run: |
           git show origin/agent/tmp-phase3t-setup-status-v2:.github/tmp/phase3t-v2.py > /tmp/phase3t-v2.py
           git show origin/agent/tmp-phase3t-setup-status-v2:.github/tmp/phase3t-v2-typefix.py > /tmp/phase3t-v2-typefix.py
+          git show origin/agent/tmp-phase3t-setup-status-v2:.github/tmp/phase3t-v2-ratchet.py > /tmp/phase3t-v2-ratchet.py
           python3 /tmp/phase3t-v2.py
           python3 /tmp/phase3t-v2-typefix.py
+          python3 /tmp/phase3t-v2-ratchet.py
       - name: Focused behavior tests
         run: node --test test/setupStatusService.test.js test/compatibilityHelperImport.test.js test/confirmationRound5AsyncCommandGroup.test.js
       - name: Strict type gate
@@ -46,7 +48,7 @@ jobs:
         run: |
           git config user.name "Miguel"
           git config user.email "serram1994@gmail.com"
-          git add mac-helper/bin/swift-sim-helper.js mac-helper/src/commands/setupStatusService.js test/setupStatusService.test.js
+          git add mac-helper/bin/swift-sim-helper.js mac-helper/src/commands/setupStatusService.js test/setupStatusService.test.js scripts/architecture/baseline-policy.json
           git diff --cached --check
           git commit -m "Phase 3T: extract setup status runtime"
           test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
