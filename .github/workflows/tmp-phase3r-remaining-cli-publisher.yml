@@ -46,19 +46,30 @@ jobs:
               else:
                   lines.append(line)
           script = "\n".join(lines) + "\n"
+
           replacements = {
               'calls.push(["start-session", input]);': 'calls.push(["start-session", { ...(input as Record<string, unknown>) }]);',
               'calls.push(["build-device", input]);': 'calls.push(["build-device", { ...(input as Record<string, unknown>) }]);',
               'import { parseArgs } from "node:util";\n\nconst COMMANDS': 'import { parseArgs } from "node:util";\n\n/** @typedef {{ type: "string" | "boolean", short?: string, multiple?: boolean }} CompatibilityParseOption */\n\nconst COMMANDS',
               'function sessionOptions() {': '/** @returns {Record<string, CompatibilityParseOption>} */\nfunction sessionOptions() {',
               'function deviceBuildOptions() {': '/** @returns {Record<string, CompatibilityParseOption>} */\nfunction deviceBuildOptions() {',
-              '{ sessionId?: string; token?: string; remoteBaseUrl?: string }': '{ sessionId?: string | undefined; token?: string | undefined; remoteBaseUrl?: string | undefined }',
-              '{ sessionId?: string; token?: string }': '{ sessionId?: string | undefined; token?: string | undefined }',
           }
           for old, new in replacements.items():
               if script.count(old) != 1:
                   raise SystemExit(f"typing/normalization sentinel missing: {old}")
               script = script.replace(old, new, 1)
+
+          optional_replacements = [
+              ('sessionId?: string', 'sessionId?: string | undefined', 2),
+              ('token?: string', 'token?: string | undefined', 2),
+              ('remoteBaseUrl?: string', 'remoteBaseUrl?: string | undefined', 1),
+          ]
+          for old, new, expected_count in optional_replacements:
+              actual = script.count(old)
+              if actual != expected_count:
+                  raise SystemExit(f"optional type sentinel count for {old}: expected {expected_count}, got {actual}")
+              script = script.replace(old, new)
+
           Path("/tmp/publish.sh").write_text(script)
           PY
           bash /tmp/publish.sh
