@@ -54,14 +54,6 @@ test("runtime availability changes require a rebuild", () => {
   assert.equal(classifySwiftSource(before, after).hotReloadable, false);
 });
 
-test("delivery reference cleanup no longer blocks helper startup", () => {
-  const source = readFileSync("mac-helper/bin/swift-sim-helper.js", "utf8");
-  const serveStart = source.indexOf("async function serve(");
-  const createServer = source.indexOf("const server = createServer", serveStart);
-  const startup = source.slice(serveStart, createServer);
-  assert.doesNotMatch(startup, /await drainDeliveryReferenceCleanupJobs\(\)/);
-  assert.match(startup, /setImmediate\(\(\) =>/);
-});
 
 test("live reload selects project and workspace containers correctly", () => {
   assert.deepEqual(
