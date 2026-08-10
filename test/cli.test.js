@@ -58,63 +58,32 @@ test("Codex, Cursor, Claude, and OpenCode use the same packaged skill", () => {
 });
 
 test("Homebrew packages every agent marketplace", () => {
-  const formula = readFileSync(
-    new URL("../packaging/homebrew/swift-sim.rb.template", import.meta.url),
-    "utf8",
-  );
+  const formula = readFileSync(new URL("../packaging/homebrew/swift-sim.rb.template", import.meta.url), "utf8");
   assert.match(formula, /"\.agents", "\.claude-plugin", "\.cursor-plugin"/);
 });
 
 test("release versions and public plugin metadata stay synchronized", () => {
-  const project = readFileSync(
-    new URL("../Companion/SwiftSimCompanion.xcodeproj/project.pbxproj", import.meta.url),
-    "utf8",
-  );
+  const project = readFileSync(new URL("../Companion/SwiftSimCompanion.xcodeproj/project.pbxproj", import.meta.url), "utf8");
   const codex = readJSON("../plugins/swift-sim-companion/.codex-plugin/plugin.json");
   const cursor = readJSON("../plugins/swift-sim-companion/.cursor-plugin/plugin.json");
   const claude = readJSON("../plugins/swift-sim-companion/.claude-plugin/plugin.json");
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
-  assert.match(
-    project,
-    new RegExp(`MARKETING_VERSION = ${packageJSON.version.replaceAll(".", "\\.")};`),
-  );
+  assert.match(project, new RegExp(`MARKETING_VERSION = ${packageJSON.version.replaceAll(".", "\\.")};`));
   assert.equal(cursor.version, packageJSON.version);
   assert.equal(claude.version, packageJSON.version);
   assert.equal(codex.version.split("+")[0], packageJSON.version);
   assert.match(codex.homepage, /^https:\/\//);
   assert.match(codex.interface.privacyPolicyURL, /^https:\/\//);
-  assert.equal(
-    existsSync(new URL(`../plugins/swift-sim-companion/${codex.interface.logo}`, import.meta.url)),
-    true,
-  );
+  assert.equal(existsSync(new URL(`../plugins/swift-sim-companion/${codex.interface.logo}`, import.meta.url)), true);
   assert.doesNotMatch(JSON.stringify(codex), /local@example\.com/);
   assert.match(readme, /https:\/\/testflight\.apple\.com\/join\/HMUUFYNK/);
 });
 
 test("shared skill supports every mobile-capable local agent", () => {
-  const skill = readFileSync(
-    new URL(
-      "../plugins/swift-sim-companion/skills/remote-simulator-companion/SKILL.md",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  const references =
-    readFileSync(
-      new URL(
-        "../plugins/swift-sim-companion/skills/remote-simulator-companion/references/setup-and-updates.md",
-        import.meta.url,
-      ),
-      "utf8",
-    ) +
-    readFileSync(
-      new URL(
-        "../plugins/swift-sim-companion/skills/remote-simulator-companion/references/simulator-preview.md",
-        import.meta.url,
-      ),
-      "utf8",
-    );
+  const skill = readFileSync(new URL("../plugins/swift-sim-companion/skills/remote-simulator-companion/SKILL.md", import.meta.url), "utf8");
+  const references = readFileSync(new URL("../plugins/swift-sim-companion/skills/remote-simulator-companion/references/setup-and-updates.md", import.meta.url), "utf8")
+    + readFileSync(new URL("../plugins/swift-sim-companion/skills/remote-simulator-companion/references/simulator-preview.md", import.meta.url), "utf8");
   assert.match(skill, /Codex, Cursor, Claude Code, or OpenCode/);
   assert.match(skill, /OpenCode/);
   assert.match(references, /Cursor/);
@@ -206,11 +175,8 @@ test("setup installs the bundled Cursor skill", () => {
     assert.equal(report.deviceInstalls.agents.cursor.ready, true);
     assert.equal(report.actions.find((action) => action.id === "cursor")?.state, "configured");
     assert.equal(
-      readFileSync(
-        join(directory, "remote-simulator-companion", ".swift-sim-version"),
-        "utf8",
-      ).trim(),
-      packageJSON.version,
+      readFileSync(join(directory, "remote-simulator-companion", ".swift-sim-version"), "utf8").trim(),
+      packageJSON.version
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -265,11 +231,8 @@ test("setup installs the bundled OpenCode skill", () => {
     assert.equal(report.deviceInstalls.agents.opencode.ready, true);
     assert.equal(report.actions.find((action) => action.id === "opencode")?.state, "configured");
     assert.equal(
-      readFileSync(
-        join(directory, "skills", "remote-simulator-companion", ".swift-sim-version"),
-        "utf8",
-      ).trim(),
-      packageJSON.version,
+      readFileSync(join(directory, "skills", "remote-simulator-companion", ".swift-sim-version"), "utf8").trim(),
+      packageJSON.version
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });

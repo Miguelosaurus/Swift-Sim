@@ -6,7 +6,10 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { pathToFileURL, URL } from "node:url";
 import { ServeSimError } from "../src/serveSimAdapter.js";
-import { buildCapabilityExpiresAt, deviceDeliveryRequestAllowed } from "../src/deviceDelivery.js";
+import {
+  buildCapabilityExpiresAt,
+  deviceDeliveryRequestAllowed,
+} from "../src/deviceDelivery.js";
 import {
   buildManifest,
   deviceBuildLinks,
@@ -16,7 +19,11 @@ import {
   runDeviceBuild,
   terminateRecordedDeviceBuildWorker,
 } from "../src/deviceBuilder.js";
-import { badRequest, notFound, readJson } from "../src/http.js";
+import {
+  badRequest,
+  notFound,
+  readJson,
+} from "../src/http.js";
 import { buildCompanionLinks, buildPairingLinks, publicSession } from "../src/links.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { claimDeviceVerification } from "../src/deviceVerificationGate.js";
@@ -136,8 +143,7 @@ async function main(argv) {
     defaultPort: DEFAULT_PORT,
     services: {
       serve,
-      startSession: (values) =>
-        sessionRuntime.startOrReuseSession(values, { includeCodexMetadata: true }),
+      startSession: (values) => sessionRuntime.startOrReuseSession(values, { includeCodexMetadata: true }),
       companionLink({ sessionId, token, remoteBaseUrl }) {
         const session = store.get(sessionId);
         if (!session) throw new Error("Unknown session id.");
@@ -169,8 +175,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
     listBuilds: () => deviceBuildStore.list(),
     verifyBuild: (build) => verifyDeviceBuild(build),
-    saveVerification: (buildID, verification) =>
-      deviceBuildStore.saveVerification(buildID, verification),
+    saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
     nowMs: () => clock.now().getTime(),
     nowIso: () => clock.now().toISOString(),
   });
@@ -222,26 +227,23 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     getBuild: (buildID) => deviceBuildStore.get(buildID),
     saveBuild: (build) => deviceBuildStore.save(build),
     markInstallRequested: (buildID) => deviceBuildStore.markInstallRequested(buildID),
-    saveVerification: (buildID, verification) =>
-      deviceBuildStore.saveVerification(buildID, verification),
+    saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
     verifyBuild: verifyDeviceBuild,
     claimVerification: claimDeviceVerification,
     projectBuild: publicDeviceBuild,
     buildLinks: deviceBuildLinks,
     buildManifest,
-    renderInstallPage: (build) =>
-      renderDeviceBuildFallbackPage({
-        build,
-        links: deviceBuildLinks(build, build.remoteBaseUrl),
-      }),
+    renderInstallPage: (build) => renderDeviceBuildFallbackPage({
+      build,
+      links: deviceBuildLinks(build, build.remoteBaseUrl),
+    }),
     now: () => clock.now().getTime(),
   });
   const helperControlService = createHelperControlApplicationService({
     pairingTokenMatches,
-    association: () =>
-      appleAppSiteAssociation(
-        process.env.SWIFT_SIM_IOS_APP_ID || "TEAMID.dev.local.SwiftSimCompanion",
-      ),
+    association: () => appleAppSiteAssociation(
+      process.env.SWIFT_SIM_IOS_APP_ID || "TEAMID.dev.local.SwiftSimCompanion",
+    ),
     inspectServeSim: () => adapter.inspect(),
     defaultTransport: defaultTransportPreference,
     inspectTransports,
@@ -249,8 +251,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     pairingStatus: () => pairingStore.status(),
     currentPairing: () => pairingStore.current(),
     claimToken: bearerToken,
-    claimInvite: (invite, clientNonce, pairing) =>
-      pairingInviteStore.claim(invite, clientNonce, pairing),
+    claimInvite: (invite, clientNonce, pairing) => pairingInviteStore.claim(invite, clientNonce, pairing),
     rotatePairing: () => pairingStore.rotate(),
     pairingLinks: buildPairingLinks,
   });
@@ -266,11 +267,10 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     getSession: (sessionId) => store.get(sessionId),
     tokenMatches,
     projectSession: publicSession,
-    startSession: ({ remoteBaseUrl, ...values }) =>
-      sessionRuntime.startOrReuseSession({
-        ...values,
-        "remote-base-url": remoteBaseUrl,
-      }),
+    startSession: ({ remoteBaseUrl, ...values }) => sessionRuntime.startOrReuseSession({
+      ...values,
+      "remote-base-url": remoteBaseUrl,
+    }),
     stopSession: (sessionID) => sessionRuntime.stopSession(sessionID),
     sessionLinks: (session) => buildCompanionLinks(session, session.remoteBaseUrl),
     streamSession: (res, session) => sessionRuntime.proxyStream(res, session),
@@ -281,8 +281,9 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     gesture: (session, event) => sessionRuntime.sendGesture(session, event),
     multitouch: (session, event) => sessionRuntime.sendMultiTouch(session, event),
     control: (session, control) => sessionRuntime.sendControl(session, control),
-    sessionPage: (session) =>
-      renderSessionFallbackPage(buildCompanionLinks(session, session.remoteBaseUrl)),
+    sessionPage: (session) => renderSessionFallbackPage(
+      buildCompanionLinks(session, session.remoteBaseUrl),
+    ),
   });
   const requestListener = async (req, res) => {
     try {
@@ -296,19 +297,8 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
 
       if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
       if (await handleDeviceAppRoutes({ req, res, url, service: deviceAppService })) return;
-      if (
-        await handleDeviceBuildCommandRoutes({ req, res, url, service: deviceBuildCommandService })
-      )
-        return;
-      if (
-        await handleDeviceBuildCapabilityRoutes({
-          req,
-          res,
-          url,
-          service: deviceBuildCapabilityService,
-        })
-      )
-        return;
+      if (await handleDeviceBuildCommandRoutes({ req, res, url, service: deviceBuildCommandService })) return;
+      if (await handleDeviceBuildCapabilityRoutes({ req, res, url, service: deviceBuildCapabilityService })) return;
 
       if (await handlePairingPageRoutes({ req, res, url, service: pairingPageService })) return;
 
@@ -330,11 +320,9 @@ function verifyDeviceBuild(build) {
 }
 
 async function inspectTransports() {
-  return Object.fromEntries(
-    await Promise.all(
-      Object.entries(transports).map(async ([id, transport]) => [id, await transport.inspect()]),
-    ),
-  );
+  return Object.fromEntries(await Promise.all(
+    Object.entries(transports).map(async ([id, transport]) => [id, await transport.inspect()])
+  ));
 }
 
 function defaultTransportPreference() {
