@@ -47,8 +47,6 @@ import {
   badRequest,
   notFound,
   readJson,
-  text,
-  unauthorized,
 } from "../src/http.js";
 import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../src/links.js";
 import {
@@ -66,6 +64,9 @@ import { handleDeviceBuildCapabilityRoutes } from "../src/http/deviceBuildCapabi
 import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "../src/deviceBuildTaskTracker.js";
 import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
 import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
+import { createPairingPageApplicationService } from "../src/http/pairingPageApplicationService.js";
+import { renderPairingPage } from "../src/http/pairingPageRenderer.js";
+import { handlePairingPageRoutes } from "../src/http/pairingPageRoutes.js";
 import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
 import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
 
@@ -388,6 +389,13 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     rotatePairing: () => pairingStore.rotate(),
     pairingLinks: buildPairingLinks,
   });
+  const pairingPageService = createPairingPageApplicationService({
+    currentPairing: () => pairingStore.current(),
+    inspectInvite: (invite, pairing) => pairingInviteStore.inspect(invite, pairing),
+    tokenMatches: (token) => pairingStore.tokenMatches(token),
+    requestBase: externalRequestBase,
+    renderPage: renderPairingPage,
+  });
   const sessionRouteService = createSessionHttpApplicationService({
     pairingTokenMatches,
     getSession: (sessionId) => store.get(sessionId),
@@ -424,35 +432,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       if (await handleDeviceBuildCommandRoutes({ req, res, url, service: deviceBuildCommandService })) return;
       if (await handleDeviceBuildCapabilityRoutes({ req, res, url, service: deviceBuildCapabilityService })) return;
 
-      if (req.method === "GET" && url.pathname === "/pair") {
-        const token = url.searchParams.get("token") || "";
-        const invite = url.searchParams.get("invite") || "";
-        const pairing = pairingStore.current();
-        if (invite) {
-          const invitation = pairingInviteStore.inspect(invite, pairing);
-          if (!invitation || invitation.claimed) return badRequest(res, 410, "Pairing invitation expired or already used.");
-          return text(res, 200, pairingFallbackHtml({
-            pairing: { ...pairing, invite, expiresAt: invitation.expiresAt },
-            base: externalRequestBase(req, url),
-          }), "text/html; charset=utf-8", {
-            "cache-control": "no-store",
-            "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
-            "referrer-policy": "no-referrer",
-            "x-content-type-options": "nosniff",
-          });
-        }
-        if (!pairingStore.tokenMatches(token)) return unauthorized(res);
-        const base = externalRequestBase(req, url);
-        return text(res, 200, pairingFallbackHtml({
-          pairing: { ...pairing, token },
-          base,
-        }), "text/html; charset=utf-8", {
-          "cache-control": "no-store",
-          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
-          "referrer-policy": "no-referrer",
-          "x-content-type-options": "nosniff",
-        });
-      }
+      if (await handlePairingPageRoutes({ req, res, url, service: pairingPageService })) return;
 
       return notFound(res, "Not found.");
     } catch (error) {
@@ -1625,41 +1605,6 @@ function sessionFallbackHtml(session) {
     <a class="button" href="${escapeHtml(links.customScheme)}">Open in Swift Sim</a>
     <p>If that button does not switch apps, paste this link into Swift Sim:</p>
     <code>${escapeHtml(links.customScheme)}</code>
-  </main>
-</body>
-</html>`;
-}
-
-function pairingFallbackHtml({ pairing, base }) {
-  const links = buildPairingLinks(pairing, base);
-  const customScheme = links.customScheme;
-  const customSchemeScript = JSON.stringify(customScheme);
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connect Swift Sim</title>
-  <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f8fbff; color: #121417; }
-    main { max-width: 560px; margin: 0 auto; padding: 40px 22px; }
-    a.button { display: inline-block; margin-top: 18px; padding: 14px 18px; border-radius: 999px; color: white; background: #1677ff; text-decoration: none; font-weight: 700; }
-    code { display: block; margin-top: 18px; padding: 14px; border-radius: 14px; background: white; word-break: break-all; }
-  </style>
-  <script>
-    window.addEventListener("load", () => {
-      setTimeout(() => { window.location.href = ${customSchemeScript}; }, 250);
-    });
-  </script>
-</head>
-<body>
-  <main>
-    <h1>Pair with ${escapeHtml(pairing.macName || "this Mac")}</h1>
-    <p>Swift Sim will verify this Mac before saving it and open the Mac Connection screen automatically.</p>
-    <p>Both devices need internet access and the same Tailnet, but not the same Wi-Fi network or a USB cable.</p>
-    <a class="button" href="${escapeHtml(customScheme)}">Pair in Swift Sim</a>
-    <p>If Swift Sim does not open automatically, tap the button or paste this link in the app:</p>
-    <code>${escapeHtml(customScheme)}</code>
   </main>
 </body>
 </html>`;

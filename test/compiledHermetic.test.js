@@ -99,6 +99,7 @@ test("compiled public gateway exposes health and returns 404 for every private h
     assert.equal((await fetch(`http://127.0.0.1:${port}/health`)).status, 200);
     const routes = [
       ["GET", "/.well-known/apple-app-site-association"],
+      ["GET", "/pair"],
       ["GET", "/api/serve-sim"],
       ["GET", "/api/transports"],
       ["GET", "/api/pairing/status"],
