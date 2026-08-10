@@ -45,7 +45,6 @@ import {
 } from "../src/deviceBuilder.js";
 import {
   badRequest,
-  json,
   notFound,
   readJson,
   text,
@@ -57,11 +56,13 @@ import {
   tailscaleBackendsConflict,
 } from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
-import { serveFile } from "../src/fileServer.js";
+import { claimDeviceVerification } from "../src/deviceVerificationGate.js";
 import { createDeviceAppApplicationService } from "../src/http/deviceAppApplicationService.js";
 import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
 import { createDeviceBuildCommandApplicationService } from "../src/http/deviceBuildCommandApplicationService.js";
 import { handleDeviceBuildCommandRoutes } from "../src/http/deviceBuildCommandRoutes.js";
+import { createDeviceBuildCapabilityApplicationService } from "../src/http/deviceBuildCapabilityApplicationService.js";
+import { handleDeviceBuildCapabilityRoutes } from "../src/http/deviceBuildCapabilityRoutes.js";
 import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "../src/deviceBuildTaskTracker.js";
 import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
 import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
@@ -358,6 +359,21 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     saveBuild: (build) => deviceBuildStore.save(build),
     projectBuild: publicDeviceBuild,
   });
+  const deviceBuildCapabilityService = createDeviceBuildCapabilityApplicationService({
+    pairedMacEnabled: !deviceBuildsOnly,
+    pairingTokenMatches,
+    getBuild: (buildID) => deviceBuildStore.get(buildID),
+    saveBuild: (build) => deviceBuildStore.save(build),
+    markInstallRequested: (buildID) => deviceBuildStore.markInstallRequested(buildID),
+    saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
+    verifyBuild: verifyDeviceBuild,
+    claimVerification: claimDeviceVerification,
+    projectBuild: publicDeviceBuild,
+    buildLinks: deviceBuildLinks,
+    buildManifest,
+    renderInstallPage: deviceBuildFallbackHtml,
+    now: () => Date.now(),
+  });
   const helperControlService = createHelperControlApplicationService({
     pairingTokenMatches,
     association: appleAppSiteAssociation,
@@ -406,90 +422,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
       if (await handleDeviceAppRoutes({ req, res, url, service: deviceAppService })) return;
       if (await handleDeviceBuildCommandRoutes({ req, res, url, service: deviceBuildCommandService })) return;
-
-      const deviceBuildMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/);
-      if (deviceBuildMatch) {
-        const [, buildId, action] = deviceBuildMatch;
-        const build = deviceBuildStore.get(buildId);
-        if (!build) return notFound(res, "Unknown device build.");
-        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
-        const pairedMacTokenMatches = !deviceBuildsOnly && pairingTokenMatches(req, url);
-        if (!capabilityBuild && !pairedMacTokenMatches) return unauthorized(res);
-        const responseBuild = pairedMacTokenMatches ? build : capabilityBuild;
-        if (!pairedMacTokenMatches && deviceBuildExpired(responseBuild)) {
-          return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
-        }
-        if (req.method === "GET" && !action) {
-          return json(res, 200, publicDeviceBuild(responseBuild));
-        }
-        if (req.method === "GET" && action === "logs") {
-          return json(res, 200, { buildId, logs: build.logs.slice(-300) });
-        }
-        if (req.method === "GET" && action === "links") {
-          const remoteBaseUrl = responseBuild.remoteBaseUrl || `${url.protocol}//${url.host}`;
-          if (pairedMacTokenMatches && !build.remoteBaseUrl) {
-            build.remoteBaseUrl = remoteBaseUrl;
-            deviceBuildStore.save(build);
-          }
-          return json(res, 200, deviceBuildLinks(responseBuild, remoteBaseUrl));
-        }
-        if (req.method === "POST" && action === "install-request") {
-          const requestedBuild = deviceBuildStore.markInstallRequested(buildId);
-          return json(res, 200, publicDeviceBuild(
-            pairedMacTokenMatches ? requestedBuild : projectCapability(requestedBuild, responseBuild)
-          ));
-        }
-        if (req.method === "POST" && action === "verify") {
-          const verification = await verifyDeviceBuild(build);
-          const verifiedBuild = deviceBuildStore.saveVerification(buildId, verification);
-          return json(res, 200, publicDeviceBuild(
-            pairedMacTokenMatches ? verifiedBuild : projectCapability(verifiedBuild, responseBuild)
-          ));
-        }
-      }
-
-      const deviceArtifactMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/);
-      if (deviceArtifactMatch && req.method === "GET") {
-        const [, buildId, artifact] = deviceArtifactMatch;
-        const build = deviceBuildStore.get(buildId);
-        if (!build) return notFound(res, "Unknown device build.");
-        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
-        if (!capabilityBuild) return unauthorized(res);
-        if (deviceBuildExpired(capabilityBuild)) {
-          return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
-        }
-        if (build.state !== "ready") {
-          return badRequest(res, 409, "Device build is not ready yet.");
-        }
-        const remoteBaseUrl = capabilityBuild.remoteBaseUrl || `${url.protocol}//${url.host}`;
-        if (artifact === "manifest") {
-          return text(res, 200, buildManifest(capabilityBuild, remoteBaseUrl), "text/xml; charset=utf-8");
-        }
-        return serveFile(res, build.artifacts.ipaPath, {
-          contentType: "application/octet-stream",
-          filename: `${build.app.name || build.scheme || "App"}.ipa`,
-          notFound,
-        });
-      }
-
-      const deviceWebMatch = url.pathname.match(/^\/d\/([^/]+)$/);
-      if (deviceWebMatch && req.method === "GET") {
-        const build = deviceBuildStore.get(deviceWebMatch[1]);
-        if (!build) return notFound(res, "Unknown device build.");
-        const capabilityBuild = buildForCapabilityToken(build, url.searchParams.get("token"));
-        if (!capabilityBuild) return unauthorized(res);
-        if (deviceBuildExpired(capabilityBuild)) {
-          return badRequest(res, 410, "Device build install page expired. Create a fresh build.");
-        }
-        const responseBuild = capabilityBuild.remoteBaseUrl
-          ? capabilityBuild
-          : { ...capabilityBuild, remoteBaseUrl: `${url.protocol}//${url.host}` };
-        return text(res, 200, deviceBuildFallbackHtml(responseBuild), "text/html; charset=utf-8", {
-          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
-          "referrer-policy": "no-referrer",
-          "x-content-type-options": "nosniff",
-        });
-      }
+      if (await handleDeviceBuildCapabilityRoutes({ req, res, url, service: deviceBuildCapabilityService })) return;
 
       if (req.method === "GET" && url.pathname === "/pair") {
         const token = url.searchParams.get("token") || "";
@@ -1536,25 +1469,6 @@ function required(value, name) {
   return value;
 }
 
-function buildForCapabilityToken(build, token) {
-  if (!token) return null;
-  if (secretsMatch(build.token, token)) return build;
-  const capability = (Array.isArray(build.capabilities) ? build.capabilities : [])
-    .find((candidate) => secretsMatch(candidate?.token, token));
-  return capability ? projectCapability(build, capability) : null;
-}
-
-function projectCapability(build, capability) {
-  return {
-    ...build,
-    token: capability.token,
-    expiresAt: capability.expiresAt,
-    remoteBaseUrl: capability.remoteBaseUrl || "",
-    delivery: capability.delivery ? structuredClone(capability.delivery) : null,
-    installTTLMinutes: capability.installTTLMinutes || build.installTTLMinutes,
-  };
-}
-
 function secretsMatch(expectedValue, actualValue) {
   if (!expectedValue || !actualValue) return false;
   const expected = Buffer.from(String(expectedValue));
@@ -1675,11 +1589,6 @@ function bearerToken(req) {
 
 function tokenMatches(session, token) {
   return secretsMatch(session?.token, token);
-}
-
-function deviceBuildExpired(build) {
-  const expiresAt = Date.parse(build.expiresAt || "");
-  return Number.isFinite(expiresAt) && expiresAt < Date.now();
 }
 
 function sessionFallbackHtml(session) {
