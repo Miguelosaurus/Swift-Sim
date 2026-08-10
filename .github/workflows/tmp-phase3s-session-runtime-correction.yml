@@ -1,0 +1,108 @@
+name: Temporary Phase 3S Session Runtime Correction
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Reuse corrected Phase 3S publisher script
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_VERIFY_RUN: "31430219744"
+          BASE: b994cfa3d5a4f4a8aa5fe0aa8760a943745b2cb1
+          SOURCE_BRANCH: agent/architecture-consolidation-phase-3r-remaining-cli-parser
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3s-session-runtime-controller
+        run: |
+          set -euo pipefail
+          git show ff551d4a171aacdb62248ab046b3d384a94e0317:.github/workflows/tmp-phase3s-session-runtime-publisher.yml > /tmp/original.yml
+          python3 <<'PY'
+          from pathlib import Path
+
+          workflow = Path('/tmp/original.yml').read_text()
+          marker = '        run: |\n'
+          if workflow.count(marker) != 1:
+              raise SystemExit('expected one original publisher run block')
+          block = workflow.split(marker, 1)[1]
+          lines = []
+          for line in block.splitlines():
+              lines.append(line[10:] if line.startswith('          ') else line)
+          script = '\n'.join(lines) + '\n'
+
+          old_start = 'block_start = helper.find("async function fetchWithTimeout(url, timeoutMs) {\\n")'
+          new_start = 'block_start = helper.find("async function proxyStream(res, session) {\\n")'
+          if script.count(old_start) != 1:
+              raise SystemExit('session block-start correction sentinel missing')
+          script = script.replace(old_start, new_start, 1)
+
+          block_insert = 'module += indent(session_block, "  ")\n'
+          local_fetch = '''module += indent('''async function fetchWithTimeout(url, timeoutMs) {\n  const controller = new AbortController();\n  const timer = setTimeout(() => controller.abort(), timeoutMs);\n  try {\n    return await fetch(url, { signal: controller.signal });\n  } finally {\n    clearTimeout(timer);\n  }\n}\n\n''', "  ")\nmodule += indent(session_block, "  ")\n'''
+          if script.count(block_insert) != 1:
+              raise SystemExit('session module block insertion sentinel missing')
+          script = script.replace(block_insert, local_fetch, 1)
+
+          write_anchor = 'helper_path.write_text(helper)\n'
+          cleanup = '''helper_path.write_text(helper)\n\nround2_path = Path("test/confirmationRound2State.test.js")\nround2 = round2_path.read_text()\nround2 = round2.replace(\n    'import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";\\n',\n    'import { mkdtempSync, rmSync, writeFileSync } from "node:fs";\\n',\n    1,\n)\nlegacy_test = '''test("helper source persists failed starts and uses shared automatic transport matching", () => {\n  const source = readFileSync(\n    new URL("../mac-helper/bin/swift-sim-helper.js", import.meta.url),\n    "utf8",\n  );\n  assert.match(source, /sessionTransportMatches\\(existing\\.stream\\.transport, transportPreference\\)/);\n  assert.match(source, /session\\.stream\\.state = "failed"/);\n  assert.match(source, /transport: transportPreference/);\n});\n'''\nif round2.count(legacy_test) != 1:\n    raise SystemExit("legacy session source-text test sentinel missing")\nround2_path.write_text(round2.replace("\\n" + legacy_test, "\\n", 1))\n\nbaseline_path = Path("scripts/architecture/baseline-policy.json")\nbaseline = baseline_path.read_text()\nbaseline_entry = '      "test/confirmationRound2State.test.js": 1,\\n'\nif baseline.count(baseline_entry) != 1:\n    raise SystemExit("session source-text debt cap sentinel missing")\nbaseline_path.write_text(baseline.replace(baseline_entry, "", 1))\n\npackage_path = Path("package.json")\npackage = package_path.read_text()\nformat_anchor = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js \\"test/**/*.ts\\"'\nformat_replacement = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js mac-helper/src/sessionRuntimeController.js \\"test/**/*.ts\\"'\nif package.count(format_anchor) != 1:\n    raise SystemExit("package format coverage sentinel missing")\npackage = package.replace(format_anchor, format_replacement, 1)\nlint_anchor = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js test --ext .js,.ts'\nlint_replacement = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js mac-helper/src/sessionRuntimeController.js test --ext .js,.ts'\nif package.count(lint_anchor) != 1:\n    raise SystemExit("package lint coverage sentinel missing")\npackage_path.write_text(package.replace(lint_anchor, lint_replacement, 1))\n'''
+          if script.count(write_anchor) != 1:
+              raise SystemExit('helper write anchor missing')
+          script = script.replace(write_anchor, cleanup, 1)
+
+          prettier = 'npx prettier --write mac-helper/src/sessionRuntimeController.js test/sessionRuntimeController.test.js\n'
+          prettier_new = 'npx prettier --write package.json scripts/architecture/baseline-policy.json mac-helper/src/sessionRuntimeController.js test/sessionRuntimeController.test.js\n'
+          if script.count(prettier) != 1:
+              raise SystemExit('prettier command sentinel missing')
+          script = script.replace(prettier, prettier_new, 1)
+
+          add_anchor = '''git add \\
+  mac-helper/bin/swift-sim-helper.js \\
+  mac-helper/src/sessionRuntimeController.js \\
+  test/sessionRuntimeController.test.js\n'''
+          add_new = '''git add \\
+  mac-helper/bin/swift-sim-helper.js \\
+  mac-helper/src/sessionRuntimeController.js \\
+  package.json \\
+  scripts/architecture/baseline-policy.json \\
+  test/confirmationRound2State.test.js \\
+  test/sessionRuntimeController.test.js\n'''
+          if script.count(add_anchor) != 1:
+              raise SystemExit('staged-file sentinel missing')
+          script = script.replace(add_anchor, add_new, 1)
+
+          expected_anchor = '''expected="$(printf '%s\\n' \\
+  mac-helper/bin/swift-sim-helper.js \\
+  mac-helper/src/sessionRuntimeController.js \\
+  test/sessionRuntimeController.test.js | sort)"\n'''
+          expected_new = '''expected="$(printf '%s\\n' \\
+  mac-helper/bin/swift-sim-helper.js \\
+  mac-helper/src/sessionRuntimeController.js \\
+  package.json \\
+  scripts/architecture/baseline-policy.json \\
+  test/confirmationRound2State.test.js \\
+  test/sessionRuntimeController.test.js | sort)"\n'''
+          if script.count(expected_anchor) != 1:
+              raise SystemExit('expected-file-set sentinel missing')
+          script = script.replace(expected_anchor, expected_new, 1)
+
+          sentinel_anchor = "! grep -q 'async function proxyStream' mac-helper/bin/swift-sim-helper.js\n"
+          sentinel_new = sentinel_anchor + "grep -q 'async function fetchWithTimeout' mac-helper/bin/swift-sim-helper.js\ngrep -q 'async function fetchWithTimeout' mac-helper/src/sessionRuntimeController.js\n! grep -q 'helper source persists failed starts' test/confirmationRound2State.test.js\n! grep -q 'test/confirmationRound2State.test.js' scripts/architecture/baseline-policy.json\n"
+          if script.count(sentinel_anchor) != 1:
+              raise SystemExit('post-extraction sentinel anchor missing')
+          script = script.replace(sentinel_anchor, sentinel_new, 1)
+
+          Path('/tmp/publish.sh').write_text(script)
+          PY
+          bash /tmp/publish.sh
