@@ -48,12 +48,14 @@ jobs:
           printf '%s\n' \
             mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperServiceLifecycle.js \
+            scripts/architecture/baseline-policy.json \
             test/deliveryCleanupScheduler.test.js \
             test/helperServiceLifecycle.test.js \
             test/mainPostMergeIntegration.test.js | sort > /tmp/expected-files
           git add \
             mac-helper/bin/swift-sim-helper.js \
             mac-helper/src/http/helperServiceLifecycle.js \
+            scripts/architecture/baseline-policy.json \
             test/deliveryCleanupScheduler.test.js \
             test/helperServiceLifecycle.test.js \
             test/mainPostMergeIntegration.test.js
@@ -64,6 +66,13 @@ jobs:
           ! grep -q 'server.on("connection", (socket)' mac-helper/bin/swift-sim-helper.js
           ! grep -q 'helper maintenance routes startup and interval cleanup through the safe scheduler' test/deliveryCleanupScheduler.test.js
           ! grep -q 'delivery reference cleanup no longer blocks helper startup' test/mainPostMergeIntegration.test.js
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const policy = JSON.parse(fs.readFileSync('scripts/architecture/baseline-policy.json', 'utf8'));
+          const path = 'test/deliveryCleanupScheduler.test.js';
+          if (policy.baseline.sourceTextImplementationTests[path] !== 1) throw new Error('historical baseline changed');
+          if (path in policy.caps.sourceTextImplementationTests) throw new Error('stale source-text cap remains');
+          NODE
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "refactor: centralize helper service lifecycle"
@@ -91,6 +100,7 @@ jobs:
           path: |
             /tmp/product/mac-helper/bin/swift-sim-helper.js
             /tmp/product/mac-helper/src/http/helperServiceLifecycle.js
+            /tmp/product/scripts/architecture/baseline-policy.json
             /tmp/product/test/deliveryCleanupScheduler.test.js
             /tmp/product/test/helperServiceLifecycle.test.js
             /tmp/product/test/mainPostMergeIntegration.test.js
