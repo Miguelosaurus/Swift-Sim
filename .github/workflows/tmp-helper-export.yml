@@ -1,34 +1,41 @@
-name: Temporary Phase 3M Diagnostic
+name: Temporary Phase 3M Publisher
 
 on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  publish:
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: agent/tmp-phase3m-helper-export
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
           cache: npm
-      - name: Diagnose review-clean Phase 3M candidate
+      - name: Publish exact review-clean Phase 3M candidate
         shell: bash
         run: |
           set -euo pipefail
-          BASE_SHA='9a3be5757f696665b3b93ff8c1d6a1962f24c1aa'
           TARGET_BRANCH='agent/architecture-consolidation-phase-3m-pairing-page-route'
+          BASE_SHA='9a3be5757f696665b3b93ff8c1d6a1962f24c1aa'
+          CURRENT_SHA='52e2583e2c83cc65c07906c106413b4cdca75748'
           git fetch origin "$TARGET_BRANCH"
-          echo "target_head=$(git rev-parse "origin/$TARGET_BRANCH")"
-          echo "base_helper=$(git hash-object mac-helper/bin/swift-sim-helper.js)"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$CURRENT_SHA"
+          test "$(git hash-object mac-helper/bin/swift-sim-helper.js)" = 'e7271b009103be18267552fba464817d6b3a6d77'
+          test "$(git hash-object mac-helper/src/http/pairingPageApplicationService.js)" = 'dd54b9ed8b7fb3c2fa999410a92e4658dcd3d83d'
+          test "$(git hash-object mac-helper/src/http/pairingPageRenderer.js)" = '7f2f368fa0f53fb478d9c732482df32f5467fb67'
+          test "$(git hash-object mac-helper/src/http/pairingPageRoutes.js)" = 'bf05008472937ae16fb051eb141e6a87c67aaccf'
+          test "$(git hash-object test/pairingPageApplicationService.test.js)" = '70a2b23bb66d1879fb328aedcff8149893b0df30'
+          test "$(git hash-object test/pairingPageRenderer.test.js)" = '0aa89413859d33032f576e61aafed83311ee0f74'
+          test "$(git hash-object test/pairingPageRoutes.test.js)" = 'a121c6a31206a1ea46fc27f180b11f5a417da31a'
 
           python3 - <<'PY'
           from pathlib import Path
@@ -64,14 +71,16 @@ jobs:
           source = source.replace(old, new, 1)
 
           old = '  const sessionRouteService = createSessionHttpApplicationService({' 
-          new = '''  const pairingPageService = createPairingPageApplicationService({
-            currentPairing: () => pairingStore.current(),
-            inspectInvite: (invite, pairing) => pairingInviteStore.inspect(invite, pairing),
-            tokenMatches: (token) => pairingStore.tokenMatches(token),
-            requestBase: externalRequestBase,
-            renderPage: renderPairingPage,
-          });
-            const sessionRouteService = createSessionHttpApplicationService({'''
+          new = "\n".join([
+              "  const pairingPageService = createPairingPageApplicationService({",
+              "    currentPairing: () => pairingStore.current(),",
+              "    inspectInvite: (invite, pairing) => pairingInviteStore.inspect(invite, pairing),",
+              "    tokenMatches: (token) => pairingStore.tokenMatches(token),",
+              "    requestBase: externalRequestBase,",
+              "    renderPage: renderPairingPage,",
+              "  });",
+              "  const sessionRouteService = createSessionHttpApplicationService({",
+          ])
           assert source.count(old) == 1
           source = source.replace(old, new, 1)
 
@@ -100,24 +109,40 @@ jobs:
           PY
 
           npm ci >/dev/null
-          npx prettier --write \
-            mac-helper/src/http/pairingPageApplicationService.js \
-            mac-helper/src/http/pairingPageRenderer.js \
-            mac-helper/src/http/pairingPageRoutes.js \
+          npm run check:source
+          npm run check:types
+          npm run check:lint
+          node --test --test-concurrency=1 \
             test/pairingPageApplicationService.test.js \
             test/pairingPageRenderer.test.js \
-            test/pairingPageRoutes.test.js >/dev/null
+            test/pairingPageRoutes.test.js
 
           rm .github/workflows/tmp-helper-export.yml
-          echo "candidate_helper=$(git hash-object mac-helper/bin/swift-sim-helper.js)"
-          echo "candidate_hermetic=$(git hash-object test/compiledHermetic.test.js)"
-          echo '--- names ---'
-          git diff --name-only "$BASE_SHA" -- | sort
-          echo '--- helper numstat ---'
-          git diff --numstat "$BASE_SHA" -- mac-helper/bin/swift-sim-helper.js
-          echo '--- hermetic numstat ---'
-          git diff --numstat "$BASE_SHA" -- test/compiledHermetic.test.js
-          echo '--- status ---'
-          git status --short
-          echo '--- diff check ---'
+          test "$(git hash-object mac-helper/bin/swift-sim-helper.js)" = '677e175c41f46c4c6c97af8ccf0a37d4d22792fb'
+          test "$(git hash-object test/compiledHermetic.test.js)" = '1c52eeb5417575e03b6f96371dcdeeb0de2702ce'
           git diff --check "$BASE_SHA" --
+          ACTUAL=$(git diff --name-only "$BASE_SHA" -- | sort)
+          EXPECTED=$(cat <<'EOF'
+          mac-helper/bin/swift-sim-helper.js
+          mac-helper/src/http/pairingPageApplicationService.js
+          mac-helper/src/http/pairingPageRenderer.js
+          mac-helper/src/http/pairingPageRoutes.js
+          test/compiledHermetic.test.js
+          test/pairingPageApplicationService.test.js
+          test/pairingPageRenderer.test.js
+          test/pairingPageRoutes.test.js
+          EOF
+          )
+          test "$ACTUAL" = "$EXPECTED"
+          test "$(git diff --numstat "$BASE_SHA" -- mac-helper/bin/swift-sim-helper.js)" = $'11\t66\tmac-helper/bin/swift-sim-helper.js'
+          test "$(git diff --numstat "$BASE_SHA" -- test/compiledHermetic.test.js)" = $'1\t0\ttest/compiledHermetic.test.js'
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          TREE=$(git write-tree)
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$CURRENT_SHA"
+          COMMIT=$(printf '%s\n' 'Phase 3M: extract pairing page route' | git commit-tree "$TREE" -p "$BASE_SHA")
+          git push --force-with-lease="refs/heads/$TARGET_BRANCH:$CURRENT_SHA" origin "$COMMIT:refs/heads/$TARGET_BRANCH"
+          echo "Published review-clean Phase 3M candidate $COMMIT"
