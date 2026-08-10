@@ -18,4 +18,4 @@ jobs:
           node-version: 24
           cache: npm
       - name: Apply correction and run focused type oracle
-        run: python3 .github/tmp/phase3s-typed-controller-oracle.py
+        run: python3 .github/tmp/phase3s-typed-controller-oracle-v2.py
