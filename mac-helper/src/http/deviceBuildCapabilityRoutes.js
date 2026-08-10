@@ -29,16 +29,8 @@ export const deviceBuildCapabilityAuthorizationMatrix = Object.freeze([
     "public-delivery-or-private-helper",
     "build-capability-or-paired-mac",
   ),
-  route(
-    "GET /api/device-builds/:id/artifact/ipa",
-    "public-delivery",
-    "build-capability",
-  ),
-  route(
-    "GET /api/device-builds/:id/artifact/manifest",
-    "public-delivery",
-    "build-capability",
-  ),
+  route("GET /api/device-builds/:id/artifact/ipa", "public-delivery", "build-capability"),
+  route("GET /api/device-builds/:id/artifact/manifest", "public-delivery", "build-capability"),
   route("GET /d/:id", "public-delivery", "build-capability"),
 ]);
 
@@ -84,9 +76,7 @@ function matchRoute(method, pathname) {
   if (method === "GET") {
     const page = pathname.match(/^\/d\/([^/]+)$/);
     if (page?.[1]) return { operation: "install-page", buildID: page[1] };
-    const artifact = pathname.match(
-      /^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/,
-    );
+    const artifact = pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/);
     if (artifact?.[1] && artifact[2]) {
       return { operation: "artifact", buildID: artifact[1], artifact: artifact[2] };
     }

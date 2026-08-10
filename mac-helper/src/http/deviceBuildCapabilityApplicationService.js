@@ -48,8 +48,7 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
      */
     async execute(input) {
       const pairedMac =
-        dependencies.pairedMacEnabled &&
-        dependencies.pairingTokenMatches(input.request, input.url);
+        dependencies.pairedMacEnabled && dependencies.pairingTokenMatches(input.request, input.url);
       const build = dependencies.getBuild(input.buildID);
       if (!build) return pairedMac ? notFound("Unknown device build.") : unauthorized();
 
