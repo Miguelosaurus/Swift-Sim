@@ -20,7 +20,6 @@ import {
 import {
   normalizeDeviceBuildTTLMinutes,
 } from "../src/deviceBuildDefaults.js";
-import { printQRCode } from "../src/terminalQRCode.js";
 import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";
 import {
   buildManifest,
@@ -60,6 +59,7 @@ import { handlePairingPageRoutes } from "../src/http/pairingPageRoutes.js";
 import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
 import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
 import { createCompatibilityHelperRuntime } from "../src/infrastructure/compatibilityHelperRuntime.js";
+import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -78,6 +78,7 @@ let transports;
 let compatibilityRuntimeInitialized = false;
 
 export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
+  if (await runExtractedHelperCommand(argv)) return;
   initializeCompatibilityRuntime();
   await main(argv);
 }
@@ -153,50 +154,6 @@ async function main(argv) {
     return;
   }
 
-  if (command === "pair") {
-    const { values } = parseArgs({
-      args: rest,
-      options: {
-        "remote-base-url": { type: "string" },
-        "mac-name": { type: "string" },
-        rotate: { type: "boolean" },
-        qr: { type: "boolean" },
-        "ttl-minutes": { type: "string" },
-      },
-    });
-    let pairing = values.rotate ? pairingStore.rotate() : pairingStore.current();
-    pairing = pairingStore.updateMacName(values["mac-name"]);
-    const ttlMinutes = values["ttl-minutes"] === undefined
-      ? undefined
-      : Number(values["ttl-minutes"]);
-    if (ttlMinutes !== undefined && (!Number.isFinite(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 15)) {
-      throw new Error("Pairing invite TTL must be between 1 and 15 minutes.");
-    }
-    if (ttlMinutes !== undefined && !values.qr) {
-      throw new Error("--ttl-minutes requires --qr.");
-    }
-    const invite = values.qr
-      ? pairingInviteStore.create({
-        pairing,
-        ttlMs: ttlMinutes === undefined ? undefined : ttlMinutes * 60 * 1000,
-      })
-      : null;
-    const links = buildPairingLinks(invite
-      ? { ...pairing, invite: invite.invite, expiresAt: invite.expiresAt }
-      : pairing, values["remote-base-url"]);
-    if (values.qr) {
-      console.log(`Pair with ${pairing.macName}`);
-      console.log(`Expires: ${invite.expiresAt}`);
-      printQRCode(links.universalLink || links.customScheme);
-      console.log(`Pairing URL: ${links.universalLink || links.customScheme}`);
-    } else {
-      const output = { macName: pairing.macName, links };
-      if (invite) output.expiresAt = invite.expiresAt;
-      console.log(JSON.stringify(output, null, 2));
-    }
-    return;
-  }
-
   if (command === "setup-status") {
     const { values } = parseArgs({
       args: rest,
@@ -223,31 +180,6 @@ async function main(argv) {
     return;
   }
 
-  if (command === "list-apps") {
-    const { values } = parseArgs({
-      args: rest,
-      options: { archived: { type: "boolean" } },
-    });
-    console.log(JSON.stringify({
-      apps: deviceBuildStore.listApps({ includeArchived: Boolean(values.archived) }).map(publicDeviceApp),
-    }, null, 2));
-    return;
-  }
-
-  if (command === "archive-app") {
-    const { values } = parseArgs({
-      args: rest,
-      options: {
-        "app-id": { type: "string" },
-        restore: { type: "boolean" },
-      },
-    });
-    const app = deviceBuildStore.setAppArchived(required(values["app-id"], "app-id"), !values.restore);
-    if (!app) throw new Error("Unknown app id.");
-    console.log(JSON.stringify(publicDeviceApp(app), null, 2));
-    return;
-  }
-
   if (command === "delete-app") {
     const { values } = parseArgs({
       args: rest,
@@ -264,29 +196,6 @@ async function main(argv) {
     return;
   }
 
-  if (command === "verify-device-build") {
-    const { values } = parseArgs({
-      args: rest,
-      options: { "build-id": { type: "string" } },
-    });
-    const build = deviceBuildStore.get(required(values["build-id"], "build-id"));
-    if (!build) throw new Error("Unknown device build.");
-    const verification = await verifyDeviceBuild(build);
-    const verifiedBuild = deviceBuildStore.saveVerification(build.id, verification);
-    console.log(JSON.stringify(publicDeviceBuild(verifiedBuild), null, 2));
-    return;
-  }
-
-  if (command === "device-delivery-status") {
-    console.log(JSON.stringify(deviceDelivery.status(), null, 2));
-    return;
-  }
-
-  if (command === "device-delivery-stop") {
-    console.log(JSON.stringify({ stopped: deviceDelivery.stop() }, null, 2));
-    return;
-  }
-
   if (command === "stop-session") {
     const { values } = parseArgs({
       args: rest,
@@ -300,11 +209,6 @@ async function main(argv) {
     ensureToken(session, values.token);
     await stopSession(session.id);
     console.log(JSON.stringify({ stopped: true, sessionId: session.id }));
-    return;
-  }
-
-  if (command === "serve-sim-info") {
-    console.log(JSON.stringify(await adapter.inspect(), null, 2));
     return;
   }
 

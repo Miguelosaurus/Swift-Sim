@@ -24,6 +24,27 @@ test("importing the compatibility helper is inert", () => {
   }
 });
 
+test("direct compatibility execution uses extracted commands before full runtime composition", () => {
+  const home = mkdtempSync(join(tmpdir(), "swift-sim-helper-extracted-direct-"));
+  try {
+    const result = spawnSync(process.execPath, [helper.pathname, "serve-sim-info"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: home,
+        SWIFT_SIM_SERVE_SIM_COMMAND: "/usr/bin/false",
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.command, "/usr/bin/false");
+    assert.equal(existsSync(join(home, ".swift-sim")), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("direct compatibility execution still runs the command loop from an empty home", () => {
   const home = mkdtempSync(join(tmpdir(), "swift-sim-helper-direct-"));
   try {
@@ -34,6 +55,7 @@ test("direct compatibility execution still runs the command loop from an empty h
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Unknown command: not-a-command/);
     assert.equal(existsSync(join(home, ".swift-sim")), true);
+    assert.equal(existsSync(join(home, ".swift-sim", "pairing.json")), false);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
