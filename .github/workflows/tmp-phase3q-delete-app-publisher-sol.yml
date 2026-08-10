@@ -1,0 +1,161 @@
+name: Temporary Phase 3Q Delete App Publisher Sol
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build, validate, and publish exact Phase 3Q candidate
+        shell: bash
+        env:
+          BASE: c92668eee8f17c96346279cc75fc0dd9d5492415
+          SOURCE_BRANCH: agent/architecture-consolidation-phase-3p-explicit-compatibility-runtime
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3q-delete-app-cli
+        run: |
+          set -euo pipefail
+          remote_sha() {
+            git ls-remote origin "refs/heads/$1" | awk '{print $1}'
+          }
+          test "$(remote_sha "$SOURCE_BRANCH")" = "$BASE"
+          test "$(remote_sha "$PRODUCT_BRANCH")" = "$BASE"
+          git worktree add /tmp/product "$BASE"
+          cd /tmp/product
+          npm ci
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one anchor, found {count}")
+              return text.replace(old, new, 1)
+
+          command_path = Path("mac-helper/src/commands/deviceAppCommands.js")
+          command = command_path.read_text()
+          command = replace_once(
+              command,
+              '  return command === "list-apps" || command === "archive-app" || command === "verify-device-build";\n',
+              '''  return (\n    command === "list-apps" ||\n    command === "archive-app" ||\n    command === "delete-app" ||\n    command === "verify-device-build"\n  );\n''',
+              "device app support set",
+          )
+          command = replace_once(
+              command,
+              '''    writeLine(JSON.stringify(app, null, 2));\n    return true;\n  }\n\n  const verifyDeviceBuild = requiredVerifyDeviceBuildMethod(services);\n''',
+              '''    writeLine(JSON.stringify(app, null, 2));\n    return true;\n  }\n\n  if (command === "delete-app") {\n    const deleteApp = requiredDeleteAppMethod(services);\n    const { values } = parseArgs({\n      args,\n      options: {\n        "app-id": { type: "string" },\n        "keep-artifacts": { type: "boolean" },\n      },\n    });\n    const appID = required(optionString(values, "app-id"), "app-id");\n    const deleted = await deleteApp({\n      appID,\n      deleteArtifacts: !optionBoolean(values, "keep-artifacts"),\n    });\n    if (!deleted) throw new Error("Unknown app id.");\n    writeLine(JSON.stringify({ deleted: true, appId: appID }, null, 2));\n    return true;\n  }\n\n  const verifyDeviceBuild = requiredVerifyDeviceBuildMethod(services);\n''',
+              "delete-app dispatch insertion",
+          )
+          command = replace_once(
+              command,
+              '''/** @param {Record<string, unknown>} services */\nfunction requiredVerifyDeviceBuildMethod(services) {\n''',
+              '''/** @param {Record<string, unknown>} services */\nfunction requiredDeleteAppMethod(services) {\n  const candidate = services?.deleteApp;\n  if (typeof candidate !== "function") {\n    throw new TypeError("Device app command services must provide deleteApp.");\n  }\n  return /** @type {(input: { appID: string, deleteArtifacts: boolean }) => Promise<boolean>} */ (candidate);\n}\n\n/** @param {Record<string, unknown>} services */\nfunction requiredVerifyDeviceBuildMethod(services) {\n''',
+              "delete-app service validator",
+          )
+          command_path.write_text(command)
+
+          runtime_path = Path("mac-helper/src/helperCliRuntime.js")
+          runtime = runtime_path.read_text()
+          runtime = replace_once(
+              runtime,
+              'import { dispatchHelperCliCommand, helperCliCommandIsExtracted } from "./helperCliDispatcher.js";\n',
+              'import { dispatchHelperCliCommand, helperCliCommandIsExtracted } from "./helperCliDispatcher.js";\nimport { DeliveryMaintenanceCoordinator } from "./http/deliveryMaintenanceCoordinator.js";\n',
+              "delivery maintenance import",
+          )
+          runtime = replace_once(
+              runtime,
+              '''  if (command === "list-apps" || command === "archive-app") {\n    stateRootStore(factories);\n    return createDeviceAppServices(factories);\n  }\n  if (command === "verify-device-build") {\n''',
+              '''  if (command === "list-apps" || command === "archive-app") {\n    stateRootStore(factories);\n    return createDeviceAppServices(factories);\n  }\n  if (command === "delete-app") {\n    stateRootStore(factories);\n    return createDeleteAppServices(factories);\n  }\n  if (command === "verify-device-build") {\n''',
+              "delete-app runtime dispatch",
+          )
+          runtime = replace_once(
+              runtime,
+              '''/**\n * @param {Record<string, unknown>} factories\n * @returns {DeviceVerificationServices}\n */\nfunction createDeviceBuildVerificationServices(factories) {\n''',
+              '''/**\n * @param {Record<string, unknown>} factories\n * @returns {{ deleteApp(input: { appID: string, deleteArtifacts: boolean }): Promise<boolean> }}\n */\nfunction createDeleteAppServices(factories) {\n  const buildStore = /** @type {DeviceBuildStore} */ (\n    /** @type {unknown} */ (requiredFactory(factories, "createDeviceBuildStore")())\n  );\n  const deviceDelivery = /** @type {DeviceDeliveryAdapter} */ (\n    /** @type {unknown} */ (requiredFactory(factories, "createDeviceDelivery")())\n  );\n  const deliveryMaintenance = new DeliveryMaintenanceCoordinator();\n  return {\n    async deleteApp({ appID, deleteArtifacts }) {\n      const deleted = buildStore.deleteApp(appID, { deleteArtifacts });\n      if (!deleted) return false;\n      await deliveryMaintenance.drainCleanupJobsOnce({\n        deviceBuildStore: buildStore,\n        deviceDelivery,\n      });\n      return true;\n    },\n  };\n}\n\n/**\n * @param {Record<string, unknown>} factories\n * @returns {DeviceVerificationServices}\n */\nfunction createDeviceBuildVerificationServices(factories) {\n''',
+              "delete-app service composition",
+          )
+          runtime_path.write_text(runtime)
+
+          test_path = Path("test/helperCliDispatcher.test.ts")
+          test_source = test_path.read_text()
+          test_source = replace_once(
+              test_source,
+              '''    archiveApp: ({ appID, archived }: { appID: string; archived: boolean }) => ({\n      id: appID,\n      archived,\n    }),\n    verifyDeviceBuild: async (buildID: string) => ({ id: buildID, state: "ready" }),\n''',
+              '''    archiveApp: ({ appID, archived }: { appID: string; archived: boolean }) => ({\n      id: appID,\n      archived,\n    }),\n    deleteApp: async ({ appID }: { appID: string; deleteArtifacts: boolean }) => appID !== "missing",\n    verifyDeviceBuild: async (buildID: string) => ({ id: buildID, state: "ready" }),\n''',
+              "default delete-app test service",
+          )
+          test_source = replace_once(
+              test_source,
+              '''    "list-apps",\n    "archive-app",\n    "verify-device-build",\n''',
+              '''    "list-apps",\n    "archive-app",\n    "delete-app",\n    "verify-device-build",\n''',
+              "extracted command ownership",
+          )
+          test_source = replace_once(
+              test_source,
+              '''    "start-session",\n    "build-device",\n    "delete-app",\n    "stop-session",\n''',
+              '''    "start-session",\n    "build-device",\n    "stop-session",\n''',
+              "compatibility command ownership",
+          )
+          test_source = replace_once(
+              test_source,
+              '''    ["list-apps", ["state-root", "device-build-store"]],\n    ["archive-app", ["state-root", "device-build-store"]],\n    ["verify-device-build", ["state-root", "device-build-store", "device-inventory"]],\n''',
+              '''    ["list-apps", ["state-root", "device-build-store"]],\n    ["archive-app", ["state-root", "device-build-store"]],\n    ["delete-app", ["state-root", "device-build-store", "device-delivery"]],\n    ["verify-device-build", ["state-root", "device-build-store", "device-inventory"]],\n''',
+              "delete-app selective runtime expectation",
+          )
+          test_anchor = 'test("helper bootstrap loads only the selected runtime after boundaries", async () => {\n'
+          delete_test = '''test("delete-app preserves artifact policy and drains queued delivery references", async () => {\n  const events: string[] = [];\n  const factories: Record<string, unknown> = {\n    ...runtimeFactories(events),\n    createDeviceBuildStore() {\n      events.push("device-build-store");\n      return {\n        deleteApp(appID: string, { deleteArtifacts }: { deleteArtifacts: boolean }) {\n          events.push(`delete:${appID}:${deleteArtifacts}`);\n          return appID !== "missing";\n        },\n        listDeliveryReferenceCleanupJobs() {\n          events.push("list-cleanup");\n          return [{\n            id: "cleanup-1",\n            generation: "generation-1",\n            referenceID: "build:build-1",\n            createdAt: "2026-08-05T12:00:00.000Z",\n          }];\n        },\n        completeDeliveryReferenceCleanupJob(jobID: string) {\n          events.push(`complete:${jobID}`);\n          return true;\n        },\n        failDeliveryReferenceCleanupJob(jobID: string, error: unknown) {\n          events.push(`fail:${jobID}:${error instanceof Error ? error.message : String(error)}`);\n          return true;\n        },\n        list: () => [],\n      };\n    },\n    createDeviceDelivery() {\n      events.push("device-delivery");\n      return {\n        stopGeneration(generation: string, { referenceID }: { referenceID: string }) {\n          events.push(`release:${generation}:${referenceID}`);\n          return true;\n        },\n        statuses: () => [],\n      };\n    },\n  };\n  const deleteServices = createExtractedHelperServices("delete-app", { factories });\n  const lines: string[] = [];\n  assert.equal(\n    await dispatchHelperCliCommand({\n      argv: ["delete-app", "--app-id", "app-1", "--keep-artifacts"],\n      services: deleteServices,\n      writeLine: (line) => lines.push(line),\n    }),\n    true,\n  );\n  assert.deepEqual(JSON.parse(lines.join("\\n")), { deleted: true, appId: "app-1" });\n  assert.deepEqual(events, [\n    "state-root",\n    "device-build-store",\n    "device-delivery",\n    "delete:app-1:false",\n    "list-cleanup",\n    "release:generation-1:build:build-1",\n    "complete:cleanup-1",\n  ]);\n\n  await assert.rejects(\n    dispatchHelperCliCommand({\n      argv: ["delete-app", "--app-id", "missing"],\n      services: services({ deleteApp: async () => false }),\n    }),\n    /Unknown app id\\./,\n  );\n});\n\n'''
+          if test_source.count(test_anchor) != 1 or "delete-app preserves artifact policy" in test_source:
+              raise SystemExit("delete-app test anchor missing or duplicate")
+          test_source = test_source.replace(test_anchor, delete_test + test_anchor, 1)
+          test_path.write_text(test_source)
+          PY
+
+          npx prettier --write \
+            mac-helper/src/commands/deviceAppCommands.js \
+            mac-helper/src/helperCliRuntime.js \
+            test/helperCliDispatcher.test.ts
+          git diff --check
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            mac-helper/src/commands/deviceAppCommands.js \
+            mac-helper/src/helperCliRuntime.js \
+            test/helperCliDispatcher.test.ts
+
+          files="$(git diff --cached --name-only "$BASE" | sort)"
+          expected="$(printf '%s\n' \
+            mac-helper/src/commands/deviceAppCommands.js \
+            mac-helper/src/helperCliRuntime.js \
+            test/helperCliDispatcher.test.ts | sort)"
+          test "$files" = "$expected"
+          git diff --cached --check
+          grep -q 'command === "delete-app"' mac-helper/src/commands/deviceAppCommands.js
+          grep -q 'return createDeleteAppServices(factories)' mac-helper/src/helperCliRuntime.js
+          grep -q 'delete-app preserves artifact policy' test/helperCliDispatcher.test.ts
+
+          git commit -m "Phase 3Q: extract delete-app CLI command"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+
+          node --test --test-concurrency=1 test/helperCliDispatcher.test.ts
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+          test "$(remote_sha "$SOURCE_BRANCH")" = "$BASE"
+          test "$(remote_sha "$PRODUCT_BRANCH")" = "$BASE"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "Published Phase 3Q candidate $candidate"
