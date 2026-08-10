@@ -11,7 +11,7 @@ The active execution control is [the batched-execution amendment](ARCHITECTURE_C
 | 0 | Baseline and guardrails | Merged | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | `4dfa15f` | `2a2239c`; merge `6f356df` | Existing debt is baselined and decrease-only |
 | 1 | TypeScript and package foundation | Merged | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | `6f356df` | `2151d35`; merge `820ff2e` | Mixed JS/TS transition remains; compiled `dist` is runtime output |
 | 2 | Explicit infrastructure primitives | Checkpoint 1 hosted-green; draft stack unmerged | [#26–#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | `820ff2e` | `d441798` | Weak delivery identity and unmigrated command/process call sites |
-| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3K; draft stack unmerged | [#34–#40, #56–#59](https://github.com/Miguelosaurus/Swift-Sim/pull/59) | Phase 2 final metadata / `f21e344` | Corrective implementation `9a17315` | The 1,852-line compatibility helper still owns device-build capability/artifact/install-page, pairing-page, lifecycle, process, persistence, and composition work; the Phase 3 gate is not met |
+| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3M; draft stack unmerged | [#34–#40, #56–#60, #63](https://github.com/Miguelosaurus/Swift-Sim/pull/63) | Phase 2 final metadata / `f21e344` | Corrective implementation `ba97946` | HTTP route families are extracted; lifecycle/reconciliation/process behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |
 | 4 | Repository interfaces and SQLite migration | Pairing tranche implemented through E4; full phase incomplete and draft | [#41, #44–#50, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | Phase 3G / `7367fa2` | Pairing rollback implementation `7ce31e6`; final E4 head `b1fac0d` | Non-pairing domain repositories, production composition, doctor/export, previous-release upgrade, and full cutover evidence remain required |
 | 5 | Preload removal | Not started | — | — | — | Checkpoint 2 required before Phase 6 |
 | 6 | Live reload module split | Not started | — | — | — | — |
@@ -243,10 +243,10 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 
 ## Phase 3 — Helper and HTTP decomposition
 
-- Status: Partially implemented in draft PRs #34–#40 and corrective PRs #56–#59; the master-plan Phase 3 gate is not met.
+- Status: Partially implemented in draft PRs #34–#40 and corrective PRs #56–#60 and #63; the HTTP-route decomposition portion is complete, but the master-plan Phase 3 gate is not met.
 - Stack base: Checkpoint 1 final metadata head `f21e344ea18eb0a976630a4ce38cf52bf30a3f47`.
 - Current Phase 3G head: `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
-- Corrective active-ancestry implementation head: PR #59 / `9a17315`, stacked after the Phase 4 pairing tranche, helper-state reliability correction, and PRs #56–#58 so validated history remains intact.
+- Corrective active-ancestry implementation head: PR #63 / `ba97946`, stacked after the Phase 4 pairing tranche, helper-state reliability correction, and PRs #56–#60 so validated history remains intact. Temporary formatter/publisher PRs #61 and #62 are closed, unmerged, and are not part of product ancestry.
 
 ### Implemented slices
 
@@ -257,6 +257,8 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 - #57 extracts seven helper-control routes: health, association, serve-sim inspection, transport inspection, pairing status, pairing claim, and pairing rotation. Route modules own matching and HTTP projection; the application service owns authorization, input, store access, and result projection through one `execute` call. The compiled public gateway exposes health but returns 404 for every other extracted route.
 - #58 extracts six paired-Mac device-build/app catalogue and mutation routes. The application service owns authorization, persistence access, rebuild deduplication, recipe validation, build start, archive/delete mutation, and delivery-reference cleanup; the route owns matching and HTTP projection through one `execute` call.
 - #59 extracts paired-Mac device-build start and renewal commands. The application service owns authorization, input projection, persistence orchestration, renewal rollback, and public projection; lazy keyed tracking coalesces a shared renewal lease and prevents a stale completion from deleting a replacement task. The private `start` command is excluded from public capability dispatch so the isolated gateway returns 404 rather than an authentication response.
+- #60 extracts public device-build capability, artifact, manifest, install-request, verification, links, logs, and install-page routing behind an explicit application-service/route boundary while preserving paired-Mac versus capability authorization and response projection.
+- #63 extracts the final embedded `GET /pair` HTML route behind a pairing-page application service, renderer, and route boundary, preserving invite precedence, token authorization, request-origin handling, HTML escaping, exact security headers, and public-gateway 404 isolation.
 
 ### Corrective Phase 3H evidence
 
@@ -285,14 +287,26 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 - PR #59 is open, draft, mergeable, and unmerged on PR #58 final head `98081e4`. Its natural Verify run `31322722122` was in progress when this ledger entry was written.
 - This remains a bounded corrective slice. The 1,852-line compatibility helper still owns public build capability/artifact/install-page routes, the pairing HTML route, lifecycle/process work, persistence construction, and module-global composition.
 
+### Corrective Phase 3L evidence
+
+- PR #60 implementation `61dbb05` extracted the public device-build capability/artifact/install-page family. Its first hosted run exposed only repository Prettier formatting in the two new production modules; the normal follow-up `9a3be575` applied the exact Prettier 3.7.0 output without rewriting history.
+- Authoritative Verify run `31417609440` (#760) passed at exact head `9a3be575`: Node 24 `npm run check`, isolated clean Homebrew installation/service, workflow YAML, release-shell syntax, and iOS Simulator tests all passed.
+- This remained a bounded corrective slice. The compatibility helper was reduced to 1,761 lines but still owned the pairing HTML route plus lifecycle/reconciliation/process behavior, persistence construction, module-global composition, and remaining CLI composition.
+
+### Corrective Phase 3M evidence
+
+- PR #63 implementation `ba97946` extracted the final embedded `GET /pair` route into an explicit application service, renderer, and route boundary. Invitation precedence, expired/claimed behavior, pairing-token authorization, request-origin-derived links, HTML escaping, content type, cache/CSP/referrer/nosniff headers, and device-build-only public-gateway 404 behavior are covered through stable seams.
+- Focused adversarial review found no remaining correctness, authorization, projection, escaping, side-effect-ordering, or public-gateway-isolation finding. Authoritative Verify run `31420399403` (#763) passed at exact implementation head `ba97946`: full Node 24 checks, isolated clean Homebrew installation/service, workflow YAML, release-shell syntax, and iOS Simulator tests all passed.
+- The current HTTP surface is now routed through explicit route/application-service boundaries with authorization metadata and compiled public-gateway isolation evidence. Phase 3 is still incomplete because the helper entrypoint owns service lifecycle/reconciliation, module-global runtime construction, direct orchestration/process functions outside route modules, and remaining CLI composition.
+
 ### Gate correction
 
-The 2026-08-09 independent stack audit found that PR #40's earlier Phase 3 completion claim was broader than the implemented scope. After corrective PRs #56–#59, `mac-helper/bin/swift-sim-helper.js` remains a 1,852-line compatibility implementation that constructs module-global stores, owns the remaining helper router, directly imports child-process APIs, and combines build, Simulator, delivery, recovery, persistence, and lifecycle behavior. Therefore:
+The 2026-08-09 independent stack audit found that PR #40's earlier Phase 3 completion claim was broader than the implemented scope. Corrective PRs #56–#60 and #63 have now completed the HTTP-route decomposition portion without rewriting the previously validated history: the current HTTP surface is behind explicit route/application-service boundaries, authorization metadata is contract-tested, and the compiled public gateway remains 404 for private routes. The remaining gate is composition and lifecycle. Therefore:
 
 - the helper entrypoint is not yet primarily wiring for the complete product surface;
-- routes have not all been separated by authorization boundary;
-- route/service code can still directly own process and persistence work;
-- service startup, timers, sockets, and graceful shutdown do not yet have the complete target lifecycle owner.
+- service startup, reconciliation timers, socket tracking, signal handling, graceful drain, and forced shutdown do not yet have the complete target lifecycle owner;
+- module-global stores/adapters and remaining CLI composition are still constructed in the compatibility helper;
+- direct orchestration/process functions remain in the helper outside route modules, even though route modules themselves no longer directly spawn processes or mutate persistence.
 
 Phase 3 must be completed in bounded corrective slices before the stack may claim the Phase 3 gate or use Phase 4 completion as authority to start Phase 5. Existing validated PR history remains unchanged; the correction must be recorded transparently in later ancestry.
 
