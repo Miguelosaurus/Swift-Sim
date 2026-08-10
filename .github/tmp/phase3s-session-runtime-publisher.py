@@ -68,8 +68,8 @@ if legacy_start < 0:
     raise SystemExit("legacy session source-text test sentinel missing")
 round2_path.write_text(round2[:legacy_start].rstrip() + "\\n")
 
-baseline_path = Path("scripts/architecture/baseline-policy.json")
 json_module = __import__("json")
+baseline_path = Path("scripts/architecture/baseline-policy.json")
 baseline_document = json_module.loads(baseline_path.read_text())
 source_text_tests = baseline_document.get("baseline", {}).get("sourceTextImplementationTests")
 if not isinstance(source_text_tests, dict):
@@ -79,17 +79,20 @@ if source_text_tests.pop("test/confirmationRound2State.test.js", None) != 1:
 baseline_path.write_text(json_module.dumps(baseline_document, indent=2) + "\\n")
 
 package_path = Path("package.json")
-package = package_path.read_text()
-format_anchor = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js \\"test/**/*.ts\\"'
-format_replacement = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js mac-helper/src/sessionRuntimeController.js \\"test/**/*.ts\\"'
-if package.count(format_anchor) != 1:
-    raise SystemExit("package format coverage sentinel missing")
-package = package.replace(format_anchor, format_replacement, 1)
-lint_anchor = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js test --ext .js,.ts'
-lint_replacement = 'mac-helper/src/helperCliRuntime.js mac-helper/src/helperEntrypoint.js mac-helper/src/sessionRuntimeController.js test --ext .js,.ts'
-if package.count(lint_anchor) != 1:
-    raise SystemExit("package lint coverage sentinel missing")
-package_path.write_text(package.replace(lint_anchor, lint_replacement, 1))
+package_document = json_module.loads(package_path.read_text())
+scripts = package_document.get("scripts")
+if not isinstance(scripts, dict):
+    raise SystemExit("package scripts are missing")
+for script_name in ("check:format", "check:lint"):
+    value = scripts.get(script_name)
+    if not isinstance(value, str):
+        raise SystemExit(f"package {script_name} is missing")
+    needle = "mac-helper/src/helperEntrypoint.js"
+    addition = "mac-helper/src/sessionRuntimeController.js"
+    if value.count(needle) != 1 or addition in value:
+        raise SystemExit(f"package {script_name} coverage state unexpected")
+    scripts[script_name] = value.replace(needle, f"{needle} {addition}", 1)
+package_path.write_text(json_module.dumps(package_document, indent=2) + "\\n")
 '''
 script = replace_once(script, write_anchor, cleanup_code, "post-transform cleanup")
 
