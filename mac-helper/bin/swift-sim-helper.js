@@ -6,7 +6,6 @@ import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { pathToFileURL, URL } from "node:url";
-import { parseArgs } from "node:util";
 import { ServeSimError } from "../src/serveSimAdapter.js";
 import {
   resolvedSessionTransport,
@@ -60,6 +59,7 @@ import { createSessionHttpApplicationService } from "../src/http/sessionHttpAppl
 import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
 import { createCompatibilityHelperRuntime } from "../src/infrastructure/compatibilityHelperRuntime.js";
 import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";
+import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -108,138 +108,38 @@ function initializeCompatibilityRuntime() {
 }
 
 async function main(argv) {
-  const [command = "serve", ...rest] = argv;
-
-  if (command === "serve") {
-    const { values } = parseArgs({
-      args: rest,
-      options: {
-        port: { type: "string", short: "p" },
-        host: { type: "string" },
-        "device-builds-only": { type: "boolean" },
+  const handled = await dispatchCompatibilityCommand({
+    argv,
+    defaultHost: DEFAULT_HOST,
+    defaultPort: DEFAULT_PORT,
+    services: {
+      serve,
+      startSession: (values) => startOrReuseSession(values, { includeCodexMetadata: true }),
+      companionLink({ sessionId, token, remoteBaseUrl }) {
+        const session = store.get(sessionId);
+        if (!session) throw new Error("Unknown session id.");
+        ensureToken(session, token);
+        return buildCompanionLinks(session, remoteBaseUrl);
       },
-    });
-    await serve({
-      port: values.port ? Number(values.port) : DEFAULT_PORT,
-      host: values.host || DEFAULT_HOST,
-      deviceBuildsOnly: Boolean(values["device-builds-only"]),
-    });
-    return;
-  }
-
-  if (command === "start-session") {
-    const { values } = parseArgs({
-      args: rest,
-      options: commonSessionOptions(),
-    });
-    const session = await startOrReuseSession(values, { includeCodexMetadata: true });
-    console.log(JSON.stringify(session, null, 2));
-    return;
-  }
-
-  if (command === "companion-link") {
-    const { values } = parseArgs({
-      args: rest,
-      options: {
-        "session-id": { type: "string" },
-        token: { type: "string" },
-        "remote-base-url": { type: "string" },
+      setupStatus,
+      async buildDevice(values) {
+        const build = await createDeviceBuild(values);
+        await runCLIDeviceBuild(build);
+        return publicDeviceBuild(build);
       },
-    });
-    const session = store.get(values["session-id"]);
-    if (!session) throw new Error("Unknown session id.");
-    ensureToken(session, values.token);
-    const links = buildCompanionLinks(session, values["remote-base-url"]);
-    console.log(JSON.stringify(links, null, 2));
-    return;
-  }
-
-  if (command === "setup-status") {
-    const { values } = parseArgs({
-      args: rest,
-      options: {
-        port: { type: "string", short: "p" },
-        host: { type: "string" },
+      async stopSession({ sessionId, token }) {
+        const session = store.get(sessionId);
+        if (!session) throw new Error("Unknown session id.");
+        ensureToken(session, token);
+        await stopSession(session.id);
+        return { stopped: true, sessionId: session.id };
       },
-    });
-    console.log(JSON.stringify(await setupStatus({
-      host: values.host || DEFAULT_HOST,
-      port: values.port ? Number(values.port) : DEFAULT_PORT,
-    }), null, 2));
-    return;
+    },
+  });
+  if (!handled) {
+    const [command = "serve"] = argv;
+    throw new Error(`Unknown command: ${command}`);
   }
-
-  if (command === "build-device") {
-    const { values } = parseArgs({
-      args: rest,
-      options: commonDeviceBuildOptions(),
-    });
-    const build = await createDeviceBuild(values);
-    await runCLIDeviceBuild(build);
-    console.log(JSON.stringify(publicDeviceBuild(build), null, 2));
-    return;
-  }
-
-  if (command === "delete-app") {
-    const { values } = parseArgs({
-      args: rest,
-      options: {
-        "app-id": { type: "string" },
-        "keep-artifacts": { type: "boolean" },
-      },
-    });
-    const appID = required(values["app-id"], "app-id");
-    const deleted = deviceBuildStore.deleteApp(appID, { deleteArtifacts: !values["keep-artifacts"] });
-    if (!deleted) throw new Error("Unknown app id.");
-    await drainDeliveryReferenceCleanupJobs();
-    console.log(JSON.stringify({ deleted: true, appId: appID }, null, 2));
-    return;
-  }
-
-  if (command === "stop-session") {
-    const { values } = parseArgs({
-      args: rest,
-      options: {
-        "session-id": { type: "string" },
-        token: { type: "string" },
-      },
-    });
-    const session = store.get(values["session-id"]);
-    if (!session) throw new Error("Unknown session id.");
-    ensureToken(session, values.token);
-    await stopSession(session.id);
-    console.log(JSON.stringify({ stopped: true, sessionId: session.id }));
-    return;
-  }
-
-  throw new Error(`Unknown command: ${command}`);
-}
-
-function commonSessionOptions() {
-  return {
-    project: { type: "string" },
-    scheme: { type: "string" },
-    simulator: { type: "string" },
-    "remote-base-url": { type: "string" },
-    port: { type: "string" },
-    transport: { type: "string" },
-  };
-}
-
-function commonDeviceBuildOptions() {
-  return {
-    project: { type: "string" },
-    workspace: { type: "string" },
-    scheme: { type: "string" },
-    configuration: { type: "string" },
-    "remote-base-url": { type: "string" },
-    delivery: { type: "string" },
-    "export-method": { type: "string" },
-    "ttl-minutes": { type: "string" },
-    "build-setting": { type: "string", multiple: true },
-    "allow-provisioning-updates": { type: "boolean" },
-    "replace-app-data": { type: "boolean" },
-  };
 }
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
