@@ -62,7 +62,7 @@ controller = replace_once(
 controller = replace_once(
     controller,
     "    const [x1, y1, x2, y2] = coordinates.map((value) => Math.max(0, Math.min(1, value)));",
-    "    const [x1, y1, x2, y2] = /** @type {[number, number, number, number]} */ (\\n      coordinates.map((value) => Math.max(0, Math.min(1, value))),\\n    );",
+    "    const [x1, y1, x2, y2] = /** @type {[number, number, number, number]} */ (\\n      coordinates.map((value) => Math.max(0, Math.min(1, value)))\\n    );",
     "multitouch tuple refinement",
 )
 controller = replace_once(
