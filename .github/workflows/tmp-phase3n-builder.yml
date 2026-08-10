@@ -41,25 +41,23 @@ jobs:
           assert source.count(old) == 1
           source = source.replace(old, new, 1)
 
-          old = '''  const scheduleReconciliation = () => {
-            void reconcileRequestedDeviceBuilds().catch((error) => {
-              console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
-            });
-          };'''
-          new = '''  const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
-            listBuilds: () => deviceBuildStore.list(),
-            verifyBuild: (build) => verifyDeviceBuild(build),
-            saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
-            nowMs: () => Date.now(),
-            nowIso: () => new Date().toISOString(),
-          });
-          const scheduleReconciliation = () => {
-            void deviceInstallationReconciler.runOnce().catch((error) => {
-              console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
-            });
-          };'''
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
+          schedule_start = source.index('  const scheduleReconciliation = () => {')
+          schedule_end = source.index('\n  let reconciliationTimer;', schedule_start)
+          replacement = "\n".join([
+              "  const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({",
+              "    listBuilds: () => deviceBuildStore.list(),",
+              "    verifyBuild: (build) => verifyDeviceBuild(build),",
+              "    saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),",
+              "    nowMs: () => Date.now(),",
+              "    nowIso: () => new Date().toISOString(),",
+              "  });",
+              "  const scheduleReconciliation = () => {",
+              "    void deviceInstallationReconciler.runOnce().catch((error) => {",
+              "      console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);",
+              "    });",
+              "  };",
+          ])
+          source = source[:schedule_start] + replacement + source[schedule_end:]
 
           start = source.index('\nlet deviceReconciliationRunning = false;\n')
           end = source.index('\nfunction verifyDeviceBuild(build) {', start)
