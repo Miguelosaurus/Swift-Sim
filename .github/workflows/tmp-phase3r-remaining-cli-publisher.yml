@@ -49,10 +49,15 @@ jobs:
           replacements = {
               'calls.push(["start-session", input]);': 'calls.push(["start-session", { ...(input as Record<string, unknown>) }]);',
               'calls.push(["build-device", input]);': 'calls.push(["build-device", { ...(input as Record<string, unknown>) }]);',
+              'import { parseArgs } from "node:util";\n\nconst COMMANDS': 'import { parseArgs } from "node:util";\n\n/** @typedef {{ type: "string" | "boolean", short?: string, multiple?: boolean }} CompatibilityParseOption */\n\nconst COMMANDS',
+              'function sessionOptions() {': '/** @returns {Record<string, CompatibilityParseOption>} */\nfunction sessionOptions() {',
+              'function deviceBuildOptions() {': '/** @returns {Record<string, CompatibilityParseOption>} */\nfunction deviceBuildOptions() {',
+              '{ sessionId?: string; token?: string; remoteBaseUrl?: string }': '{ sessionId?: string | undefined; token?: string | undefined; remoteBaseUrl?: string | undefined }',
+              '{ sessionId?: string; token?: string }': '{ sessionId?: string | undefined; token?: string | undefined }',
           }
           for old, new in replacements.items():
               if script.count(old) != 1:
-                  raise SystemExit(f"normalization sentinel missing: {old}")
+                  raise SystemExit(f"typing/normalization sentinel missing: {old}")
               script = script.replace(old, new, 1)
           Path("/tmp/publish.sh").write_text(script)
           PY
