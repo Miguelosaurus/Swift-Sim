@@ -1,0 +1,181 @@
+name: Temporary Phase 3O Builder
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase-3o-builder
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Check out exact Phase 3O candidate base
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: c93a301dbe9a81afe980072643c570073bf7cb06
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Verify immutable base and install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c93a301dbe9a81afe980072643c570073bf7cb06"
+          remote_head="$(git ls-remote origin refs/heads/agent/architecture-consolidation-phase-3o-helper-service-lifecycle | awk '{print $1}')"
+          test "$remote_head" = "c93a301dbe9a81afe980072643c570073bf7cb06"
+          node --version
+          npm ci
+
+      - name: Apply lifecycle composition patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          helper_path = Path("mac-helper/bin/swift-sim-helper.js")
+          helper = helper_path.read_text()
+
+          import_line = 'import { createDeviceInstallationReconciliationCoordinator } from "../src/http/deviceInstallationReconciliationCoordinator.js";\n'
+          lifecycle_import = 'import { createHelperServiceLifecycle } from "../src/http/helperServiceLifecycle.js";\n'
+          if helper.count(import_line) != 1:
+              raise SystemExit("expected exactly one reconciliation coordinator import")
+          if lifecycle_import in helper:
+              raise SystemExit("lifecycle import already present")
+          helper = helper.replace(import_line, import_line + lifecycle_import, 1)
+
+          active_sockets = "  const activeSockets = new Set();\n"
+          if helper.count(active_sockets) != 1:
+              raise SystemExit("expected exactly one inline active socket set")
+          helper = helper.replace(active_sockets, "", 1)
+
+          start_marker = '  server.on("connection", (socket) => {\n'
+          end_marker = '  await new Promise(() => {});\n'
+          start = helper.find(start_marker)
+          if start < 0:
+              raise SystemExit("inline lifecycle start marker not found")
+          end = helper.find(end_marker, start)
+          if end < 0:
+              raise SystemExit("inline lifecycle end marker not found")
+          end += len(end_marker)
+          replacement = '''  const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
+            listBuilds: () => deviceBuildStore.list(),
+            verifyBuild: (build) => verifyDeviceBuild(build),
+            saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
+            nowMs: () => Date.now(),
+            nowIso: () => new Date().toISOString(),
+          });
+          const scheduleReconciliation = () => {
+            void deviceInstallationReconciler.runOnce().catch((error) => {
+              console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
+            });
+          };
+          const serviceLifecycle = createHelperServiceLifecycle({
+            scheduleReconciliation,
+            scheduleDeliveryCleanup: () => scheduleDeliveryReferenceCleanup(),
+            listActiveBuildTasks: () => activeDeviceBuildTasks.values(),
+            requestBuildCancellation: (build, reason) => requestDeviceBuildCancellation(build, reason),
+            listSessions: () => (typeof store.list === "function" ? store.list() : []),
+            stopSession,
+            registerSignal: (signal, listener) => process.once(signal, listener),
+            exit: (code) => process.exit(code),
+            scheduleInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+            cancelInterval: (timer) => clearInterval(timer),
+            scheduleTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+            waitForExit: () => new Promise(() => {}),
+          });
+          await serviceLifecycle.run({
+            server,
+            host,
+            port,
+            deviceBuildsOnly,
+            onListening() {
+              console.log(`swift-sim-helper listening at http://${host}:${port}`);
+              if (deviceBuildsOnly) {
+                console.log("Device-build-only gateway ready.");
+              } else {
+                console.log("Expose simulator sessions privately with: tailscale serve " + port);
+              }
+            },
+          });
+          '''
+          helper = helper[:start] + replacement + helper[end:]
+          helper_path.write_text(helper)
+
+          lifecycle_path = Path("mac-helper/src/http/helperServiceLifecycle.js")
+          lifecycle = lifecycle_path.read_text()
+          old_validation = '''  const serverMethods = ["on", "once", "off", "listen", "close"];
+            for (const method of serverMethods) {
+              if (typeof server?.[method] !== "function") {
+                throw new TypeError(`Helper service lifecycle requires server.${method}().`);
+              }
+            }
+          '''
+          new_validation = '''  const serverMethods = [
+            ["on", server?.on],
+            ["once", server?.once],
+            ["off", server?.off],
+            ["listen", server?.listen],
+            ["close", server?.close],
+          ];
+            for (const [name, implementation] of serverMethods) {
+              if (typeof implementation !== "function") {
+                throw new TypeError(`Helper service lifecycle requires server.${name}().`);
+              }
+            }
+          '''
+          if old_validation not in lifecycle:
+              raise SystemExit("lifecycle validation marker not found")
+          lifecycle_path.write_text(lifecycle.replace(old_validation, new_validation, 1))
+          PY
+
+          npx prettier --write \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/http/helperServiceLifecycle.js \
+            test/helperServiceLifecycle.test.js
+          git diff --check
+
+      - name: Run focused lifecycle and reconciliation contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            test/helperServiceLifecycle.test.js \
+            test/deviceInstallationReconciliationCoordinator.test.js
+
+      - name: Run authoritative repository check
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check
+          git diff --check
+
+      - name: Publish exact validated product commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/http/helperServiceLifecycle.js \
+            test/helperServiceLifecycle.test.js
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = "3"
+          git commit -m "Phase 3O: extract helper service lifecycle"
+          candidate="$(git rev-parse HEAD)"
+          files="$(git diff --name-only b634adabdf5c1b3a61930e49747c158c1b807d9a..HEAD)"
+          expected=$'mac-helper/bin/swift-sim-helper.js\nmac-helper/src/http/helperServiceLifecycle.js\ntest/helperServiceLifecycle.test.js'
+          test "$files" = "$expected"
+          remote_head="$(git ls-remote origin refs/heads/agent/architecture-consolidation-phase-3o-helper-service-lifecycle | awk '{print $1}')"
+          test "$remote_head" = "c93a301dbe9a81afe980072643c570073bf7cb06"
+          git push origin HEAD:refs/heads/agent/architecture-consolidation-phase-3o-helper-service-lifecycle
+          echo "Validated Phase 3O candidate: $candidate"
