@@ -15,8 +15,8 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 source = replace_once(
     source,
-    ' * @typedef {Omit<import("./contracts/session.js").SessionRecord, "logs" | "stream" | "simulatorUDID"> & {\n *   simulatorUDID: string,\n *   logs: string[],\n *   stream: SessionStreamRecord,\n *   orientation?: string,\n * }} SessionRecord',
-    ' * @typedef {Omit<import("./contracts/session.js").SessionRecord, "logs" | "stream" | "simulatorUDID" | "remoteBaseUrl"> & {\n *   simulatorUDID: string,\n *   logs: string[],\n *   stream: SessionStreamRecord,\n *   remoteBaseUrl: string,\n *   orientation?: string,\n * }} SessionRecord',
+    '/** @typedef {Omit<import("./contracts/session.js").SessionRecord, "logs" | "stream" | "simulatorUDID"> & {\n *   simulatorUDID: string,\n *   logs: string[],\n *   stream: SessionStreamRecord,\n *   orientation?: string,\n * }} SessionRecord',
+    '/** @typedef {Omit<import("./contracts/session.js").SessionRecord, "logs" | "stream" | "simulatorUDID" | "remoteBaseUrl"> & {\n *   simulatorUDID: string,\n *   logs: string[],\n *   stream: SessionStreamRecord,\n *   remoteBaseUrl: string,\n *   orientation?: string,\n * }} SessionRecord',
     "session remote base refinement",
 )
 source = replace_once(
