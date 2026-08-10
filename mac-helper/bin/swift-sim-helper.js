@@ -5,34 +5,22 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { URL } from "node:url";
+import { pathToFileURL, URL } from "node:url";
 import { parseArgs } from "node:util";
-import {
-  ServeSimAdapter,
-  ServeSimError,
-} from "../src/serveSimAdapter.js";
-import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
-import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
-import { SessionStore } from "../src/sessionStore.js";
+import { ServeSimError } from "../src/serveSimAdapter.js";
 import {
   resolvedSessionTransport,
   sessionTransportMatches,
 } from "../src/sessionTransportPreference.js";
-import { DeviceBuildStore } from "../src/deviceBuildStore.js";
 import { runDeliveryCleanupSafely } from "../src/deliveryCleanupScheduler.js";
 import {
-  DeviceDeliveryAdapter,
   buildCapabilityExpiresAt,
   deviceDeliveryRequestAllowed,
 } from "../src/deviceDelivery.js";
 import {
   normalizeDeviceBuildTTLMinutes,
 } from "../src/deviceBuildDefaults.js";
-import { PairingStore } from "../src/pairingStore.js";
-import { PairingInviteStore } from "../src/pairingInviteStore.js";
 import { printQRCode } from "../src/terminalQRCode.js";
-import { SimulatorProfileResolver } from "../src/simulatorProfile.js";
-import { DeviceInventoryAdapter } from "../src/deviceInventory.js";
 import { namedKeyEvents, textToKeyEvents } from "../src/keyboard.js";
 import {
   buildManifest,
@@ -71,33 +59,55 @@ import { renderPairingPage } from "../src/http/pairingPageRenderer.js";
 import { handlePairingPageRoutes } from "../src/http/pairingPageRoutes.js";
 import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
 import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
+import { createCompatibilityHelperRuntime } from "../src/infrastructure/compatibilityHelperRuntime.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
 
-const store = new SessionStore();
-const deviceBuildStore = new DeviceBuildStore();
-const deviceDelivery = new DeviceDeliveryAdapter();
-const pairingStore = new PairingStore();
-const pairingInviteStore = new PairingInviteStore();
-const simulatorProfiles = new SimulatorProfileResolver();
-const deviceInventory = new DeviceInventoryAdapter();
-const adapter = new ServeSimAdapter();
-const activeDeviceBuildTasks = new Map();
-let deliveryReferenceCleanupRunning = false;
+let store;
+let deviceBuildStore;
+let deviceDelivery;
+let pairingStore;
+let pairingInviteStore;
+let simulatorProfiles;
+let deviceInventory;
+let adapter;
+let activeDeviceBuildTasks;
+let deliveryReferenceCleanupRunning;
+let transports;
+let compatibilityRuntimeInitialized = false;
 
-const transports = {
-  "serve-sim": new ServeSimTransport({ adapter }),
-  "native-companion": new NativeCompanionTransport({ adapter }),
-};
+export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
+  initializeCompatibilityRuntime();
+  await main(argv);
+}
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCompatibilityHelper().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
 
-async function main() {
-  const [command = "serve", ...rest] = process.argv.slice(2);
+function initializeCompatibilityRuntime() {
+  if (compatibilityRuntimeInitialized) return;
+  const runtime = createCompatibilityHelperRuntime();
+  store = runtime.store;
+  deviceBuildStore = runtime.deviceBuildStore;
+  deviceDelivery = runtime.deviceDelivery;
+  pairingStore = runtime.pairingStore;
+  pairingInviteStore = runtime.pairingInviteStore;
+  simulatorProfiles = runtime.simulatorProfiles;
+  deviceInventory = runtime.deviceInventory;
+  adapter = runtime.adapter;
+  activeDeviceBuildTasks = runtime.activeDeviceBuildTasks;
+  transports = runtime.transports;
+  deliveryReferenceCleanupRunning = false;
+  compatibilityRuntimeInitialized = true;
+}
+
+async function main(argv) {
+  const [command = "serve", ...rest] = argv;
 
   if (command === "serve") {
     const { values } = parseArgs({
