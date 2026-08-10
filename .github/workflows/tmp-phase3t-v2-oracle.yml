@@ -29,7 +29,9 @@ jobs:
         shell: bash
         run: |
           git show origin/agent/tmp-phase3t-setup-status-v2:.github/tmp/phase3t-v2.py > /tmp/phase3t-v2.py
+          git show origin/agent/tmp-phase3t-setup-status-v2:.github/tmp/phase3t-v2-typefix.py > /tmp/phase3t-v2-typefix.py
           python3 /tmp/phase3t-v2.py
+          python3 /tmp/phase3t-v2-typefix.py
       - name: Focused behavior tests
         run: node --test test/setupStatusService.test.js test/compatibilityHelperImport.test.js test/confirmationRound5AsyncCommandGroup.test.js
       - name: Strict type gate
