@@ -27,6 +27,8 @@ function services(overrides: Record<string, unknown> = {}) {
       id: appID,
       archived,
     }),
+    deleteApp: async ({ appID }: { appID: string; deleteArtifacts: boolean }) =>
+      appID !== "missing",
     verifyDeviceBuild: async (buildID: string) => ({ id: buildID, state: "ready" }),
     deviceDeliveryStatus: () => ({ running: true }),
     stopDeviceDelivery: () => true,
@@ -92,6 +94,7 @@ test("helper CLI extraction owns only the declared one-shot commands", async () 
     "pair",
     "list-apps",
     "archive-app",
+    "delete-app",
     "verify-device-build",
     "device-delivery-status",
     "device-delivery-stop",
@@ -104,7 +107,6 @@ test("helper CLI extraction owns only the declared one-shot commands", async () 
     "serve",
     "start-session",
     "build-device",
-    "delete-app",
     "stop-session",
     "unknown",
   ]) {
@@ -133,6 +135,7 @@ test("runtime composition constructs only the selected command owners", () => {
     ["pair", ["state-root", "pairing-invite-store"]],
     ["list-apps", ["state-root", "device-build-store"]],
     ["archive-app", ["state-root", "device-build-store"]],
+    ["delete-app", ["state-root", "device-build-store", "device-delivery"]],
     ["verify-device-build", ["state-root", "device-build-store", "device-inventory"]],
     ["device-delivery-status", ["state-root", "device-delivery"]],
     ["device-delivery-stop", ["state-root", "device-delivery"]],
@@ -246,6 +249,80 @@ test("app, delivery, and inspection commands preserve projections", async () => 
   assert.deepEqual(await run(["device-delivery-status"]), { running: true });
   assert.deepEqual(await run(["device-delivery-stop"]), { stopped: true });
   assert.deepEqual(await run(["serve-sim-info"]), { available: true });
+});
+
+test("delete-app preserves artifact policy and drains queued delivery references", async () => {
+  const events: string[] = [];
+  const factories: Record<string, unknown> = {
+    ...runtimeFactories(events),
+    createDeviceBuildStore() {
+      events.push("device-build-store");
+      return {
+        deleteApp(appID: string, { deleteArtifacts }: { deleteArtifacts: boolean }) {
+          events.push(`delete:${appID}:${deleteArtifacts}`);
+          return appID !== "missing";
+        },
+        listDeliveryReferenceCleanupJobs() {
+          events.push("list-cleanup");
+          return [
+            {
+              id: "cleanup-1",
+              generation: "generation-1",
+              referenceID: "build:build-1",
+              createdAt: "2026-08-05T12:00:00.000Z",
+            },
+          ];
+        },
+        completeDeliveryReferenceCleanupJob(jobID: string) {
+          events.push(`complete:${jobID}`);
+          return true;
+        },
+        failDeliveryReferenceCleanupJob(jobID: string, error: unknown) {
+          events.push(`fail:${jobID}:${error instanceof Error ? error.message : String(error)}`);
+          return true;
+        },
+        list: () => [],
+      };
+    },
+    createDeviceDelivery() {
+      events.push("device-delivery");
+      return {
+        stopGeneration(generation: string, { referenceID }: { referenceID: string }) {
+          events.push(`release:${generation}:${referenceID}`);
+          return true;
+        },
+        statuses: () => [],
+      };
+    },
+  };
+  const deleteServices = createExtractedHelperServices("delete-app", { factories });
+  const lines: string[] = [];
+  assert.equal(
+    await dispatchHelperCliCommand({
+      argv: ["delete-app", "--app-id", "app-1", "--keep-artifacts"],
+      services: deleteServices,
+      writeLine: (line) => lines.push(line),
+    }),
+    true,
+  );
+  assert.deepEqual(JSON.parse(lines.join("\n")), { deleted: true, appId: "app-1" });
+  assert.deepEqual(events, [
+    "state-root",
+    "device-build-store",
+    "device-delivery",
+    "delete:app-1:false",
+    "list-cleanup",
+    "release:generation-1:build:build-1",
+    "complete:cleanup-1",
+  ]);
+
+  await assert.rejects(
+    dispatchHelperCliCommand({
+      argv: ["delete-app", "--app-id", "missing"],
+      services: services({ deleteApp: async () => false }),
+    }),
+    /Unknown app id\./,
+  );
 });
 
 test("helper bootstrap loads only the selected runtime after boundaries", async () => {
