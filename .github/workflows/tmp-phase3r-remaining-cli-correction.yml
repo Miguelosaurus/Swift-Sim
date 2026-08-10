@@ -1,0 +1,56 @@
+name: Temporary Phase 3R Remaining CLI Correction
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Reuse corrected Phase 3R publisher script
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PHASE3Q_VERIFY_RUN: "31428503149"
+          DELETE_APP_VERIFY_RUN: "31428505506"
+          BASE: d28ba88be0e4cef30588f7764b7997d391b62aea
+          DELETE_APP_HEAD: ad9dd22721b0f5f99143d1f47fc8d02ff42cd7ce
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3r-remaining-cli-parser
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/tmp-phase3r-remaining-cli-publisher.yml').read_text()
+          old = '''          function valuesRecord(values) {\n            return /** @type {Record<string, unknown>} */ (values);\n          }'''
+          new = '''          function valuesRecord(values) {\n            return { .../** @type {Record<string, unknown>} */ (values) };\n          }'''
+          if source.count(old) != 1:
+              raise SystemExit('valuesRecord correction sentinel missing or duplicated')
+          source = source.replace(old, new, 1)
+
+          marker = '        run: |\n'
+          start = source.find(marker)
+          if start < 0:
+              raise SystemExit('publisher run block missing')
+          lines = source[start + len(marker):].splitlines()
+          script_lines = []
+          for line in lines:
+              if line and not line.startswith('          '):
+                  break
+              script_lines.append(line[10:] if line.startswith('          ') else '')
+          script = '\n'.join(script_lines) + '\n'
+          Path('/tmp/phase3r-publisher.sh').write_text(script)
+          PY
+          bash /tmp/phase3r-publisher.sh
