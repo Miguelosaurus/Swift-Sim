@@ -108,3 +108,21 @@ patchFile("test/mainPostMergeIntegration.test.js", [
     label: "obsolete startup source assertion",
   },
 ]);
+
+const policyPath = path.join(root, "scripts/architecture/baseline-policy.json");
+const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+const sourceTextPath = "test/deliveryCleanupScheduler.test.js";
+if (policy.baseline?.sourceTextImplementationTests?.[sourceTextPath] !== 1) {
+  throw new Error("Historical delivery-cleanup source-text baseline changed unexpectedly.");
+}
+if (policy.caps?.sourceTextImplementationTests?.[sourceTextPath] !== 1) {
+  throw new Error("Expected live delivery-cleanup source-text cap of 1.");
+}
+delete policy.caps.sourceTextImplementationTests[sourceTextPath];
+if (policy.baseline.sourceTextImplementationTests[sourceTextPath] !== 1) {
+  throw new Error("Historical source-text baseline must remain immutable.");
+}
+if (sourceTextPath in policy.caps.sourceTextImplementationTests) {
+  throw new Error("Obsolete delivery-cleanup source-text cap remains.");
+}
+fs.writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`);
