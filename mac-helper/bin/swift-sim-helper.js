@@ -7,10 +7,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
-import {
-  ServeSimAdapter,
-  ServeSimError,
-} from "../src/serveSimAdapter.js";
+import { ServeSimAdapter, ServeSimError } from "../src/serveSimAdapter.js";
 import { ServeSimTransport } from "../src/transports/serveSimTransport.js";
 import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";
 import { SessionStore } from "../src/sessionStore.js";
@@ -25,9 +22,7 @@ import {
   buildCapabilityExpiresAt,
   deviceDeliveryRequestAllowed,
 } from "../src/deviceDelivery.js";
-import {
-  normalizeDeviceBuildTTLMinutes,
-} from "../src/deviceBuildDefaults.js";
+import { normalizeDeviceBuildTTLMinutes } from "../src/deviceBuildDefaults.js";
 import { PairingStore } from "../src/pairingStore.js";
 import { PairingInviteStore } from "../src/pairingInviteStore.js";
 import { printQRCode } from "../src/terminalQRCode.js";
@@ -43,19 +38,18 @@ import {
   runDeviceBuild,
   terminateRecordedDeviceBuildWorker,
 } from "../src/deviceBuilder.js";
+import { badRequest, notFound, readJson } from "../src/http.js";
 import {
-  badRequest,
-  notFound,
-  readJson,
-} from "../src/http.js";
-import { buildCompanionLinks, buildPairingLinks, codexSession, publicSession } from "../src/links.js";
-import {
-  selectTailscaleProbe,
-  tailscaleBackendsConflict,
-} from "../src/tailscaleBackends.js";
+  buildCompanionLinks,
+  buildPairingLinks,
+  codexSession,
+  publicSession,
+} from "../src/links.js";
+import { selectTailscaleProbe, tailscaleBackendsConflict } from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { claimDeviceVerification } from "../src/deviceVerificationGate.js";
 import { createDeviceInstallationReconciliationCoordinator } from "../src/http/deviceInstallationReconciliationCoordinator.js";
+import { createHelperServiceLifecycle } from "../src/http/helperServiceLifecycle.js";
 import { createDeviceAppApplicationService } from "../src/http/deviceAppApplicationService.js";
 import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
 import { createDeviceBuildCommandApplicationService } from "../src/http/deviceBuildCommandApplicationService.js";
@@ -155,10 +149,12 @@ async function main() {
     });
     let pairing = values.rotate ? pairingStore.rotate() : pairingStore.current();
     pairing = pairingStore.updateMacName(values["mac-name"]);
-    const ttlMinutes = values["ttl-minutes"] === undefined
-      ? undefined
-      : Number(values["ttl-minutes"]);
-    if (ttlMinutes !== undefined && (!Number.isFinite(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 15)) {
+    const ttlMinutes =
+      values["ttl-minutes"] === undefined ? undefined : Number(values["ttl-minutes"]);
+    if (
+      ttlMinutes !== undefined &&
+      (!Number.isFinite(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 15)
+    ) {
       throw new Error("Pairing invite TTL must be between 1 and 15 minutes.");
     }
     if (ttlMinutes !== undefined && !values.qr) {
@@ -166,13 +162,14 @@ async function main() {
     }
     const invite = values.qr
       ? pairingInviteStore.create({
-        pairing,
-        ttlMs: ttlMinutes === undefined ? undefined : ttlMinutes * 60 * 1000,
-      })
+          pairing,
+          ttlMs: ttlMinutes === undefined ? undefined : ttlMinutes * 60 * 1000,
+        })
       : null;
-    const links = buildPairingLinks(invite
-      ? { ...pairing, invite: invite.invite, expiresAt: invite.expiresAt }
-      : pairing, values["remote-base-url"]);
+    const links = buildPairingLinks(
+      invite ? { ...pairing, invite: invite.invite, expiresAt: invite.expiresAt } : pairing,
+      values["remote-base-url"],
+    );
     if (values.qr) {
       console.log(`Pair with ${pairing.macName}`);
       console.log(`Expires: ${invite.expiresAt}`);
@@ -194,10 +191,16 @@ async function main() {
         host: { type: "string" },
       },
     });
-    console.log(JSON.stringify(await setupStatus({
-      host: values.host || DEFAULT_HOST,
-      port: values.port ? Number(values.port) : DEFAULT_PORT,
-    }), null, 2));
+    console.log(
+      JSON.stringify(
+        await setupStatus({
+          host: values.host || DEFAULT_HOST,
+          port: values.port ? Number(values.port) : DEFAULT_PORT,
+        }),
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -217,9 +220,17 @@ async function main() {
       args: rest,
       options: { archived: { type: "boolean" } },
     });
-    console.log(JSON.stringify({
-      apps: deviceBuildStore.listApps({ includeArchived: Boolean(values.archived) }).map(publicDeviceApp),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          apps: deviceBuildStore
+            .listApps({ includeArchived: Boolean(values.archived) })
+            .map(publicDeviceApp),
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -231,7 +242,10 @@ async function main() {
         restore: { type: "boolean" },
       },
     });
-    const app = deviceBuildStore.setAppArchived(required(values["app-id"], "app-id"), !values.restore);
+    const app = deviceBuildStore.setAppArchived(
+      required(values["app-id"], "app-id"),
+      !values.restore,
+    );
     if (!app) throw new Error("Unknown app id.");
     console.log(JSON.stringify(publicDeviceApp(app), null, 2));
     return;
@@ -246,7 +260,9 @@ async function main() {
       },
     });
     const appID = required(values["app-id"], "app-id");
-    const deleted = deviceBuildStore.deleteApp(appID, { deleteArtifacts: !values["keep-artifacts"] });
+    const deleted = deviceBuildStore.deleteApp(appID, {
+      deleteArtifacts: !values["keep-artifacts"],
+    });
     if (!deleted) throw new Error("Unknown app id.");
     await drainDeliveryReferenceCleanupJobs();
     console.log(JSON.stringify({ deleted: true, appId: appID }, null, 2));
@@ -328,11 +344,28 @@ function commonDeviceBuildOptions() {
 }
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
-  await recoverInterruptedDeviceBuilds();
-  setImmediate(() => {
-    void scheduleDeliveryReferenceCleanup();
+  const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
+    listBuilds: () => deviceBuildStore.list(),
+    verifyBuild: (build) => verifyDeviceBuild(build),
+    saveVerification: (buildID, verification) =>
+      deviceBuildStore.saveVerification(buildID, verification),
+    nowMs: () => Date.now(),
+    nowIso: () => new Date().toISOString(),
   });
-  const activeSockets = new Set();
+  const lifecycle = createHelperServiceLifecycle({
+    createServer,
+    host,
+    port,
+    deviceBuildsOnly,
+    recoverInterruptedBuilds: recoverInterruptedDeviceBuilds,
+    scheduleDeliveryCleanup: scheduleDeliveryReferenceCleanup,
+    reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
+    activeBuildTasks: () => [...activeDeviceBuildTasks.values()],
+    cancelBuild: requestDeviceBuildCancellation,
+    listSessions: () => (typeof store.list === "function" ? store.list() : []),
+    stopSession: (sessionID) => stopSession(sessionID),
+  });
+  await lifecycle.prepare();
   const deviceAppService = createDeviceAppApplicationService({
     pairingTokenMatches,
     listBuilds: () => deviceBuildStore.list(),
@@ -367,7 +400,8 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     getBuild: (buildID) => deviceBuildStore.get(buildID),
     saveBuild: (build) => deviceBuildStore.save(build),
     markInstallRequested: (buildID) => deviceBuildStore.markInstallRequested(buildID),
-    saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
+    saveVerification: (buildID, verification) =>
+      deviceBuildStore.saveVerification(buildID, verification),
     verifyBuild: verifyDeviceBuild,
     claimVerification: claimDeviceVerification,
     projectBuild: publicDeviceBuild,
@@ -386,7 +420,8 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     pairingStatus: () => pairingStore.status(),
     currentPairing: () => pairingStore.current(),
     claimToken: bearerToken,
-    claimInvite: (invite, clientNonce, pairing) => pairingInviteStore.claim(invite, clientNonce, pairing),
+    claimInvite: (invite, clientNonce, pairing) =>
+      pairingInviteStore.claim(invite, clientNonce, pairing),
     rotatePairing: () => pairingStore.rotate(),
     pairingLinks: buildPairingLinks,
   });
@@ -402,10 +437,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     getSession: (sessionId) => store.get(sessionId),
     tokenMatches,
     projectSession: publicSession,
-    startSession: ({ remoteBaseUrl, ...values }) => startOrReuseSession({
-      ...values,
-      "remote-base-url": remoteBaseUrl,
-    }),
+    startSession: ({ remoteBaseUrl, ...values }) =>
+      startOrReuseSession({
+        ...values,
+        "remote-base-url": remoteBaseUrl,
+      }),
     stopSession,
     sessionLinks: (session) => buildCompanionLinks(session, session.remoteBaseUrl),
     streamSession: proxyStream,
@@ -418,7 +454,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     control: sendControl,
     sessionPage: sessionFallbackHtml,
   });
-  const server = createServer(async (req, res) => {
+  const requestListener = async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
@@ -430,8 +466,19 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
 
       if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
       if (await handleDeviceAppRoutes({ req, res, url, service: deviceAppService })) return;
-      if (await handleDeviceBuildCommandRoutes({ req, res, url, service: deviceBuildCommandService })) return;
-      if (await handleDeviceBuildCapabilityRoutes({ req, res, url, service: deviceBuildCapabilityService })) return;
+      if (
+        await handleDeviceBuildCommandRoutes({ req, res, url, service: deviceBuildCommandService })
+      )
+        return;
+      if (
+        await handleDeviceBuildCapabilityRoutes({
+          req,
+          res,
+          url,
+          service: deviceBuildCapabilityService,
+        })
+      )
+        return;
 
       if (await handlePairingPageRoutes({ req, res, url, service: pairingPageService })) return;
 
@@ -440,90 +487,9 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       const status = error instanceof ServeSimError ? 502 : 400;
       return badRequest(res, status, error instanceof Error ? error.message : String(error));
     }
-  });
-  server.on("connection", (socket) => {
-    activeSockets.add(socket);
-    socket.once("close", () => activeSockets.delete(socket));
-  });
-
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => {
-      server.off("error", reject);
-      console.log(`swift-sim-helper listening at http://${host}:${port}`);
-      if (deviceBuildsOnly) {
-        console.log("Device-build-only gateway ready.");
-      } else {
-        console.log("Expose simulator sessions privately with: tailscale serve " + port);
-      }
-      resolve();
-    });
-  });
-
-  const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
-    listBuilds: () => deviceBuildStore.list(),
-    verifyBuild: (build) => verifyDeviceBuild(build),
-    saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
-    nowMs: () => Date.now(),
-    nowIso: () => new Date().toISOString(),
-  });
-  const scheduleReconciliation = () => {
-    void deviceInstallationReconciler.runOnce().catch((error) => {
-      console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
   };
-  let reconciliationTimer;
-  let deliveryCleanupTimer;
-  if (!deviceBuildsOnly) {
-    scheduleReconciliation();
-    reconciliationTimer = setInterval(scheduleReconciliation, 15_000);
-  }
-  deliveryCleanupTimer = setInterval(() => {
-    void scheduleDeliveryReferenceCleanup();
-  }, 30_000);
-  deliveryCleanupTimer.unref?.();
-
-  const keepAlive = setInterval(() => {}, 60 * 60 * 1000);
-  let shuttingDown = false;
-  const shutdown = () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    if (reconciliationTimer) clearInterval(reconciliationTimer);
-    if (deliveryCleanupTimer) clearInterval(deliveryCleanupTimer);
-    clearInterval(keepAlive);
-    for (const { build } of activeDeviceBuildTasks.values()) {
-      requestDeviceBuildCancellation(build, "Swift Sim helper is shutting down.");
-    }
-    server.closeIdleConnections?.();
-    let serverClosed = false;
-    let sessionsStopped = false;
-    const maybeExit = () => {
-      if (serverClosed && sessionsStopped) process.exit(0);
-    };
-    server.close(() => {
-      serverClosed = true;
-      maybeExit();
-    });
-    const sessions = typeof store.list === "function" ? store.list() : [];
-    const buildTasks = [...activeDeviceBuildTasks.values()].map(({ promise }) => promise);
-    void Promise.allSettled([
-      ...sessions.map((session) => stopSession(session.id)),
-      ...buildTasks,
-    ]).finally(() => {
-      sessionsStopped = true;
-      maybeExit();
-    });
-    const closeTimer = setTimeout(() => {
-      for (const socket of activeSockets) socket.destroy();
-      server.closeAllConnections?.();
-    }, 1_000);
-    closeTimer.unref?.();
-    const forceTimer = setTimeout(() => process.exit(1), 8_000);
-    forceTimer.unref?.();
-  };
-  process.once("SIGTERM", shutdown);
-  process.once("SIGINT", shutdown);
-  await new Promise(() => {});
+  await lifecycle.start(requestListener);
+  await lifecycle.wait();
 }
 
 function verifyDeviceBuild(build) {
@@ -541,12 +507,16 @@ async function setupStatus({ host, port }) {
   ]);
   const tailscale = publicTailscaleStatus(tailscaleInspection);
   const serveStatus = await readTailscaleServeStatus(port, tailscaleInspection.selected);
-  const defaultRemoteBaseUrl = tailscale.dnsName ? `https://${tailscale.dnsName.replace(/\.$/, "")}` : "";
+  const defaultRemoteBaseUrl = tailscale.dnsName
+    ? `https://${tailscale.dnsName.replace(/\.$/, "")}`
+    : "";
   const remoteBaseUrl = serveStatus.remoteBaseUrl || defaultRemoteBaseUrl;
   const nextSteps = [];
 
   if (tailscale.conflict) {
-    nextSteps.push("Swift Sim found multiple Tailscale backends for different Mac identities. Keep one Tailscale connection, or set SWIFT_SIM_TAILSCALE_MODE explicitly before pairing.");
+    nextSteps.push(
+      "Swift Sim found multiple Tailscale backends for different Mac identities. Keep one Tailscale connection, or set SWIFT_SIM_TAILSCALE_MODE explicitly before pairing.",
+    );
   } else if (!tailscale.available) {
     nextSteps.push("Install Tailscale on the Mac and sign in to the same Tailnet as the iPhone.");
   } else if (!tailscale.online) {
@@ -578,7 +548,8 @@ async function setupStatus({ host, port }) {
       internetRequired: true,
       macAwakeRequired: true,
       firstXcodeTrustMayRequireCable: true,
-      detail: "For first-time pairing, install Tailscale on both devices, sign in to the same Tailnet, and keep the Mac awake with internet access. The devices may use different Wi-Fi networks or cellular. No cable is needed for Swift Sim pairing; connect one only if Xcode separately asks to trust or register this iPhone for its first signed device build.",
+      detail:
+        "For first-time pairing, install Tailscale on both devices, sign in to the same Tailnet, and keep the Mac awake with internet access. The devices may use different Wi-Fi networks or cellular. No cable is needed for Swift Sim pairing; connect one only if Xcode separately asks to trust or register this iPhone for its first signed device build.",
     },
     deviceDelivery: deviceDelivery.status(),
     deviceBuildReady: helperHealth.ok,
@@ -593,9 +564,11 @@ async function setupStatus({ host, port }) {
 }
 
 async function inspectTransports() {
-  return Object.fromEntries(await Promise.all(
-    Object.entries(transports).map(async ([id, transport]) => [id, await transport.inspect()])
-  ));
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(transports).map(async ([id, transport]) => [id, await transport.inspect()]),
+    ),
+  );
 }
 
 function defaultTransportPreference() {
@@ -704,7 +677,11 @@ function tailscaleCandidates() {
   }
   const userspaceSocket = `${homedir()}/.tailscale-userspace/tailscaled.sock`;
   if (existsSync(userspaceSocket)) {
-    candidates.push({ mode: "userspace", command: "tailscale", args: [`--socket=${userspaceSocket}`] });
+    candidates.push({
+      mode: "userspace",
+      command: "tailscale",
+      args: [`--socket=${userspaceSocket}`],
+    });
   }
   return candidates;
 }
@@ -769,8 +746,12 @@ async function runCommand(command, args, { timeoutMs }) {
     });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
@@ -779,7 +760,7 @@ async function runCommand(command, args, { timeoutMs }) {
         code,
         stdout,
         stderr,
-        error: code === 0 ? "" : (stderr || stdout || `${command} exited with code ${code}`),
+        error: code === 0 ? "" : stderr || stdout || `${command} exited with code ${code}`,
       });
     });
   });
@@ -804,13 +785,19 @@ async function proxyStream(res, session) {
   try {
     source = await openStreamingSource(session);
   } catch (error) {
-    session.logs.push(`stream produced no media; restarting serve-sim: ${error instanceof Error ? error.message : String(error)}`);
+    session.logs.push(
+      `stream produced no media; restarting serve-sim: ${error instanceof Error ? error.message : String(error)}`,
+    );
     store.save(session);
     await restartStreamOnce(session);
     try {
       source = await openStreamingSource(session, 8_000);
     } catch (retryError) {
-      return badRequest(res, 502, retryError instanceof Error ? retryError.message : String(retryError));
+      return badRequest(
+        res,
+        502,
+        retryError instanceof Error ? retryError.message : String(retryError),
+      );
     }
   }
 
@@ -835,16 +822,22 @@ async function proxyStream(res, session) {
         if (result.done) throw new Error("Simulator stream ended.");
         await writeChunk(res, result.value);
       } catch (error) {
-        try { await source.reader.cancel(); } catch {}
+        try {
+          await source.reader.cancel();
+        } catch {}
         if (res.destroyed || res.writableEnded) return;
-        session.logs.push(`stream stalled; recovering tracked simulator: ${error instanceof Error ? error.message : String(error)}`);
+        session.logs.push(
+          `stream stalled; recovering tracked simulator: ${error instanceof Error ? error.message : String(error)}`,
+        );
         store.save(session);
         try {
           await restartStreamOnce(session);
           source = await openStreamingSource(session, 8_000);
           await writeChunk(res, source.firstChunk);
         } catch (recoveryError) {
-          session.logs.push(`stream recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
+          session.logs.push(
+            `stream recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`,
+          );
           store.save(session);
           res.destroy(recoveryError instanceof Error ? recoveryError : undefined);
           return;
@@ -853,7 +846,9 @@ async function proxyStream(res, session) {
     }
   } finally {
     res.off("close", cancelActiveSource);
-    try { await source?.reader.cancel(); } catch {}
+    try {
+      await source?.reader.cancel();
+    } catch {}
   }
 }
 
@@ -865,7 +860,9 @@ async function openStreamingSource(session, timeoutMs = 5_000) {
   const reader = upstream.body.getReader();
   const first = await readStreamChunk(reader, timeoutMs);
   if (first.done || !first.value?.byteLength) {
-    try { await reader.cancel(); } catch {}
+    try {
+      await reader.cancel();
+    } catch {}
     throw new Error("Simulator stream returned no media bytes.");
   }
   return {
@@ -926,9 +923,11 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
     simulatorUDID,
     transport: transportPreference,
   });
-  if (existing
-      && existing.stream.state === "running"
-      && sessionTransportMatches(existing.stream.transport, transportPreference)) {
+  if (
+    existing &&
+    existing.stream.state === "running" &&
+    sessionTransportMatches(existing.stream.transport, transportPreference)
+  ) {
     existing.remoteBaseUrl = input["remote-base-url"] || existing.remoteBaseUrl;
     existing.updatedAt = new Date().toISOString();
     store.save(existing);
@@ -957,7 +956,9 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
       if (transportPreference !== "auto" || session.stream.transport !== "native-companion") {
         throw error;
       }
-      session.logs.push(`native companion unavailable; using serve-sim fallback: ${error instanceof Error ? error.message : String(error)}`);
+      session.logs.push(
+        `native companion unavailable; using serve-sim fallback: ${error instanceof Error ? error.message : String(error)}`,
+      );
       session.stream.transport = "serve-sim";
       transport = transportForSession(session);
       stream = await transport.start({
@@ -967,8 +968,12 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
     }
   } catch (error) {
     session.stream.state = "failed";
-    session.logs.push(`session start failed: ${error instanceof Error ? error.message : String(error)}`);
-    try { store.save(session); } catch {}
+    session.logs.push(
+      `session start failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    try {
+      store.save(session);
+    } catch {}
     throw error;
   }
 
@@ -977,7 +982,9 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
   try {
     store.save(session);
   } catch (error) {
-    try { await transport.stop(session); } catch {}
+    try {
+      await transport.stop(session);
+    } catch {}
     closeInputChannel(session);
     throw error;
   }
@@ -987,7 +994,9 @@ async function startOrReuseSession(input, { includeCodexMetadata = false } = {})
 async function stopSession(sessionId) {
   const session = store.get(sessionId);
   if (!session) return;
-  session.logs.push(`stopping ${session.stream.transport || "serve-sim"} for ${session.simulatorUDID}`);
+  session.logs.push(
+    `stopping ${session.stream.transport || "serve-sim"} for ${session.simulatorUDID}`,
+  );
   await transportForSession(session).stop(session);
   closeInputChannel(session);
   session.stream.state = "stopped";
@@ -1070,7 +1079,12 @@ async function sendControl(session, control) {
 
 async function toggleSimulatorUI(simulatorUDID, option) {
   const current = await adapter.ui({ simulatorUDID, args: [option] });
-  const next = String(current.stdout || "").trim().toLowerCase() === "on" ? "off" : "on";
+  const next =
+    String(current.stdout || "")
+      .trim()
+      .toLowerCase() === "on"
+      ? "off"
+      : "on";
   await adapter.ui({ simulatorUDID, args: [option, next] });
 }
 
@@ -1124,7 +1138,9 @@ async function tapSimulator(session, x, y) {
 async function sendGesture(session, event) {
   const normalized = normalizeGestureEvent(event);
   await sendTouch(session, normalized);
-  session.logs.push(`gesture: ${normalized.type} ${normalized.x.toFixed(3)}, ${normalized.y.toFixed(3)}`);
+  session.logs.push(
+    `gesture: ${normalized.type} ${normalized.x.toFixed(3)}, ${normalized.y.toFixed(3)}`,
+  );
   store.save(session);
   return { ok: true, event: normalized };
 }
@@ -1213,7 +1229,10 @@ class ServeSimInputChannel {
   send(opcode, payload) {
     const operation = this.pending.then(async () => {
       const socket = await this.connect();
-      const encoded = payload === undefined ? new Uint8Array() : new TextEncoder().encode(JSON.stringify(payload));
+      const encoded =
+        payload === undefined
+          ? new Uint8Array()
+          : new TextEncoder().encode(JSON.stringify(payload));
       const message = new Uint8Array(1 + encoded.length);
       message[0] = opcode;
       message.set(encoded, 1);
@@ -1234,13 +1253,17 @@ class ServeSimInputChannel {
         settled = true;
         this.socket = null;
         this.connecting = null;
-        try { socket.close(); } catch {}
+        try {
+          socket.close();
+        } catch {}
         reject(new Error("Timed out connecting simulator controls."));
       }, 3_000);
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {
         if (settled) {
-          try { socket.close(); } catch {}
+          try {
+            socket.close();
+          } catch {}
           return;
         }
         settled = true;
@@ -1265,7 +1288,9 @@ class ServeSimInputChannel {
   }
 
   close() {
-    try { this.socket?.close(); } catch {}
+    try {
+      this.socket?.close();
+    } catch {}
     this.socket = null;
     this.connecting = null;
   }
@@ -1340,9 +1365,7 @@ async function createDeviceBuild(values) {
     ttlMinutes: values["ttl-minutes"],
     preserveData: !values["replace-app-data"],
   });
-  build.buildSettings = Array.isArray(values["build-setting"])
-    ? values["build-setting"]
-    : [];
+  build.buildSettings = Array.isArray(values["build-setting"]) ? values["build-setting"] : [];
   build.allowProvisioningUpdates = Boolean(values["allow-provisioning-updates"]);
   deviceBuildStore.save(build);
   return build;
@@ -1395,12 +1418,16 @@ async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
     return build;
   } catch (error) {
     if (startedGeneration && deliveryReferenceID) {
-      try { deviceDelivery.stopGeneration(startedGeneration, { referenceID: deliveryReferenceID }); } catch {}
+      try {
+        deviceDelivery.stopGeneration(startedGeneration, { referenceID: deliveryReferenceID });
+      } catch {}
     }
     if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
     if (markBuildFailed) build.state = "failed";
     build.logs.push(error instanceof Error ? error.message : String(error));
-    try { deviceBuildStore.save(build); } catch {}
+    try {
+      deviceBuildStore.save(build);
+    } catch {}
     throw error;
   }
 }
@@ -1434,8 +1461,11 @@ async function drainDeliveryReferenceCleanupJobs() {
       const dueAt = Date.parse(job.nextAttemptAt || job.createdAt || "");
       if (Number.isFinite(dueAt) && dueAt > Date.now()) continue;
       try {
-        const released = deviceDelivery.stopGeneration(job.generation, { referenceID: job.referenceID });
-        if (!released) throw new Error("Delivery generation is still referenced or could not be stopped.");
+        const released = deviceDelivery.stopGeneration(job.generation, {
+          referenceID: job.referenceID,
+        });
+        if (!released)
+          throw new Error("Delivery generation is still referenced or could not be stopped.");
         deviceBuildStore.completeDeliveryReferenceCleanupJob(job.id);
       } catch (error) {
         deviceBuildStore.failDeliveryReferenceCleanupJob(job.id, error);
@@ -1451,7 +1481,8 @@ function scheduleDeliveryReferenceCleanup() {
 }
 
 async function runCLIDeviceBuild(build) {
-  const interrupt = () => requestDeviceBuildCancellation(build, "Swift Sim device build was interrupted.");
+  const interrupt = () =>
+    requestDeviceBuildCancellation(build, "Swift Sim device build was interrupted.");
   process.once("SIGTERM", interrupt);
   process.once("SIGINT", interrupt);
   try {
@@ -1496,31 +1527,50 @@ function startManagedDeviceBuild(build) {
           build.state = "failed";
           build.logs = Array.isArray(build.logs) ? build.logs : [];
           build.logs.push("Build was interrupted before completion.");
-          try { deviceBuildStore.save(build); } catch {}
+          try {
+            deviceBuildStore.save(build);
+          } catch {}
         }
-      })
+      }),
   );
 }
 
 async function recoverInterruptedDeviceBuilds() {
-  const activeStates = new Set(["validating", "preparing", "archiving", "building", "exporting", "delivering"]);
-  for (const build of deviceBuildStore.list().filter((candidate) => activeStates.has(candidate.state))) {
+  const activeStates = new Set([
+    "validating",
+    "preparing",
+    "archiving",
+    "building",
+    "exporting",
+    "delivering",
+  ]);
+  for (const build of deviceBuildStore
+    .list()
+    .filter((candidate) => activeStates.has(candidate.state))) {
     requestDeviceBuildCancellation(build, "Recovering an interrupted Swift Sim helper run.");
     const terminated = await terminateRecordedDeviceBuildWorker(build);
     for (const delivery of deviceDelivery.statuses()) {
       for (const referenceID of delivery.references || []) {
-        if (referenceID === `build:${build.id}`
-            || referenceID === `renewal:${build.pendingRenewal?.id || ""}`) {
-          try { deviceDelivery.stopGeneration(delivery.generation, { referenceID }); } catch {}
+        if (
+          referenceID === `build:${build.id}` ||
+          referenceID === `renewal:${build.pendingRenewal?.id || ""}`
+        ) {
+          try {
+            deviceDelivery.stopGeneration(delivery.generation, { referenceID });
+          } catch {}
         }
       }
     }
     build.state = "failed";
     build.logs = Array.isArray(build.logs) ? build.logs : [];
-    build.logs.push(terminated
-      ? "A previous helper run ended during this build. Start a new build to continue."
-      : "A previous helper run ended during this build, and its worker could not be safely confirmed stopped.");
-    try { deviceBuildStore.save(build); } catch {}
+    build.logs.push(
+      terminated
+        ? "A previous helper run ended during this build. Start a new build to continue."
+        : "A previous helper run ended during this build, and its worker could not be safely confirmed stopped.",
+    );
+    try {
+      deviceBuildStore.save(build);
+    } catch {}
   }
 }
 
@@ -1587,11 +1637,12 @@ function deviceBuildFallbackHtml(build) {
   const warnings = (build.signing.warnings || [])
     .map((warning) => `<li>${escapeHtml(warning)}</li>`)
     .join("");
-  const stateLine = build.state === "ready"
-    ? "Ready to install on this iPhone"
-    : build.state === "failed"
-      ? "Build failed"
-      : "Build is still running";
+  const stateLine =
+    build.state === "ready"
+      ? "Ready to install on this iPhone"
+      : build.state === "failed"
+        ? "Build failed"
+        : "Build is still running";
   return `<!doctype html>
 <html>
 <head>
@@ -1666,11 +1717,15 @@ function appleAppSiteAssociation() {
 }
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  })[char]);
+  return String(value).replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[char],
+  );
 }

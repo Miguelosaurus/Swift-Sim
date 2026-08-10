@@ -31,9 +31,7 @@ test("availability attribute arguments require a rebuild", () => {
   const before = `import SwiftUI
 @available(iOS 18, *)
 struct ContentView: View { var body: some View { Text("before") } }`;
-  const after = before
-    .replace("iOS 18", "iOS 19")
-    .replace('Text("before")', 'Text("after")');
+  const after = before.replace("iOS 18", "iOS 19").replace('Text("before")', 'Text("after")');
   assert.equal(classifySwiftSource(before, after).hotReloadable, false);
 });
 
@@ -54,24 +52,15 @@ test("runtime availability changes require a rebuild", () => {
   assert.equal(classifySwiftSource(before, after).hotReloadable, false);
 });
 
-test("delivery reference cleanup no longer blocks helper startup", () => {
-  const source = readFileSync("mac-helper/bin/swift-sim-helper.js", "utf8");
-  const serveStart = source.indexOf("async function serve(");
-  const createServer = source.indexOf("const server = createServer", serveStart);
-  const startup = source.slice(serveStart, createServer);
-  assert.doesNotMatch(startup, /await drainDeliveryReferenceCleanupJobs\(\)/);
-  assert.match(startup, /setImmediate\(\(\) =>/);
-});
-
 test("live reload selects project and workspace containers correctly", () => {
-  assert.deepEqual(
-    xcodeContainerArguments("/tmp/App.xcodeproj/project.pbxproj"),
-    ["-project", "/tmp/App.xcodeproj"],
-  );
-  assert.deepEqual(
-    xcodeContainerArguments("/tmp/App.xcworkspace/contents.xcworkspacedata"),
-    ["-workspace", "/tmp/App.xcworkspace"],
-  );
+  assert.deepEqual(xcodeContainerArguments("/tmp/App.xcodeproj/project.pbxproj"), [
+    "-project",
+    "/tmp/App.xcodeproj",
+  ]);
+  assert.deepEqual(xcodeContainerArguments("/tmp/App.xcworkspace/contents.xcworkspacedata"), [
+    "-workspace",
+    "/tmp/App.xcworkspace",
+  ]);
   assert.deepEqual(
     xcodeContainerArguments("/tmp/App.xcworkspace/contents.xcworkspacedata", "App"),
     ["-workspace", "/tmp/App.xcworkspace", "-scheme", "App"],
@@ -91,10 +80,12 @@ test("project and workspace schemes are selected safely", () => {
     "/tmp/App.xcodeproj/project.pbxproj",
     "/tmp/App.xcworkspace/contents.xcworkspacedata",
   ]) {
-    assert.deepEqual(
-      selectLiveScheme(path, "", ["App"]),
-      { scheme: "App", availableSchemes: ["App"], required: false, error: "" },
-    );
+    assert.deepEqual(selectLiveScheme(path, "", ["App"]), {
+      scheme: "App",
+      availableSchemes: ["App"],
+      required: false,
+      error: "",
+    });
     const ambiguous = selectLiveScheme(path, "", ["App", "Tests"]);
     assert.equal(ambiguous.required, true);
     assert.match(ambiguous.error, /--scheme/);
@@ -165,19 +156,23 @@ test("attribute-looking text in strings and comments does not change the surface
 
 test("engine-mutating live operations hold the lifecycle lock", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
-  assert.ok(source.includes(
-    "export async function registerLiveBuildResult(options) {\n"
-      + "  return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));\n"
-      + "}",
-  ));
-  assert.ok(source.includes(
-    "export async function injectLiveSource(sourcePath, runtime = {}) {\n"
-      + "  if (typeof runtime.engineControl === \"function\") {\n"
-      + "    return injectLiveSourceUnlocked(sourcePath, runtime);\n"
-      + "  }\n"
-      + "  return withLiveEngineLifecycleLock(() => injectLiveSourceUnlocked(sourcePath, runtime));\n"
-      + "}",
-  ));
+  assert.ok(
+    source.includes(
+      "export async function registerLiveBuildResult(options) {\n" +
+        "  return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));\n" +
+        "}",
+    ),
+  );
+  assert.ok(
+    source.includes(
+      "export async function injectLiveSource(sourcePath, runtime = {}) {\n" +
+        '  if (typeof runtime.engineControl === "function") {\n' +
+        "    return injectLiveSourceUnlocked(sourcePath, runtime);\n" +
+        "  }\n" +
+        "  return withLiveEngineLifecycleLock(() => injectLiveSourceUnlocked(sourcePath, runtime));\n" +
+        "}",
+    ),
+  );
 });
 
 test("multiline runtime availability changes require a rebuild", () => {
@@ -210,10 +205,9 @@ test("multiline runtime unavailability changes require a rebuild", () => {
 
 test("expanded signing identity remains one candidate", () => {
   const identity = "A".repeat(40);
-  assert.deepEqual(
-    expandedSigningIdentities(`    EXPANDED_CODE_SIGN_IDENTITY = ${identity}\n`),
-    [identity],
-  );
+  assert.deepEqual(expandedSigningIdentities(`    EXPANDED_CODE_SIGN_IDENTITY = ${identity}\n`), [
+    identity,
+  ]);
 });
 
 test("live build session keeps start, build, and registration under one lock", async () => {
@@ -263,23 +257,26 @@ test("device live build uses the complete lifecycle lease", () => {
 
 test("production live routing holds one lifecycle lease", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
-  assert.ok(source.includes(
-    "if (!injectedLifecycle && runtime.lifecycleLocked !== true) {\n"
-      + "    return withLiveEngineLifecycleLock",
-  ));
-  assert.ok(source.includes(
-    "runtime.lifecycleLocked\n"
-      + "    ? ((options) => inspectLiveReloadWarmUnlocked(options))",
-  ));
-  assert.ok(source.includes(
-    "runtime.lifecycleLocked\n"
-      + "    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked",
-  ));
-  assert.ok(source.includes(
-    "const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload",
-  ));
+  assert.ok(
+    source.includes(
+      "if (!injectedLifecycle && runtime.lifecycleLocked !== true) {\n" +
+        "    return withLiveEngineLifecycleLock",
+    ),
+  );
+  assert.ok(
+    source.includes(
+      "runtime.lifecycleLocked\n" + "    ? ((options) => inspectLiveReloadWarmUnlocked(options))",
+    ),
+  );
+  assert.ok(
+    source.includes(
+      "runtime.lifecycleLocked\n" + "    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked",
+    ),
+  );
+  assert.ok(
+    source.includes("const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload"),
+  );
 });
-
 
 test("nested block comments cannot truncate runtime availability scanning", () => {
   const before = `func value() -> Int {
@@ -291,7 +288,6 @@ test("nested block comments cannot truncate runtime availability scanning", () =
   assert.equal(result.hotReloadable, false);
   assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
 });
-
 
 test("attribute string-literal whitespace requires a rebuild", () => {
   const before = `struct Model {
@@ -340,18 +336,18 @@ Build settings for action build and target Second:
   );
 });
 
-
 test("live signing fails closed when build settings are unavailable", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
   assert.match(source, /if \(settings\.status !== 0 \|\| settings\.error\)/);
   assert.match(source, /Xcode did not report a Development Team/);
   assert.doesNotMatch(
-    source.slice(source.indexOf("function resolveSigningIdentities"), source.indexOf("function provisioningIdentityForTeam")),
+    source.slice(
+      source.indexOf("function resolveSigningIdentities"),
+      source.indexOf("function provisioningIdentityForTeam"),
+    ),
     /\.\.\.development\.map/,
   );
 });
-
-
 
 test("live readiness is bound to the active engine scheme", () => {
   const session = {
@@ -359,32 +355,36 @@ test("live readiness is bound to the active engine scheme", () => {
     scheme: "OtherApp",
     engineVersion: "0.4.0",
   };
-  assert.equal(liveEngineSessionMatches(session, {
-    projectRoot: "/tmp/Repo",
-    scheme: "SelectedApp",
-  }), false);
-  assert.equal(liveEngineSessionMatches(session, {
-    projectRoot: "/tmp/Repo",
-    scheme: "OtherApp",
-  }), true);
-  assert.equal(liveEngineSessionMatches(session, {
-    projectRoot: "/tmp/AnotherRepo",
-    scheme: "OtherApp",
-  }), false);
+  assert.equal(
+    liveEngineSessionMatches(session, {
+      projectRoot: "/tmp/Repo",
+      scheme: "SelectedApp",
+    }),
+    false,
+  );
+  assert.equal(
+    liveEngineSessionMatches(session, {
+      projectRoot: "/tmp/Repo",
+      scheme: "OtherApp",
+    }),
+    true,
+  );
+  assert.equal(
+    liveEngineSessionMatches(session, {
+      projectRoot: "/tmp/AnotherRepo",
+      scheme: "OtherApp",
+    }),
+    false,
+  );
 
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
   assert.match(source, /const matchingEngineSession = liveEngineSessionMatches\(engineSession/);
   assert.match(source, /const watchingProject = Boolean\([\s\S]*?matchingEngineSession/);
 });
 
-
-
 test("project live inspection applies the same scheme authority as workspaces", () => {
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
-  assert.match(
-    source,
-    /const availableSchemes = isXcodeContainerProjectPath\(projectPath\)/,
-  );
+  assert.match(source, /const availableSchemes = isXcodeContainerProjectPath\(projectPath\)/);
   assert.match(source, /selectedXcodeApplicationTarget\(projectPath, scheme\)/);
   assert.doesNotMatch(
     source.slice(
@@ -395,11 +395,16 @@ test("project live inspection applies the same scheme authority as workspaces", 
   );
 });
 
-
 test("device live instrumentation cannot leak into fallback archives", () => {
   const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
-  assert.match(source, /selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
-  assert.match(source, /selectedTargetHasLivePackage\(selectedLiveTarget\.source, selectedLiveTarget\.targetName\)/);
+  assert.match(
+    source,
+    /selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/,
+  );
+  assert.match(
+    source,
+    /selectedTargetHasLivePackage\(selectedLiveTarget\.source, selectedLiveTarget\.targetName\)/,
+  );
   assert.doesNotMatch(source, /function projectHasLivePackage/);
   const liveStart = source.indexOf('log("Building the signed live-enabled Debug app.")');
   const liveEnd = source.indexOf("const appPath = findBuiltApp", liveStart);
@@ -411,11 +416,16 @@ test("device live instrumentation cannot leak into fallback archives", () => {
   assert.doesNotMatch(fallback, /liveBuildSettingArgs|managedLiveBuildSettings/);
 });
 
-
 test("release archives do not inspect optional live targets", () => {
   const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
-  assert.match(source, /const liveCandidate = String\(build\.configuration \|\| ""\)\.toLowerCase\(\) === "debug"/);
-  assert.match(source, /const selectedLiveTarget = liveCandidate[\s\S]*?selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
+  assert.match(
+    source,
+    /const liveCandidate = String\(build\.configuration \|\| ""\)\.toLowerCase\(\) === "debug"/,
+  );
+  assert.match(
+    source,
+    /const selectedLiveTarget = liveCandidate[\s\S]*?selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/,
+  );
   assert.match(source, /const liveEligible = Boolean\(selectedLiveTarget\)/);
 });
 
@@ -470,12 +480,18 @@ test("worker identity verification is prepared before supervised commands spawn"
   const bufferedEnd = builder.indexOf("async function terminateProcessGroup", bufferedStart);
   const buffered = builder.slice(bufferedStart, bufferedEnd);
   assert.ok(buffered.indexOf("prepareOwnedWorkerProcessIdentity()") >= 0);
-  assert.ok(buffered.indexOf("prepareOwnedWorkerProcessIdentity()") < buffered.indexOf("const child = spawn"));
+  assert.ok(
+    buffered.indexOf("prepareOwnedWorkerProcessIdentity()") <
+      buffered.indexOf("const child = spawn"),
+  );
 
   const validation = readFileSync("mac-helper/src/buildValidation.js", "utf8");
   const validationStart = validation.indexOf("function runValidationCommand");
   const validationEnd = validation.indexOf("async function terminateProcessGroup", validationStart);
   const validationCommand = validation.slice(validationStart, validationEnd);
   assert.ok(validationCommand.indexOf("prepareOwnedWorkerProcessIdentity()") >= 0);
-  assert.ok(validationCommand.indexOf("prepareOwnedWorkerProcessIdentity()") < validationCommand.indexOf("const child = spawn"));
+  assert.ok(
+    validationCommand.indexOf("prepareOwnedWorkerProcessIdentity()") <
+      validationCommand.indexOf("const child = spawn"),
+  );
 });

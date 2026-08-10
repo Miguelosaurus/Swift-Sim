@@ -237,7 +237,6 @@
       "test/confirmationRound4Lifecycle.test.js": 1,
       "test/confirmationRound5UpgradeRecovery.test.js": 1,
       "test/confirmationRuntimePreload.test.js": 1,
-      "test/deliveryCleanupScheduler.test.js": 1,
       "test/deviceBuilderTimeout.test.js": 1,
       "test/deviceBuildStore.test.js": 1,
       "test/deviceDelivery.test.js": 1,
