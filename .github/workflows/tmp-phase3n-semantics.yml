@@ -40,70 +40,54 @@ jobs:
 
           coordinator = Path('mac-helper/src/http/deviceInstallationReconciliationCoordinator.js')
           source = coordinator.read_text()
-          old = '''  const state = installation.state || "unknown";
-          if (!["requested", "not-installed", "different-version"].includes(String(state))) {
-            return false;
-          }
-          const deadline = Date.parse(stringValue(installation.verificationDeadlineAt));
-          if (Number.isFinite(deadline)) return deadline > nowMs();
-          const requestedAt = Date.parse(stringValue(installation.requestedAt));
-          return Number.isFinite(requestedAt) && requestedAt + 15 * 60 * 1000 > nowMs();
-          }
-
-          /** @param {unknown} value */
-          function stringValue(value) {
-            return typeof value === "string" ? value : "";
-          }
-          '''
-          new = '''  const state = /** @type {string} */ (installation.state || "unknown");
-          if (!["requested", "not-installed", "different-version"].includes(state)) {
-            return false;
-          }
-          const deadline = Date.parse(
-            /** @type {string} */ (installation.verificationDeadlineAt || ""),
-          );
-          if (Number.isFinite(deadline)) return deadline > nowMs();
-          const requestedAt = Date.parse(
-            /** @type {string} */ (installation.requestedAt || ""),
-          );
-          return Number.isFinite(requestedAt) && requestedAt + 15 * 60 * 1000 > nowMs();
-          }
-          '''
-          assert source.count(old) == 1
-          coordinator.write_text(source.replace(old, new, 1))
+          replacements = [
+              ('  const state = installation.state || "unknown";', '  const state = /** @type {string} */ (installation.state || "unknown");'),
+              ('if (!["requested", "not-installed", "different-version"].includes(String(state))) {', 'if (!["requested", "not-installed", "different-version"].includes(state)) {'),
+              ('  const deadline = Date.parse(stringValue(installation.verificationDeadlineAt));', '  const deadline = Date.parse(/** @type {string} */ (installation.verificationDeadlineAt || ""));'),
+              ('  const requestedAt = Date.parse(stringValue(installation.requestedAt));', '  const requestedAt = Date.parse(/** @type {string} */ (installation.requestedAt || ""));'),
+          ]
+          for old, new in replacements:
+              assert source.count(old) == 1, old
+              source = source.replace(old, new, 1)
+          start = source.index('\n/** @param {unknown} value */\nfunction stringValue(value) {')
+          end = source.index('\n/** @param {DeviceInstallationReconciliationDependencies} dependencies */', start)
+          source = source[:start] + '\n' + source[end:]
+          coordinator.write_text(source)
 
           test_file = Path('test/deviceInstallationReconciliationCoordinator.test.js')
           source = test_file.read_text()
           anchor = 'test("validates every dependency at construction", () => {'
           assert source.count(anchor) == 1
-          regression = '''test("preserves legacy raw state equality and Date.parse coercion", async () => {
-            const { coordinator, verified } = harness({
-              builds: [
-                build({
-                  id: "object-state",
-                  installation: {
-                    state: { toString: () => "requested" },
-                    verificationDeadlineAt: "",
-                    requestedAt: new Date(NOW - 1_000).toISOString(),
-                  },
-                }),
-                build({
-                  id: "coercible-deadline",
-                  installation: {
-                    state: "requested",
-                    verificationDeadlineAt: { toString: () => new Date(NOW + 60_000).toISOString() },
-                    requestedAt: new Date(NOW - 20 * 60 * 1000).toISOString(),
-                  },
-                }),
-              ],
-            });
-
-            await coordinator.runOnce();
-
-            assert.deepEqual(verified, ["coercible-deadline"]);
-          });
-
-          '''
+          regression = "\n".join([
+              'test("preserves legacy raw state equality and Date.parse coercion", async () => {',
+              '  const { coordinator, verified } = harness({',
+              '    builds: [',
+              '      build({',
+              '        id: "object-state",',
+              '        installation: {',
+              '          state: { toString: () => "requested" },',
+              '          verificationDeadlineAt: "",',
+              '          requestedAt: new Date(NOW - 1_000).toISOString(),',
+              '        },',
+              '      }),',
+              '      build({',
+              '        id: "coercible-deadline",',
+              '        installation: {',
+              '          state: "requested",',
+              '          verificationDeadlineAt: { toString: () => new Date(NOW + 60_000).toISOString() },',
+              '          requestedAt: new Date(NOW - 20 * 60 * 1000).toISOString(),',
+              '        },',
+              '      }),',
+              '    ],',
+              '  });',
+              '',
+              '  await coordinator.runOnce();',
+              '',
+              '  assert.deepEqual(verified, ["coercible-deadline"]);',
+              '});',
+              '',
+              '',
+          ])
           test_file.write_text(source.replace(anchor, regression + anchor, 1))
           PY
 
