@@ -28,7 +28,7 @@ source = replace_once(
 source = replace_once(
     source,
     ' * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource\n',
-    ' * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource\n * @typedef {{ done: boolean, value?: Uint8Array | undefined }} StreamReadResult\n',
+    ' * @typedef {{ reader: ReadableStreamDefaultReader<Uint8Array>, firstChunk: Uint8Array, contentType: string }} StreamingSource\n * @typedef {{ done: true, value?: undefined } | { done: false, value: Uint8Array }} StreamReadResult\n',
     "stream read result typedef",
 )
 source = replace_once(
