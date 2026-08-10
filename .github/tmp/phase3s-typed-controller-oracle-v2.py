@@ -49,6 +49,12 @@ controller = replace_once(
 )
 controller = replace_once(
     controller,
+    "          await writeChunk(res, result.value);",
+    "          await writeChunk(res, /** @type {Uint8Array} */ (result.value));",
+    "stream loop chunk narrowing",
+)
+controller = replace_once(
+    controller,
     "      firstChunk: first.value,",
     "      firstChunk: /** @type {Uint8Array} */ (first.value),",
     "first stream chunk narrowing",
