@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -69,11 +70,13 @@ if legacy_start < 0:
 round2_path.write_text(round2[:legacy_start].rstrip() + "\\n")
 
 baseline_path = Path("scripts/architecture/baseline-policy.json")
-baseline = baseline_path.read_text()
-baseline_entry = '      "test/confirmationRound2State.test.js": 1,\\n'
-if baseline.count(baseline_entry) != 1:
-    raise SystemExit("session source-text debt cap sentinel missing")
-baseline_path.write_text(baseline.replace(baseline_entry, "", 1))
+baseline_document = json.loads(baseline_path.read_text())
+source_text_tests = baseline_document.get("baseline", {}).get("sourceTextImplementationTests")
+if not isinstance(source_text_tests, dict):
+    raise SystemExit("source-text debt policy is missing")
+if source_text_tests.pop("test/confirmationRound2State.test.js", None) != 1:
+    raise SystemExit("session source-text debt cap is missing or changed")
+baseline_path.write_text(json.dumps(baseline_document, indent=2) + "\\n")
 
 package_path = Path("package.json")
 package = package_path.read_text()
@@ -88,6 +91,8 @@ if package.count(lint_anchor) != 1:
     raise SystemExit("package lint coverage sentinel missing")
 package_path.write_text(package.replace(lint_anchor, lint_replacement, 1))
 '''
+# The inner publisher already imports json; make it available to the inserted policy edit.
+script = replace_once(script, "import subprocess\n", "import json\nimport subprocess\n", "publisher json import")
 script = replace_once(script, write_anchor, cleanup_code, "post-transform cleanup")
 
 script = replace_once(
