@@ -19,6 +19,11 @@ replacements = [
         '  if (typeof dependencies?.commandRunner?.run !== "function") {\n',
         "command runner validation narrowing",
     ),
+    (
+        '      currentUrl = trimmed.split(/\\s+/)[0].replace(/\\/$/, "");\n',
+        '      const [candidateUrl] = trimmed.split(/\\s+/);\n      currentUrl = (candidateUrl || "").replace(/\\/$/, "");\n',
+        "serve URL split narrowing",
+    ),
 ]
 
 for old, new, label in replacements:
