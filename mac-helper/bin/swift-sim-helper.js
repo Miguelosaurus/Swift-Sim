@@ -6,14 +6,10 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { pathToFileURL, URL } from "node:url";
 import { ServeSimError } from "../src/serveSimAdapter.js";
-import { runDeliveryCleanupSafely } from "../src/deliveryCleanupScheduler.js";
 import {
   buildCapabilityExpiresAt,
   deviceDeliveryRequestAllowed,
 } from "../src/deviceDelivery.js";
-import {
-  normalizeDeviceBuildTTLMinutes,
-} from "../src/deviceBuildDefaults.js";
 import {
   buildManifest,
   deviceBuildLinks,
@@ -39,7 +35,6 @@ import { createDeviceBuildCommandApplicationService } from "../src/http/deviceBu
 import { handleDeviceBuildCommandRoutes } from "../src/http/deviceBuildCommandRoutes.js";
 import { createDeviceBuildCapabilityApplicationService } from "../src/http/deviceBuildCapabilityApplicationService.js";
 import { handleDeviceBuildCapabilityRoutes } from "../src/http/deviceBuildCapabilityRoutes.js";
-import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "../src/deviceBuildTaskTracker.js";
 import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
 import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
 import { createPairingPageApplicationService } from "../src/http/pairingPageApplicationService.js";
@@ -51,6 +46,7 @@ import { createCompatibilityHelperRuntime } from "../src/infrastructure/compatib
 import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";
 import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";
 import { createSessionRuntimeController } from "../src/sessionRuntimeController.js";
+import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";
 import { createSetupStatusService } from "../src/commands/setupStatusService.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 
@@ -65,10 +61,9 @@ let pairingInviteStore;
 let simulatorProfiles;
 let deviceInventory;
 let adapter;
-let activeDeviceBuildTasks;
-let deliveryReferenceCleanupRunning;
 let transports;
 let sessionRuntime;
+let deviceBuildRuntime;
 let setupStatusRuntime;
 let compatibilityRuntimeInitialized = false;
 
@@ -96,7 +91,6 @@ function initializeCompatibilityRuntime() {
   simulatorProfiles = runtime.simulatorProfiles;
   deviceInventory = runtime.deviceInventory;
   adapter = runtime.adapter;
-  activeDeviceBuildTasks = runtime.activeDeviceBuildTasks;
   transports = runtime.transports;
   sessionRuntime = createSessionRuntimeController({
     store,
@@ -105,6 +99,20 @@ function initializeCompatibilityRuntime() {
     defaultTransportPreference,
     idGenerator: runtime.idGenerator,
     clock: runtime.clock,
+  });
+  deviceBuildRuntime = createDeviceBuildRuntimeController({
+    store: deviceBuildStore,
+    delivery: deviceDelivery,
+    pathExists: existsSync,
+    clock: runtime.clock,
+    capabilityExpiresAt: buildCapabilityExpiresAt,
+    runBuild: runDeviceBuild,
+    requestCancellation: requestDeviceBuildCancellation,
+    terminateRecordedWorker: terminateRecordedDeviceBuildWorker,
+    signals: {
+      once: (signal, listener) => process.once(signal, listener),
+      off: (signal, listener) => process.off(signal, listener),
+    },
   });
   const commandRunner = new NodeCommandRunner({ spawn, spawnSync });
   setupStatusRuntime = createSetupStatusService({
@@ -118,7 +126,6 @@ function initializeCompatibilityRuntime() {
     deviceDeliveryStatus: () => deviceDelivery.status(),
     defaultTransportPreference,
   });
-  deliveryReferenceCleanupRunning = false;
   compatibilityRuntimeInitialized = true;
 }
 
@@ -138,8 +145,8 @@ async function main(argv) {
       },
       setupStatus: (values) => setupStatusRuntime.setupStatus(values),
       async buildDevice(values) {
-        const build = await createDeviceBuild(values);
-        await runCLIDeviceBuild(build);
+        const build = await deviceBuildRuntime.createBuild(values);
+        await deviceBuildRuntime.runCliBuild(build);
         return publicDeviceBuild(build);
       },
       async stopSession({ sessionId, token }) {
@@ -170,11 +177,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     host,
     port,
     deviceBuildsOnly,
-    recoverInterruptedBuilds: recoverInterruptedDeviceBuilds,
-    scheduleDeliveryCleanup: scheduleDeliveryReferenceCleanup,
+    recoverInterruptedBuilds: () => deviceBuildRuntime.recoverInterruptedBuilds(),
+    scheduleDeliveryCleanup: () => deviceBuildRuntime.scheduleDeliveryCleanup(),
     reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
-    activeBuildTasks: () => [...activeDeviceBuildTasks.values()],
-    cancelBuild: requestDeviceBuildCancellation,
+    activeBuildTasks: () => deviceBuildRuntime.activeTasks(),
+    cancelBuild: (build, reason) => deviceBuildRuntime.cancelBuild(build, reason),
     listSessions: () => (typeof store.list === "function" ? store.list() : []),
     stopSession: (sessionID) => sessionRuntime.stopSession(sessionID),
   });
@@ -191,19 +198,19 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     latestReusableBuildForApp: (appID) => deviceBuildStore.latestReusableBuildForApp(appID),
     pathExists: existsSync,
     createRebuild: (source, options) => deviceBuildStore.createRebuild(source, options),
-    startBuild: startManagedDeviceBuild,
+    startBuild: (build) => deviceBuildRuntime.startBuild(build),
     deleteApp: (appID, options) => deviceBuildStore.deleteApp(appID, options),
-    drainDeliveryReferences: drainDeliveryReferenceCleanupJobs,
+    drainDeliveryReferences: () => deviceBuildRuntime.drainDeliveryReferences(),
   });
   const deviceBuildCommandService = createDeviceBuildCommandApplicationService({
     pairingTokenMatches,
-    createBuild: createDeviceBuild,
-    startBuild: startManagedDeviceBuild,
+    createBuild: (values) => deviceBuildRuntime.createBuild(values),
+    startBuild: (build) => deviceBuildRuntime.startBuild(build),
     getBuild: (buildID) => deviceBuildStore.get(buildID),
     pathExists: existsSync,
     renewInstallLink: (buildID, options) => deviceBuildStore.renewInstallLink(buildID, options),
-    trackTask: trackDeviceBuildTask,
-    prepareDelivery: prepareDeviceDelivery,
+    trackTask: (key, build, operation) => deviceBuildRuntime.trackTask(key, build, operation),
+    prepareDelivery: (build, options) => deviceBuildRuntime.prepareDelivery(build, options),
     saveBuild: (build) => deviceBuildStore.save(build),
     projectBuild: publicDeviceBuild,
   });
@@ -308,208 +315,11 @@ function defaultTransportPreference() {
   return process.env.SWIFT_SIM_TRANSPORT || "auto";
 }
 
-async function createDeviceBuild(values) {
-  const remoteBaseUrl = values["remote-base-url"] || "";
-  const delivery = values.delivery || (remoteBaseUrl ? "custom" : "quick-tunnel");
-  if (!["custom", "quick-tunnel"].includes(delivery)) {
-    throw new Error("Device delivery must be custom or quick-tunnel.");
-  }
-  if (delivery === "custom" && !remoteBaseUrl) {
-    throw new Error("Custom device delivery requires --remote-base-url.");
-  }
-  const build = deviceBuildStore.create({
-    project: values.project || "",
-    workspace: values.workspace || "",
-    scheme: required(values.scheme, "scheme"),
-    configuration: values.configuration || "Release",
-    remoteBaseUrl,
-    delivery,
-    exportMethod: values["export-method"] || "development",
-    ttlMinutes: values["ttl-minutes"],
-    preserveData: !values["replace-app-data"],
-  });
-  build.buildSettings = Array.isArray(values["build-setting"])
-    ? values["build-setting"]
-    : [];
-  build.allowProvisioningUpdates = Boolean(values["allow-provisioning-updates"]);
-  deviceBuildStore.save(build);
-  return build;
-}
-
-async function prepareDeviceDelivery(build, { markBuildFailed = true } = {}) {
-  let startedGeneration = "";
-  let deliveryReferenceID = "";
-  try {
-    ensureBuildNotCancelled(build);
-    const ttlMinutes = normalizeDeviceBuildTTLMinutes(build.installTTLMinutes);
-    if (build.remoteBaseUrl || build.delivery?.mode === "custom") {
-      build.expiresAt = buildCapabilityExpiresAt({ ttlMinutes });
-      build.delivery = {
-        mode: "custom",
-        provider: "user-configured",
-        expiresAt: build.expiresAt,
-      };
-      build.state = "ready";
-      ensureBuildNotCancelled(build);
-      deviceBuildStore.save(build);
-      return build;
-    }
-
-    deliveryReferenceID = build.pendingRenewal?.id
-      ? `renewal:${build.pendingRenewal.id}`
-      : build.delivery?.referenceID || `build:${build.id}`;
-    const delivery = await deviceDelivery.ensure({
-      ttlMinutes,
-      cancelPath: build.control?.cancelPath || "",
-      referenceID: deliveryReferenceID,
-    });
-    startedGeneration = delivery.generation || "";
-    ensureBuildNotCancelled(build);
-    build.expiresAt = buildCapabilityExpiresAt({
-      ttlMinutes,
-      deliveryExpiresAt: delivery.expiresAt,
-    });
-    build.remoteBaseUrl = delivery.publicBaseUrl;
-    build.delivery = {
-      mode: "quick-tunnel",
-      provider: delivery.provider,
-      expiresAt: delivery.expiresAt,
-      generation: delivery.generation || "",
-      referenceID: deliveryReferenceID,
-    };
-    build.state = "ready";
-    build.logs.push("Temporary HTTPS install link is ready. Tailscale is not required.");
-    deviceBuildStore.save(build);
-    return build;
-  } catch (error) {
-    if (startedGeneration && deliveryReferenceID) {
-      try { deviceDelivery.stopGeneration(startedGeneration, { referenceID: deliveryReferenceID }); } catch {}
-    }
-    if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
-    if (markBuildFailed) build.state = "failed";
-    build.logs.push(error instanceof Error ? error.message : String(error));
-    try { deviceBuildStore.save(build); } catch {}
-    throw error;
-  }
-}
-
-function ensureBuildNotCancelled(build) {
-  if (!build.control?.cancelPath || !existsSync(build.control.cancelPath)) return;
-  const error = new Error("Device build was cancelled while delivery was starting.");
-  error.code = "SWIFT_SIM_BUILD_CANCELLED";
-  throw error;
-}
-
-function required(value, name) {
-  if (!value || typeof value !== "string") {
-    throw new Error(`Missing required ${name}.`);
-  }
-  return value;
-}
-
 function secretsMatch(expectedValue, actualValue) {
   if (!expectedValue || !actualValue) return false;
   const expected = Buffer.from(String(expectedValue));
   const actual = Buffer.from(String(actualValue));
   return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
-
-async function drainDeliveryReferenceCleanupJobs() {
-  if (deliveryReferenceCleanupRunning) return;
-  deliveryReferenceCleanupRunning = true;
-  try {
-    for (const job of deviceBuildStore.listDeliveryReferenceCleanupJobs()) {
-      const dueAt = Date.parse(job.nextAttemptAt || job.createdAt || "");
-      if (Number.isFinite(dueAt) && dueAt > Date.now()) continue;
-      try {
-        const released = deviceDelivery.stopGeneration(job.generation, { referenceID: job.referenceID });
-        if (!released) throw new Error("Delivery generation is still referenced or could not be stopped.");
-        deviceBuildStore.completeDeliveryReferenceCleanupJob(job.id);
-      } catch (error) {
-        deviceBuildStore.failDeliveryReferenceCleanupJob(job.id, error);
-      }
-    }
-  } finally {
-    deliveryReferenceCleanupRunning = false;
-  }
-}
-
-function scheduleDeliveryReferenceCleanup() {
-  return runDeliveryCleanupSafely(() => drainDeliveryReferenceCleanupJobs());
-}
-
-async function runCLIDeviceBuild(build) {
-  const interrupt = () => requestDeviceBuildCancellation(build, "Swift Sim device build was interrupted.");
-  process.once("SIGTERM", interrupt);
-  process.once("SIGINT", interrupt);
-  try {
-    await runDeviceBuild(build, {
-      save: (next) => deviceBuildStore.save(next),
-      nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
-    });
-    build.state = "delivering";
-    build.logs.push("Creating temporary install link.");
-    deviceBuildStore.save(build);
-    await prepareDeviceDelivery(build);
-    build.logs.push("Install link is ready.");
-    deviceBuildStore.save(build);
-  } finally {
-    process.off("SIGTERM", interrupt);
-    process.off("SIGINT", interrupt);
-  }
-}
-
-function trackDeviceBuildTask(key, build, operation) {
-  return trackRegisteredDeviceBuildTask(activeDeviceBuildTasks, key, build, operation);
-}
-
-function startManagedDeviceBuild(build) {
-  return trackDeviceBuildTask(`build:${build.id}`, build, () =>
-    runDeviceBuild(build, {
-      save: (next) => deviceBuildStore.save(next),
-      nextBuildNumber: (app, current) => deviceBuildStore.nextBuildNumber(app, current),
-    })
-      .then(() => {
-        build.state = "delivering";
-        build.logs.push("Creating temporary install link.");
-        deviceBuildStore.save(build);
-        return prepareDeviceDelivery(build).then((readyBuild) => {
-          readyBuild.logs.push("Install link is ready.");
-          deviceBuildStore.save(readyBuild);
-          return readyBuild;
-        });
-      })
-      .catch((error) => {
-        if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") {
-          build.state = "failed";
-          build.logs = Array.isArray(build.logs) ? build.logs : [];
-          build.logs.push("Build was interrupted before completion.");
-          try { deviceBuildStore.save(build); } catch {}
-        }
-      })
-  );
-}
-
-async function recoverInterruptedDeviceBuilds() {
-  const activeStates = new Set(["validating", "preparing", "archiving", "building", "exporting", "delivering"]);
-  for (const build of deviceBuildStore.list().filter((candidate) => activeStates.has(candidate.state))) {
-    requestDeviceBuildCancellation(build, "Recovering an interrupted Swift Sim helper run.");
-    const terminated = await terminateRecordedDeviceBuildWorker(build);
-    for (const delivery of deviceDelivery.statuses()) {
-      for (const referenceID of delivery.references || []) {
-        if (referenceID === `build:${build.id}`
-            || referenceID === `renewal:${build.pendingRenewal?.id || ""}`) {
-          try { deviceDelivery.stopGeneration(delivery.generation, { referenceID }); } catch {}
-        }
-      }
-    }
-    build.state = "failed";
-    build.logs = Array.isArray(build.logs) ? build.logs : [];
-    build.logs.push(terminated
-      ? "A previous helper run ended during this build. Start a new build to continue."
-      : "A previous helper run ended during this build, and its worker could not be safely confirmed stopped.");
-    try { deviceBuildStore.save(build); } catch {}
-  }
 }
 
 function ensureToken(session, token) {
