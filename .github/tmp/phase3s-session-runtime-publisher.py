@@ -71,9 +71,9 @@ round2_path.write_text(round2[:legacy_start].rstrip() + "\\n")
 json_module = __import__("json")
 baseline_path = Path("scripts/architecture/baseline-policy.json")
 baseline_document = json_module.loads(baseline_path.read_text())
-source_text_tests = baseline_document.get("baseline", {}).get("sourceTextImplementationTests")
+source_text_tests = baseline_document.get("caps", {}).get("sourceTextImplementationTests")
 if not isinstance(source_text_tests, dict):
-    raise SystemExit("source-text debt policy is missing")
+    raise SystemExit("source-text debt cap policy is missing")
 if source_text_tests.pop("test/confirmationRound2State.test.js", None) != 1:
     raise SystemExit("session source-text debt cap is missing or changed")
 baseline_path.write_text(json_module.dumps(baseline_document, indent=2) + "\\n")
@@ -122,7 +122,7 @@ script = replace_once(
     "grep -q 'async function fetchWithTimeout' mac-helper/bin/swift-sim-helper.js\n"
     "grep -q 'async function fetchWithTimeout' mac-helper/src/sessionRuntimeController.js\n"
     "! grep -q 'helper source persists failed starts' test/confirmationRound2State.test.js\n"
-    "! grep -q 'test/confirmationRound2State.test.js' scripts/architecture/baseline-policy.json\n",
+    "python3 -c 'import json; p=json.load(open(\"scripts/architecture/baseline-policy.json\")); assert \"test/confirmationRound2State.test.js\" in p[\"baseline\"][\"sourceTextImplementationTests\"]; assert \"test/confirmationRound2State.test.js\" not in p[\"caps\"][\"sourceTextImplementationTests\"]'\n",
     "post-extraction sentinels",
 )
 
