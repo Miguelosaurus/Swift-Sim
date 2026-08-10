@@ -108,7 +108,6 @@ jobs:
 
           integration_test = Path("test/mainPostMergeIntegration.test.js")
           source = integration_test.read_text()
-          source = source.replace('import { readFileSync } from "node:fs";\n', '')
           stale = '''\ntest("delivery reference cleanup no longer blocks helper startup", () => {
             const source = readFileSync("mac-helper/bin/swift-sim-helper.js", "utf8");
             const serveStart = source.indexOf("async function serve(");
@@ -125,13 +124,10 @@ jobs:
           policy = policy_path.read_text()
           caps_at = policy.index('  "caps": {')
           head, caps = policy[:caps_at], policy[caps_at:]
-          for entry in [
-              '      "test/deliveryCleanupScheduler.test.js": 1,\n',
-              '      "test/mainPostMergeIntegration.test.js": 1,\n',
-          ]:
-              if caps.count(entry) != 1:
-                  raise SystemExit(f"expected one caps entry for {entry.strip()}")
-              caps = caps.replace(entry, '', 1)
+          entry = '      "test/deliveryCleanupScheduler.test.js": 1,\n'
+          if caps.count(entry) != 1:
+              raise SystemExit("expected one delivery cleanup source-text cap")
+          caps = caps.replace(entry, '', 1)
           policy_path.write_text(head + caps)
           PY
 
@@ -174,6 +170,8 @@ jobs:
           ! grep -q 'server.on("connection"' mac-helper/bin/swift-sim-helper.js
           ! grep -q 'const activeSockets = new Set' mac-helper/bin/swift-sim-helper.js
           grep -q 'reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce()' mac-helper/bin/swift-sim-helper.js
+          grep -q '"test/mainPostMergeIntegration.test.js": 1' scripts/architecture/baseline-policy.json
+          ! grep -q '"test/deliveryCleanupScheduler.test.js": 1' <(sed -n '/"caps": {/,/"allowlists": {/p' scripts/architecture/baseline-policy.json)
           git diff --cached --check
 
           git commit -m "Phase 3O: integrate helper lifecycle and reconciliation"
