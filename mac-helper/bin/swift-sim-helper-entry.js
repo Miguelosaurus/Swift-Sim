@@ -35,7 +35,10 @@ try {
       const { runExtractedHelperCommand } = await import("../src/helperCliRuntime.js");
       return runExtractedHelperCommand;
     },
-    loadCompatibility: () => import("./swift-sim-helper.js"),
+    async loadCompatibility() {
+      const { runCompatibilityHelper } = await import("./swift-sim-helper.js");
+      await runCompatibilityHelper(process.argv.slice(2));
+    },
   });
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
