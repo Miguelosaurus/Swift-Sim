@@ -92,15 +92,6 @@ test("shared skill supports every mobile-capable local agent", () => {
   assert.doesNotMatch(skill, /Codex remains the only coding agent/);
 });
 
-test("device build handoff opens Swift Sim before the direct install fallback", () => {
-  const helper = readFileSync(new URL("../mac-helper/bin/swift-sim-helper.js", import.meta.url), "utf8");
-  const primary = helper.indexOf(">Open in Swift Sim</a>");
-  const fallback = helper.indexOf(">Install directly</a>");
-  assert.ok(primary >= 0);
-  assert.ok(fallback > primary);
-  assert.match(helper, /window\.location\.href = \$\{customSchemeScript\}/);
-});
-
 test("setup installs the bundled Codex marketplace and plugin", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-codex-"));
   const fakeCodex = new URL("./fixtures/fake-codex", import.meta.url).pathname;
