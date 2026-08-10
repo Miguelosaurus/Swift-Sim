@@ -55,6 +55,7 @@ import {
 } from "../src/tailscaleBackends.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { claimDeviceVerification } from "../src/deviceVerificationGate.js";
+import { createDeviceInstallationReconciliationCoordinator } from "../src/http/deviceInstallationReconciliationCoordinator.js";
 import { createDeviceAppApplicationService } from "../src/http/deviceAppApplicationService.js";
 import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
 import { createDeviceBuildCommandApplicationService } from "../src/http/deviceBuildCommandApplicationService.js";
@@ -459,8 +460,15 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     });
   });
 
+  const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
+    listBuilds: () => deviceBuildStore.list(),
+    verifyBuild: (build) => verifyDeviceBuild(build),
+    saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
+    nowMs: () => Date.now(),
+    nowIso: () => new Date().toISOString(),
+  });
   const scheduleReconciliation = () => {
-    void reconcileRequestedDeviceBuilds().catch((error) => {
+    void deviceInstallationReconciler.runOnce().catch((error) => {
       console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   };
@@ -516,44 +524,6 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
   await new Promise(() => {});
-}
-
-let deviceReconciliationRunning = false;
-
-async function reconcileRequestedDeviceBuilds() {
-  if (deviceReconciliationRunning) return;
-  deviceReconciliationRunning = true;
-  try {
-    const requested = deviceBuildStore.list().filter((build) =>
-      build.state === "ready"
-      && installationVerificationIsActive(build.installation)
-      && build.app?.bundleIdentifier
-    );
-    for (const build of requested) {
-      try {
-        const verification = await verifyDeviceBuild(build);
-        deviceBuildStore.saveVerification(build.id, verification);
-      } catch (error) {
-        deviceBuildStore.saveVerification(build.id, {
-          state: "unknown",
-          verifiedAt: new Date().toISOString(),
-          devices: [],
-          detail: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  } finally {
-    deviceReconciliationRunning = false;
-  }
-}
-
-function installationVerificationIsActive(installation = {}) {
-  const state = installation.state || "unknown";
-  if (!["requested", "not-installed", "different-version"].includes(state)) return false;
-  const deadline = Date.parse(installation.verificationDeadlineAt || "");
-  if (Number.isFinite(deadline)) return deadline > Date.now();
-  const requestedAt = Date.parse(installation.requestedAt || "");
-  return Number.isFinite(requestedAt) && requestedAt + 15 * 60 * 1000 > Date.now();
 }
 
 function verifyDeviceBuild(build) {
