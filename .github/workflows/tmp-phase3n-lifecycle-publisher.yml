@@ -33,11 +33,6 @@ jobs:
           cd /tmp/product
           npm ci
           npx prettier --write mac-helper/src/http/helperServiceLifecycle.js
-          npm run check:source
-          npm run check:types
-          npm run check:format
-          npm run check:lint
-          node --test --test-concurrency=1 test/helperServiceLifecycle.test.js
           git diff --check
           printf '%s\n' \
             mac-helper/bin/swift-sim-helper.js \
@@ -48,6 +43,19 @@ jobs:
           test "$(wc -l < mac-helper/bin/swift-sim-helper.js | tr -d ' ')" -lt 1706
           grep -q 'createHelperServiceLifecycle' mac-helper/bin/swift-sim-helper.js
           ! grep -q 'server.on("connection", (socket)' mac-helper/bin/swift-sim-helper.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mac-helper/bin/swift-sim-helper.js mac-helper/src/http/helperServiceLifecycle.js test/helperServiceLifecycle.test.js
+          git commit -m "refactor: extract helper service lifecycle"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          git diff HEAD^ HEAD --check
+          git diff --name-only HEAD^ HEAD | sort > /tmp/actual-commit-files
+          diff -u /tmp/expected-files /tmp/actual-commit-files
+          npm run check:source
+          npm run check:types
+          npm run check:format
+          npm run check:lint
+          node --test --test-concurrency=1 test/helperServiceLifecycle.test.js
       - name: Publish atomic Phase 3N implementation
         env:
           EXPECTED_BASE: 1a05b2e44cc1064e862a5922605cfb3b2ad63489
@@ -56,10 +64,6 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/product
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mac-helper/bin/swift-sim-helper.js mac-helper/src/http/helperServiceLifecycle.js test/helperServiceLifecycle.test.js
-          git commit -m "refactor: extract helper service lifecycle"
           test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${PRODUCT_BRANCH}"
           echo "Published implementation head $(git rev-parse HEAD)"
