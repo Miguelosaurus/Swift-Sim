@@ -113,7 +113,7 @@ jobs:
           });\n'''
           if cleanup.count(stale_cleanup) != 1:
               raise SystemExit("stale cleanup source-text block missing")
-          cleanup_path.write_text(cleanup.replace(stale_cleanup, '\n', 1))
+          cleanup_path.write_text(cleanup.replace(stale_cleanup, '', 1))
 
           main_path = Path("test/mainPostMergeIntegration.test.js")
           main = main_path.read_text()
@@ -127,7 +127,7 @@ jobs:
           });\n'''
           if main.count(stale_main) != 1:
               raise SystemExit("stale main integration block missing")
-          main_path.write_text(main.replace(stale_main, '\n', 1))
+          main_path.write_text(main.replace(stale_main, '', 1))
 
           policy_path = Path("scripts/architecture/baseline-policy.json")
           policy = policy_path.read_text()
