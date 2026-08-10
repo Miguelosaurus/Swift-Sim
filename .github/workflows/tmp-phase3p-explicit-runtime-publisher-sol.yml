@@ -1,0 +1,312 @@
+name: Temporary Phase 3P Explicit Runtime Publisher Sol
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build, validate, and publish exact Phase 3P candidate
+        shell: bash
+        env:
+          BASE: bbd773972e33dcc5d7e2e7758482aafabb8f318d
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3p-explicit-compatibility-runtime
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$BASE"
+          git worktree add /tmp/product "$BASE"
+          cd /tmp/product
+          npm ci
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          helper_path = Path("mac-helper/bin/swift-sim-helper.js")
+          helper = helper_path.read_text()
+
+          replacements = [
+              (
+                  'import { ServeSimAdapter,\n  ServeSimError,\n} from "../src/serveSimAdapter.js";\n',
+                  'import { ServeSimError } from "../src/serveSimAdapter.js";\n',
+              ),
+              ('import { ServeSimTransport } from "../src/transports/serveSimTransport.js";\n', ''),
+              ('import { NativeCompanionTransport } from "../src/transports/nativeCompanionTransport.js";\n', ''),
+              ('import { SessionStore } from "../src/sessionStore.js";\n', ''),
+              ('import { DeviceBuildStore } from "../src/deviceBuildStore.js";\n', ''),
+              (
+                  'import {\n  DeviceDeliveryAdapter,\n  buildCapabilityExpiresAt,\n  deviceDeliveryRequestAllowed,\n} from "../src/deviceDelivery.js";\n',
+                  'import {\n  buildCapabilityExpiresAt,\n  deviceDeliveryRequestAllowed,\n} from "../src/deviceDelivery.js";\n',
+              ),
+              ('import { PairingStore } from "../src/pairingStore.js";\n', ''),
+              ('import { PairingInviteStore } from "../src/pairingInviteStore.js";\n', ''),
+              ('import { SimulatorProfileResolver } from "../src/simulatorProfile.js";\n', ''),
+              ('import { DeviceInventoryAdapter } from "../src/deviceInventory.js";\n', ''),
+              ('import { URL } from "node:url";\n', 'import { URL, fileURLToPath } from "node:url";\nimport { resolve } from "node:path";\n'),
+          ]
+          for old, new in replacements:
+              if helper.count(old) != 1:
+                  raise SystemExit(f"helper import sentinel missing: {old!r}")
+              helper = helper.replace(old, new, 1)
+
+          runtime_import_anchor = 'import { handleSessionRoutes } from "../src/http/sessionRoutes.js";\n'
+          runtime_import = 'import { createCompatibilityHelperRuntime } from "../src/helperCliRuntime.js";\n'
+          if helper.count(runtime_import_anchor) != 1 or runtime_import in helper:
+              raise SystemExit("compatibility runtime import state unexpected")
+          helper = helper.replace(runtime_import_anchor, runtime_import_anchor + runtime_import, 1)
+
+          old_runtime = '''const store = new SessionStore();
+          const deviceBuildStore = new DeviceBuildStore();
+          const deviceDelivery = new DeviceDeliveryAdapter();
+          const pairingStore = new PairingStore();
+          const pairingInviteStore = new PairingInviteStore();
+          const simulatorProfiles = new SimulatorProfileResolver();
+          const deviceInventory = new DeviceInventoryAdapter();
+          const adapter = new ServeSimAdapter();
+          const activeDeviceBuildTasks = new Map();
+          let deliveryReferenceCleanupRunning = false;
+
+          const transports = {
+            "serve-sim": new ServeSimTransport({ adapter }),
+            "native-companion": new NativeCompanionTransport({ adapter }),
+          };
+
+          main().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+          });
+
+          async function main() {
+            const [command = "serve", ...rest] = process.argv.slice(2);
+          '''
+          new_runtime = '''let store;
+          let deviceBuildStore;
+          let deviceDelivery;
+          let pairingStore;
+          let pairingInviteStore;
+          let simulatorProfiles;
+          let deviceInventory;
+          let adapter;
+          let activeDeviceBuildTasks;
+          let transports;
+          let compatibilityRuntimeInitialized = false;
+          let deliveryReferenceCleanupRunning = false;
+
+          export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
+            initializeCompatibilityRuntime();
+            return main(argv);
+          }
+
+          function initializeCompatibilityRuntime() {
+            if (compatibilityRuntimeInitialized) return;
+            const runtime = createCompatibilityHelperRuntime();
+            store = runtime.store;
+            deviceBuildStore = runtime.deviceBuildStore;
+            deviceDelivery = runtime.deviceDelivery;
+            pairingStore = runtime.pairingStore;
+            pairingInviteStore = runtime.pairingInviteStore;
+            simulatorProfiles = runtime.simulatorProfiles;
+            deviceInventory = runtime.deviceInventory;
+            adapter = runtime.adapter;
+            activeDeviceBuildTasks = runtime.activeDeviceBuildTasks;
+            transports = runtime.transports;
+            compatibilityRuntimeInitialized = true;
+          }
+
+          function compatibilityHelperIsDirectEntry() {
+            const entryPath = process.argv[1];
+            return typeof entryPath === "string"
+              && resolve(entryPath) === fileURLToPath(import.meta.url);
+          }
+
+          if (compatibilityHelperIsDirectEntry()) {
+            runCompatibilityHelper().catch((error) => {
+              console.error(error instanceof Error ? error.message : String(error));
+              process.exitCode = 1;
+            });
+          }
+
+          async function main(argv) {
+            const [command = "serve", ...rest] = argv;
+          '''
+          if helper.count(old_runtime) != 1:
+              raise SystemExit("helper runtime construction sentinel missing")
+          helper_path.write_text(helper.replace(old_runtime, new_runtime, 1))
+
+          runtime_path = Path("mac-helper/src/helperCliRuntime.js")
+          runtime = runtime_path.read_text()
+          import_anchor = 'import { ServeSimAdapter } from "./serveSimAdapter.js";\n'
+          extra_imports = '''import { SessionStore } from "./sessionStore.js";
+          import { SimulatorProfileResolver } from "./simulatorProfile.js";
+          import { ServeSimTransport } from "./transports/serveSimTransport.js";
+          import { NativeCompanionTransport } from "./transports/nativeCompanionTransport.js";
+          '''
+          if runtime.count(import_anchor) != 1 or 'import { SessionStore } from "./sessionStore.js";' in runtime:
+              raise SystemExit("helperCliRuntime import state unexpected")
+          runtime = runtime.replace(import_anchor, import_anchor + extra_imports, 1)
+
+          factory_anchor = '''const DEFAULT_FACTORIES = Object.freeze({
+            createStateRootStore: () => new PairingStore(),
+            createPairingInviteStore: () => new PairingInviteStore(),
+            createDeviceBuildStore: () => new DeviceBuildStore(),
+            createDeviceInventory: () => new DeviceInventoryAdapter(),
+            createDeviceDelivery: () => new DeviceDeliveryAdapter(),
+            createServeSim: () => new ServeSimAdapter(),
+          });
+          '''
+          compatibility_factory = factory_anchor + '''
+          /**
+           * Construct the legacy helper runtime only when the compatibility path
+           * is explicitly selected. Importing this module remains construction-free.
+           */
+          export function createCompatibilityHelperRuntime() {
+            const store = new SessionStore();
+            const deviceBuildStore = new DeviceBuildStore();
+            const deviceDelivery = new DeviceDeliveryAdapter();
+            const pairingStore = new PairingStore();
+            const pairingInviteStore = new PairingInviteStore();
+            const simulatorProfiles = new SimulatorProfileResolver();
+            const deviceInventory = new DeviceInventoryAdapter();
+            const adapter = new ServeSimAdapter();
+            const activeDeviceBuildTasks = new Map();
+            const transports = {
+              "serve-sim": new ServeSimTransport({ adapter }),
+              "native-companion": new NativeCompanionTransport({ adapter }),
+            };
+            return {
+              store,
+              deviceBuildStore,
+              deviceDelivery,
+              pairingStore,
+              pairingInviteStore,
+              simulatorProfiles,
+              deviceInventory,
+              adapter,
+              activeDeviceBuildTasks,
+              transports,
+            };
+          }
+          '''
+          if runtime.count(factory_anchor) != 1 or 'createCompatibilityHelperRuntime' in runtime:
+              raise SystemExit("compatibility runtime factory sentinel missing or duplicate")
+          runtime_path.write_text(runtime.replace(factory_anchor, compatibility_factory, 1))
+
+          entry_path = Path("mac-helper/bin/swift-sim-helper-entry.js")
+          entry = entry_path.read_text()
+          old_loader = '    loadCompatibility: () => import("./swift-sim-helper.js"),\n'
+          new_loader = '''    async loadCompatibility() {
+                const { runCompatibilityHelper } = await import("./swift-sim-helper.js");
+                await runCompatibilityHelper(process.argv.slice(2));
+              },
+          '''
+          if entry.count(old_loader) != 1:
+              raise SystemExit("entry compatibility loader sentinel missing")
+          entry_path.write_text(entry.replace(old_loader, new_loader, 1))
+
+          test_path = Path("test/helperCliDispatcher.test.ts")
+          test_source = test_path.read_text()
+          old_fs_import = 'import { mkdirSync, mkdtempSync, rmSync } from "node:fs";\n'
+          new_fs_import = 'import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";\n'
+          if test_source.count(old_fs_import) != 1:
+              raise SystemExit("helper CLI test fs import sentinel missing")
+          test_source = test_source.replace(old_fs_import, new_fs_import, 1)
+          test_anchor = 'test("compiled official helper owns fresh-home state and matches compatibility output", () => {\n'
+          new_test = '''test("compatibility implementation import is inert until its explicit runner is invoked", () => {
+            const compatibilityURL = new URL(
+              "../mac-helper/bin/swift-sim-helper.js",
+              import.meta.url,
+            ).href;
+            const home = mkdtempSync(join(tmpdir(), "swift-sim-helper-inert-import-"));
+            const stateRoot = join(home, ".swift-sim");
+            try {
+              const importOnly = spawnSync(
+                process.execPath,
+                ["--input-type=module", "--eval", `await import(${JSON.stringify(compatibilityURL)});`],
+                {
+                  encoding: "utf8",
+                  env: { ...process.env, HOME: home },
+                  timeout: 10_000,
+                },
+              );
+              assert.ifError(importOnly.error);
+              assert.equal(importOnly.status, 0, importOnly.stderr);
+              assert.equal(importOnly.stdout, "");
+              assert.equal(importOnly.stderr, "");
+              assert.equal(existsSync(stateRoot), false);
+
+              const explicitRun = spawnSync(
+                process.execPath,
+                [
+                  "--input-type=module",
+                  "--eval",
+                  `const { runCompatibilityHelper } = await import(${JSON.stringify(compatibilityURL)}); try { await runCompatibilityHelper(["definitely-unknown"]); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 17; }`,
+                ],
+                {
+                  encoding: "utf8",
+                  env: { ...process.env, HOME: home },
+                  timeout: 10_000,
+                },
+              );
+              assert.ifError(explicitRun.error);
+              assert.equal(explicitRun.status, 17, explicitRun.stderr);
+              assert.match(explicitRun.stderr, /Unknown command: definitely-unknown/);
+              assert.equal(existsSync(stateRoot), true);
+            } finally {
+              rmSync(home, { recursive: true, force: true });
+            }
+          });
+
+          '''
+          if test_source.count(test_anchor) != 1 or 'compatibility implementation import is inert' in test_source:
+              raise SystemExit("helper CLI inert-import test anchor missing or duplicate")
+          test_path.write_text(test_source.replace(test_anchor, new_test + test_anchor, 1))
+          PY
+
+          npx prettier --write mac-helper/src/helperCliRuntime.js test/helperCliDispatcher.test.ts
+          git diff --check
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/bin/swift-sim-helper-entry.js \
+            mac-helper/src/helperCliRuntime.js \
+            test/helperCliDispatcher.test.ts
+
+          files="$(git diff --cached --name-only "$BASE" | sort)"
+          expected="$(printf '%s\n' \
+            mac-helper/bin/swift-sim-helper-entry.js \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/helperCliRuntime.js \
+            test/helperCliDispatcher.test.ts | sort)"
+          test "$files" = "$expected"
+          git diff --cached --check
+          ! grep -q 'const store = new SessionStore' mac-helper/bin/swift-sim-helper.js
+          ! grep -q '^main().catch' mac-helper/bin/swift-sim-helper.js
+          grep -q 'export async function runCompatibilityHelper' mac-helper/bin/swift-sim-helper.js
+          grep -q 'export function createCompatibilityHelperRuntime' mac-helper/src/helperCliRuntime.js
+          grep -q 'await runCompatibilityHelper(process.argv.slice(2))' mac-helper/bin/swift-sim-helper-entry.js
+
+          git commit -m "Phase 3P: make compatibility runtime explicit"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+
+          node --test test/helperCliDispatcher.test.ts
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$BASE"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "Published Phase 3P candidate $candidate"
