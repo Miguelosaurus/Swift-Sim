@@ -1,0 +1,96 @@
+name: Temporary Phase 3N Builder
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: agent/tmp-phase3n-reconciliation-builder
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build exact Phase 3N candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_BRANCH='agent/architecture-consolidation-phase-3n-device-installation-reconciliation'
+          BASE_SHA='ba97946b7ea9cd4c75e2b98fb905722a9db6e083'
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$BASE_SHA"
+          test "$(git hash-object mac-helper/bin/swift-sim-helper.js)" = '677e175c41f46c4c6c97af8ccf0a37d4d22792fb'
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          helper = Path('mac-helper/bin/swift-sim-helper.js')
+          source = helper.read_text()
+
+          old = 'import { claimDeviceVerification } from "../src/deviceVerificationGate.js";\n'
+          new = old + 'import { createDeviceInstallationReconciliationCoordinator } from "../src/http/deviceInstallationReconciliationCoordinator.js";\n'
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          old = '''  const scheduleReconciliation = () => {
+            void reconcileRequestedDeviceBuilds().catch((error) => {
+              console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
+            });
+          };'''
+          new = '''  const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
+            listBuilds: () => deviceBuildStore.list(),
+            verifyBuild: (build) => verifyDeviceBuild(build),
+            saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
+            nowMs: () => Date.now(),
+            nowIso: () => new Date().toISOString(),
+          });
+          const scheduleReconciliation = () => {
+            void deviceInstallationReconciler.runOnce().catch((error) => {
+              console.error(`Device installation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
+            });
+          };'''
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          start = source.index('\nlet deviceReconciliationRunning = false;\n')
+          end = source.index('\nfunction verifyDeviceBuild(build) {', start)
+          source = source[:start] + '\n' + source[end + 1:]
+          helper.write_text(source)
+          PY
+
+          npm ci
+          npx prettier --write mac-helper/src/http/deviceInstallationReconciliationCoordinator.js
+          node --test --test-concurrency=1 test/deviceInstallationReconciliationCoordinator.test.js
+          npm run check
+
+          rm .github/workflows/tmp-phase3n-builder.yml
+          test "$(git hash-object mac-helper/bin/swift-sim-helper.js)" = '3d7fbe2fab24c05884c81122c57fe6a6ef5089c8'
+          git diff --check "$BASE_SHA" --
+          ACTUAL=$(git diff --name-only "$BASE_SHA" -- | sort)
+          EXPECTED=$(cat <<'EOF'
+          mac-helper/bin/swift-sim-helper.js
+          mac-helper/src/http/deviceInstallationReconciliationCoordinator.js
+          test/deviceInstallationReconciliationCoordinator.test.js
+          EOF
+          )
+          test "$ACTUAL" = "$EXPECTED"
+          test "$(git diff --numstat "$BASE_SHA" -- mac-helper/bin/swift-sim-helper.js)" = $'9\t39\tmac-helper/bin/swift-sim-helper.js'
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          TREE=$(git write-tree)
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$BASE_SHA"
+          COMMIT=$(printf '%s\n' 'Phase 3N: extract device installation reconciliation' | git commit-tree "$TREE" -p "$BASE_SHA")
+          git push origin "$COMMIT:refs/heads/$TARGET_BRANCH"
+          echo "Published Phase 3N candidate $COMMIT"
