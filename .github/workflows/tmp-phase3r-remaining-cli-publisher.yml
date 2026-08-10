@@ -1,0 +1,569 @@
+name: Temporary Phase 3R Remaining CLI Publisher
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build, validate, and publish exact Phase 3R candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_VERIFY_RUN: "31428503149"
+          BASE: d28ba88be0e4cef30588f7764b7997d391b62aea
+          PRODUCT_BRANCH: agent/architecture-consolidation-phase-3r-remaining-cli-parser
+        run: |
+          set -euo pipefail
+          read -r source_status source_conclusion < <(
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/Miguelosaurus/Swift-Sim/actions/runs/$SOURCE_VERIFY_RUN" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d.get("conclusion") or "")'
+          )
+          test "$source_status" = "completed"
+          test "$source_conclusion" = "success"
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$BASE"
+
+          git worktree add /tmp/product "$BASE"
+          cd /tmp/product
+          npm ci
+
+          cat > mac-helper/src/commands/compatibilityCommands.js <<'EOF'
+          // @ts-check
+
+          import { parseArgs } from "node:util";
+
+          const COMMANDS = new Set([
+            "serve",
+            "start-session",
+            "companion-link",
+            "setup-status",
+            "build-device",
+            "delete-app",
+            "stop-session",
+          ]);
+
+          /** @param {string | undefined} command */
+          export function compatibilityCommandIsSupported(command) {
+            return command === undefined || COMMANDS.has(command);
+          }
+
+          /**
+           * Own the remaining compatibility CLI parsing and output contracts.
+           * Domain/runtime behavior remains behind the injected operations.
+           *
+           * @param {{
+           *   argv: string[],
+           *   services: Record<string, unknown>,
+           *   defaultHost: string,
+           *   defaultPort: number,
+           *   writeLine?: (line: string) => void,
+           * }} options
+           */
+          export async function dispatchCompatibilityCommand({
+            argv,
+            services,
+            defaultHost,
+            defaultPort,
+            writeLine = (line) => console.log(line),
+          }) {
+            const [command = "serve", ...args] = argv;
+            if (!compatibilityCommandIsSupported(command)) return false;
+            if (!services || typeof services !== "object") {
+              throw new TypeError("Compatibility command services are required.");
+            }
+            if (typeof writeLine !== "function") {
+              throw new TypeError("Compatibility command writeLine must be a function.");
+            }
+
+            if (command === "serve") {
+              const serve = requiredServeMethod(services);
+              const { values } = parseArgs({
+                args,
+                options: {
+                  port: { type: "string", short: "p" },
+                  host: { type: "string" },
+                  "device-builds-only": { type: "boolean" },
+                },
+              });
+              await serve({
+                port: optionString(values, "port") ? Number(optionString(values, "port")) : defaultPort,
+                host: optionString(values, "host") || defaultHost,
+                deviceBuildsOnly: optionBoolean(values, "device-builds-only"),
+              });
+              return true;
+            }
+
+            if (command === "start-session") {
+              const startSession = requiredStartSessionMethod(services);
+              const { values } = parseArgs({ args, options: sessionOptions() });
+              writeLine(JSON.stringify(await startSession(valuesRecord(values)), null, 2));
+              return true;
+            }
+
+            if (command === "companion-link") {
+              const companionLink = requiredCompanionLinkMethod(services);
+              const { values } = parseArgs({
+                args,
+                options: {
+                  "session-id": { type: "string" },
+                  token: { type: "string" },
+                  "remote-base-url": { type: "string" },
+                },
+              });
+              writeLine(
+                JSON.stringify(
+                  await companionLink({
+                    sessionId: optionString(values, "session-id"),
+                    token: optionString(values, "token"),
+                    remoteBaseUrl: optionString(values, "remote-base-url"),
+                  }),
+                  null,
+                  2,
+                ),
+              );
+              return true;
+            }
+
+            if (command === "setup-status") {
+              const setupStatus = requiredSetupStatusMethod(services);
+              const { values } = parseArgs({
+                args,
+                options: {
+                  port: { type: "string", short: "p" },
+                  host: { type: "string" },
+                },
+              });
+              writeLine(
+                JSON.stringify(
+                  await setupStatus({
+                    host: optionString(values, "host") || defaultHost,
+                    port: optionString(values, "port") ? Number(optionString(values, "port")) : defaultPort,
+                  }),
+                  null,
+                  2,
+                ),
+              );
+              return true;
+            }
+
+            if (command === "build-device") {
+              const buildDevice = requiredBuildDeviceMethod(services);
+              const { values } = parseArgs({ args, options: deviceBuildOptions() });
+              writeLine(JSON.stringify(await buildDevice(valuesRecord(values)), null, 2));
+              return true;
+            }
+
+            if (command === "delete-app") {
+              const deleteApp = requiredDeleteAppMethod(services);
+              const { values } = parseArgs({
+                args,
+                options: {
+                  "app-id": { type: "string" },
+                  "keep-artifacts": { type: "boolean" },
+                },
+              });
+              writeLine(
+                JSON.stringify(
+                  await deleteApp({
+                    appID: required(optionString(values, "app-id"), "app-id"),
+                    keepArtifacts: optionBoolean(values, "keep-artifacts"),
+                  }),
+                  null,
+                  2,
+                ),
+              );
+              return true;
+            }
+
+            const stopSession = requiredStopSessionMethod(services);
+            const { values } = parseArgs({
+              args,
+              options: {
+                "session-id": { type: "string" },
+                token: { type: "string" },
+              },
+            });
+            writeLine(
+              JSON.stringify(
+                await stopSession({
+                  sessionId: optionString(values, "session-id"),
+                  token: optionString(values, "token"),
+                }),
+              ),
+            );
+            return true;
+          }
+
+          function sessionOptions() {
+            return {
+              project: { type: "string" },
+              scheme: { type: "string" },
+              simulator: { type: "string" },
+              "remote-base-url": { type: "string" },
+              port: { type: "string" },
+              transport: { type: "string" },
+            };
+          }
+
+          function deviceBuildOptions() {
+            return {
+              project: { type: "string" },
+              workspace: { type: "string" },
+              scheme: { type: "string" },
+              configuration: { type: "string" },
+              "remote-base-url": { type: "string" },
+              delivery: { type: "string" },
+              "export-method": { type: "string" },
+              "ttl-minutes": { type: "string" },
+              "build-setting": { type: "string", multiple: true },
+              "allow-provisioning-updates": { type: "boolean" },
+              "replace-app-data": { type: "boolean" },
+            };
+          }
+
+          /** @param {Record<string, unknown>} services */
+          function requiredServeMethod(services) {
+            const candidate = services.serve;
+            if (typeof candidate !== "function") throw new TypeError("Compatibility command services must provide serve.");
+            return /** @type {(input: { host: string, port: number, deviceBuildsOnly: boolean }) => Promise<unknown>} */ (candidate);
+          }
+
+          /** @param {Record<string, unknown>} services */
+          function requiredStartSessionMethod(services) {
+            const candidate = services.startSession;
+            if (typeof candidate !== "function") throw new TypeError("Compatibility command services must provide startSession.");
+            return /** @type {(values: Record<string, unknown>) => Promise<unknown>} */ (candidate);
+          }
+
+          /** @param {Record<string, unknown>} services */
+          function requiredCompanionLinkMethod(services) {
+            const candidate = services.companionLink;
+            if (typeof candidate !== "function") throw new TypeError("Compatibility command services must provide companionLink.");
+            return /** @type {(input: { sessionId?: string, token?: string, remoteBaseUrl?: string }) => Promise<unknown> | unknown} */ (candidate);
+          }
+
+          /** @param {Record<string, unknown>} services */
+          function requiredSetupStatusMethod(services) {
+            const candidate = services.setupStatus;
+            if (typeof candidate !== "function") throw new TypeError("Compatibility command services must provide setupStatus.");
+            return /** @type {(input: { host: string, port: number }) => Promise<unknown>} */ (candidate);
+          }
+
+          /** @param {Record<string, unknown>} services */
+          function requiredBuildDeviceMethod(services) {
+            const candidate = services.buildDevice;
+            if (typeof candidate !== "function") throw new TypeError("Compatibility command services must provide buildDevice.");
+            return /** @type {(values: Record<string, unknown>) => Promise<unknown>} */ (candidate);
+          }
+
+          /** @param {Record<string, unknown>} services */
+          function requiredDeleteAppMethod(services) {
+            const candidate = services.deleteApp;
+            if (typeof candidate !== "function") throw new TypeError("Compatibility command services must provide deleteApp.");
+            return /** @type {(input: { appID: string, keepArtifacts: boolean }) => Promise<unknown>} */ (candidate);
+          }
+
+          /** @param {Record<string, unknown>} services */
+          function requiredStopSessionMethod(services) {
+            const candidate = services.stopSession;
+            if (typeof candidate !== "function") throw new TypeError("Compatibility command services must provide stopSession.");
+            return /** @type {(input: { sessionId?: string, token?: string }) => Promise<unknown>} */ (candidate);
+          }
+
+          /** @param {Record<string, unknown>} values @param {string} key */
+          function optionString(values, key) {
+            const value = values[key];
+            return typeof value === "string" ? value : undefined;
+          }
+
+          /** @param {Record<string, unknown>} values @param {string} key */
+          function optionBoolean(values, key) {
+            return values[key] === true;
+          }
+
+          /** @param {unknown} values */
+          function valuesRecord(values) {
+            return /** @type {Record<string, unknown>} */ (values);
+          }
+
+          /** @param {string | undefined} value @param {string} name */
+          function required(value, name) {
+            if (!value) throw new Error(`Missing required --${name}.`);
+            return value;
+          }
+          EOF
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          helper_path = Path("mac-helper/bin/swift-sim-helper.js")
+          helper = helper_path.read_text()
+          parse_import = 'import { parseArgs } from "node:util";\n'
+          if helper.count(parse_import) != 1:
+              raise SystemExit("parseArgs import sentinel missing")
+          helper = helper.replace(parse_import, '', 1)
+
+          command_anchor = 'import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";\n'
+          command_import = 'import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";\n'
+          if helper.count(command_anchor) != 1 or command_import in helper:
+              raise SystemExit("compatibility command import state unexpected")
+          helper = helper.replace(command_anchor, command_anchor + command_import, 1)
+
+          start = helper.find('async function main(argv) {\n')
+          end = helper.find('async function serve({ host, port, deviceBuildsOnly = false }) {\n', start)
+          if start < 0 or end < 0:
+              raise SystemExit("legacy CLI parser block sentinels missing")
+          replacement = '''async function main(argv) {
+            const handled = await dispatchCompatibilityCommand({
+              argv,
+              defaultHost: DEFAULT_HOST,
+              defaultPort: DEFAULT_PORT,
+              services: {
+                serve,
+                startSession: (values) => startOrReuseSession(values, { includeCodexMetadata: true }),
+                companionLink({ sessionId, token, remoteBaseUrl }) {
+                  const session = store.get(sessionId);
+                  if (!session) throw new Error("Unknown session id.");
+                  ensureToken(session, token);
+                  return buildCompanionLinks(session, remoteBaseUrl);
+                },
+                setupStatus,
+                async buildDevice(values) {
+                  const build = await createDeviceBuild(values);
+                  await runCLIDeviceBuild(build);
+                  return publicDeviceBuild(build);
+                },
+                async deleteApp({ appID, keepArtifacts }) {
+                  const deleted = deviceBuildStore.deleteApp(appID, { deleteArtifacts: !keepArtifacts });
+                  if (!deleted) throw new Error("Unknown app id.");
+                  await drainDeliveryReferenceCleanupJobs();
+                  return { deleted: true, appId: appID };
+                },
+                async stopSession({ sessionId, token }) {
+                  const session = store.get(sessionId);
+                  if (!session) throw new Error("Unknown session id.");
+                  ensureToken(session, token);
+                  await stopSession(session.id);
+                  return { stopped: true, sessionId: session.id };
+                },
+              },
+            });
+            if (!handled) {
+              const [command = "serve"] = argv;
+              throw new Error(`Unknown command: ${command}`);
+            }
+          }
+
+          '''
+          helper = helper[:start] + replacement + helper[end:]
+          helper_path.write_text(helper)
+
+          test_path = Path("test/helperCliDispatcher.test.ts")
+          source = test_path.read_text()
+          import_anchor = 'import { createExtractedHelperServices } from "../mac-helper/src/helperCliRuntime.js";\n'
+          command_import = '''import {
+            compatibilityCommandIsSupported,
+            dispatchCompatibilityCommand,
+          } from "../mac-helper/src/commands/compatibilityCommands.js";
+          '''
+          if source.count(import_anchor) != 1 or 'dispatchCompatibilityCommand' in source:
+              raise SystemExit("compatibility command test import state unexpected")
+          source = source.replace(import_anchor, import_anchor + command_import, 1)
+
+          insert_anchor = 'test("compiled official helper owns fresh-home state and matches compatibility output", () => {\n'
+          test_block = r'''test("remaining compatibility CLI parser delegates all declared commands and preserves output shapes", async () => {
+            for (const command of [
+              undefined,
+              "serve",
+              "start-session",
+              "companion-link",
+              "setup-status",
+              "build-device",
+              "delete-app",
+              "stop-session",
+            ]) {
+              assert.equal(compatibilityCommandIsSupported(command), true, String(command));
+            }
+            assert.equal(compatibilityCommandIsSupported("unknown"), false);
+
+            const calls: Array<[string, unknown]> = [];
+            const fakeServices = {
+              serve: async (input: unknown) => calls.push(["serve", input]),
+              startSession: async (input: unknown) => {
+                calls.push(["start-session", input]);
+                return { sessionId: "session-1" };
+              },
+              companionLink: async (input: unknown) => {
+                calls.push(["companion-link", input]);
+                return { customScheme: "swiftsim://session/session-1" };
+              },
+              setupStatus: async (input: unknown) => {
+                calls.push(["setup-status", input]);
+                return { ok: true };
+              },
+              buildDevice: async (input: unknown) => {
+                calls.push(["build-device", input]);
+                return { id: "build-1", state: "ready" };
+              },
+              deleteApp: async (input: unknown) => {
+                calls.push(["delete-app", input]);
+                return { deleted: true, appId: "app-1" };
+              },
+              stopSession: async (input: unknown) => {
+                calls.push(["stop-session", input]);
+                return { stopped: true, sessionId: "session-1" };
+              },
+            };
+            const lines: string[] = [];
+            const run = async (argv: string[]) => {
+              lines.length = 0;
+              assert.equal(
+                await dispatchCompatibilityCommand({
+                  argv,
+                  services: fakeServices,
+                  defaultHost: "127.0.0.1",
+                  defaultPort: 47217,
+                  writeLine: (line) => lines.push(line),
+                }),
+                true,
+              );
+              return [...lines];
+            };
+
+            assert.deepEqual(await run(["serve", "--host", "0.0.0.0", "-p", "48123", "--device-builds-only"]), []);
+            assert.deepEqual(calls.pop(), ["serve", { host: "0.0.0.0", port: 48123, deviceBuildsOnly: true }]);
+
+            assert.deepEqual(await run(["start-session", "--project", "Demo.xcodeproj", "--scheme", "Demo", "--simulator", "SIM-1", "--remote-base-url", "https://example.test", "--port", "48000", "--transport", "serve-sim"]), [
+              JSON.stringify({ sessionId: "session-1" }, null, 2),
+            ]);
+            assert.deepEqual(calls.pop(), [
+              "start-session",
+              {
+                project: "Demo.xcodeproj",
+                scheme: "Demo",
+                simulator: "SIM-1",
+                "remote-base-url": "https://example.test",
+                port: "48000",
+                transport: "serve-sim",
+              },
+            ]);
+
+            assert.deepEqual(await run(["companion-link", "--session-id", "session-1", "--token", "secret", "--remote-base-url", "https://example.test"]), [
+              JSON.stringify({ customScheme: "swiftsim://session/session-1" }, null, 2),
+            ]);
+            assert.deepEqual(calls.pop(), ["companion-link", { sessionId: "session-1", token: "secret", remoteBaseUrl: "https://example.test" }]);
+
+            assert.deepEqual(await run(["setup-status", "--host", "localhost", "--port", "49000"]), [
+              JSON.stringify({ ok: true }, null, 2),
+            ]);
+            assert.deepEqual(calls.pop(), ["setup-status", { host: "localhost", port: 49000 }]);
+
+            assert.deepEqual(await run(["build-device", "--project", "Demo.xcodeproj", "--scheme", "Demo", "--build-setting", "A=B", "--build-setting", "C=D", "--allow-provisioning-updates", "--replace-app-data"]), [
+              JSON.stringify({ id: "build-1", state: "ready" }, null, 2),
+            ]);
+            assert.deepEqual(calls.pop(), [
+              "build-device",
+              {
+                project: "Demo.xcodeproj",
+                scheme: "Demo",
+                "build-setting": ["A=B", "C=D"],
+                "allow-provisioning-updates": true,
+                "replace-app-data": true,
+              },
+            ]);
+
+            assert.deepEqual(await run(["delete-app", "--app-id", "app-1", "--keep-artifacts"]), [
+              JSON.stringify({ deleted: true, appId: "app-1" }, null, 2),
+            ]);
+            assert.deepEqual(calls.pop(), ["delete-app", { appID: "app-1", keepArtifacts: true }]);
+
+            assert.deepEqual(await run(["stop-session", "--session-id", "session-1", "--token", "secret"]), [
+              JSON.stringify({ stopped: true, sessionId: "session-1" }),
+            ]);
+            assert.deepEqual(calls.pop(), ["stop-session", { sessionId: "session-1", token: "secret" }]);
+
+            let accessed = false;
+            const untouched = new Proxy(fakeServices, {
+              get(target, property, receiver) {
+                accessed = true;
+                return Reflect.get(target, property, receiver);
+              },
+            });
+            assert.equal(
+              await dispatchCompatibilityCommand({
+                argv: ["unknown"],
+                services: untouched,
+                defaultHost: "127.0.0.1",
+                defaultPort: 47217,
+              }),
+              false,
+            );
+            assert.equal(accessed, false);
+
+            await assert.rejects(
+              dispatchCompatibilityCommand({
+                argv: ["delete-app"],
+                services: fakeServices,
+                defaultHost: "127.0.0.1",
+                defaultPort: 47217,
+              }),
+              /Missing required --app-id/,
+            );
+          });
+
+          '''
+          if source.count(insert_anchor) != 1:
+              raise SystemExit("compatibility command test insertion anchor missing")
+          test_path.write_text(source.replace(insert_anchor, test_block + insert_anchor, 1))
+          PY
+
+          npx prettier --write mac-helper/src/commands/compatibilityCommands.js test/helperCliDispatcher.test.ts
+          git diff --check
+          node --test test/helperCliDispatcher.test.ts
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/commands/compatibilityCommands.js \
+            test/helperCliDispatcher.test.ts
+
+          files="$(git diff --cached --name-only "$BASE" | sort)"
+          expected="$(printf '%s\n' \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/src/commands/compatibilityCommands.js \
+            test/helperCliDispatcher.test.ts | sort)"
+          test "$files" = "$expected"
+          git diff --cached --check
+          ! grep -q 'from "node:util"' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'parseArgs' mac-helper/bin/swift-sim-helper.js
+          ! grep -q 'if (command ===' mac-helper/bin/swift-sim-helper.js
+          grep -q 'dispatchCompatibilityCommand' mac-helper/bin/swift-sim-helper.js
+
+          git commit -m "Phase 3R: extract remaining CLI parser"
+          candidate="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+
+          npm run check
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+          test "$(git ls-remote origin "refs/heads/$PRODUCT_BRANCH" | awk '{print $1}')" = "$BASE"
+          git push origin "HEAD:refs/heads/$PRODUCT_BRANCH"
+          echo "Published Phase 3R candidate $candidate"
