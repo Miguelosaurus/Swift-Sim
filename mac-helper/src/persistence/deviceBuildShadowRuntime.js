@@ -6,6 +6,7 @@ import { NodeLockManager } from "../infrastructure/nodeLockManager.js";
 import { SystemClock } from "../infrastructure/systemClock.js";
 import { DEVICE_BUILD_SQLITE_MIGRATIONS } from "./deviceBuildSqliteSchema.js";
 import { DeviceBuildLegacyImportCoordinator } from "./deviceBuildLegacyImport.js";
+import { DeviceBuildRevisionFencedShadowObserver } from "./deviceBuildRevisionFencedShadowObserver.js";
 import { DeviceBuildShadowComparator } from "./deviceBuildShadowComparison.js";
 import { DeviceBuildShadowObserver } from "./deviceBuildShadowObserver.js";
 import { SqliteDeviceBuildShadowMismatchRepository } from "./sqliteDeviceBuildShadowMismatchRepository.js";
@@ -107,9 +108,15 @@ export function createDeviceBuildShadowRuntime(options) {
     const checkpointRepository = new SqliteLegacyImportCheckpointRepository(openedDatabase);
     const mismatchRepository = new SqliteDeviceBuildShadowMismatchRepository(openedDatabase);
     const comparator = new DeviceBuildShadowComparator({ mismatchRepository, clock });
-    const shadowObserver = new DeviceBuildShadowObserver({
+    const fallbackObserver = new DeviceBuildShadowObserver({
       deviceBuildRepository,
       comparator,
+      ...(options.reportError ? { reportError: options.reportError } : {}),
+    });
+    const shadowObserver = new DeviceBuildRevisionFencedShadowObserver({
+      deviceBuildRepository,
+      comparator,
+      fallbackObserver,
       ...(options.reportError ? { reportError: options.reportError } : {}),
     });
     const importCoordinator = new DeviceBuildLegacyImportCoordinator({
