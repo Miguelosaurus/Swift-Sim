@@ -97,11 +97,7 @@ export class DeviceBuildShadowObserver {
       case "artifact-cleanup-job":
         return findProjection(snapshot.artifactCleanupJobs, key, "artifact cleanup jobs");
       case "delivery-cleanup-job":
-        return findProjection(
-          snapshot.deliveryReferenceCleanupJobs,
-          key,
-          "delivery cleanup jobs",
-        );
+        return findProjection(snapshot.deliveryReferenceCleanupJobs, key, "delivery cleanup jobs");
       default:
         throw new Error("Device-build shadow surface is invalid.");
     }
