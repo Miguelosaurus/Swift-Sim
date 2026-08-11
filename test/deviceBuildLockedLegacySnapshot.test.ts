@@ -10,6 +10,7 @@ import {
   deviceAppIdentity,
 } from "../mac-helper/src/deviceBuildStoreCore.js";
 import type {
+  AtomicWriteOptions,
   LockLease,
   LockManager,
   LockRequest,
@@ -64,13 +65,38 @@ class RecordingLockManager implements LockManager {
   }
 }
 
+type MigrationIOEvent = {
+  operation: "read" | "write";
+  path: string;
+  lockHeld: boolean;
+};
+
+class LockTrackingAtomicFileStore extends NodeAtomicFileStore {
+  readonly events: MigrationIOEvent[] = [];
+
+  constructor(private readonly lockManager: RecordingLockManager) {
+    super();
+  }
+
+  override readTextSync(path: string): string {
+    this.events.push({ operation: "read", path, lockHeld: this.lockManager.held });
+    return super.readTextSync(path);
+  }
+
+  override writeTextSync(path: string, value: string, options: AtomicWriteOptions): void {
+    this.events.push({ operation: "write", path, lockHeld: this.lockManager.held });
+    super.writeTextSync(path, value, options);
+  }
+}
+
 function withHarness(
   run: (harness: {
     root: string;
     sourcePath: string;
     backupDirectory: string;
     artifactRoot: string;
-    fileStore: NodeAtomicFileStore;
+    verifierStore: NodeAtomicFileStore;
+    migrationFileStore: LockTrackingAtomicFileStore;
     lockManager: RecordingLockManager;
     reader: DeviceBuildLockedLegacySnapshotReader;
   }) => void,
@@ -80,9 +106,10 @@ function withHarness(
   const backupDirectory = join(root, "backups");
   const artifactRoot = join(root, "artifact-root-must-survive");
   const lockManager = new RecordingLockManager();
-  const fileStore = new NodeAtomicFileStore();
+  const verifierStore = new NodeAtomicFileStore();
+  const migrationFileStore = new LockTrackingAtomicFileStore(lockManager);
   const reader = new DeviceBuildLockedLegacySnapshotReader({
-    fileStore,
+    fileStore: migrationFileStore,
     lockManager,
     source: {
       name: "device-builds.json",
@@ -98,7 +125,16 @@ function withHarness(
   });
 
   try {
-    run({ root, sourcePath, backupDirectory, artifactRoot, fileStore, lockManager, reader });
+    run({
+      root,
+      sourcePath,
+      backupDirectory,
+      artifactRoot,
+      verifierStore,
+      migrationFileStore,
+      lockManager,
+      reader,
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -201,62 +237,80 @@ function legacyState(artifactRoot: string) {
 }
 
 test("locked legacy snapshot normalizes in memory, backs up exact bytes, and causes no live-store side effects", () =>
-  withHarness(({ sourcePath, backupDirectory, artifactRoot, fileStore, lockManager, reader }) => {
-    mkdirSync(artifactRoot, { recursive: true });
-    const raw = JSON.stringify(legacyState(artifactRoot), null, 2);
-    writeFileSync(sourcePath, raw, { mode: 0o600 });
+  withHarness(
+    ({
+      sourcePath,
+      backupDirectory,
+      artifactRoot,
+      verifierStore,
+      migrationFileStore,
+      lockManager,
+      reader,
+    }) => {
+      mkdirSync(artifactRoot, { recursive: true });
+      const raw = JSON.stringify(legacyState(artifactRoot), null, 2);
+      writeFileSync(sourcePath, raw, { mode: 0o600 });
 
-    const locked = reader.withLockedSnapshot((snapshot) => {
-      assert.equal(lockManager.held, true);
-      assert.equal(fileStore.readTextSync(sourcePath), raw);
+      const locked = reader.withLockedSnapshot((snapshot) => {
+        assert.equal(lockManager.held, true);
+        assert.equal(verifierStore.readTextSync(sourcePath), raw);
+        assert.equal(existsSync(artifactRoot), true);
+        return snapshot;
+      });
+
+      assert.equal(lockManager.held, false);
+      assert.deepEqual(lockManager.requests, [
+        {
+          path: `${sourcePath}.lock`,
+          waitMs: 5_000,
+          staleAfterMs: 250,
+          ownerMode: 0o600,
+        },
+      ]);
+      assert.deepEqual(migrationFileStore.events, [
+        { operation: "read", path: sourcePath, lockHeld: true },
+        { operation: "write", path: locked.backups[0]!, lockHeld: true },
+        { operation: "read", path: locked.backups[0]!, lockHeld: true },
+      ]);
+      assert.equal(locked.sourceVersion, BUILD_STATE_VERSION - 1);
+      assert.equal(locked.recordCount, 4);
+      assert.match(locked.sourceRevision, /^[a-f0-9]{64}$/);
+      assert.equal(locked.projectionHash, deviceBuildProjectionHash(locked.snapshot));
+      assert.equal(Object.isFrozen(locked.snapshot), true);
+      assert.equal(Object.isFrozen(locked.snapshot.builds[0]?.app), true);
+
+      const build = locked.snapshot.builds[0];
+      assert.ok(build);
+      assert.equal(build.revision, 0);
+      assert.equal(build.tokenExpiredAt, "");
+      assert.equal(build.installTTLMinutes, 60);
+      assert.equal(build.ttlMinutes, 60);
+      assert.equal(build.app.identity, locked.snapshot.apps[0]?.id);
+      assert.equal(build.installation.updatedAt, "");
+      assert.equal(build.installation.verificationDeadlineAt, "");
+      assert.ok(build.logs.length <= MAX_DEVICE_BUILD_LOG_LINES);
+      assert.ok(Buffer.byteLength(build.logs.join("\n"), "utf8") <= MAX_DEVICE_BUILD_LOG_BYTES);
+      assert.match(build.logs.at(-1) || "", /^524:/);
+      assert.deepEqual((build as unknown as Record<string, unknown>).migrationExtension, {
+        preserved: true,
+      });
+      assert.equal(locked.snapshot.apps[0]?.migrationExtension, "app-preserved");
+      assert.equal(
+        locked.snapshot.artifactCleanupJobs[0]?.migrationExtension,
+        "artifact-preserved",
+      );
+      assert.equal(
+        locked.snapshot.deliveryReferenceCleanupJobs[0]?.migrationExtension,
+        "delivery-preserved",
+      );
+
+      assert.equal(verifierStore.readTextSync(sourcePath), raw);
       assert.equal(existsSync(artifactRoot), true);
-      return snapshot;
-    });
-
-    assert.equal(lockManager.held, false);
-    assert.deepEqual(lockManager.requests, [
-      {
-        path: `${sourcePath}.lock`,
-        waitMs: 5_000,
-        staleAfterMs: 250,
-        ownerMode: 0o600,
-      },
-    ]);
-    assert.equal(locked.sourceVersion, BUILD_STATE_VERSION - 1);
-    assert.equal(locked.recordCount, 4);
-    assert.match(locked.sourceRevision, /^[a-f0-9]{64}$/);
-    assert.equal(locked.projectionHash, deviceBuildProjectionHash(locked.snapshot));
-    assert.equal(Object.isFrozen(locked.snapshot), true);
-    assert.equal(Object.isFrozen(locked.snapshot.builds[0]?.app), true);
-
-    const build = locked.snapshot.builds[0];
-    assert.ok(build);
-    assert.equal(build.revision, 0);
-    assert.equal(build.tokenExpiredAt, "");
-    assert.equal(build.installTTLMinutes, 60);
-    assert.equal(build.ttlMinutes, 60);
-    assert.equal(build.app.identity, locked.snapshot.apps[0]?.id);
-    assert.equal(build.installation.updatedAt, "");
-    assert.equal(build.installation.verificationDeadlineAt, "");
-    assert.ok(build.logs.length <= MAX_DEVICE_BUILD_LOG_LINES);
-    assert.ok(Buffer.byteLength(build.logs.join("\n"), "utf8") <= MAX_DEVICE_BUILD_LOG_BYTES);
-    assert.match(build.logs.at(-1) || "", /^524:/);
-    assert.deepEqual((build as unknown as Record<string, unknown>).migrationExtension, {
-      preserved: true,
-    });
-    assert.equal(locked.snapshot.apps[0]?.migrationExtension, "app-preserved");
-    assert.equal(locked.snapshot.artifactCleanupJobs[0]?.migrationExtension, "artifact-preserved");
-    assert.equal(
-      locked.snapshot.deliveryReferenceCleanupJobs[0]?.migrationExtension,
-      "delivery-preserved",
-    );
-
-    assert.equal(fileStore.readTextSync(sourcePath), raw);
-    assert.equal(existsSync(artifactRoot), true);
-    assert.equal(locked.backups.length, 1);
-    assert.equal(fileStore.readTextSync(locked.backups[0]!), raw);
-    assert.equal(readdirSync(backupDirectory).length, 1);
-  }));
+      assert.equal(locked.backups.length, 1);
+      assert.equal(verifierStore.readTextSync(locked.backups[0]!), raw);
+      assert.equal(readdirSync(backupDirectory).length, 1);
+    },
+  ));
 
 test("source revision follows exact bytes while projection hash follows normalized state", () =>
   withHarness(({ sourcePath, artifactRoot, reader }) => {
@@ -288,7 +342,7 @@ test("missing build state produces an empty locked snapshot without inventing a 
   }));
 
 test("future state versions fail closed after preserving the exact source backup", () =>
-  withHarness(({ sourcePath, backupDirectory, artifactRoot, fileStore, reader }) => {
+  withHarness(({ sourcePath, backupDirectory, artifactRoot, verifierStore, reader }) => {
     const state = legacyState(artifactRoot);
     state.version = BUILD_STATE_VERSION + 1;
     const raw = JSON.stringify(state);
@@ -298,10 +352,10 @@ test("future state versions fail closed after preserving the exact source backup
       () => reader.withLockedSnapshot((snapshot) => snapshot),
       /newer than supported version/,
     );
-    assert.equal(fileStore.readTextSync(sourcePath), raw);
+    assert.equal(verifierStore.readTextSync(sourcePath), raw);
     const backups = readdirSync(backupDirectory);
     assert.equal(backups.length, 1);
-    assert.equal(fileStore.readTextSync(join(backupDirectory, backups[0]!)), raw);
+    assert.equal(verifierStore.readTextSync(join(backupDirectory, backups[0]!)), raw);
   }));
 
 test("malformed map identities fail closed instead of repairing legacy state silently", () => {
