@@ -18,6 +18,7 @@ import type {
   LockRequest,
 } from "../mac-helper/src/infrastructure/ports.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
+import { BUILD_STATE_VERSION } from "../mac-helper/src/deviceBuildStoreCore.js";
 import {
   DeviceBuildLegacyImportApplier,
   DeviceBuildLegacyImportCoordinator,
@@ -207,7 +208,7 @@ function writeLegacy(harness: Harness, state: ReturnType<typeof legacyState>, su
 function legacyState(revision = 1) {
   const buildID = "legacy-build-1";
   return {
-    version: 6,
+    version: BUILD_STATE_VERSION,
     apps: {
       "app-1": {
         archivedAt: "",
@@ -300,7 +301,7 @@ test("imports device-build legacy state under one source lock and checkpoints ex
 
   const first = harness.coordinator().run();
   assert.equal(first.status, "applied");
-  assert.equal(first.sourceVersion, 6);
+  assert.equal(first.sourceVersion, BUILD_STATE_VERSION);
   assert.equal(first.recordCount, 4);
   assert.deepEqual(harness.repository.read(), expected);
   assert.deepEqual(harness.checkpointRepository.get(CHECKPOINT_SOURCE), {
@@ -356,6 +357,48 @@ test("retry after checkpoint interruption repairs evidence without replacing mat
     BEFORE DELETE ON device_builds
     BEGIN
       SELECT RAISE(ABORT, 'unexpected device-build replacement');
+    END`);
+  const repaired = harness.coordinator().run();
+
+  assert.equal(repaired.status, "checkpointed");
+  assert.equal(
+    harness.checkpointRepository.get(CHECKPOINT_SOURCE)?.projectionHash,
+    repaired.projectionHash,
+  );
+});
+
+test("corrupted checkpoint persistence is detected and retry repairs evidence without re-replacing state", (t) => {
+  const harness = createHarness(t);
+  writeLegacy(harness, legacyState());
+  const corruptedCheckpoints: LegacyImportCheckpointRepository = {
+    transaction<T>(operation: () => T): T {
+      return harness.checkpointRepository.transaction(operation);
+    },
+    get(source: string): LegacyImportCheckpoint | null {
+      return harness.checkpointRepository.get(source);
+    },
+    list(): LegacyImportCheckpoint[] {
+      return harness.checkpointRepository.list();
+    },
+    upsert(checkpoint: LegacyImportCheckpoint): void {
+      harness.checkpointRepository.upsert({
+        ...checkpoint,
+        projectionHash: "f".repeat(64),
+      });
+    },
+  };
+
+  assert.throws(
+    () => harness.coordinator(corruptedCheckpoints).run(),
+    /checkpoint did not persist exactly/,
+  );
+  assert.equal(harness.repository.read().builds.length, 1);
+  assert.equal(harness.checkpointRepository.get(CHECKPOINT_SOURCE)?.projectionHash, "f".repeat(64));
+
+  harness.database.exec(`CREATE TRIGGER reject_device_build_replacement_after_bad_checkpoint
+    BEFORE DELETE ON device_builds
+    BEGIN
+      SELECT RAISE(ABORT, 'unexpected device-build replacement after bad checkpoint');
     END`);
   const repaired = harness.coordinator().run();
 
@@ -425,7 +468,7 @@ test("applier rejects forged locked evidence before SQLite or checkpoint mutatio
         projectionHash: "b".repeat(64),
         recordCount: 4,
         backups: ["/tmp/backup"],
-        sourceVersion: 6,
+        sourceVersion: BUILD_STATE_VERSION,
       }),
     /projectionHash does not match/,
   );
@@ -441,7 +484,7 @@ test("applier rejects forged locked evidence before SQLite or checkpoint mutatio
         projectionHash: futureHash,
         recordCount: 4,
         backups: ["/tmp/backup"],
-        sourceVersion: 7,
+        sourceVersion: BUILD_STATE_VERSION + 1,
       }),
     /exceeds supported version/,
   );
