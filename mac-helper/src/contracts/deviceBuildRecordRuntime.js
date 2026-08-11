@@ -1,5 +1,7 @@
 // @ts-check
 
+/** @typedef {import("./build.js").DeviceBuildRecord} DeviceBuildRecord */
+
 const DEVICE_BUILD_STATES = new Set([
   "queued",
   "validating",
@@ -25,7 +27,7 @@ const INSTALLATION_STATES = new Set([
  * does not depend on emitted-only TypeScript contract output.
  *
  * @param {unknown} value
- * @returns {boolean}
+ * @returns {value is DeviceBuildRecord}
  */
 export function isDeviceBuildRecordRuntime(value) {
   if (!isRecord(value)) return false;
@@ -48,13 +50,13 @@ export function isDeviceBuildRecordRuntime(value) {
     !isTTL(value.ttlMinutes) ||
     value.ttlMinutes !== value.installTTLMinutes ||
     !hasString(value, "expiresAt") ||
+    typeof value.state !== "string" ||
     !DEVICE_BUILD_STATES.has(value.state) ||
     !isApp(value.app) ||
     !isSigning(value.signing) ||
     !isInstallation(value.installation) ||
     !isArtifacts(value.artifacts) ||
-    !Array.isArray(value.logs) ||
-    !value.logs.every((line) => typeof line === "string") ||
+    !isStringArray(value.logs) ||
     !optionalStringArray(value, "buildSettings") ||
     !optionalBoolean(value, "allowProvisioningUpdates") ||
     !optionalRecord(value, "control", isControl) ||
@@ -105,8 +107,7 @@ function isSigning(value) {
     hasString(value, "method") &&
     typeof value.deviceInstallable === "boolean" &&
     hasString(value, "updateSafe") &&
-    Array.isArray(value.warnings) &&
-    value.warnings.every((warning) => typeof warning === "string")
+    isStringArray(value.warnings)
   );
 }
 
@@ -114,6 +115,7 @@ function isSigning(value) {
 function isInstallation(value) {
   return (
     isRecord(value) &&
+    typeof value.state === "string" &&
     INSTALLATION_STATES.has(value.state) &&
     hasString(value, "requestedAt") &&
     hasString(value, "verifiedAt") &&
@@ -226,7 +228,10 @@ function isLiveReload(value) {
   );
 }
 
-/** @param {unknown} value */
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -263,10 +268,7 @@ function optionalFiniteNumber(record, key) {
 
 /** @param {Record<string, unknown>} record @param {string} key */
 function optionalStringArray(record, key) {
-  return (
-    !hasOwn(record, key) ||
-    (Array.isArray(record[key]) && record[key].every((item) => typeof item === "string"))
-  );
+  return !hasOwn(record, key) || isStringArray(record[key]);
 }
 
 /**
@@ -280,10 +282,21 @@ function optionalRecord(record, key, validator) {
 
 /** @param {unknown} value */
 function isTTL(value) {
-  return Number.isInteger(value) && Number.isFinite(value) && value >= 5 && value <= 120;
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    Number.isFinite(value) &&
+    value >= 5 &&
+    value <= 120
+  );
 }
 
 /** @param {unknown} value */
 function isNonNegativeInteger(value) {
-  return Number.isInteger(value) && Number.isFinite(value) && value >= 0;
+  return typeof value === "number" && Number.isInteger(value) && Number.isFinite(value) && value >= 0;
+}
+
+/** @param {unknown} value */
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
