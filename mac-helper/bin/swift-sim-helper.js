@@ -48,6 +48,7 @@ import { handlePairingPageRoutes } from "../src/http/pairingPageRoutes.js";
 import { createSessionHttpApplicationService } from "../src/http/sessionHttpApplicationService.js";
 import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
 import { createCompatibilityHelperRuntime } from "../src/infrastructure/compatibilityHelperRuntime.js";
+import { prepareDeviceBuildShadowCompatibility } from "../src/persistence/deviceBuildShadowCompatibility.js";
 import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";
 import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";
 import { createSessionRuntimeController } from "../src/sessionRuntimeController.js";
@@ -179,6 +180,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     nowMs: () => clock.now().getTime(),
     nowIso: () => clock.now().toISOString(),
   });
+  /** @type {{ shadowObserver: { observe(input: unknown): unknown } | null, close(): void }} */
+  let deviceBuildShadow = {
+    shadowObserver: null,
+    close() {},
+  };
   const lifecycle = createHelperServiceLifecycle({
     createServer,
     host,
@@ -191,8 +197,15 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     cancelBuild: (build, reason) => deviceBuildRuntime.cancelBuild(build, reason),
     listSessions: () => (typeof store.list === "function" ? store.list() : []),
     stopSession: (sessionID) => sessionRuntime.stopSession(sessionID),
+    closeResources: () => deviceBuildShadow.close(),
   });
   await lifecycle.prepare();
+  deviceBuildShadow = await prepareDeviceBuildShadowCompatibility({
+    deviceBuildStore,
+    spawnSync,
+    clock,
+    reportError: (message) => console.error(message),
+  });
   const deviceAppService = createDeviceAppApplicationService({
     pairingTokenMatches,
     listBuilds: () => deviceBuildStore.list(),
@@ -238,6 +251,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       links: deviceBuildLinks(build, build.remoteBaseUrl),
     }),
     now: () => clock.now().getTime(),
+    shadowObserver: deviceBuildShadow.shadowObserver || undefined,
   });
   const helperControlService = createHelperControlApplicationService({
     pairingTokenMatches,
@@ -308,7 +322,16 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       return badRequest(res, status, error instanceof Error ? error.message : String(error));
     }
   };
-  await lifecycle.start(requestListener);
+  try {
+    await lifecycle.start(requestListener);
+  } catch (error) {
+    try {
+      deviceBuildShadow.close();
+    } catch {
+      console.error("Helper resource close failed.");
+    }
+    throw error;
+  }
   await lifecycle.wait();
 }
 
