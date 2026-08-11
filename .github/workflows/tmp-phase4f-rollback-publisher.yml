@@ -1,0 +1,58 @@
+name: Temporary Phase 4F Rollback Proof Publisher
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4f-rollback-publisher
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: f1c0bfb19ae59c1018330c90d2672b0c0d593a0a
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Add SQL-transaction rollback proof
+        shell: bash
+        run: |
+          cat >> test/deviceBuildSqliteRepositories.test.ts <<'EOF'
+
+          test("SQL constraint failure rolls back an in-progress snapshot replacement", (t) => {
+            const { repository } = createHarness(t);
+            const expected = normalizeDeviceBuildStateSnapshot(snapshot());
+            repository.replace(expected);
+
+            const sqlInvalid: DeviceBuildStateSnapshot = {
+              ...snapshot(),
+              builds: [buildRecord({ id: "build-2", createdAt: "" })],
+            };
+            assert.doesNotThrow(() => normalizeDeviceBuildStateSnapshot(sqlInvalid));
+            assert.throws(() => repository.replace(sqlInvalid), /constraint/i);
+            assert.deepEqual(repository.read(), expected);
+          });
+          EOF
+          npx prettier test/deviceBuildSqliteRepositories.test.ts --write
+      - name: Verify and publish one-file correction
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "f1c0bfb19ae59c1018330c90d2672b0c0d593a0a"
+          test "$(git ls-remote origin refs/heads/agent/tmp-phase4f-rollback-output | cut -f1)" = "f1c0bfb19ae59c1018330c90d2672b0c0d593a0a"
+          test "$(git diff --name-only)" = "test/deviceBuildSqliteRepositories.test.ts"
+          npm run build
+          node --test dist/test/deviceBuildSqliteRepositories.test.js
+          git config user.name Miguel
+          git config user.email serram1994@gmail.com
+          git add test/deviceBuildSqliteRepositories.test.ts
+          git commit -m "Phase 4F oracle: prove SQL rollback atomicity"
+          test "$(git ls-remote origin refs/heads/agent/tmp-phase4f-rollback-output | cut -f1)" = "f1c0bfb19ae59c1018330c90d2672b0c0d593a0a"
+          git push origin HEAD:refs/heads/agent/tmp-phase4f-rollback-output
