@@ -45,6 +45,7 @@ const SHUTDOWN_BUILD_REASON = "Swift Sim helper is shutting down.";
  *   cancelBuild(build: unknown, reason: string): unknown,
  *   listSessions(): ActiveSession[],
  *   stopSession(sessionID: string): Promise<unknown>,
+ *   closeResources(): void,
  *   log(message: string): void,
  *   reportError(message: string): void,
  *   runtime: LifecycleRuntime,
@@ -156,8 +157,21 @@ export function createHelperServiceLifecycle(dependencies) {
 
     let serverClosed = false;
     let sessionsStopped = false;
+    let finalized = false;
     const maybeExit = () => {
-      if (serverClosed && sessionsStopped) resolved.runtime.exit(0);
+      if (!serverClosed || !sessionsStopped || finalized) return;
+      finalized = true;
+      try {
+        resolved.closeResources();
+        resolved.runtime.exit(0);
+      } catch {
+        try {
+          resolved.reportError("Helper resource close failed.");
+        } catch {
+          // Resource-close failure still requires a deterministic nonzero exit.
+        }
+        resolved.runtime.exit(1);
+      }
     };
     server.close(() => {
       serverClosed = true;
@@ -210,6 +224,7 @@ function resolveDependencies(dependencies) {
   const runtime = dependencies.runtime || defaultRuntime();
   const resolved = {
     ...dependencies,
+    closeResources: dependencies.closeResources || (() => {}),
     log: dependencies.log || ((message) => console.log(message)),
     reportError: dependencies.reportError || ((message) => console.error(message)),
     runtime,
@@ -223,6 +238,7 @@ function resolveDependencies(dependencies) {
     ["cancelBuild", resolved.cancelBuild],
     ["listSessions", resolved.listSessions],
     ["stopSession", resolved.stopSession],
+    ["closeResources", resolved.closeResources],
     ["log", resolved.log],
     ["reportError", resolved.reportError],
   ];

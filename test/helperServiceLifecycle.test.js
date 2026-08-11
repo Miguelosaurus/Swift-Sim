@@ -86,17 +86,14 @@ test("listen failure rejects before timers, signals, or startup logging", async 
   const lifecycle = harness.lifecycle();
   await lifecycle.prepare();
 
-  await assert.rejects(
-    lifecycle.start(() => {}),
-    /address in use/,
-  );
+  await assert.rejects(lifecycle.start(() => {}), /address in use/);
   assert.equal(harness.intervals.length, 0);
   assert.deepEqual(harness.signals, {});
   assert.deepEqual(harness.logs, []);
   assert.deepEqual(harness.events.slice(2), ["create-server", "listen:127.0.0.1:47217"]);
 });
 
-test("shutdown is idempotent and exits only after server and work drain", async () => {
+test("shutdown is idempotent, closes resources once, and exits only after server and work drain", async () => {
   const sessionDrain = deferred();
   const buildDrain = deferred();
   const firstBuild = { id: "build-1" };
@@ -140,10 +137,12 @@ test("shutdown is idempotent and exits only after server and work drain", async 
     [1, 1],
   );
   assert.deepEqual(harness.exits, []);
+  assert.equal(harness.resourceCloseCalls, 0);
 
   harness.finishServerClose();
   await Promise.resolve();
   assert.deepEqual(harness.exits, []);
+  assert.equal(harness.resourceCloseCalls, 0);
 
   harness.timeouts[0].callback();
   assert.equal(liveSocket.destroyCalls, 1);
@@ -153,7 +152,27 @@ test("shutdown is idempotent and exits only after server and work drain", async 
   sessionDrain.resolve();
   buildDrain.resolve();
   await tick();
+  assert.equal(harness.resourceCloseCalls, 1);
   assert.deepEqual(harness.exits, [0]);
+});
+
+test("resource-close failure is generic and changes graceful shutdown to nonzero", async () => {
+  const harness = createHarness({
+    closeResources() {
+      throw new Error("private sqlite path");
+    },
+  });
+  const lifecycle = harness.lifecycle();
+  await lifecycle.prepare();
+  await lifecycle.start(() => {});
+
+  lifecycle.shutdown();
+  harness.finishServerClose();
+  await tick();
+
+  assert.equal(harness.resourceCloseCalls, 1);
+  assert.deepEqual(harness.errors, ["Helper resource close failed."]);
+  assert.deepEqual(harness.exits, [1]);
 });
 
 test("shutdown force timer preserves nonzero exit when work does not drain", async () => {
@@ -171,26 +190,21 @@ test("shutdown force timer preserves nonzero exit when work does not drain", asy
   assert.deepEqual(harness.exits, []);
   harness.timeouts.find(({ delayMs }) => delayMs === 8_000).callback();
   assert.deepEqual(harness.exits, [1]);
+  assert.equal(harness.resourceCloseCalls, 0);
 });
 
 test("lifecycle enforces preparation and one start", async () => {
   const harness = createHarness();
   const lifecycle = harness.lifecycle();
 
-  await assert.rejects(
-    lifecycle.start(() => {}),
-    /must be prepared/,
-  );
+  await assert.rejects(lifecycle.start(() => {}), /must be prepared/);
   await lifecycle.prepare();
   await assert.rejects(lifecycle.start(null), /request listener/);
 
   const fresh = harness.lifecycle();
   await fresh.prepare();
   await fresh.start(() => {});
-  await assert.rejects(
-    fresh.start(() => {}),
-    /already started/,
-  );
+  await assert.rejects(fresh.start(() => {}), /already started/);
 });
 
 function createHarness({
@@ -200,6 +214,7 @@ function createHarness({
   activeBuildTasks = () => [],
   sessions = [],
   stopSession = async () => {},
+  closeResources = null,
 } = {}) {
   const events = [];
   const logs = [];
@@ -217,6 +232,7 @@ function createHarness({
   let closeIdleCalls = 0;
   let closeAllCalls = 0;
   let serverCloseCalls = 0;
+  let resourceCloseCalls = 0;
   let requestListener;
   let connectionListener;
   let listenErrorListener;
@@ -321,6 +337,10 @@ function createHarness({
           stopSessionCalls.push(sessionID);
           return stopSession(sessionID);
         },
+        closeResources() {
+          resourceCloseCalls += 1;
+          return closeResources?.();
+        },
         log(message) {
           logs.push(message);
           events.push(`log:${message}`);
@@ -356,6 +376,9 @@ function createHarness({
     },
     get serverCloseCalls() {
       return serverCloseCalls;
+    },
+    get resourceCloseCalls() {
+      return resourceCloseCalls;
     },
     get requestListener() {
       return requestListener;
