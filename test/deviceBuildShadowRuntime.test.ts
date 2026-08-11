@@ -112,16 +112,18 @@ test("device-build shadow runtime validates non-I/O dependencies before opening 
         databasePath: "/path/that/must/not/be/opened/state.sqlite",
         source: {
           name: "device-builds.json",
-          path: "/path/that/must/not/be-read/device-builds.json",
+          path: "/path/that/must/not-be-read/device-builds.json",
           lockRequest: {
-            path: "/path/that/must/not/be-opened/device-builds.lock",
+            path: "/path/that/must/not-be-opened/device-builds.lock",
             waitMs: 5_000,
             staleAfterMs: 250,
             ownerMode: 0o600,
           },
         },
         backupDirectory: "/path/that/must/not/be-written/backups",
-        spawnSync: null as unknown as Parameters<typeof createDeviceBuildShadowRuntime>[0]["spawnSync"],
+        spawnSync: null as unknown as Parameters<
+          typeof createDeviceBuildShadowRuntime
+        >[0]["spawnSync"],
       }),
     /requires spawnSync/,
   );
