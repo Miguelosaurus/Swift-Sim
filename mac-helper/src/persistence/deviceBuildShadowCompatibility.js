@@ -1,16 +1,23 @@
 // @ts-check
 
 /**
+ * @typedef {{ observe(input: unknown): unknown }} ShadowObserver
+ * @typedef {{
+ *   importLegacy(): unknown,
+ *   shadowObserver: ShadowObserver,
+ *   health(): { ok: boolean },
+ *   close(): void,
+ * }} DeviceBuildShadowRuntimeLike
  * @typedef {{
  *   enabled: boolean,
- *   shadowObserver: { observe(input: unknown): unknown } | null,
+ *   shadowObserver: ShadowObserver | null,
  *   importResult: unknown,
  *   close(): void,
  * }} DeviceBuildShadowStartup
  * @typedef {{
- *   createRuntime(options: unknown): unknown,
+ *   createRuntime(options: unknown): DeviceBuildShadowRuntimeLike,
  *   prepareStartup(options: {
- *     createRuntime(options: unknown): unknown,
+ *     createRuntime(options: unknown): DeviceBuildShadowRuntimeLike,
  *     runtimeOptions: unknown,
  *     reportError: (message: string) => unknown,
  *   }): DeviceBuildShadowStartup,
@@ -91,12 +98,15 @@ export async function prepareDeviceBuildShadowCompatibility({
 
 /** @returns {Promise<DeviceBuildShadowCompatibilityComponents>} */
 async function loadDefaultComponents() {
-  const [{ createDeviceBuildShadowRuntime }, { prepareDeviceBuildShadowStartup }, { deviceBuildShadowPaths }] =
-    await Promise.all([
-      import("./deviceBuildShadowRuntime.js"),
-      import("./deviceBuildShadowStartup.js"),
-      import("./deviceBuildShadowPaths.js"),
-    ]);
+  const [
+    { createDeviceBuildShadowRuntime },
+    { prepareDeviceBuildShadowStartup },
+    { deviceBuildShadowPaths },
+  ] = await Promise.all([
+    import("./deviceBuildShadowRuntime.js"),
+    import("./deviceBuildShadowStartup.js"),
+    import("./deviceBuildShadowPaths.js"),
+  ]);
   return {
     createRuntime: createDeviceBuildShadowRuntime,
     prepareStartup: prepareDeviceBuildShadowStartup,
