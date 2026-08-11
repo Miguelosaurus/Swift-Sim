@@ -1,0 +1,83 @@
+name: Temporary Phase 4H Import Hardening
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4h-import-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      SOURCE_HEAD: 9560bca608a847c6f3700e24238646dd855452bd
+      OUTPUT_BRANCH: agent/tmp-phase4h-import-hardening-output
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 9560bca608a847c6f3700e24238646dd855452bd
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Strengthen version and corrupted-checkpoint evidence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('test/deviceBuildLegacyImport.test.ts')
+          text = path.read_text()
+          import_anchor = 'import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";\n'
+          if text.count(import_anchor) != 1:
+              raise SystemExit('build-state version import anchor changed')
+          text = text.replace(
+              import_anchor,
+              import_anchor + 'import { BUILD_STATE_VERSION } from "../mac-helper/src/deviceBuildStoreCore.js";\n',
+          )
+          text = text.replace('    version: 6,', '    version: BUILD_STATE_VERSION,')
+          text = text.replace('  assert.equal(first.sourceVersion, 6);', '  assert.equal(first.sourceVersion, BUILD_STATE_VERSION);')
+          text = text.replace('        sourceVersion: 6,', '        sourceVersion: BUILD_STATE_VERSION,')
+          text = text.replace('        sourceVersion: 7,', '        sourceVersion: BUILD_STATE_VERSION + 1,')
+
+          anchor = '''test("byte-only source revision changes repair only the checkpoint", (t) => {\n'''
+          hardening = '''test("corrupted checkpoint persistence is detected and retry repairs evidence without re-replacing state", (t) => {\n  const harness = createHarness(t);\n  writeLegacy(harness, legacyState());\n  const corruptedCheckpoints: LegacyImportCheckpointRepository = {\n    transaction<T>(operation: () => T): T {\n      return harness.checkpointRepository.transaction(operation);\n    },\n    get(source: string): LegacyImportCheckpoint | null {\n      return harness.checkpointRepository.get(source);\n    },\n    list(): LegacyImportCheckpoint[] {\n      return harness.checkpointRepository.list();\n    },\n    upsert(checkpoint: LegacyImportCheckpoint): void {\n      harness.checkpointRepository.upsert({\n        ...checkpoint,\n        projectionHash: "f".repeat(64),\n      });\n    },\n  };\n\n  assert.throws(\n    () => harness.coordinator(corruptedCheckpoints).run(),\n    /checkpoint did not persist exactly/,\n  );\n  assert.equal(harness.repository.read().builds.length, 1);\n  assert.equal(\n    harness.checkpointRepository.get(CHECKPOINT_SOURCE)?.projectionHash,\n    "f".repeat(64),\n  );\n\n  harness.database.exec(`CREATE TRIGGER reject_device_build_replacement_after_bad_checkpoint\n    BEFORE DELETE ON device_builds\n    BEGIN\n      SELECT RAISE(ABORT, 'unexpected device-build replacement after bad checkpoint');\n    END`);\n  const repaired = harness.coordinator().run();\n\n  assert.equal(repaired.status, "checkpointed");\n  assert.equal(\n    harness.checkpointRepository.get(CHECKPOINT_SOURCE)?.projectionHash,\n    repaired.projectionHash,\n  );\n});\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit('checkpoint hardening insertion anchor changed')
+          text = text.replace(anchor, hardening + anchor)
+          path.write_text(text)
+          PY
+          npx prettier test/deviceBuildLegacyImport.test.ts --write
+      - name: Focused hardened import behavior
+        shell: bash
+        run: |
+          npm run build
+          node --test dist/test/deviceBuildSqliteRepositories.test.js dist/test/deviceBuildLockedLegacySnapshot.test.js dist/test/deviceBuildLegacyImport.test.js
+      - name: Architecture and strict type gates
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check:architecture
+          npm run check:types
+      - name: Full Node/package gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check
+      - name: Commit and publish test-only hardening
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          test "$(git diff --name-only)" = "test/deviceBuildLegacyImport.test.ts"
+          git diff --check
+          git config user.name Miguel
+          git config user.email serram1994@gmail.com
+          git add test/deviceBuildLegacyImport.test.ts
+          git commit -m "Phase 4H oracle: strengthen checkpoint recovery proof"
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git push origin HEAD:refs/heads/$OUTPUT_BRANCH
