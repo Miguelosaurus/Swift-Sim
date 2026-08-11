@@ -10,6 +10,8 @@ These documents preserve implementation decisions and completed engineering reco
 - [Mandatory Checkpoint Protocol](plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md)
 - [Batched Execution Amendment](plans/ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md)
 - [Architecture Consolidation Progress](plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md)
+- [Current Architecture Consolidation Handoff](plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md)
+- [Local Shadow Verification Prompt](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_LOCAL_SHADOW_VERIFY.txt)
 - [Next Agent Prompt — Phase 0](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_PHASE0.md)
 - [Architecture Decision Records](adr/README.md)
 
