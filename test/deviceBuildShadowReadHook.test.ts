@@ -179,8 +179,7 @@ test("unauthorized, expired, and failed read operations never schedule observati
   const unavailableService = createDeviceBuildCapabilityApplicationService(
     dependencies(unavailable, {
       shadowObserver: {
-        observe: () =>
-          observations.push({ surface: "build", key: "failed", legacy: unavailable }),
+        observe: () => observations.push({ surface: "build", key: "failed", legacy: unavailable }),
       },
     }),
   );
