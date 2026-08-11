@@ -25,12 +25,10 @@ function readyBuild(overrides: Partial<BuildRecord> = {}): BuildRecord {
     configuration: "Release",
     buildSettings: [],
     app: {
-      identity: "app-id",
       name: "App",
       bundleIdentifier: "com.example",
       version: "1",
       build: "2",
-      teamID: "TEAM",
     },
     signing: {
       method: "development",
@@ -165,7 +163,11 @@ test("unauthorized, expired, and failed read operations never schedule observati
 
   const expired = readyBuild({ expiresAt: new Date(Date.now() - 60_000).toISOString() });
   const expiredService = createDeviceBuildCapabilityApplicationService(
-    dependencies(expired, { shadowObserver: { observe: () => observations.push({ surface: "build", key: "expired", legacy: expired }) } }),
+    dependencies(expired, {
+      shadowObserver: {
+        observe: () => observations.push({ surface: "build", key: "expired", legacy: expired }),
+      },
+    }),
   );
   assert.deepEqual(await execute(expiredService, "status"), {
     kind: "bad-request",
@@ -175,7 +177,12 @@ test("unauthorized, expired, and failed read operations never schedule observati
 
   const unavailable = readyBuild({ state: "failed" });
   const unavailableService = createDeviceBuildCapabilityApplicationService(
-    dependencies(unavailable, { shadowObserver: { observe: () => observations.push({ surface: "build", key: "failed", legacy: unavailable }) } }),
+    dependencies(unavailable, {
+      shadowObserver: {
+        observe: () =>
+          observations.push({ surface: "build", key: "failed", legacy: unavailable }),
+      },
+    }),
   );
   assert.deepEqual(await execute(unavailableService, "artifact", "cap-token", "manifest"), {
     kind: "bad-request",
