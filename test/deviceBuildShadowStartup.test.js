@@ -42,7 +42,7 @@ test("device-build shadow startup enables only after health and import succeed",
 });
 
 test("construction, health, and import failures disable the shadow and keep reporting generic", async () => {
-  for (const mode of ["construct", "health", "import"] as const) {
+  for (const mode of ["construct", "health", "import"]) {
     const diagnostics = [];
     let closeCalls = 0;
     const startup = prepareDeviceBuildShadowStartup({
