@@ -226,14 +226,8 @@ function normalizeLockedSnapshot(value) {
   const snapshot = normalizeDeviceBuildStateSnapshot(
     /** @type {DeviceBuildStateSnapshot} */ (values.snapshot),
   );
-  const sourceRevision = requireHash(
-    values.sourceRevision,
-    "Device-build legacy sourceRevision",
-  );
-  const projectionHash = requireHash(
-    values.projectionHash,
-    "Device-build legacy projectionHash",
-  );
+  const sourceRevision = requireHash(values.sourceRevision, "Device-build legacy sourceRevision");
+  const projectionHash = requireHash(values.projectionHash, "Device-build legacy projectionHash");
   if (deviceBuildProjectionHash(snapshot) !== projectionHash) {
     throw new Error("Device-build locked snapshot projectionHash does not match its snapshot.");
   }
@@ -246,10 +240,7 @@ function normalizeLockedSnapshot(value) {
       `Device-build locked snapshot sourceVersion ${sourceVersion} exceeds supported version ${BUILD_STATE_VERSION}.`,
     );
   }
-  const recordCount = requireSafeInteger(
-    values.recordCount,
-    "Device-build legacy recordCount",
-  );
+  const recordCount = requireSafeInteger(values.recordCount, "Device-build legacy recordCount");
   const expectedRecordCount =
     snapshot.builds.length +
     snapshot.apps.length +
@@ -266,8 +257,11 @@ function normalizeLockedSnapshot(value) {
       requireNonEmptyString(path, "Device-build locked snapshot backup path"),
     ),
   );
+  const immutableSnapshot = /** @type {DeviceBuildStateSnapshot} */ (
+    deepFreeze(structuredClone(snapshot))
+  );
   return Object.freeze({
-    snapshot: deepFreeze(structuredClone(snapshot)),
+    snapshot: immutableSnapshot,
     sourceRevision,
     projectionHash,
     recordCount,
