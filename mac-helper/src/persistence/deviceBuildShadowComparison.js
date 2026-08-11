@@ -1,7 +1,7 @@
 // @ts-check
 
 import { createHash } from "node:crypto";
-import { isDeviceBuildRecord } from "../contracts/build.js";
+import { isDeviceBuildRecord } from "../contracts/deviceBuildRecordRuntime.js";
 
 /** @typedef {import("../contracts/deviceBuildRepository.js").ArtifactCleanupJobRecord} ArtifactCleanupJobRecord */
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeliveryReferenceCleanupJobRecord} DeliveryReferenceCleanupJobRecord */
