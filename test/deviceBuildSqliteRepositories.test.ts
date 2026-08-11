@@ -212,3 +212,17 @@ test("SQLite consistency checks reject mismatched extracted build columns", (t) 
     /constraint/i,
   );
 });
+
+test("SQL constraint failure rolls back an in-progress snapshot replacement", (t) => {
+  const { repository } = createHarness(t);
+  const expected = normalizeDeviceBuildStateSnapshot(snapshot());
+  repository.replace(expected);
+
+  const sqlInvalid: DeviceBuildStateSnapshot = {
+    ...snapshot(),
+    builds: [buildRecord({ id: "build-2", createdAt: "" })],
+  };
+  assert.doesNotThrow(() => normalizeDeviceBuildStateSnapshot(sqlInvalid));
+  assert.throws(() => repository.replace(sqlInvalid), /constraint/i);
+  assert.deepEqual(repository.read(), expected);
+});
