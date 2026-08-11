@@ -352,10 +352,11 @@ Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compati
 
 ## Phase 4 — Repository interfaces and SQLite migration
 
-- Status: The pairing migration tranche through E4 is locally complete in the draft stack; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.
+- Status: The pairing migration tranche through E4 plus the device-build 4F/4G repository and locked-source foundation are hosted-green in the draft stack; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.
 - Full Phase 4 stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
 - Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
 - Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.
+- Active continuation head: PR #96 / `e8508440459d2f649432e4ce3c02ae84d1997b3a`, stacked from the hosted-green Phase 3 completion-ledger ancestry and retaining E4 as a direct ancestor.
 - Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence.
 
 ### Stack order and live state
@@ -373,6 +374,8 @@ Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compati
 | E3 — cutover preparation | [#52](https://github.com/Miguelosaurus/Swift-Sim/pull/52) | #49 / `ff96203` | `8ff4ae8` | `31047728488` passed | Open, draft, unmerged |
 | E3B — cutover coordinator | [#53](https://github.com/Miguelosaurus/Swift-Sim/pull/53) | #52 / `8ff4ae8` | `ec1bd4e` | `31315600274` passed | Open, draft, unmerged |
 | E4 — rollback export | [#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | #53 / `ec1bd4e` | `3100bc0` | `31316795096` passed | Open, draft, unmerged |
+| 4F — device-build SQLite shadow repository | [#95](https://github.com/Miguelosaurus/Swift-Sim/pull/95) | Phase 3 completion ledger / `94e5686` | `6ddd0ad`; final clean-tree head `bc55ccd` | `31479976397` passed | Open, draft, unmerged |
+| 4G — locked device-build legacy snapshot | [#96](https://github.com/Miguelosaurus/Swift-Sim/pull/96) | #95 / `bc55ccd` | `e850844` | `31481810512` passed | Open, draft, unmerged |
 
 PRs #42 and #43 are closed and superseded by clean PR #44. PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; none is part of the live ancestry. The initial E4 Verify run `31316632344` at `7ce31e6` and the ledger-only run `31316708706` failed on the architecture source-text-test cap; `3100bc0` removed that classification by using the injected file-store reader, Verify `31316795096` passed, and the final documentation head `b1fac0d` passed `31317114243`.
 
@@ -405,7 +408,24 @@ PRs #42 and #43 are closed and superseded by clean PR #44. PR #51 (`7615de6`) is
 | P2 | 0 | 0 | 0 |
 | P3 | 0 | 0 | 0 |
 
-The E4 pairing rollback slice has no remaining finding from its focused audit. Full Phase 4 nevertheless remains incomplete: non-pairing domain repositories, staged production composition, legacy read-only handling, schema/migration/permission/orphan diagnostics, redacted export, corruption guidance, and previous-tag upgrade proof are still required. Production rollback/cutover remains unauthorized, and final persistent-local/device evidence and Miguel merge authorization remain pending.
+The E4 pairing rollback slice has no remaining finding from its focused audit. Phase 4F and 4G now cover the first non-pairing transactional domain boundary for device-build state, but full Phase 4 remains incomplete: device-build import/checkpoint/shadow comparison and authority composition, a production-compatible legacy build-lock identity provider, session-domain repositories/migration, schema/migration/permission/orphan diagnostics, redacted export, corruption guidance, previous-tag upgrade proof, and full cutover/rollback evidence are still required. Production rollback/cutover remains unauthorized, and final persistent-local/device evidence and Miguel merge authorization remain pending.
+
+### Phase 4F — device-build SQLite shadow repository
+
+- PR #95 adds a typed `DeviceBuildStateRepository` for builds, app archive state, artifact-cleanup jobs, and delivery-reference cleanup jobs without changing the live JSON authority.
+- SQLite migration version 6 adds four entity-specific STRICT tables. Full validated entity projections remain preserved as JSON while extracted columns are indexed and CHECK-bound back to the JSON projection, avoiding a new opaque whole-domain blob table.
+- Snapshot replacement is one SQLite transaction across all four collections. Focused evidence proves extension-field round trips, duplicate/pre-validation failure containment, extracted-column mismatch rejection, and rollback to the prior snapshot after a SQL CHECK fails after deletion/insertion has begun.
+- Final clean product tree is `ea33f7b445664b3bd08b9770f5753dbca8f355cc`. The intended implementation commit is `6ddd0ad6910d64b5874fc4444c72397367a24714`; after a transient metadata-tool mistake created a top-level `noop` file, ordinary corrective child `bc55ccdf1af7f9f18c9757ffbefaef63944b7f70` removed it and restored the exact intended tree without history rewriting. Natural corrective Verify #872 / run `31479976397` passed full Node/package, clean Homebrew, YAML/shell, and iOS gates.
+- This slice is migration/shadow infrastructure only. `device-builds.json` remains the sole production source of truth.
+
+### Phase 4G — locked device-build legacy snapshot
+
+- PR #96 / `e8508440459d2f649432e4ce3c02ae84d1997b3a` adds the read-only legacy-source boundary needed before device-build import. It never constructs `DeviceBuildStore`, so migration reads cannot compact state, expire tokens, recover renewals, drain cleanup artifacts, or start maintenance behavior.
+- The reader takes an injected legacy-compatible lock, backs up exact source bytes before parse/version acceptance, normalizes older supported state in memory using the same existing pure build normalizer, preserves legacy-compatible extension fields, and fails closed on malformed/future-version state. It emits deterministic `sourceRevision`, normalized `projectionHash`, source version, record count, and deeply frozen projection evidence.
+- The migration callback must remain synchronous, keeping later import work inside the source-lock lifetime. Strengthened oracle run `31481348264` proves the reader's own source read, backup write, and backup verification read all occur while the lock is held.
+- Authoritative natural Verify #873 / run `31481810512` passed full Node/package, isolated clean Homebrew, YAML/shell, and iOS gates on the exact product head.
+- Production lock composition is deliberately deferred: the legacy build lock uses a PID-reuse-safe `/bin/ps ... lstart` `startedAt` token whose representation differs from the generic kernel identity provider. A later composition slice must supply an exactly compatible identity provider rather than weakening stale-lock checks to PID-only behavior.
+- No SQLite import, shadow observer, production reader/writer, authority switch, legacy deletion, or real-user-state operation is introduced.
 
 ## Cross-phase reliability correction — helper state growth
 
