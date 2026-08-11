@@ -1,0 +1,27 @@
+name: Temporary Phase 4L Focused Oracle
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4l-focused-oracle
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: c0d566be5380638f948d89c355a04c4a9508b9cb
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check:types
+      - run: npm run check:format
+      - run: npm run build
+      - run: node --test --test-concurrency=1 dist/test/deviceBuildShadowReadHook.test.js
