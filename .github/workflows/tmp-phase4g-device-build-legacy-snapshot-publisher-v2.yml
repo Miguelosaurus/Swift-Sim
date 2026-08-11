@@ -1,0 +1,145 @@
+name: Temporary Phase 4G Device Build Legacy Snapshot Publisher V2
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4g-device-build-legacy-snapshot-publisher-v2
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      SOURCE_HEAD: 97f0989749388e753862c16614a06093749b3da4
+      OUTPUT_BRANCH: agent/tmp-phase4g-device-build-legacy-snapshot-output
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 97f0989749388e753862c16614a06093749b3da4
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply exact integration and typing corrections
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          core = Path('mac-helper/src/deviceBuildStoreCore.js')
+          text = core.read_text()
+          old = text
+          text = text.replace('const BUILD_STATE_VERSION = 6;', 'export const BUILD_STATE_VERSION = 6;')
+          text = text.replace('normalizeBuild(', 'normalizeDeviceBuildRecord(')
+          text = text.replace(
+              'function normalizeDeviceBuildRecord(build) {',
+              'export function normalizeDeviceBuildRecord(build) {',
+          )
+          if text == old:
+              raise SystemExit('deviceBuildStoreCore integration patch made no changes')
+          if text.count('normalizeBuild('):
+              raise SystemExit('stale normalizeBuild call remains')
+          if text.count('export function normalizeDeviceBuildRecord(build) {') != 1:
+              raise SystemExit('unexpected normalizer export count')
+          core.write_text(text)
+
+          snapshot = Path('mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js')
+          text = snapshot.read_text()
+          text = text.replace(
+              '/** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildStateSnapshot} DeviceBuildStateSnapshot */',
+              '/** @typedef {import("../contracts/deviceBuildRepository.js").ArtifactCleanupJobRecord} ArtifactCleanupJobRecord */\n'
+              '/** @typedef {import("../contracts/deviceBuildRepository.js").DeliveryReferenceCleanupJobRecord} DeliveryReferenceCleanupJobRecord */\n'
+              '/** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildStateSnapshot} DeviceBuildStateSnapshot */',
+          )
+          text = text.replace(
+              '  const artifactCleanupJobs = normalizeRecordMap(\n    values.artifactCleanupJobs,\n    sourcePath,\n    "artifact cleanup job",\n  );',
+              '  const artifactCleanupJobs = /** @type {ArtifactCleanupJobRecord[]} */ (\n'
+              '    normalizeRecordMap(\n'
+              '      values.artifactCleanupJobs,\n'
+              '      sourcePath,\n'
+              '      "artifact cleanup job",\n'
+              '    )\n'
+              '  );',
+          )
+          text = text.replace(
+              '  const deliveryReferenceCleanupJobs = normalizeRecordMap(\n    values.deliveryReferenceCleanupJobs,\n    sourcePath,\n    "delivery-reference cleanup job",\n  );',
+              '  const deliveryReferenceCleanupJobs = /** @type {DeliveryReferenceCleanupJobRecord[]} */ (\n'
+              '    normalizeRecordMap(\n'
+              '      values.deliveryReferenceCleanupJobs,\n'
+              '      sourcePath,\n'
+              '      "delivery-reference cleanup job",\n'
+              '    )\n'
+              '  );',
+          )
+          snapshot.write_text(text)
+
+          test = Path('test/deviceBuildLockedLegacySnapshot.test.ts')
+          text = test.read_text()
+          text = text.replace(
+              '    assert.deepEqual(build.migrationExtension, { preserved: true });',
+              '    assert.deepEqual(\n'
+              '      (build as unknown as Record<string, unknown>).migrationExtension,\n'
+              '      { preserved: true },\n'
+              '    );',
+          )
+          test.write_text(text)
+
+          package = Path('package.json')
+          text = package.read_text()
+          needle = 'dist/test/deviceBuildSqliteRepositories.test.js dist/test/pairingSqliteRepositories.test.js'
+          replacement = 'dist/test/deviceBuildSqliteRepositories.test.js dist/test/deviceBuildLockedLegacySnapshot.test.js dist/test/pairingSqliteRepositories.test.js'
+          if text.count(needle) != 1:
+              raise SystemExit('compiled-test insertion anchor changed')
+          package.write_text(text.replace(needle, replacement))
+          PY
+          npx prettier \
+            mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js \
+            test/deviceBuildLockedLegacySnapshot.test.ts \
+            package.json \
+            --write
+      - name: Focused legacy-store and snapshot behavior
+        shell: bash
+        run: |
+          npm run build
+          node --test \
+            test/deviceBuildStore.test.js \
+            dist/test/deviceBuildSqliteRepositories.test.js \
+            dist/test/deviceBuildLockedLegacySnapshot.test.js
+      - name: Strict type gate
+        run: npm run check:types
+      - name: Full Node/package gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check
+      - name: Commit exact candidate
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            mac-helper/src/deviceBuildStoreCore.js \
+            mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js \
+            package.json \
+            test/deviceBuildLockedLegacySnapshot.test.ts | sort)"
+          test "$changed" = "$expected"
+          git config user.name Miguel
+          git config user.email serram1994@gmail.com
+          git add \
+            mac-helper/src/deviceBuildStoreCore.js \
+            mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js \
+            package.json \
+            test/deviceBuildLockedLegacySnapshot.test.ts
+          git commit -m "Phase 4G oracle: add locked device-build legacy snapshot"
+      - name: Guard and publish temporary candidate
+        shell: bash
+        run: |
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git push origin HEAD:refs/heads/$OUTPUT_BRANCH
