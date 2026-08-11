@@ -79,7 +79,10 @@ test("device-build shadow observer selects the SQLite projection by explicit sur
     },
   });
 
-  assert.equal(observer.observe({ surface: "build", key: "missing-build", legacy: null })?.matched, true);
+  assert.equal(
+    observer.observe({ surface: "build", key: "missing-build", legacy: null })?.matched,
+    true,
+  );
   assert.equal(observer.observe({ surface: "app", key: APP.id, legacy: APP })?.matched, true);
   assert.equal(
     observer.observe({
@@ -154,10 +157,7 @@ test("device-build shadow observer contains repository, comparator, and reporter
     },
   });
 
-  assert.equal(
-    repositoryFailure.observe({ surface: "build", key: "build-1", legacy: null }),
-    null,
-  );
+  assert.equal(repositoryFailure.observe({ surface: "build", key: "build-1", legacy: null }), null);
   await Promise.resolve();
   assert.deepEqual(diagnostics, ["Device-build shadow observation failed."]);
 
@@ -179,10 +179,7 @@ test("device-build shadow observer contains repository, comparator, and reporter
       throw new Error("reporter threw");
     },
   });
-  assert.equal(
-    comparatorFailure.observe({ surface: "app", key: APP.id, legacy: APP }),
-    null,
-  );
+  assert.equal(comparatorFailure.observe({ surface: "app", key: APP.id, legacy: APP }), null);
 });
 
 test("device-build shadow observer rejects malformed snapshots without leaking failure", () => {
