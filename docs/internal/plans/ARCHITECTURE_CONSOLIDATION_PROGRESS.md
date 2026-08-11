@@ -348,7 +348,7 @@ The 2026-08-11 exact-head closure audit supersedes the earlier corrective gate n
 - CLI parsing, session runtime, setup-status probing, device-build/delivery orchestration, installation reconciliation, and fallback presentation are behind bounded typed seams.
 - architecture debt, strict type, full package/install, clean Homebrew, and iOS gates pass on the exact final product tree.
 
-Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compatibility preloads still exist only as a time-bounded Phase 5 migration concern; they are not being removed here. The existing Phase 4 SQLite/pairing tranche predates this final Phase 3 head and must be reconciled onto the finalized ancestry before broader Phase 4 domain repositories, shadow composition, authority cutover, rollback, diagnostics, and upgrade proof can proceed.
+Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compatibility preloads still exist only as a time-bounded Phase 5 migration concern; they are not being removed here. The validated Phase 4 SQLite/pairing tranche through `b1fac0df3360fdc68ca76d910e467b8a1f4944d7` is already a direct ancestor of this final Phase 3 head, so no replay/rebase is required. Phase 4 can continue forward from the finalized ancestry with the missing broader domain repositories, shadow composition, authority cutover, rollback, diagnostics, and upgrade proof.
 
 ## Phase 4 — Repository interfaces and SQLite migration
 
