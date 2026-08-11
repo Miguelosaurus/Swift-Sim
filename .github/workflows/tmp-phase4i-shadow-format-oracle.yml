@@ -1,0 +1,29 @@
+name: Temporary Phase 4I Shadow Format Oracle
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4i-shadow-format-oracle
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Render exact pinned Prettier output
+        shell: bash
+        run: |
+          npx prettier --write mac-helper/src/persistence/deviceBuildShadowComparison.js
+          echo 'BEGIN_PHASE4I_FORMATTED_BASE64'
+          base64 < mac-helper/src/persistence/deviceBuildShadowComparison.js | tr -d '\n'
+          echo
+          echo 'END_PHASE4I_FORMATTED_BASE64'
