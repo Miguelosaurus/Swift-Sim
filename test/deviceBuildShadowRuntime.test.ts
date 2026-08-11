@@ -121,7 +121,9 @@ test("device-build shadow runtime validates non-I/O dependencies before opening 
           },
         },
         backupDirectory: "/path/that/must/not/be-written/backups",
-        spawnSync: null as unknown as Parameters<typeof createDeviceBuildShadowRuntime>[0]["spawnSync"],
+        spawnSync: null as unknown as Parameters<
+          typeof createDeviceBuildShadowRuntime
+        >[0]["spawnSync"],
       }),
     /requires spawnSync/,
   );
