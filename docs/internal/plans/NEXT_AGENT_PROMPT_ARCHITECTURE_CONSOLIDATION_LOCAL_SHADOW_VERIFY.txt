@@ -1,0 +1,7 @@
+Verify the current Swift-Sim architecture-consolidation head locally; do not edit, commit, push, merge, or switch SQLite authority.
+
+Start by reconciling the exact current GitHub/local head and read `docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md`.
+
+Using the real local Mac environment, validate the new device-build SQLite shadow while preserving `device-builds.json` as the sole authority. Back up/record hashes before touching persistent state. Verify real existing-state import, backup/checkpoint/schema/integrity, 0700/0600 permissions, restart/idempotency, revision-fenced stale-shadow behavior after ordinary JSON mutations, JSON-only fallback when the shadow is unavailable, and clean shutdown/restart. Run the full local repository gate and clean Homebrew/service verification; also test upgrade from the previous tagged release and real Simulator/device/network behavior where safely available.
+
+Do not fix anything. Report exact SHA, commands, before/after hashes and modes, pass/fail for each gate, and full failure details. Explicitly confirm whether any legacy JSON bytes or authoritative behavior changed.

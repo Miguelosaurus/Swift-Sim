@@ -12,7 +12,7 @@ The active execution control is [the batched-execution amendment](ARCHITECTURE_C
 | 1 | TypeScript and package foundation | Merged | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | `6f356df` | `2151d35`; merge `820ff2e` | Mixed JS/TS transition remains; compiled `dist` is runtime output |
 | 2 | Explicit infrastructure primitives | Checkpoint 1 hosted-green; draft stack unmerged | [#26–#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | `820ff2e` | `d441798` | Weak delivery identity and unmigrated command/process call sites |
 | 3 | Helper and HTTP decomposition | Partial implementation through corrective 3M; draft stack unmerged | [#34–#40, #56–#60, #63](https://github.com/Miguelosaurus/Swift-Sim/pull/63) | Phase 2 final metadata / `f21e344` | Corrective implementation `ba97946` | HTTP route families are extracted; lifecycle/reconciliation/process behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |
-| 4 | Repository interfaces and SQLite migration | Pairing tranche implemented through E4; full phase incomplete and draft | [#41, #44–#50, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | Phase 3G / `7367fa2` | Pairing rollback implementation `7ce31e6`; final E4 head `b1fac0d` | Non-pairing domain repositories, production composition, doctor/export, previous-release upgrade, and full cutover evidence remain required |
+| 4 | Repository interfaces and SQLite migration | Pairing rollback primitives plus device-build live optional SQLite shadow through 4U hosted-green; full phase incomplete and draft | [#41, #44–#50, #52–#54, #95–#99, #101–#112](https://github.com/Miguelosaurus/Swift-Sim/pull/112) | Phase 3G / `7367fa2` | Device-build shadow/security head `588aacc`; pairing E4 remains direct ancestor | Persistent local shadow evidence, device-build cutover/rollback, sessions/remaining domains, doctor/export/corruption, previous-release upgrade, and final Phase 4 gate remain required |
 | 5 | Preload removal | Not started | — | — | — | Checkpoint 2 required before Phase 6 |
 | 6 | Live reload module split | Not started | — | — | — | — |
 | 7 | SwiftSyntax analyzer | Not started | — | — | — | Newly permissive cases remain disabled without physical proof |
@@ -352,12 +352,12 @@ Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compati
 
 ## Phase 4 — Repository interfaces and SQLite migration
 
-- Status: The pairing migration tranche through E4 plus the device-build 4F/4G repository and locked-source foundation are hosted-green in the draft stack; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.
+- Status: The pairing migration/rollback primitives plus device-build repository/import/shadow work through live optional Phase 4U are hosted-green in the draft stack. JSON remains the sole production read/write authority; device-build cutover and rollback activation remain disabled pending persistent local shadow evidence.
 - Full Phase 4 stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
 - Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
-- Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.
-- Active continuation head: PR #96 / `e8508440459d2f649432e4ce3c02ae84d1997b3a`, stacked from the hosted-green Phase 3 completion-ledger ancestry and retaining E4 as a direct ancestor.
-- Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence.
+- Validated pairing E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.
+- Active device-build continuation head: PR #112 / `588aacc46cd9482fc963c3ada3da709b6bfa0d81`, retaining the pairing tranche and all prior Phase 4 device-build work as direct ancestors.
+- Local persistent-machine device-build shadow verification is now the evidence boundary before authority activation. Full Phase 4 still requires device-build cutover/rollback/export, session/remaining transactional domains, doctor/export/corruption support, previous-release upgrade proof, and the final phase gate.
 
 ### Stack order and live state
 
@@ -376,6 +376,20 @@ Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compati
 | E4 — rollback export | [#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | #53 / `ec1bd4e` | `3100bc0` | `31316795096` passed | Open, draft, unmerged |
 | 4F — device-build SQLite shadow repository | [#95](https://github.com/Miguelosaurus/Swift-Sim/pull/95) | Phase 3 completion ledger / `94e5686` | `6ddd0ad`; final clean-tree head `bc55ccd` | `31479976397` passed | Open, draft, unmerged |
 | 4G — locked device-build legacy snapshot | [#96](https://github.com/Miguelosaurus/Swift-Sim/pull/96) | #95 / `bc55ccd` | `e850844` | `31481810512` passed | Open, draft, unmerged |
+| 4H — resumable device-build legacy import | [#98](https://github.com/Miguelosaurus/Swift-Sim/pull/98) | #97 / `026672a` | `6ba637f` | `31484093720` passed | Open, draft, unmerged |
+| 4I — device-build shadow comparison/evidence | [#99](https://github.com/Miguelosaurus/Swift-Sim/pull/99) | #98 / `6ba637f` | `49adc9c` | `31502611382` passed | Open, draft, unmerged |
+| 4J — best-effort device-build shadow observer | [#101](https://github.com/Miguelosaurus/Swift-Sim/pull/101) | #99 / `49adc9c` | `3848fd0` | `31504098733` passed | Open, draft, unmerged |
+| 4K — legacy device-build lock identity compatibility | [#102](https://github.com/Miguelosaurus/Swift-Sim/pull/102) | #101 / `3848fd0` | `a7a5132` | `31505392635` passed | Open, draft, unmerged |
+| 4L — authorized deferred build-read shadow hook | [#103](https://github.com/Miguelosaurus/Swift-Sim/pull/103) | #102 / `a7a5132` | `c0d566b` | `31507362584` passed | Open, draft, unmerged |
+| 4M — device-build shadow runtime composition | [#104](https://github.com/Miguelosaurus/Swift-Sim/pull/104) | #103 / `c0d566b` | `d634199` | `31508718050` passed | Open, draft, unmerged |
+| 4N — revision-fenced build shadow evidence | [#105](https://github.com/Miguelosaurus/Swift-Sim/pull/105) | #104 / `d634199` | `d7f4a6b` | `31512035071` passed | Open, draft, unmerged |
+| 4O — helper resource lifecycle ownership | [#106](https://github.com/Miguelosaurus/Swift-Sim/pull/106) | #105 / `d7f4a6b` | `5bc3cb0` | `31512813692` passed | Open, draft, unmerged |
+| 4P — fail-open shadow startup | [#107](https://github.com/Miguelosaurus/Swift-Sim/pull/107) | #106 / `5bc3cb0` | `498418d` | `31513868022` passed | Open, draft, unmerged |
+| 4Q — canonical shared DB/backup/lock paths | [#108](https://github.com/Miguelosaurus/Swift-Sim/pull/108) | #107 / `498418d` | `d812213` | `31513970006` passed | Open, draft, unmerged |
+| 4R — raw-source-loadable shadow runtime | [#109](https://github.com/Miguelosaurus/Swift-Sim/pull/109) | #108 / `d812213` | `445660e` | `31515102535` passed | Open, draft, unmerged |
+| 4S — optional shadow compatibility loader | [#110](https://github.com/Miguelosaurus/Swift-Sim/pull/110) | #109 / `445660e` | `8f790b6` | `31516036240` passed | Open, draft, unmerged |
+| 4T — live optional device-build shadow wiring | [#111](https://github.com/Miguelosaurus/Swift-Sim/pull/111) | #110 / `8f790b6` | `cf7e914` | `31516642628` passed | Open, draft, unmerged |
+| 4U — private live-shadow SQLite permissions | [#112](https://github.com/Miguelosaurus/Swift-Sim/pull/112) | #111 / `cf7e914` | `588aacc` | `31517749763` passed; live oracles `31517815886`, `31517976818` passed | Open, draft, unmerged |
 
 PRs #42 and #43 are closed and superseded by clean PR #44. PR #51 (`7615de6`) is closed and superseded by the clean E3 PR #52; none is part of the live ancestry. The initial E4 Verify run `31316632344` at `7ce31e6` and the ledger-only run `31316708706` failed on the architecture source-text-test cap; `3100bc0` removed that classification by using the injected file-store reader, Verify `31316795096` passed, and the final documentation head `b1fac0d` passed `31317114243`.
 
@@ -426,6 +440,19 @@ The E4 pairing rollback slice has no remaining finding from its focused audit. P
 - Authoritative natural Verify #873 / run `31481810512` passed full Node/package, isolated clean Homebrew, YAML/shell, and iOS gates on the exact product head.
 - Production lock composition is deliberately deferred: the legacy build lock uses a PID-reuse-safe `/bin/ps ... lstart` `startedAt` token whose representation differs from the generic kernel identity provider. A later composition slice must supply an exactly compatible identity provider rather than weakening stale-lock checks to PID-only behavior.
 - No SQLite import, shadow observer, production reader/writer, authority switch, legacy deletion, or real-user-state operation is introduced.
+
+### Phase 4H–4U — device-build import through live optional shadow
+
+- Phase 4H added the resumable device-build legacy import/checkpoint coordinator while preserving source-lock lifetime and JSON authority.
+- Phase 4I–4J added redacted per-entity shadow comparison/evidence and a failure-contained observer. Phase 4K proved exact compatibility with the legacy `/bin/ps ... lstart` `startedAt` lock identity rather than weakening PID-reuse fencing.
+- Phase 4L observes only successful authorized read-only build-capability operations after response publication. Mutation paths remain JSON-only and are not shadow-observed.
+- Phase 4M–4N assembled the SQLite shadow runtime and added revision fencing: live build comparison occurs only when JSON and SQLite share the same monotonic build revision; missing/stale SQLite rows are skipped instead of recorded as false mismatch evidence.
+- Phase 4O–4Q added explicit lifecycle close ownership, fail-open JSON-only startup, one shared sibling `state.sqlite`, domain-scoped migration backups, and the exact legacy source-lock protocol.
+- Phase 4R removed emitted-only TypeScript runtime dependencies from the concrete persistence graph and proves the full shadow runtime loads directly from the raw source tree.
+- Phase 4S–4T dynamically compose the optional shadow into helper `serve`: interrupted JSON build recovery runs before the locked import snapshot; every shadow-specific loader/path/SQLite/schema/lock/backup/import failure degrades to JSON-only startup; the observer is supplied only to the authorized read hook; graceful shutdown owns the DB close. No production SQLite read/write authority is enabled.
+- Phase 4T hosted live oracle `31516751742` proved schema v7/checkpoint creation, byte-equal content-addressed backup, SQLite integrity, unchanged JSON SHA, restart idempotency, and deliberate SQLite-path failure falling back to JSON-only startup. It also exposed a 0644 new DB permission.
+- Phase 4U fixes fresh DB/WAL/SHM creation under a bounded 077 umask and restores the previous process umask. Verify `31517749763` plus independent hardened live oracles `31517815886` and `31517976818` prove state root 0700, DB 0600, backup directory 0700, backup 0600, WAL/SHM 0600 when present, unchanged JSON, restart idempotency, integrity, and fail-open fallback.
+- The next evidence boundary is persistent local-machine shadow verification against the actual Swift Sim state/service. Device-build SQLite authority remains unauthorized until that evidence is reviewed. Phase 4 still requires fenced cutover/read-only rollback, device-build rollback export, session/remaining transactional domains, doctor/export/corruption support, previous-tagged-release upgrade proof, and the final phase gate.
 
 ## Cross-phase reliability correction — helper state growth
 
