@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-shadow-runtime-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const sourcePath = join(root, "device-builds.json");
+  const databasePath = join(root, "state.sqlite");
   const fileStore = new NodeAtomicFileStore();
   fileStore.writeJSONSync(
     sourcePath,
@@ -33,8 +34,9 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   );
   let processIdentityCalls = 0;
   const diagnostics: string[] = [];
+  const originalUmask = process.umask();
   const runtime = createDeviceBuildShadowRuntime({
-    databasePath: join(root, "state.sqlite"),
+    databasePath,
     source: {
       name: "device-builds.json",
       path: sourcePath,
@@ -60,6 +62,8 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   });
   t.after(() => runtime.close());
 
+  assert.equal(process.umask(), originalUmask);
+  assert.equal(statSync(databasePath).mode & 0o777, 0o600);
   const health = runtime.health();
   assert.equal(health.ok, true);
   assert.equal(health.schemaVersion, 7);
@@ -70,6 +74,7 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   assert.equal(first.sourceVersion, BUILD_STATE_VERSION);
   assert.equal(first.recordCount, 0);
   assert.equal(first.backups.length, 1);
+  assert.equal(statSync(first.backups[0]).mode & 0o777, 0o600);
   assert.ok(processIdentityCalls > 0);
 
   const retry = runtime.importLegacy();
