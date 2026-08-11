@@ -36,7 +36,9 @@ import { sanitizePublicBuildLogs } from "../publicBuildLogs.js";
  *   buildManifest(build: BuildRecord, remoteBaseUrl: string): string,
  *   renderInstallPage(build: BuildRecord): string,
  *   now(): number,
+ *   shadowObserver?: unknown,
  * }} DeviceBuildCapabilityDependencies
+ * @typedef {{ shadowObserver: object, observe: Function, snapshot: BuildRecord }} PreparedBuildObservation
  */
 
 /** @param {DeviceBuildCapabilityDependencies} dependencies */
@@ -63,15 +65,19 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
       }
 
       if (input.operation === "status") {
-        return json(
+        const observation = prepareBuildObservation(dependencies, build);
+        const response = json(
           200,
           usePairedMac
             ? dependencies.projectBuild(build)
             : publicCapabilityDeviceBuild(build, capability),
         );
+        deferBuildObservation(observation);
+        return response;
       }
       if (input.operation === "logs") {
-        return json(200, {
+        const observation = prepareBuildObservation(dependencies, build);
+        const response = json(200, {
           buildId: build.id,
           logs: usePairedMac
             ? Array.isArray(build.logs)
@@ -79,6 +85,8 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
               : []
             : sanitizePublicBuildLogs(build),
         });
+        deferBuildObservation(observation);
+        return response;
       }
       if (input.operation === "links") {
         if (!usePairedMac) {
@@ -127,18 +135,24 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
         if (!scoped) return unauthorized();
         const remoteBaseUrl = stringValue(scoped.remoteBaseUrl) || requestBase(input.url);
         if (input.artifact === "manifest") {
-          return text(
+          const observation = prepareBuildObservation(dependencies, build);
+          const response = text(
             200,
             dependencies.buildManifest(scoped, remoteBaseUrl),
             "text/xml; charset=utf-8",
           );
+          deferBuildObservation(observation);
+          return response;
         }
         if (input.artifact === "ipa") {
-          return file(
+          const observation = prepareBuildObservation(dependencies, build);
+          const response = file(
             stringValue(build.artifacts?.ipaPath),
             "application/octet-stream",
             `${stringValue(build.app?.name) || stringValue(build.scheme) || "App"}.ipa`,
           );
+          deferBuildObservation(observation);
+          return response;
         }
         throw new TypeError(`Unknown device build artifact: ${input.artifact}`);
       }
@@ -148,7 +162,8 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
         const responseBuild = stringValue(scoped.remoteBaseUrl)
           ? scoped
           : { ...scoped, remoteBaseUrl: requestBase(input.url) };
-        return text(
+        const observation = prepareBuildObservation(dependencies, build);
+        const response = text(
           200,
           dependencies.renderInstallPage(responseBuild),
           "text/html; charset=utf-8",
@@ -159,10 +174,65 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
             "x-content-type-options": "nosniff",
           },
         );
+        deferBuildObservation(observation);
+        return response;
       }
       throw new TypeError(`Unknown device build capability operation: ${input.operation}`);
     },
   });
+}
+
+/**
+ * Capture the already-authorized legacy projection before response projection
+ * code can mutate it. Any optional-observer accessor or clone failure is
+ * diagnostic-only and must not change the authoritative request outcome.
+ *
+ * @param {DeviceBuildCapabilityDependencies} dependencies
+ * @param {BuildRecord} build
+ * @returns {PreparedBuildObservation | null}
+ */
+function prepareBuildObservation(dependencies, build) {
+  try {
+    const shadowObserver = dependencies.shadowObserver;
+    if (
+      !shadowObserver ||
+      (typeof shadowObserver !== "object" && typeof shadowObserver !== "function")
+    ) {
+      return null;
+    }
+    const observe = Reflect.get(shadowObserver, "observe");
+    if (typeof observe !== "function") return null;
+    return {
+      shadowObserver,
+      observe,
+      snapshot: structuredClone(build),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** @param {PreparedBuildObservation | null} observation */
+function deferBuildObservation(observation) {
+  if (!observation) return;
+  try {
+    setImmediate(() => {
+      try {
+        const result = Reflect.apply(observation.observe, observation.shadowObserver, [
+          {
+            surface: "build",
+            key: observation.snapshot.id,
+            legacy: observation.snapshot,
+          },
+        ]);
+        void Promise.resolve(result).catch(() => {});
+      } catch {
+        // Shadow diagnostics never affect JSON authorization or responses.
+      }
+    });
+  } catch {
+    // Scheduling failures are best-effort diagnostics only.
+  }
 }
 
 /** @param {BuildRecord} build */
