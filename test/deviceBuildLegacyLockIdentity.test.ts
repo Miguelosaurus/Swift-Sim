@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createDarwinLegacyProcessIdentity } from "../mac-helper/src/infrastructure/darwinLegacyProcessIdentity.js";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../mac-helper/src/infrastructure/nodeLockManager.js";
 
 const CURRENT_START = "Mon Aug 11 12:34:56 2026";
@@ -114,7 +115,7 @@ test("NodeLockManager reclaims a reused PID when legacy startedAt no longer matc
     }),
   });
   const lease = manager.acquireSync(requestFor(lockPath));
-  const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) as Record<
+  const owner = new NodeAtomicFileStore().readJSONSync(join(lockPath, "owner.json")) as Record<
     string,
     unknown
   >;
