@@ -1,0 +1,41 @@
+name: Temporary Phase 4F Device Build SQLite Oracle V2
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4f-device-build-sqlite-oracle-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  oracle:
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      CANDIDATE: ee199554ebc8736b6449da79283d6916f100dbb0
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ee199554ebc8736b6449da79283d6916f100dbb0
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify exact candidate
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE"
+      - name: Build and run focused device-build SQLite test
+        run: npm run build && node --test dist/test/deviceBuildSqliteRepositories.test.js
+      - name: Strict type gate
+        run: npm run check:types
+      - name: Full Node/package gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check
+      - name: Diff hygiene
+        run: git diff --check 94e5686042a570ed06309b6559833bc43a3a299f...HEAD
