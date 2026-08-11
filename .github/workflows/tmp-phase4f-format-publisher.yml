@@ -1,0 +1,37 @@
+name: Temporary Phase 4F Format Publisher
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4f-format-publisher
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ee199554ebc8736b6449da79283d6916f100dbb0
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx prettier mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js --write
+      - name: Commit and guarded fast-forward formatted output
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "ee199554ebc8736b6449da79283d6916f100dbb0"
+          test "$(git ls-remote origin refs/heads/agent/tmp-phase4f-formatted-output | cut -f1)" = "ee199554ebc8736b6449da79283d6916f100dbb0"
+          test "$(git diff --name-only)" = "mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js"
+          git config user.name Miguel
+          git config user.email serram1994@gmail.com
+          git add mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js
+          git commit -m "Phase 4F oracle: apply repository formatting"
+          test "$(git ls-remote origin refs/heads/agent/tmp-phase4f-formatted-output | cut -f1)" = "ee199554ebc8736b6449da79283d6916f100dbb0"
+          git push origin HEAD:refs/heads/agent/tmp-phase4f-formatted-output
