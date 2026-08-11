@@ -1,0 +1,75 @@
+name: Temporary Phase 4 Domain Inventory
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4-domain-inventory
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 8e372d98f324b17101ae71c33bc0c7f016eb5e0e
+          fetch-depth: 0
+      - name: Inventory JSON authorities and SQLite coverage
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('mac-helper/src')
+          candidates = []
+          needles = (
+              '.json', 'JSON.parse', 'JSON.stringify', 'readFileSync', 'writeFileSync',
+              'readFile(', 'writeFile(', 'writeJson', 'atomic', 'stateRoot',
+          )
+          for path in sorted(root.rglob('*.js')):
+              text = path.read_text(errors='replace')
+              score = sum(1 for needle in needles if needle in text)
+              if score >= 2 and any(token in path.name.lower() for token in ('store', 'state', 'recipe', 'observation', 'delivery', 'session', 'build', 'pair')):
+                  candidates.append((path, score, len(text.splitlines())))
+
+          print('=== Candidate filesystem/domain authorities ===')
+          for path, score, lines in candidates:
+              print(f'{path}  lines={lines} persistence-signals={score}')
+              text = path.read_text(errors='replace')
+              for match in re.finditer(r'[^\n]{0,90}(?:\.json|stateRoot|writeFileSync|readFileSync|writeJsonFileAtomic)[^\n]{0,120}', text):
+                  snippet = ' '.join(match.group(0).strip().split())
+                  print('  ', snippet[:240])
+
+          print('\n=== Persistence directory ===')
+          for path in sorted(Path('mac-helper/src/persistence').glob('*')):
+              if path.is_file():
+                  print(f'{path}  lines={len(path.read_text(errors="replace").splitlines())}')
+
+          print('\n=== SQLite declared tables ===')
+          tables = set()
+          for path in sorted(Path('mac-helper/src/persistence').glob('*')):
+              if not path.is_file():
+                  continue
+              text = path.read_text(errors='replace')
+              tables.update(re.findall(r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`\[]?([A-Za-z0-9_]+)', text, re.I))
+          for table in sorted(tables):
+              print(table)
+
+          print('\n=== Repository contracts ===')
+          contract = Path('mac-helper/src/contracts/repository.ts')
+          if contract.exists():
+              for line in contract.read_text().splitlines():
+                  if line.strip().startswith('export interface'):
+                      print(line.strip())
+
+          print('\n=== Existing SQLite test surfaces ===')
+          for path in sorted(Path('test').glob('*sqlite*.test.*')):
+              print(path)
+          for path in sorted(Path('test').glob('pairing*.test.*')):
+              print(path)
+          PY
