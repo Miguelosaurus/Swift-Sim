@@ -21,7 +21,7 @@ Hosted-green chain immediately before this handoff:
 
 | Unit | PR | Exact implementation head | Hosted evidence |
 | --- | ---: | --- | --- |
-| 4H — resumable device-build legacy import | #98 | `6ba637f968e424538b719081d7564f1690251df0` | hosted-green |
+| 4H — resumable device-build legacy import | #98 | `6ba637f968e424538b719081d7564f1690251df0` | Verify #875 / `31484093720` |
 | 4I — per-entity shadow comparison/evidence | #99 | `49adc9cfa917634bdb206e5ef2d22c9c628c3e09` | Verify #879 / `31502611382` |
 | 4J — best-effort shadow observer | #101 | `3848fd04545a2ed16b2e65e94a2d2a0e3eb0dc4d` | Verify #881 / `31504098733` |
 | 4K — exact legacy build-lock process identity | #102 | `a7a513245f1cffd3efc579d6b7233ace6063d177` | Verify #883 / `31505392635` |
@@ -34,7 +34,7 @@ Hosted-green chain immediately before this handoff:
 | 4R — raw-source-loadable persistence graph | #109 | `445660eed1673d5a7d563803227650f4d2f437eb` | Verify #899 / `31515102535` |
 | 4S — optional compatibility loader | #110 | `8f790b65c609a40dc59723496586c453b680fab8` | Verify #902 / `31516036240` |
 | 4T — live optional device-build shadow wiring | #111 | `cf7e914c2f6e791edd06380578a83310417e0400` | Verify #903 / `31516642628` |
-| 4U — private SQLite creation permissions | #112 | `588aacc46cd9482fc963c3ada3da709b6bfa0d81` | repository Verify #905 completing at handoff publication; hardened live oracle already passed |
+| 4U — private SQLite creation permissions | #112 | `588aacc46cd9482fc963c3ada3da709b6bfa0d81` | Verify #905 / `31517749763`; hardened live oracles `31517815886`, `31517976818` |
 
 PR #100 is a useful historical sibling handoff but is not current product ancestry. This file supersedes it.
 
