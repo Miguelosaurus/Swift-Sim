@@ -1,0 +1,31 @@
+name: Temporary Phase 4F Format Render
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4f-device-build-sqlite-format
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ee199554ebc8736b6449da79283d6916f100dbb0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx prettier mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js --write
+      - name: Emit formatted file
+        shell: bash
+        run: |
+          echo 'BEGIN_FORMATTED_BASE64'
+          base64 < mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js | tr -d '\n'
+          echo
+          echo 'END_FORMATTED_BASE64'
