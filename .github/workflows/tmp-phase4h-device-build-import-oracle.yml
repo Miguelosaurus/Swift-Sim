@@ -1,0 +1,92 @@
+name: Temporary Phase 4H Device Build Import Oracle
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4h-device-build-import-oracle
+
+permissions:
+  contents: write
+
+jobs:
+  oracle:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      SOURCE_HEAD: 12a0e1d079fd2a647741e112a87e9d8e4900dc22
+      OUTPUT_BRANCH: agent/tmp-phase4h-device-build-import-candidate
+      BASE_HEAD: 026672a1667183e3b70eed5af5a0ebe69c8c6058
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 12a0e1d079fd2a647741e112a87e9d8e4900dc22
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Register compiled import test and format new files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('package.json')
+          text = path.read_text()
+          needle = 'dist/test/deviceBuildLockedLegacySnapshot.test.js dist/test/pairingSqliteRepositories.test.js'
+          replacement = 'dist/test/deviceBuildLockedLegacySnapshot.test.js dist/test/deviceBuildLegacyImport.test.js dist/test/pairingSqliteRepositories.test.js'
+          if text.count(needle) != 1:
+              raise SystemExit('compiled-test insertion anchor changed')
+          path.write_text(text.replace(needle, replacement))
+          PY
+          npx prettier \
+            mac-helper/src/persistence/deviceBuildLegacyImport.js \
+            test/deviceBuildLegacyImport.test.ts \
+            package.json \
+            --write
+      - name: Commit exact temporary candidate before history-aware gates
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' package.json mac-helper/src/persistence/deviceBuildLegacyImport.js test/deviceBuildLegacyImport.test.ts | sort)"
+          test "$changed" = "$expected"
+          git config user.name Miguel
+          git config user.email serram1994@gmail.com
+          git add package.json mac-helper/src/persistence/deviceBuildLegacyImport.js test/deviceBuildLegacyImport.test.ts
+          git commit -m "Phase 4H oracle: add resumable device-build legacy import"
+      - name: Focused device-build migration behavior
+        shell: bash
+        run: |
+          npm run build
+          node --test \
+            test/deviceBuildStore.test.js \
+            dist/test/deviceBuildSqliteRepositories.test.js \
+            dist/test/deviceBuildLockedLegacySnapshot.test.js \
+            dist/test/deviceBuildLegacyImport.test.js
+      - name: Architecture debt gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check:architecture
+      - name: Strict type gate
+        run: npm run check:types
+      - name: Full Node/package gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check
+      - name: Exact product-scope and diff hygiene
+        shell: bash
+        run: |
+          git diff --check "$BASE_HEAD"...HEAD
+          changed="$(git diff --name-only "$BASE_HEAD"...HEAD | sort)"
+          expected="$(printf '%s\n' package.json mac-helper/src/persistence/deviceBuildLegacyImport.js test/deviceBuildLegacyImport.test.ts | sort)"
+          test "$changed" = "$expected"
+      - name: Guard and publish temporary candidate
+        shell: bash
+        run: |
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git push origin HEAD:refs/heads/$OUTPUT_BRANCH
