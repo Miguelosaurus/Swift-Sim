@@ -243,10 +243,10 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 
 ## Phase 3 — Helper and HTTP decomposition
 
-- Status: Partially implemented in draft PRs #34–#40 and corrective PRs #56–#60 and #63; the HTTP-route decomposition portion is complete, but the master-plan Phase 3 gate is not met.
+- Status: **Phase 3 implementation gate complete** on the draft corrective stack through PR #93; all Phase 3 PRs remain open/draft/unmerged and merge still requires Miguel authorization.
 - Stack base: Checkpoint 1 final metadata head `f21e344ea18eb0a976630a4ce38cf52bf30a3f47`.
-- Current Phase 3G head: `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
-- Corrective active-ancestry implementation head: PR #63 / `ba97946`, stacked after the Phase 4 pairing tranche, helper-state reliability correction, and PRs #56–#60 so validated history remains intact. Temporary formatter/publisher PRs #61 and #62 are closed, unmerged, and are not part of product ancestry.
+- Final Phase 3 exact verification head: PR #93 / `07a8295f0221f1f2007cb1f01c99a5998f371f8a` (product tree `c025296d0a458809809b948e16d47ffa6f8c82fd`).
+- Corrective active ancestry now runs through PRs #77, #80, #85/#87, #89, #91, #92, and #93. Earlier validated sibling/corrective history remains preserved; temporary oracle/publisher branches are not product ancestry.
 
 ### Implemented slices
 
@@ -299,16 +299,56 @@ After the final checkpoint-documentation head passes Verify, create Phase 3 from
 - Focused adversarial review found no remaining correctness, authorization, projection, escaping, side-effect-ordering, or public-gateway-isolation finding. Authoritative Verify run `31420399403` (#763) passed at exact implementation head `ba97946`: full Node 24 checks, isolated clean Homebrew installation/service, workflow YAML, release-shell syntax, and iOS Simulator tests all passed.
 - The current HTTP surface is now routed through explicit route/application-service boundaries with authorization metadata and compiled public-gateway isolation evidence. Phase 3 is still incomplete because the helper entrypoint owns service lifecycle/reconciliation, module-global runtime construction, direct orchestration/process functions outside route modules, and remaining CLI composition.
 
-### Gate correction
+### Corrective Phase 3O evidence
 
-The 2026-08-09 independent stack audit found that PR #40's earlier Phase 3 completion claim was broader than the implemented scope. Corrective PRs #56–#60 and #63 have now completed the HTTP-route decomposition portion without rewriting the previously validated history: the current HTTP surface is behind explicit route/application-service boundaries, authorization metadata is contract-tested, and the compiled public gateway remains 404 for private routes. The remaining gate is composition and lifecycle. Therefore:
+- PR #77 / `bbd773972e33dcc5d7e2e7758482aafabb8f318d` centralizes interrupted-build recovery, initial cleanup, HTTP listen/socket ownership, reconciliation/cleanup timers, keepalive, signals, graceful drain, forced socket closure, and the bounded fail-safe exit in `HelperServiceLifecycle`, while retaining the corrected device-installation reconciliation coordinator.
+- Authoritative Verify #807 / run `31425602501` passed full Node/package checks, isolated clean Homebrew installation/service, YAML/shell gates, and iOS Simulator tests.
 
-- the helper entrypoint is not yet primarily wiring for the complete product surface;
-- service startup, reconciliation timers, socket tracking, signal handling, graceful drain, and forced shutdown do not yet have the complete target lifecycle owner;
-- module-global stores/adapters and remaining CLI composition are still constructed in the compatibility helper;
-- direct orchestration/process functions remain in the helper outside route modules, even though route modules themselves no longer directly spawn processes or mutate persistence.
+### Corrective Phase 3P evidence
 
-Phase 3 must be completed in bounded corrective slices before the stack may claim the Phase 3 gate or use Phase 4 completion as authority to start Phase 5. Existing validated PR history remains unchanged; the correction must be recorded transparently in later ancestry.
+- PR #80 / `c92668eee8f17c96346279cc75fc0dd9d5492415` makes compatibility-helper import inert and moves all concrete store/adapter/transport construction behind explicit `createCompatibilityHelperRuntime()` composition with fail-before-construction factory validation.
+- Authoritative Verify #815 / run `31427558750` passed end to end.
+
+### Corrective Phase 3Q–R evidence
+
+- PR #85 / `ad9dd22721b0f5f99143d1f47fc8d02ff42cd7ce` extracts `delete-app` into selective command composition and reuses the delivery-maintenance coordinator. Verify #819 / run `31428505506` passed end to end.
+- PR #87 / `b994cfa3d5a4f4a8aa5fe0aa8760a943745b2cb1` reconciles the hosted-green CLI siblings and moves all remaining compatibility option parsing/output formatting out of the helper. Verify #827 / run `31430219744` passed end to end.
+
+### Corrective Phase 3S evidence
+
+- PR #89 / `387e69f35dc3e5adec71d30f03fc1983abdf3292` extracts session start/reuse/stop, stream recovery, input/control channels, CA-debug state, and restart coalescing into a strict-typed `SessionRuntimeController`. Adversarial corrections route token generation through `IdGenerator` and timestamps/deliberate input delays through `Clock`.
+- Authoritative Verify #859 / run `31440168113` passed full Node/package, isolated clean Homebrew, YAML/shell, and iOS gates.
+
+### Corrective Phase 3T evidence
+
+- PR #91 / `2b870d1cd6f76f1b822802219d52b7780bd77e3d` extracts setup-status, Tailscale backend/Serve probing, and helper-health probing into a typed service. Tailscale commands use the established `CommandRunner`, bounded output, deadlines, and owned process groups; the stale helper oversized-file cap is removed while the immutable baseline snapshot stays unchanged.
+- Authoritative Verify #861 / run `31441333912` passed end to end.
+
+### Corrective Phase 3U evidence
+
+- PR #92 / `db5d66b84aff7efbda69ee7383abe07424b296bd` extracts device-build/delivery orchestration into a typed controller owning active task coordination, delivery cleanup, interruption recovery, CLI signal ownership, and build/delivery lifecycle. The compatibility runtime no longer exports mutable active-task coordination state.
+- Natural Verify run `31442751740` passed full Node/package, isolated clean Homebrew, YAML/shell, and iOS gates.
+
+### Corrective Phase 3V and closure evidence
+
+- PR #93 final exact head `07a8295f0221f1f2007cb1f01c99a5998f371f8a` (tree `c025296d0a458809809b948e16d47ffa6f8c82fd`) extracts the fallback session/install HTML, AASA document, and escaping from the composition entrypoint; the remaining install/capability current-time callbacks use `Clock`; and public-delivery isolation is derived from every declared Phase 3 authorization matrix.
+- The initial semantic commit `ed89b80647a198c08aed2d600ba932af70a517c4` is preserved in history. Clean-tree correction `71177a0c30533f5fac3f06ed4db6a9989f01915b` removes incidental legacy formatting churn without rewriting history; `07a8295f…` is a same-tree natural-Verify trigger.
+- Authoritative Verify #865 / run `31444358586` passed full Node/package, architecture/types/format/lint, isolated clean Homebrew installation/service, YAML/shell, and iOS Simulator gates.
+- Exact-head closure audit run `31444581201` passed 88/88 focused Phase 3 contracts, import-inert composition, atomic lifecycle authorization/recovery, every route authorization matrix, matrix-complete public-gateway allow/404 proof, raw route-authority scanning, the architecture debt gate, strict types, and diff hygiene. The exact clean entrypoint is 354 lines and contains no extracted setup/build/session/presentation implementation.
+
+### Phase 3 gate completion
+
+The 2026-08-11 exact-head closure audit supersedes the earlier corrective gate note. The master-plan Phase 3 implementation gate is now met at `07a8295f0221f1f2007cb1f01c99a5998f371f8a`:
+
+- `swift-sim-helper.js` is primarily composition/wiring; its exact clean-tree size is 354 lines.
+- route paths, projections, exposure classes, and authorization modes are explicit and contract-tested; the public delivery gateway is proved against the complete declared authorization matrix and rejects every private route.
+- route modules contain no direct child-process or raw filesystem mutation authority; persistence/process behavior is behind application/runtime services.
+- importing the compatibility helper is inert; concrete infrastructure construction occurs only through explicit compatibility composition.
+- service startup, interrupted-build recovery, reconciliation/cleanup timers, socket ownership, signals, graceful drain, and forced shutdown are centralized in `HelperServiceLifecycle`.
+- CLI parsing, session runtime, setup-status probing, device-build/delivery orchestration, installation reconciliation, and fallback presentation are behind bounded typed seams.
+- architecture debt, strict type, full package/install, clean Homebrew, and iOS gates pass on the exact final product tree.
+
+Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compatibility preloads still exist only as a time-bounded Phase 5 migration concern; they are not being removed here. The existing Phase 4 SQLite/pairing tranche predates this final Phase 3 head and must be reconciled onto the finalized ancestry before broader Phase 4 domain repositories, shadow composition, authority cutover, rollback, diagnostics, and upgrade proof can proceed.
 
 ## Phase 4 — Repository interfaces and SQLite migration
 
