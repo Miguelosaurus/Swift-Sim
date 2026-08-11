@@ -75,7 +75,8 @@ export class SqliteDeviceBuildStateRepository {
       attempts,
       record_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-    this.#insertDeliveryCleanupJobStatement = database.prepare(`INSERT INTO delivery_reference_cleanup_jobs(
+    this.#insertDeliveryCleanupJobStatement =
+      database.prepare(`INSERT INTO delivery_reference_cleanup_jobs(
       id,
       build_id,
       generation,
@@ -91,7 +92,9 @@ export class SqliteDeviceBuildStateRepository {
   read() {
     return normalizeDeviceBuildStateSnapshot({
       builds: this.#readBuildsStatement.all().map(mapBuildRow),
-      apps: this.#readAppsStatement.all().map((row) => mapJSONRow(row, normalizeAppState, "device app state")),
+      apps: this.#readAppsStatement
+        .all()
+        .map((row) => mapJSONRow(row, normalizeAppState, "device app state")),
       artifactCleanupJobs: this.#readArtifactCleanupJobsStatement
         .all()
         .map((row) => mapJSONRow(row, normalizeArtifactCleanupJob, "artifact cleanup job")),
@@ -133,7 +136,8 @@ export function normalizeDeviceBuildStateSnapshot(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Device build state snapshot must be an object.");
   }
-  if (!Array.isArray(value.builds)) throw new Error("Device build snapshot builds must be an array.");
+  if (!Array.isArray(value.builds))
+    throw new Error("Device build snapshot builds must be an array.");
   if (!Array.isArray(value.apps)) throw new Error("Device build snapshot apps must be an array.");
   if (!Array.isArray(value.artifactCleanupJobs)) {
     throw new Error("Device build snapshot artifact cleanup jobs must be an array.");
@@ -194,7 +198,10 @@ function normalizeDeliveryCleanupJob(value) {
   const record = cloneRecord(value, "Delivery cleanup job");
   record.id = requireNonEmptyString(record.id, "Delivery cleanup job id");
   record.generation = requireNonEmptyString(record.generation, "Delivery cleanup job generation");
-  record.referenceID = requireNonEmptyString(record.referenceID, "Delivery cleanup job referenceID");
+  record.referenceID = requireNonEmptyString(
+    record.referenceID,
+    "Delivery cleanup job referenceID",
+  );
   normalizeOptionalString(record, "buildId", "Delivery cleanup job buildId");
   record.createdAt = requireNonEmptyString(record.createdAt, "Delivery cleanup job createdAt");
   normalizeOptionalString(record, "nextAttemptAt", "Delivery cleanup job nextAttemptAt");
