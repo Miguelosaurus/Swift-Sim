@@ -152,8 +152,8 @@ test("device-build SQLite migration extends the validated pairing schema", (t) =
   const { database } = createHarness(t);
   const health = database.health();
   assert.equal(health.ok, true);
-  assert.equal(health.schemaVersion, 6);
-  assert.equal(health.latestSchemaVersion, 6);
+  assert.equal(health.schemaVersion, DEVICE_BUILD_SQLITE_MIGRATIONS.at(-1)?.version);
+  assert.equal(health.latestSchemaVersion, DEVICE_BUILD_SQLITE_MIGRATIONS.at(-1)?.version);
   const tables = database
     .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
     .all()
@@ -165,6 +165,7 @@ test("device-build SQLite migration extends the validated pairing schema", (t) =
     "device_app_state",
     "artifact_cleanup_jobs",
     "delivery_reference_cleanup_jobs",
+    "device_build_shadow_mismatches",
   ]) {
     assert.ok(tables.includes(table), `missing ${table}`);
   }
