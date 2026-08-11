@@ -1,6 +1,6 @@
 // @ts-check
 
-import { isDeviceBuildRecord } from "../contracts/build.js";
+import { isDeviceBuildRecord } from "../contracts/deviceBuildRecordRuntime.js";
 
 /** @typedef {import("../contracts/build.js").DeviceBuildRecord} DeviceBuildRecord */
 /** @typedef {import("../contracts/deviceBuildRepository.js").ArtifactCleanupJobRecord} ArtifactCleanupJobRecord */
@@ -167,7 +167,7 @@ export function normalizeDeviceBuildStateSnapshot(value) {
 function normalizeBuild(value) {
   const build = cloneRecord(value, "Device build");
   if (!isDeviceBuildRecord(build)) throw new Error("Device build record is invalid.");
-  return build;
+  return /** @type {DeviceBuildRecord} */ (build);
 }
 
 /** @param {unknown} value @returns {DeviceBuildAppStateRecord} */
