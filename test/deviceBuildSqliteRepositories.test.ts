@@ -1,10 +1,10 @@
-// @ts-check
-
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type { DeviceBuildRecord } from "../mac-helper/src/contracts/build.js";
+import type { DeviceBuildStateSnapshot } from "../mac-helper/src/contracts/deviceBuildRepository.js";
 import { DEVICE_BUILD_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/deviceBuildSqliteSchema.js";
 import {
   SqliteDeviceBuildStateRepository,
@@ -12,7 +12,7 @@ import {
 } from "../mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
-function createHarness(t) {
+function createHarness(t: { after(callback: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-sqlite-"));
   const database = new SwiftSimSqliteDatabase({
     path: join(root, "state.sqlite"),
@@ -26,7 +26,7 @@ function createHarness(t) {
   return { database, repository: new SqliteDeviceBuildStateRepository(database) };
 }
 
-function buildRecord(overrides = {}) {
+function buildRecord(overrides: Partial<DeviceBuildRecord> = {}): DeviceBuildRecord {
   return {
     id: "build-1",
     token: "token-1",
@@ -86,18 +86,20 @@ function buildRecord(overrides = {}) {
     logs: ["built", "delivered"],
     buildSettings: ["SWIFT_VERSION=6"],
     allowProvisioningUpdates: true,
-    capabilities: [{
-      token: "older-token",
-      expiresAt: "2026-08-11T10:00:00.000Z",
-      remoteBaseUrl: "https://old.example.test",
-      delivery: {
-        mode: "custom",
-        provider: "user-configured",
+    capabilities: [
+      {
+        token: "older-token",
         expiresAt: "2026-08-11T10:00:00.000Z",
+        remoteBaseUrl: "https://old.example.test",
+        delivery: {
+          mode: "custom",
+          provider: "user-configured",
+          expiresAt: "2026-08-11T10:00:00.000Z",
+        },
+        installTTLMinutes: 60,
+        createdAt: "2026-08-11T08:50:00.000Z",
       },
-      installTTLMinutes: 60,
-      createdAt: "2026-08-11T08:50:00.000Z",
-    }],
+    ],
     control: { cancelPath: "/tmp/build-1/.cancelled" },
     liveReload: {
       eligible: true,
@@ -111,34 +113,38 @@ function buildRecord(overrides = {}) {
   };
 }
 
-function snapshot() {
+function snapshot(): DeviceBuildStateSnapshot {
   return {
     builds: [buildRecord()],
     apps: [{ id: "app-1", archivedAt: "", migrationMarker: "preserved" }],
-    artifactCleanupJobs: [{
-      id: "artifact-job-1",
-      root: "/tmp/old-build",
-      buildId: "old-build",
-      createdAt: "2026-08-11T08:00:00.000Z",
-      notBefore: "2026-08-11T08:10:00.000Z",
-      nextAttemptAt: "2026-08-11T08:10:00.000Z",
-      attempts: 1,
-      lastError: "busy",
-      updatedAt: "2026-08-11T08:05:00.000Z",
-      migrationMarker: "artifact-preserved",
-    }],
-    deliveryReferenceCleanupJobs: [{
-      id: "delivery-job-1",
-      generation: "generation-old",
-      referenceID: "reference-old",
-      buildId: "old-build",
-      createdAt: "2026-08-11T08:00:00.000Z",
-      nextAttemptAt: "2026-08-11T08:15:00.000Z",
-      attempts: 2,
-      lastError: "provider unavailable",
-      updatedAt: "2026-08-11T08:07:00.000Z",
-      migrationMarker: "delivery-preserved",
-    }],
+    artifactCleanupJobs: [
+      {
+        id: "artifact-job-1",
+        root: "/tmp/old-build",
+        buildId: "old-build",
+        createdAt: "2026-08-11T08:00:00.000Z",
+        notBefore: "2026-08-11T08:10:00.000Z",
+        nextAttemptAt: "2026-08-11T08:10:00.000Z",
+        attempts: 1,
+        lastError: "busy",
+        updatedAt: "2026-08-11T08:05:00.000Z",
+        migrationMarker: "artifact-preserved",
+      },
+    ],
+    deliveryReferenceCleanupJobs: [
+      {
+        id: "delivery-job-1",
+        generation: "generation-old",
+        referenceID: "reference-old",
+        buildId: "old-build",
+        createdAt: "2026-08-11T08:00:00.000Z",
+        nextAttemptAt: "2026-08-11T08:15:00.000Z",
+        attempts: 2,
+        lastError: "provider unavailable",
+        updatedAt: "2026-08-11T08:07:00.000Z",
+        migrationMarker: "delivery-preserved",
+      },
+    ],
   };
 }
 
@@ -178,8 +184,10 @@ test("invalid replacement fails before deleting the previous snapshot", (t) => {
   const expected = normalizeDeviceBuildStateSnapshot(snapshot());
   repository.replace(expected);
 
-  const duplicate = snapshot();
-  duplicate.builds = [buildRecord(), buildRecord()];
+  const duplicate: DeviceBuildStateSnapshot = {
+    ...snapshot(),
+    builds: [buildRecord(), buildRecord()],
+  };
   assert.throws(() => repository.replace(duplicate), /Duplicate device build id/);
   assert.deepEqual(repository.read(), expected);
 });
@@ -190,13 +198,17 @@ test("SQLite consistency checks reject mismatched extracted build columns", (t) 
   const insert = database.prepare(`INSERT INTO device_builds(
     id, revision, app_identity, state, created_at, updated_at, record_json
   ) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-  assert.throws(() => insert.run(
-    "different-id",
-    build.revision,
-    build.app.identity,
-    build.state,
-    build.createdAt,
-    build.updatedAt,
-    JSON.stringify(build),
-  ), /constraint/i);
+  assert.throws(
+    () =>
+      insert.run(
+        "different-id",
+        build.revision,
+        build.app.identity,
+        build.state,
+        build.createdAt,
+        build.updatedAt,
+        JSON.stringify(build),
+      ),
+    /constraint/i,
+  );
 });
