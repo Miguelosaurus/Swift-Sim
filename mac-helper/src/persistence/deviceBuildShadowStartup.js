@@ -119,7 +119,7 @@ function validateRuntime(runtime) {
   if (!observer || typeof observer !== "object" || Array.isArray(observer)) {
     throw new Error("Device-build shadow observer is unavailable.");
   }
-  if (typeof /** @type {Record<string, unknown>} */ (observer).observe !== "function") {
+  if (typeof (/** @type {Record<string, unknown>} */ (observer).observe) !== "function") {
     throw new Error("Device-build shadow observer is unavailable.");
   }
 }
@@ -127,7 +127,9 @@ function validateRuntime(runtime) {
 /** @param {(message: string) => unknown} reportError */
 function reportStartupFailure(reportError) {
   try {
-    const result = reportError("Device-build SQLite shadow initialization failed; using JSON only.");
+    const result = reportError(
+      "Device-build SQLite shadow initialization failed; using JSON only.",
+    );
     void Promise.resolve(result).catch(() => {});
   } catch {
     // Reporting failure cannot make an optional diagnostic mandatory.
