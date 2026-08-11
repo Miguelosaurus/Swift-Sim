@@ -1,0 +1,57 @@
+name: Temporary Phase 3 Ledger Ancestry Correction
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase3-ledger-ancestry-correction
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      BASE_SHA: aefb98c6ec5f396db8fc90437eb00713190aba71
+      PRODUCT_BRANCH: agent/architecture-consolidation-phase-3-completion-ledger
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: aefb98c6ec5f396db8fc90437eb00713190aba71
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Correct Phase 4 ancestry statement
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md')
+          text = path.read_text()
+          old = 'The existing Phase 4 SQLite/pairing tranche predates this final Phase 3 head and must be reconciled onto the finalized ancestry before broader Phase 4 domain repositories, shadow composition, authority cutover, rollback, diagnostics, and upgrade proof can proceed.'
+          new = 'The validated Phase 4 SQLite/pairing tranche through `b1fac0df3360fdc68ca76d910e467b8a1f4944d7` is already a direct ancestor of this final Phase 3 head, so no replay/rebase is required. Phase 4 can continue forward from the finalized ancestry with the missing broader domain repositories, shadow composition, authority cutover, rollback, diagnostics, and upgrade proof.'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one ancestry sentence, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          npm run check:docs
+      - name: Commit and guard publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Miguel"
+          git config user.email "serram1994@gmail.com"
+          git add docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = "1"
+          git commit -m "docs: correct Phase 4 ancestry note"
+          test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
+          CURRENT=$(git ls-remote origin "refs/heads/${PRODUCT_BRANCH}" | cut -f1)
+          test "$CURRENT" = "$BASE_SHA"
+          git push origin "HEAD:refs/heads/${PRODUCT_BRANCH}"
