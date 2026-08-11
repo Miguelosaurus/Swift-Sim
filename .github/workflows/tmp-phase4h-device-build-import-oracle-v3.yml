@@ -1,0 +1,95 @@
+name: Temporary Phase 4H Device Build Import Oracle V3
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4h-device-build-import-oracle-v3
+
+permissions:
+  contents: write
+
+jobs:
+  oracle:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      SOURCE_HEAD: 12a0e1d079fd2a647741e112a87e9d8e4900dc22
+      OUTPUT_BRANCH: agent/tmp-phase4h-device-build-import-candidate
+      BASE_HEAD: 026672a1667183e3b70eed5af5a0ebe69c8c6058
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 12a0e1d079fd2a647741e112a87e9d8e4900dc22
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Apply typing correction, register compiled test, and format
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          impl = Path('mac-helper/src/persistence/deviceBuildLegacyImport.js')
+          text = impl.read_text()
+          needle = '''  const backups = Object.freeze(\n    values.backups.map((path) =>\n      requireNonEmptyString(path, "Device-build locked snapshot backup path"),\n    ),\n  );\n  return Object.freeze({\n    snapshot: deepFreeze(structuredClone(snapshot)),\n'''
+          replacement = '''  const backups = Object.freeze(\n    values.backups.map((path) =>\n      requireNonEmptyString(path, "Device-build locked snapshot backup path"),\n    ),\n  );\n  const immutableSnapshot = /** @type {DeviceBuildStateSnapshot} */ (\n    deepFreeze(structuredClone(snapshot))\n  );\n  return Object.freeze({\n    snapshot: immutableSnapshot,\n'''
+          if text.count(needle) != 1:
+              raise SystemExit('immutable snapshot typing anchor changed')
+          impl.write_text(text.replace(needle, replacement))
+
+          package = Path('package.json')
+          text = package.read_text()
+          needle = 'dist/test/deviceBuildLockedLegacySnapshot.test.js dist/test/pairingSqliteRepositories.test.js'
+          replacement = 'dist/test/deviceBuildLockedLegacySnapshot.test.js dist/test/deviceBuildLegacyImport.test.js dist/test/pairingSqliteRepositories.test.js'
+          if text.count(needle) != 1:
+              raise SystemExit('compiled-test insertion anchor changed')
+          package.write_text(text.replace(needle, replacement))
+          PY
+          npx prettier mac-helper/src/persistence/deviceBuildLegacyImport.js test/deviceBuildLegacyImport.test.ts package.json --write
+          git diff --check
+          unexpected="$(git diff --name-only | grep -Ev '^(package.json|mac-helper/src/persistence/deviceBuildLegacyImport.js|test/deviceBuildLegacyImport.test.ts)$' || true)"
+          test -z "$unexpected"
+      - name: Commit exact temporary candidate before history-aware gates
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git config user.name Miguel
+          git config user.email serram1994@gmail.com
+          git add package.json mac-helper/src/persistence/deviceBuildLegacyImport.js test/deviceBuildLegacyImport.test.ts
+          git commit -m "Phase 4H oracle: add resumable device-build legacy import"
+          changed="$(git diff --name-only "$BASE_HEAD"...HEAD | sort)"
+          expected="$(printf '%s\n' package.json mac-helper/src/persistence/deviceBuildLegacyImport.js test/deviceBuildLegacyImport.test.ts | sort)"
+          test "$changed" = "$expected"
+      - name: Focused device-build migration behavior
+        shell: bash
+        run: |
+          npm run build
+          node --test test/deviceBuildStore.test.js dist/test/deviceBuildSqliteRepositories.test.js dist/test/deviceBuildLockedLegacySnapshot.test.js dist/test/deviceBuildLegacyImport.test.js
+      - name: Architecture debt gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check:architecture
+      - name: Strict type gate
+        run: npm run check:types
+      - name: Full Node/package gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check
+      - name: Exact product-scope and diff hygiene
+        shell: bash
+        run: |
+          git diff --check "$BASE_HEAD"...HEAD
+          changed="$(git diff --name-only "$BASE_HEAD"...HEAD | sort)"
+          expected="$(printf '%s\n' package.json mac-helper/src/persistence/deviceBuildLegacyImport.js test/deviceBuildLegacyImport.test.ts | sort)"
+          test "$changed" = "$expected"
+      - name: Guard and publish temporary candidate
+        shell: bash
+        run: |
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git push origin HEAD:refs/heads/$OUTPUT_BRANCH
