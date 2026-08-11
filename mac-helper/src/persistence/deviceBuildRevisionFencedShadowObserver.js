@@ -1,7 +1,5 @@
 // @ts-check
 
-import { isDeviceBuildRecord } from "../contracts/build.js";
-
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildShadowComparisonResult} DeviceBuildShadowComparisonResult */
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildShadowProjection} DeviceBuildShadowProjection */
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildShadowSurface} DeviceBuildShadowSurface */
@@ -34,6 +32,11 @@ import { isDeviceBuildRecord } from "../contracts/build.js";
  * drift are skipped rather than persisted as mismatches. Other surfaces retain
  * the generic observer for isolated migration/shadow tests until they gain an
  * equally strong freshness fence at a live authoritative read seam.
+ *
+ * This boundary intentionally validates only the epoch fields it owns. Full
+ * device-build shape validation remains the comparator's responsibility. That
+ * keeps this source-loadable JavaScript module independent of emitted-only
+ * TypeScript contract modules while still failing closed before comparison.
  */
 export class DeviceBuildRevisionFencedShadowObserver {
   /** @type {DeviceBuildStateReader} */
@@ -86,15 +89,11 @@ export class DeviceBuildRevisionFencedShadowObserver {
     }
 
     try {
-      if (!isDeviceBuildRecord(input.legacy) || input.legacy.id !== input.key) {
-        throw new Error("Revision-fenced legacy build projection is invalid.");
-      }
+      const legacyRevision = requireBuildRevision(input.legacy, input.key, "legacy");
       const sqlite = this.#deviceBuildRepository.getBuild(input.key);
       if (!sqlite) return null;
-      if (!isDeviceBuildRecord(sqlite) || sqlite.id !== input.key) {
-        throw new Error("Revision-fenced SQLite build projection is invalid.");
-      }
-      if (sqlite.revision !== input.legacy.revision) return null;
+      const sqliteRevision = requireBuildRevision(sqlite, input.key, "SQLite");
+      if (sqliteRevision !== legacyRevision) return null;
 
       return this.#comparator.compare({
         surface: "build",
@@ -118,4 +117,27 @@ export class DeviceBuildRevisionFencedShadowObserver {
       // Diagnostic-only shadow work must never affect JSON authority.
     }
   }
+}
+
+/**
+ * @param {DeviceBuildShadowProjection} projection
+ * @param {string} key
+ * @param {string} label
+ */
+function requireBuildRevision(projection, key, label) {
+  if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
+    throw new Error(`Revision-fenced ${label} build projection is invalid.`);
+  }
+  const record = /** @type {Record<string, unknown>} */ (projection);
+  if (record.id !== key) {
+    throw new Error(`Revision-fenced ${label} build id does not match its key.`);
+  }
+  if (
+    typeof record.revision !== "number" ||
+    !Number.isSafeInteger(record.revision) ||
+    record.revision < 0
+  ) {
+    throw new Error(`Revision-fenced ${label} build revision is invalid.`);
+  }
+  return record.revision;
 }
