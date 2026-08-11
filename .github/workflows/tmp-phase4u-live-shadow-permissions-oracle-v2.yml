@@ -1,0 +1,118 @@
+name: Temporary Phase 4U Live Shadow Permissions Oracle V2
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4u-live-shadow-permissions-oracle-v2
+
+permissions:
+  contents: read
+
+jobs:
+  live-shadow:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 588aacc46cd9482fc963c3ada3da709b6bfa0d81
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Prove private live shadow import, restart, and fail-open fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(mktemp -d -t swift-sim-phase4u-live)"
+          export HOME="$ROOT/home"
+          STATE="$HOME/.swift-sim"
+          mkdir -m 700 -p "$STATE"
+          SOURCE="$STATE/device-builds.json"
+          DB="$STATE/state.sqlite"
+          BACKUPS="$STATE/migration-backups/device-builds"
+          LOG1="$ROOT/helper-1.log"
+          LOG2="$ROOT/helper-2.log"
+          LOG3="$ROOT/helper-fallback.log"
+          cat > "$SOURCE" <<'JSON'
+          {"version":6,"apps":{},"artifactCleanupJobs":{},"deliveryReferenceCleanupJobs":{},"builds":[]}
+          JSON
+          chmod 600 "$SOURCE"
+          SOURCE_HASH_BEFORE="$(shasum -a 256 "$SOURCE" | awk '{print $1}')"
+          PORT="$(node -e 'const net=require("net"); const s=net.createServer(); s.listen(0,"127.0.0.1",()=>{ console.log(s.address().port); s.close(); });')"
+          PID=""
+          cleanup() {
+            if [[ -n "$PID" ]] && kill -0 "$PID" >/dev/null 2>&1; then
+              kill -TERM "$PID" >/dev/null 2>&1 || true
+              wait "$PID" >/dev/null 2>&1 || true
+            fi
+            rm -rf "$ROOT"
+          }
+          trap cleanup EXIT
+          start_helper() {
+            local logfile="$1"
+            HOME="$HOME" SWIFT_SIM_PORT="$PORT" node mac-helper/bin/swift-sim-helper.js serve --device-builds-only >"$logfile" 2>&1 &
+            PID=$!
+            for _ in {1..40}; do
+              if curl --silent --fail --max-time 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then return 0; fi
+              if ! kill -0 "$PID" >/dev/null 2>&1; then cat "$logfile" >&2; return 1; fi
+              sleep 0.25
+            done
+            cat "$logfile" >&2
+            return 1
+          }
+          stop_helper() { kill -TERM "$PID"; wait "$PID"; PID=""; }
+
+          start_helper "$LOG1"
+          [[ -f "$DB" ]]
+          [[ "$(stat -f '%Lp' "$STATE")" == "700" ]]
+          [[ "$(stat -f '%Lp' "$DB")" == "600" ]]
+          [[ -d "$BACKUPS" ]]
+          [[ "$(stat -f '%Lp' "$BACKUPS")" == "700" ]]
+          BACKUP="$(find "$BACKUPS" -type f -name 'device-build-*.bak' | head -n 1)"
+          [[ -n "$BACKUP" ]]
+          [[ "$(find "$BACKUPS" -type f -name 'device-build-*.bak' | wc -l | tr -d ' ')" == "1" ]]
+          [[ "$(stat -f '%Lp' "$BACKUP")" == "600" ]]
+          cmp "$SOURCE" "$BACKUP"
+          if [[ -e "$DB-wal" ]]; then [[ "$(stat -f '%Lp' "$DB-wal")" == "600" ]]; fi
+          if [[ -e "$DB-shm" ]]; then [[ "$(stat -f '%Lp' "$DB-shm")" == "600" ]]; fi
+          node --input-type=module - "$DB" <<'NODE'
+          import { DatabaseSync } from "node:sqlite";
+          const db = new DatabaseSync(process.argv[2], { readOnly: true });
+          const schema = db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get();
+          if (Number(schema.version) !== 7) throw new Error(`expected schema 7, got ${schema.version}`);
+          const checkpoint = db.prepare("SELECT source, record_count FROM legacy_import_checkpoints WHERE source = ?").get("device-build-state-v1");
+          if (!checkpoint || checkpoint.source !== "device-build-state-v1" || Number(checkpoint.record_count) !== 0) throw new Error("missing device-build import checkpoint");
+          const integrity = db.prepare("PRAGMA integrity_check").get();
+          if (!integrity || integrity.integrity_check !== "ok") throw new Error("SQLite integrity_check failed");
+          db.close();
+          NODE
+          [[ "$SOURCE_HASH_BEFORE" == "$(shasum -a 256 "$SOURCE" | awk '{print $1}')" ]]
+          stop_helper
+
+          start_helper "$LOG2"
+          [[ "$(stat -f '%Lp' "$DB")" == "600" ]]
+          [[ "$(find "$BACKUPS" -type f -name 'device-build-*.bak' | wc -l | tr -d ' ')" == "1" ]]
+          node --input-type=module - "$DB" <<'NODE'
+          import { DatabaseSync } from "node:sqlite";
+          const db = new DatabaseSync(process.argv[2], { readOnly: true });
+          const checkpoints = db.prepare("SELECT COUNT(*) AS count FROM legacy_import_checkpoints WHERE source = ?").get("device-build-state-v1");
+          if (Number(checkpoints.count) !== 1) throw new Error("restart duplicated import checkpoint");
+          const migrations = db.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get();
+          if (Number(migrations.count) !== 7) throw new Error("restart duplicated or lost migration history");
+          db.close();
+          NODE
+          [[ "$SOURCE_HASH_BEFORE" == "$(shasum -a 256 "$SOURCE" | awk '{print $1}')" ]]
+          stop_helper
+
+          mv "$DB" "$ROOT/state.sqlite.saved"
+          rm -f "$DB-wal" "$DB-shm"
+          mkdir "$DB"
+          start_helper "$LOG3"
+          curl --silent --fail --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null
+          grep -Fq "Device-build SQLite shadow initialization failed; using JSON only." "$LOG3"
+          [[ "$SOURCE_HASH_BEFORE" == "$(shasum -a 256 "$SOURCE" | awk '{print $1}')" ]]
+          stop_helper
+
+          echo "Verified Phase 4U private permissions, live import, restart idempotency, integrity, unchanged JSON authority, and fail-open JSON-only startup."
