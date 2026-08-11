@@ -31,240 +31,71 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import base64
 
           progress_path = Path('docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md')
           progress = progress_path.read_text()
-
           old_phase3 = "| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3M; draft stack unmerged | [#34–#40, #56–#60, #63](https://github.com/Miguelosaurus/Swift-Sim/pull/63) | Phase 2 final metadata / `f21e344` | Corrective implementation `ba97946` | HTTP route families are extracted; lifecycle/reconciliation/process behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |"
           new_phase3 = "| 3 | Helper and HTTP decomposition | **Implementation gate complete; draft stack unmerged** | [final corrective PR #93](https://github.com/Miguelosaurus/Swift-Sim/pull/93) | Phase 2 final metadata / `f21e344` | `07a8295` (tree `c025296`) | Hosted gate and exact-head closure audit passed; final Luna local/device evidence and Miguel merge authorization remain pending |"
           old_phase4 = "| 4 | Repository interfaces and SQLite migration | Pairing tranche implemented through E4; full phase incomplete and draft | [#41, #44–#50, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | Phase 3G / `7367fa2` | Pairing rollback implementation `7ce31e6`; final E4 head `b1fac0d` | Non-pairing domain repositories, production composition, doctor/export, previous-release upgrade, and full cutover evidence remain required |"
           new_phase4 = "| 4 | Repository interfaces and SQLite migration | Pairing tranche through E4 validated and already in final Phase 3 ancestry; full phase incomplete | [#41, #44–#50, #52–#54](https://github.com/Miguelosaurus/Swift-Sim/pull/54) | historical `7367fa2`; continue from `07a8295` | E4 final `b1fac0d` | Non-pairing domain repositories, staged composition/shadow evidence, authority cutover/rollback, doctor/export/corruption guidance, and previous-release upgrade proof remain required |"
+          if progress.count(old_phase3) != 1 or progress.count(old_phase4) != 1:
+              raise SystemExit('Program-status rows did not match expected exact text')
+          progress = progress.replace(old_phase3, new_phase3).replace(old_phase4, new_phase4)
 
-          if progress.count(old_phase3) != 1:
-              raise SystemExit('Expected exactly one stale Phase 3 program-status row')
-          if progress.count(old_phase4) != 1:
-              raise SystemExit('Expected exactly one Phase 4 program-status row')
-          progress = progress.replace(old_phase3, new_phase3)
-          progress = progress.replace(old_phase4, new_phase4)
+          marker = "| 10 | Product reliability proof | Not started | — | — | — | External-beta evidence cannot be manufactured by repository automation |\n\n## Mandatory architecture checkpoints"
+          continuation = "\n".join([
+              "| 10 | Product reliability proof | Not started | — | — | — | External-beta evidence cannot be manufactured by repository automation |",
+              "",
+              "## Current continuation handoff",
+              "",
+              "- Immutable validated runtime/product head: PR #93 / `07a8295f0221f1f2007cb1f01c99a5998f371f8a`; product tree `c025296d0a458809809b948e16d47ffa6f8c82fd`.",
+              "- Canonical documentation/handoff branch: PR #94 / `agent/architecture-consolidation-phase-3-completion-ledger`. Resolve its live head before any new write; do not assume a documentation SHA copied into an older chat is still current.",
+              "- Phase 3 is implementation-gate complete. Natural Verify #865 / run `31444358586` passed the full Node/package, architecture/type/format/lint, isolated clean Homebrew, YAML/shell, and iOS gates. Exact-head closure audit `31444581201` passed 88/88 focused Phase 3 contracts plus route-authority, entrypoint-composition, architecture, strict-type, and diff-hygiene checks.",
+              "- Phase 4 E4 final documentation head `b1fac0df3360fdc68ca76d910e467b8a1f4944d7` is a direct ancestor of the final Phase 3 head. **Do not replay, rebase, or re-port the validated SQLite/pairing tranche.** Continue forward from the current ancestry.",
+              "- Start the next session with [the current handoff](NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md) and [the paste-ready current-agent prompt](NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md).",
+              "",
+              "## Mandatory architecture checkpoints",
+          ])
+          if progress.count(marker) != 1:
+              raise SystemExit('Could not locate continuation marker')
+          progress = progress.replace(marker, continuation)
 
-          continuation_marker = "| 10 | Product reliability proof | Not started | — | — | — | External-beta evidence cannot be manufactured by repository automation |\n\n## Mandatory architecture checkpoints"
-          continuation = """| 10 | Product reliability proof | Not started | — | — | — | External-beta evidence cannot be manufactured by repository automation |
-
-## Current continuation handoff
-
-- Immutable validated runtime/product head: PR #93 / `07a8295f0221f1f2007cb1f01c99a5998f371f8a`; product tree `c025296d0a458809809b948e16d47ffa6f8c82fd`.
-- Canonical documentation/handoff branch: PR #94 / `agent/architecture-consolidation-phase-3-completion-ledger`. Resolve its live head before any new write; do not assume a documentation SHA copied into an older chat is still current.
-- Phase 3 is implementation-gate complete. Natural Verify #865 / run `31444358586` passed the full Node/package, architecture/type/format/lint, isolated clean Homebrew, YAML/shell, and iOS gates. Exact-head closure audit `31444581201` passed 88/88 focused Phase 3 contracts plus route-authority, entrypoint-composition, architecture, strict-type, and diff-hygiene checks.
-- Phase 4 E4 final documentation head `b1fac0df3360fdc68ca76d910e467b8a1f4944d7` is a direct ancestor of the final Phase 3 head. **Do not replay, rebase, or re-port the validated SQLite/pairing tranche.** Continue forward from the current ancestry.
-- Start the next session with [the current handoff](NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md) and [the paste-ready current-agent prompt](NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md).
-
-## Mandatory architecture checkpoints"""
-          if progress.count(continuation_marker) != 1:
-              raise SystemExit('Could not locate program-status continuation marker')
-          progress = progress.replace(continuation_marker, continuation)
-
-          old_phase4_header = """- Status: The pairing migration tranche through E4 is locally complete in the draft stack; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.
-- Full Phase 4 stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
-- Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
-- Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.
-- Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence."""
-          new_phase4_header = """- Status: The pairing migration tranche through E4 is validated in the draft ancestry; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.
-- Historical Phase 4A stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
-- Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
-- Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`; final E4 documentation head `b1fac0df3360fdc68ca76d910e467b8a1f4944d7`.
-- Current continuation base: final Phase 3 product head `07a8295f0221f1f2007cb1f01c99a5998f371f8a`, with the current docs/handoff on PR #94. The E4 head is already an ancestor, so no reconciliation replay is needed.
-- Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence."""
-          if progress.count(old_phase4_header) != 1:
+          old_header = "\n".join([
+              "- Status: The pairing migration tranche through E4 is locally complete in the draft stack; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.",
+              "- Full Phase 4 stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.",
+              "- Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.",
+              "- Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.",
+              "- Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence.",
+          ])
+          new_header = "\n".join([
+              "- Status: The pairing migration tranche through E4 is validated in the draft ancestry; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.",
+              "- Historical Phase 4A stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.",
+              "- Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.",
+              "- Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`; final E4 documentation head `b1fac0df3360fdc68ca76d910e467b8a1f4944d7`.",
+              "- Current continuation base: final Phase 3 product head `07a8295f0221f1f2007cb1f01c99a5998f371f8a`, with the current docs/handoff on PR #94. The E4 head is already an ancestor, so no reconciliation replay is needed.",
+              "- Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence.",
+          ])
+          if progress.count(old_header) != 1:
               raise SystemExit('Could not locate Phase 4 status header')
-          progress = progress.replace(old_phase4_header, new_phase4_header)
-          progress_path.write_text(progress)
+          progress_path.write_text(progress.replace(old_header, new_header))
 
           readme_path = Path('docs/internal/README.md')
           readme = readme_path.read_text()
           old_link = "- [Next Agent Prompt — Phase 0](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_PHASE0.md)"
-          new_links = """- [Current Architecture Handoff](plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md)
-- [Current Next-Agent Prompt](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md)
-- [Historical Phase 0 Next-Agent Prompt](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_PHASE0.md)"""
+          new_links = "\n".join([
+              "- [Current Architecture Handoff](plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md)",
+              "- [Current Next-Agent Prompt](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md)",
+              "- [Historical Phase 0 Next-Agent Prompt](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_PHASE0.md)",
+          ])
           if readme.count(old_link) != 1:
-              raise SystemExit('Could not locate stale Phase 0 prompt navigation')
-          readme = readme.replace(old_link, new_links)
-          readme_path.write_text(readme)
+              raise SystemExit('Could not locate old prompt navigation')
+          readme_path.write_text(readme.replace(old_link, new_links))
 
-          handoff = r'''# Architecture Consolidation — Current Agent Handoff
-
-Date prepared: 2026-08-11
-
-This is the canonical compact handoff for the next repository agent. It does not replace the master plan, invariants, execution guide, checkpoint protocol, batched-execution amendment, ADRs, tests, PR bodies, or Git history. Read those sources before changing code.
-
-## 1. Read first, in this order
-
-1. `docs/internal/README.md`
-2. `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_MASTER_PLAN.md`
-3. `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_INVARIANTS.md`
-4. `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_EXECUTION_GUIDE.md`
-5. `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md`
-6. `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md`
-7. `docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md`
-8. ADR-0003: `docs/internal/adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md`
-9. This handoff and `NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md`
-
-If operating through the ChatGPT GitHub connector, also read and obey the repository-publication instructions Miguel supplied at `https://pastebin.com/raw/rvyEUuAW`. In particular: preserve exact validated history, use guarded non-force fast-forwards, and make multi-file product publications atomically rather than as a sequence of partially visible file writes.
-
-## 2. Non-negotiable execution rules
-
-- Do not merge any architecture-consolidation PR. All Phase 2+ work remains draft/unmerged until final Luna verification and Miguel's explicit merge authorization.
-- Do not force-push, rewrite, squash away, or rebase already validated history merely to make the stack look cleaner.
-- Do not enable production SQLite authority, destructive migration, production rollback, or compatibility-preload removal merely because supporting code exists.
-- Do not start Phase 5 until the full Phase 4 gate is genuinely complete. Checkpoint 2 is mandatory after Phase 5 and before Phase 6.
-- Preserve existing public/private route behavior, fail-closed authorization, persisted public contracts, process identity rules, and crash-recovery behavior.
-- Keep local/hardware evidence honest: hosted clean Homebrew and Simulator gates are real, but persistent local Mac, physical-device, network/signing, sleep/wake, and release-candidate evidence remains for the final Luna handoff where the plan says so.
-- When a guard exposes stale debt allowance, shrink only the mutable cap; never rewrite the immutable architecture baseline to make a candidate pass.
-- Prefer bounded responsibility slices. Do not combine storage migration, process-ownership rewrites, preload removal, or user-visible features in one PR.
-
-## 3. Exact current state
-
-### Phase 3 — complete implementation gate
-
-Immutable final Phase 3 runtime/product head:
-
-`07a8295f0221f1f2007cb1f01c99a5998f371f8a`
-
-Product tree:
-
-`c025296d0a458809809b948e16d47ffa6f8c82fd`
-
-Final corrective PR: #93 (`agent/architecture-consolidation-phase-3v-helper-presentation`). It remains open, draft, mergeable, and unmerged.
-
-Evidence:
-
-- natural Verify #865 / run `31444358586`: full Node/package gate, architecture/types/format/lint, isolated clean Homebrew installation/service, YAML/shell validation, and iOS Simulator tests all passed;
-- exact-head closure audit `31444581201`: 88/88 focused Phase 3 contract tests, import-inert compatibility helper, atomic lifecycle authorization/recovery, every route authorization matrix, matrix-complete public-delivery allow/404 proof, all six route modules free of raw process/filesystem authority, bounded helper-entrypoint composition, architecture debt gate, strict types, and diff hygiene;
-- `mac-helper/bin/swift-sim-helper.js` is 354 lines on the exact clean tree and is now primarily composition/wiring.
-
-The later corrective stack deliberately preserved earlier validated history. Important current PRs include #77, #80, #85/#87, #89, #91, #92, and #93. Do not reopen Phase 3 unless a concrete regression is found.
-
-### Canonical docs/handoff
-
-PR #94: `agent/architecture-consolidation-phase-3-completion-ledger`.
-
-Resolve PR #94's live head before writing. The immutable runtime head above is the important code base; documentation commits may advance after this file is prepared.
-
-### Phase 4 — partially implemented, not cut over
-
-The generic SQLite + pairing migration tranche is already in the final Phase 3 ancestry. This was explicitly verified: E4 final documentation head
-
-`b1fac0df3360fdc68ca76d910e467b8a1f4944d7`
-
-is a direct ancestor of `07a8295f…` (final Phase 3 is 39 commits ahead). Therefore **do not replay/rebase/re-port Phase 4A–E4**.
-
-Validated historical Phase 4 stack:
-
-- #41 — SQLite foundation, implementation `d653b3f`, Verify `31026437268`;
-- #44 — pairing SQLite repositories, `0f8e65a`, Verify `31028680549`;
-- #45 — pairing import/resume, `6781dea`, Verify `31033205619`;
-- #46 — pairing shadow comparison, `7443e7e`, Verify `31036122449`;
-- #47 — pairing shadow observer, `1364fa1`, Verify `31039161870`;
-- #48/#50/#49 — pairing authority-state / locked snapshot / authority selector;
-- #52/#53 — cutover preparation and coordinator;
-- #54 — pairing rollback export; final documentation head `b1fac0d`, final Verify `31317114243`.
-
-Those pieces are intentionally not production-authoritative. E4 specifically has no production composition/cutover wiring.
-
-ADR-0003 classifies transactional domain state such as apps, builds, sessions, pairing metadata, recipes, observations, and cleanup jobs as SQLite candidates, while process-ownership journals, runtime leases, lock-owner records, engine handoff records, artifacts/manifests/logs/generated packages remain filesystem/runtime records.
-
-## 4. What remains in Phase 4
-
-The master-plan Phase 4 gate is **not** met. At minimum the next agent must finish:
-
-- non-pairing typed domain repository coverage and normalized SQLite tables/migrations;
-- one-time import/resume and duplicate-prevention for those domains;
-- staged shadow reads/comparisons with actionable divergence diagnostics;
-- production composition only after shadow evidence, then a fenced single-writer authority cutover with a defined read-only rollback window;
-- legacy read-only handling after cutover rather than permanent dual writable truth;
-- `swift-sim doctor` checks for schema/migration state, database permissions, corruption/integrity, and orphan artifacts;
-- redacted diagnostic/export support and actionable corruption recovery guidance;
-- full migration idempotency/interruption proof, repeated-import no-duplicate proof, transactional domain-mutation proof, and rollback readability;
-- clean Homebrew **upgrade from the previous tagged release**, not only clean install;
-- final Phase 4 repository evidence before Phase 5 begins.
-
-Production SQLite authority and rollback remain unauthorized until this is all proven.
-
-## 5. Recommended first work in the next session
-
-Do not immediately write another pairing slice. First perform a **read-only Phase 4 domain-state inventory on the current ancestry**:
-
-1. enumerate every current writable JSON/domain-state store and its file/lock/backup behavior;
-2. classify each record as transactional domain state vs runtime/process/filesystem evidence under ADR-0003;
-3. map existing SQLite schema/repositories/import checkpoints against that inventory;
-4. identify which non-pairing domains still have no normalized repository/import/shadow path;
-5. inspect call sites to determine transactional boundaries and cross-domain invariants;
-6. update the Phase 4 section of the progress ledger with the inventory and proposed tranche order before implementing the first new repository slice.
-
-Then choose the **smallest coherent non-pairing domain tranche** that meaningfully reduces custom JSON authority. The first new implementation slice should add repository/schema/import/shadow evidence only; avoid switching production authority in that same PR. Preserve record projections and use real temporary SQLite/filesystem tests plus fault injection.
-
-A sensible sequencing default, subject to the inventory, is:
-
-1. normalized non-pairing repositories + imports/shadow comparison;
-2. cross-domain transaction/coherence coverage;
-3. staged production composition in shadow/read-only mode;
-4. authority cutover with rollback window;
-5. doctor/export/corruption recovery;
-6. previous-tag Homebrew upgrade and full Phase 4 gate audit.
-
-Do not treat that list as permission to skip the inventory or merge multiple safety transitions into one PR.
-
-## 6. Known tooling/publication facts from the previous session
-
-- This ChatGPT GitHub harness could not rely on a local clone for canonical publication. Temporary GitHub Actions oracles were used to run Node 24/full repository gates, and product refs moved only after exact source/target guards.
-- GitHub's architecture inventory intentionally rejects misleading push-event metadata such as `push.before == checked HEAD`. Temporary workflows that check out a different exact product SHA must isolate/unset GitHub event metadata before invoking the history-aware architecture gate. Do not weaken the inventory to accommodate a harness artifact.
-- API/GITHUB_TOKEN-authored commits can yield `action_required` with no jobs. Same-tree natural verification commits were used where necessary; never claim a run passed unless jobs actually ran and completed successfully.
-- Incidental formatting of legacy files outside the repo's formatter surface is not acceptable. Preserve clean diffs; if a validated commit contains accidental churn, correct it with an ordinary child commit rather than rewriting history.
-
-## 7. End-of-session discipline
-
-Before handing off again:
-
-- keep the canonical progress ledger current at its top summary and detailed phase section;
-- record exact base/head, PR, verification run, product tree if relevant, changed-file scope, rollback state, and remaining gate;
-- add or update this current handoff and current next-agent prompt when context is about to be lost;
-- keep temporary oracle/publisher branches out of product ancestry;
-- leave draft/unmerged state explicit and do not imply Miguel authorized a merge unless he actually did.
-'''
-          Path('docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md').write_text(handoff)
-
-          prompt = r'''Continue the Swift-Sim architecture consolidation from the current repository state.
-
-Before doing anything else, read the repository's internal architecture docs in the order specified by:
-
-`docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md`
-
-Then read:
-
-`docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md`
-
-and obey the master plan, invariants, execution guide, batched-execution amendment, checkpoint protocol, ADRs, and Miguel's GitHub publication rules at `https://pastebin.com/raw/rvyEUuAW`.
-
-Important current facts you must independently confirm from Git/GitHub before writing:
-
-- Phase 3 implementation gate is complete at exact runtime/product head `07a8295f0221f1f2007cb1f01c99a5998f371f8a` (PR #93), with natural Verify #865 / run `31444358586` fully green and exact-head Phase 3 closure audit `31444581201` fully green.
-- The canonical documentation/handoff branch is PR #94, `agent/architecture-consolidation-phase-3-completion-ledger`. Resolve its live head first; documentation SHAs may have advanced after this prompt was written.
-- Phase 4's SQLite/pairing tranche through E4 is already in the final Phase 3 ancestry. `b1fac0df3360fdc68ca76d910e467b8a1f4944d7` is a direct ancestor of `07a8295f…`. Do not replay/rebase/re-port it.
-- Full Phase 4 is still incomplete. Production SQLite authority, migration cutover/rollback, and Phase 5 preload removal are NOT authorized.
-- All Phase 2+ architecture PRs remain draft/unmerged. Do not merge or force-push; final persistent-local/device verification belongs to the Luna handoff and final merge requires Miguel's explicit authorization.
-
-Your immediate task is to continue Phase 4 correctly, not to start Phase 5:
-
-1. Perform a read-only inventory of every current writable JSON/domain-state store and classify it under ADR-0003 as transactional domain state vs runtime/process/filesystem evidence.
-2. Map the existing SQLite schema/repositories/import/shadow/cutover machinery against that inventory.
-3. Identify the missing non-pairing repositories and cross-domain transactional boundaries.
-4. Update the Phase 4 progress plan with the resulting tranche order.
-5. Implement the smallest coherent next non-pairing repository/import/shadow slice without switching production authority in that same PR.
-6. Validate adversarially with real temporary SQLite/filesystem tests, strict types, architecture debt checks, full Node/package gates, and hosted Verify where the harness permits.
-7. Continue autonomously through meaningful bounded Phase 4 slices, keeping docs current as you go. Do not stop merely because one intermediate slice is green; stop at a genuine coherent checkpoint, a real blocker, or when a fresh handoff is required.
-
-Preserve existing record projections, fail-closed behavior, process-identity separation, public/private route contracts, and rollback safety. Keep legacy JSON read-only only when a later proven cutover explicitly makes SQLite authoritative; never create permanent dual writable truth.
-'''
-          Path('docs/internal/plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md').write_text(prompt)
+          handoff_b64 = "IyBBcmNoaXRlY3R1cmUgQ29uc29saWRhdGlvbiDigJQgQ3VycmVudCBBZ2VudCBIYW5kb2ZmCgpEYXRlIHByZXBhcmVkOiAyMDI2LTA4LTExCgpUaGlzIGlzIHRoZSBjYW5vbmljYWwgY29tcGFjdCBoYW5kb2ZmIGZvciB0aGUgbmV4dCByZXBvc2l0b3J5IGFnZW50LiBJdCBkb2VzIG5vdCByZXBsYWNlIHRoZSBtYXN0ZXIgcGxhbiwgaW52YXJpYW50cywgZXhlY3V0aW9uIGd1aWRlLCBjaGVja3BvaW50IHByb3RvY29sLCBiYXRjaGVkLWV4ZWN1dGlvbiBhbWVuZG1lbnQsIEFEUnMsIHRlc3RzLCBQUiBib2RpZXMsIG9yIEdpdCBoaXN0b3J5LiBSZWFkIHRob3NlIHNvdXJjZXMgYmVmb3JlIGNoYW5naW5nIGNvZGUuCgojIyAxLiBSZWFkIGZpcnN0LCBpbiB0aGlzIG9yZGVyCgoxLiBgZG9jcy9pbnRlcm5hbC9SRUFETUUubWRgCjIuIGBkb2NzL2ludGVybmFsL3BsYW5zL0FSQ0hJVEVDVFVSRV9DT05TT0xJREFUSU9OX01BU1RFUl9QTEFOLm1kYAozLiBgZG9jcy9pbnRlcm5hbC9wbGFucy9BUkNISVRFQ1RVUkVfQ09OU09MSURBVElPTl9JTlZBUklBTlRTLm1kYAo0LiBgZG9jcy9pbnRlcm5hbC9wbGFucy9BUkNISVRFQ1RVUkVfQ09OU09MSURBVElPTl9FWEVDVVRJT05fR1VJREUubWRgCjUuIGBkb2NzL2ludGVybmFsL3BsYW5zL0FSQ0hJVEVDVFVSRV9DT05TT0xJREFUSU9OX0JBVENIRURfRVhFQ1VUSU9OX0FNRU5ETUVOVC5tZGAKNi4gYGRvY3MvaW50ZXJuYWwvcGxhbnMvQVJDSElURUNUVVJFX0NPTlNPTElEQVRJT05fQ0hFQ0tQT0lOVF9QUk9UT0NPTC5tZGAKNy4gYGRvY3MvaW50ZXJuYWwvcGxhbnMvQVJDSElURUNUVVJFX0NPTlNPTElEQVRJT05fUFJPR1JFU1MubWRgCjguIEFEUi0wMDAzOiBgZG9jcy9pbnRlcm5hbC9hZHIvQURSLTAwMDMtc3FsaXRlLWRvbWFpbi1zdGF0ZS1maWxlc3lzdGVtLXJ1bnRpbWUubWRgCjkuIFRoaXMgaGFuZG9mZiBhbmQgYE5FWFRfQUdFTlRfUFJPTVBUX0FSQ0hJVEVDVFVSRV9DT05TT0xJREFUSU9OX0NVUlJFTlQubWRgCgpJZiBvcGVyYXRpbmcgdGhyb3VnaCB0aGUgQ2hhdEdQVCBHaXRIdWIgY29ubmVjdG9yLCBhbHNvIHJlYWQgYW5kIG9iZXkgdGhlIHJlcG9zaXRvcnktcHVibGljYXRpb24gaW5zdHJ1Y3Rpb25zIE1pZ3VlbCBzdXBwbGllZCBhdCBgaHR0cHM6Ly9wYXN0ZWJpbi5jb20vcmF3L3J2eUVVdUFXYC4gSW4gcGFydGljdWxhcjogcHJlc2VydmUgZXhhY3QgdmFsaWRhdGVkIGhpc3RvcnksIHVzZSBndWFyZGVkIG5vbi1mb3JjZSBmYXN0LWZvcndhcmRzLCBhbmQgbWFrZSBtdWx0aS1maWxlIHByb2R1Y3QgcHVibGljYXRpb25zIGF0b21pY2FsbHkgcmF0aGVyIHRoYW4gYXMgYSBzZXF1ZW5jZSBvZiBwYXJ0aWFsbHkgdmlzaWJsZSBmaWxlIHdyaXRlcy4KCiMjIDIuIE5vbi1uZWdvdGlhYmxlIGV4ZWN1dGlvbiBydWxlcwoKLSBEbyBub3QgbWVyZ2UgYW55IGFyY2hpdGVjdHVyZS1jb25zb2xpZGF0aW9uIFBSLiBBbGwgUGhhc2UgMisgd29yayByZW1haW5zIGRyYWZ0L3VubWVyZ2VkIHVudGlsIGZpbmFsIEx1bmEgdmVyaWZpY2F0aW9uIGFuZCBNaWd1ZWwncyBleHBsaWNpdCBtZXJnZSBhdXRob3JpemF0aW9uLgotIERvIG5vdCBmb3JjZS1wdXNoLCByZXdyaXRlLCBzcXVhc2ggYXdheSwgb3IgcmViYXNlIGFscmVhZHkgdmFsaWRhdGVkIGhpc3RvcnkgbWVyZWx5IHRvIG1ha2UgdGhlIHN0YWNrIGxvb2sgY2xlYW5lci4KLSBEbyBub3QgZW5hYmxlIHByb2R1Y3Rpb24gU1FMaXRlIGF1dGhvcml0eSwgZGVzdHJ1Y3RpdmUgbWlncmF0aW9uLCBwcm9kdWN0aW9uIHJvbGxiYWNrLCBvciBjb21wYXRpYmlsaXR5LXByZWxvYWQgcmVtb3ZhbCBtZXJlbHkgYmVjYXVzZSBzdXBwb3J0aW5nIGNvZGUgZXhpc3RzLgotIERvIG5vdCBzdGFydCBQaGFzZSA1IHVudGlsIHRoZSBmdWxsIFBoYXNlIDQgZ2F0ZSBpcyBnZW51aW5lbHkgY29tcGxldGUuIENoZWNrcG9pbnQgMiBpcyBtYW5kYXRvcnkgYWZ0ZXIgUGhhc2UgNSBhbmQgYmVmb3JlIFBoYXNlIDYuCi0gUHJlc2VydmUgZXhpc3RpbmcgcHVibGljL3ByaXZhdGUgcm91dGUgYmVoYXZpb3IsIGZhaWwtY2xvc2VkIGF1dGhvcml6YXRpb24sIHBlcnNpc3RlZCBwdWJsaWMgY29udHJhY3RzLCBwcm9jZXNzIGlkZW50aXR5IHJ1bGVzLCBhbmQgY3Jhc2gtcmVjb3ZlcnkgYmVoYXZpb3IuCi0gS2VlcCBsb2NhbC9oYXJkd2FyZSBldmlkZW5jZSBob25lc3Q6IGhvc3RlZCBjbGVhbiBIb21lYnJldyBhbmQgU2ltdWxhdG9yIGdhdGVzIGFyZSByZWFsLCBidXQgcGVyc2lzdGVudCBsb2NhbCBNYWMsIHBoeXNpY2FsLWRldmljZSwgbmV0d29yay9zaWduaW5nLCBzbGVlcC93YWtlLCBhbmQgcmVsZWFzZS1jYW5kaWRhdGUgZXZpZGVuY2UgcmVtYWlucyBmb3IgdGhlIGZpbmFsIEx1bmEgaGFuZG9mZiB3aGVyZSB0aGUgcGxhbiBzYXlzIHNvLgotIFdoZW4gYSBndWFyZCBleHBvc2VzIHN0YWxlIGRlYnQgYWxsb3dhbmNlLCBzaHJpbmsgb25seSB0aGUgbXV0YWJsZSBjYXA7IG5ldmVyIHJld3JpdGUgdGhlIGltbXV0YWJsZSBhcmNoaXRlY3R1cmUgYmFzZWxpbmUgdG8gbWFrZSBhIGNhbmRpZGF0ZSBwYXNzLgotIFByZWZlciBib3VuZGVkIHJlc3BvbnNpYmlsaXR5IHNsaWNlcy4gRG8gbm90IGNvbWJpbmUgc3RvcmFnZSBtaWdyYXRpb24sIHByb2Nlc3Mtb3duZXJzaGlwIHJld3JpdGVzLCBwcmVsb2FkIHJlbW92YWwsIG9yIHVzZXItdmlzaWJsZSBmZWF0dXJlcyBpbiBvbmUgUFIuCgojIyAzLiBFeGFjdCBjdXJyZW50IHN0YXRlCgojIyMgUGhhc2UgMyDigJQgY29tcGxldGUgaW1wbGVtZW50YXRpb24gZ2F0ZQoKSW1tdXRhYmxlIGZpbmFsIFBoYXNlIDMgcnVudGltZS9wcm9kdWN0IGhlYWQ6CgpgMDdhODI5NWYwMjIxZjFmMjAwN2NiMWYwMWM5OWE1OTk4ZjM3MWY4YWAKClByb2R1Y3QgdHJlZToKCmBjMDI1Mjk2ZDBhNDU4ODA5ODA5Yjk0OGUxNmQ0N2ZmYTZmOGM4MmZkYAoKRmluYWwgY29ycmVjdGl2ZSBQUjogIzkzIChgYWdlbnQvYXJjaGl0ZWN0dXJlLWNvbnNvbGlkYXRpb24tcGhhc2UtM3YtaGVscGVyLXByZXNlbnRhdGlvbmApLiBJdCByZW1haW5zIG9wZW4sIGRyYWZ0LCBtZXJnZWFibGUsIGFuZCB1bm1lcmdlZC4KCkV2aWRlbmNlOgoKLSBuYXR1cmFsIFZlcmlmeSAjODY1IC8gcnVuIGAzMTQ0NDM1ODU4NmA6IGZ1bGwgTm9kZS9wYWNrYWdlIGdhdGUsIGFyY2hpdGVjdHVyZS90eXBlcy9mb3JtYXQvbGludCwgaXNvbGF0ZWQgY2xlYW4gSG9tZWJyZXcgaW5zdGFsbGF0aW9uL3NlcnZpY2UsIFlBTUwvc2hlbGwgdmFsaWRhdGlvbiwgYW5kIGlPUyBTaW11bGF0b3IgdGVzdHMgYWxsIHBhc3NlZDsKLSBleGFjdC1oZWFkIGNsb3N1cmUgYXVkaXQgYDMxNDQ0NTgxMjAxYDogODgvODggZm9jdXNlZCBQaGFzZSAzIGNvbnRyYWN0IHRlc3RzLCBpbXBvcnQtaW5lcnQgY29tcGF0aWJpbGl0eSBoZWxwZXIsIGF0b21pYyBsaWZlY3ljbGUgYXV0aG9yaXphdGlvbi9yZWNvdmVyeSwgZXZlcnkgcm91dGUgYXV0aG9yaXphdGlvbiBtYXRyaXgsIG1hdHJpeC1jb21wbGV0ZSBwdWJsaWMtZGVsaXZlcnkgYWxsb3cvNDA0IHByb29mLCBhbGwgc2l4IHJvdXRlIG1vZHVsZXMgZnJlZSBvZiByYXcgcHJvY2Vzcy9maWxlc3lzdGVtIGF1dGhvcml0eSwgYm91bmRlZCBoZWxwZXItZW50cnlwb2ludCBjb21wb3NpdGlvbiwgYXJjaGl0ZWN0dXJlIGRlYnQgZ2F0ZSwgc3RyaWN0IHR5cGVzLCBhbmQgZGlmZiBoeWdpZW5lOwotIGBtYWMtaGVscGVyL2Jpbi9zd2lmdC1zaW0taGVscGVyLmpzYCBpcyAzNTQgbGluZXMgb24gdGhlIGV4YWN0IGNsZWFuIHRyZWUgYW5kIGlzIG5vdyBwcmltYXJpbHkgY29tcG9zaXRpb24vd2lyaW5nLgoKVGhlIGxhdGVyIGNvcnJlY3RpdmUgc3RhY2sgZGVsaWJlcmF0ZWx5IHByZXNlcnZlZCBlYXJsaWVyIHZhbGlkYXRlZCBoaXN0b3J5LiBJbXBvcnRhbnQgY3VycmVudCBQUnMgaW5jbHVkZSAjNzcsICM4MCwgIzg1LyM4NywgIzg5LCAjOTEsICM5MiwgYW5kICM5My4gRG8gbm90IHJlb3BlbiBQaGFzZSAzIHVubGVzcyBhIGNvbmNyZXRlIHJlZ3Jlc3Npb24gaXMgZm91bmQuCgojIyMgQ2Fub25pY2FsIGRvY3MvaGFuZG9mZgoKUFIgIzk0OiBgYWdlbnQvYXJjaGl0ZWN0dXJlLWNvbnNvbGlkYXRpb24tcGhhc2UtMy1jb21wbGV0aW9uLWxlZGdlcmAuCgpSZXNvbHZlIFBSICM5NCdzIGxpdmUgaGVhZCBiZWZvcmUgd3JpdGluZy4gVGhlIGltbXV0YWJsZSBydW50aW1lIGhlYWQgYWJvdmUgaXMgdGhlIGltcG9ydGFudCBjb2RlIGJhc2U7IGRvY3VtZW50YXRpb24gY29tbWl0cyBtYXkgYWR2YW5jZSBhZnRlciB0aGlzIGZpbGUgaXMgcHJlcGFyZWQuCgojIyMgUGhhc2UgNCDigJQgcGFydGlhbGx5IGltcGxlbWVudGVkLCBub3QgY3V0IG92ZXIKClRoZSBnZW5lcmljIFNRTGl0ZSArIHBhaXJpbmcgbWlncmF0aW9uIHRyYW5jaGUgaXMgYWxyZWFkeSBpbiB0aGUgZmluYWwgUGhhc2UgMyBhbmNlc3RyeS4gVGhpcyB3YXMgZXhwbGljaXRseSB2ZXJpZmllZDogRTQgZmluYWwgZG9jdW1lbnRhdGlvbiBoZWFkCgpgYjFmYWMwZGYzMzYwZmRjNjhjYTc2ZDkxMGU0NjdiOGExZjQ5NDRkN2AKCmlzIGEgZGlyZWN0IGFuY2VzdG9yIG9mIGAwN2E4Mjk1ZuKApmAgKGZpbmFsIFBoYXNlIDMgaXMgMzkgY29tbWl0cyBhaGVhZCkuIFRoZXJlZm9yZSAqKmRvIG5vdCByZXBsYXkvcmViYXNlL3JlLXBvcnQgUGhhc2UgNEHigJNFNCoqLgoKVmFsaWRhdGVkIGhpc3RvcmljYWwgUGhhc2UgNCBzdGFjazoKCi0gIzQxIOKAlCBTUUxpdGUgZm91bmRhdGlvbiwgaW1wbGVtZW50YXRpb24gYGQ2NTNiM2ZgLCBWZXJpZnkgYDMxMDI2NDM3MjY4YDsKLSAjNDQg4oCUIHBhaXJpbmcgU1FMaXRlIHJlcG9zaXRvcmllcywgYDBmOGU2NWFgLCBWZXJpZnkgYDMxMDI4NjgwNTQ5YDsKLSAjNDUg4oCUIHBhaXJpbmcgaW1wb3J0L3Jlc3VtZSwgYDY3ODFkZWFgLCBWZXJpZnkgYDMxMDMzMjA1NjE5YDsKLSAjNDYg4oCUIHBhaXJpbmcgc2hhZG93IGNvbXBhcmlzb24sIGA3NDQzZTdlYCwgVmVyaWZ5IGAzMTAzNjEyMjQ0OWA7Ci0gIzQ3IOKAlCBwYWlyaW5nIHNoYWRvdyBvYnNlcnZlciwgYDEzNjRmYTFgLCBWZXJpZnkgYDMxMDM5MTYxODcwYDsKLSAjNDgvIzUwLyM0OSDigJQgcGFpcmluZyBhdXRob3JpdHktc3RhdGUgLyBsb2NrZWQgc25hcHNob3QgLyBhdXRob3JpdHkgc2VsZWN0b3I7Ci0gIzUyLyM1MyDigJQgY3V0b3ZlciBwcmVwYXJhdGlvbiBhbmQgY29vcmRpbmF0b3I7Ci0gIzU0IOKAlCBwYWlyaW5nIHJvbGxiYWNrIGV4cG9ydDsgZmluYWwgZG9jdW1lbnRhdGlvbiBoZWFkIGBiMWZhYzBkYCwgZmluYWwgVmVyaWZ5IGAzMTMxNzExNDI0M2AuCgpUaG9zZSBwaWVjZXMgYXJlIGludGVudGlvbmFsbHkgbm90IHByb2R1Y3Rpb24tYXV0aG9yaXRhdGl2ZS4gRTQgc3BlY2lmaWNhbGx5IGhhcyBubyBwcm9kdWN0aW9uIGNvbXBvc2l0aW9uL2N1dG92ZXIgd2lyaW5nLgoKQURSLTAwMDMgY2xhc3NpZmllcyB0cmFuc2FjdGlvbmFsIGRvbWFpbiBzdGF0ZSBzdWNoIGFzIGFwcHMsIGJ1aWxkcywgc2Vzc2lvbnMsIHBhaXJpbmcgbWV0YWRhdGEsIHJlY2lwZXMsIG9ic2VydmF0aW9ucywgYW5kIGNsZWFudXAgam9icyBhcyBTUUxpdGUgY2FuZGlkYXRlcywgd2hpbGUgcHJvY2Vzcy1vd25lcnNoaXAgam91cm5hbHMsIHJ1bnRpbWUgbGVhc2VzLCBsb2NrLW93bmVyIHJlY29yZHMsIGVuZ2luZSBoYW5kb2ZmIHJlY29yZHMsIGFydGlmYWN0cy9tYW5pZmVzdHMvbG9ncy9nZW5lcmF0ZWQgcGFja2FnZXMgcmVtYWluIGZpbGVzeXN0ZW0vcnVudGltZSByZWNvcmRzLgoKIyMgNC4gV2hhdCByZW1haW5zIGluIFBoYXNlIDQKClRoZSBtYXN0ZXItcGxhbiBQaGFzZSA0IGdhdGUgaXMgKipub3QqKiBtZXQuIEF0IG1pbmltdW0gdGhlIG5leHQgYWdlbnQgbXVzdCBmaW5pc2g6CgotIG5vbi1wYWlyaW5nIHR5cGVkIGRvbWFpbiByZXBvc2l0b3J5IGNvdmVyYWdlIGFuZCBub3JtYWxpemVkIFNRTGl0ZSB0YWJsZXMvbWlncmF0aW9uczsKLSBvbmUtdGltZSBpbXBvcnQvcmVzdW1lIGFuZCBkdXBsaWNhdGUtcHJldmVudGlvbiBmb3IgdGhvc2UgZG9tYWluczsKLSBzdGFnZWQgc2hhZG93IHJlYWRzL2NvbXBhcmlzb25zIHdpdGggYWN0aW9uYWJsZSBkaXZlcmdlbmNlIGRpYWdub3N0aWNzOwotIHByb2R1Y3Rpb24gY29tcG9zaXRpb24gb25seSBhZnRlciBzaGFkb3cgZXZpZGVuY2UsIHRoZW4gYSBmZW5jZWQgc2luZ2xlLXdyaXRlciBhdXRob3JpdHkgY3V0b3ZlciB3aXRoIGEgZGVmaW5lZCByZWFkLW9ubHkgcm9sbGJhY2sgd2luZG93OwotIGxlZ2FjeSByZWFkLW9ubHkgaGFuZGxpbmcgYWZ0ZXIgY3V0b3ZlciByYXRoZXIgdGhhbiBwZXJtYW5lbnQgZHVhbCB3cml0YWJsZSB0cnV0aDsKLSBgc3dpZnQtc2ltIGRvY3RvcmAgY2hlY2tzIGZvciBzY2hlbWEvbWlncmF0aW9uIHN0YXRlLCBkYXRhYmFzZSBwZXJtaXNzaW9ucywgY29ycnVwdGlvbi9pbnRlZ3JpdHksIGFuZCBvcnBoYW4gYXJ0aWZhY3RzOwotIHJlZGFjdGVkIGRpYWdub3N0aWMvZXhwb3J0IHN1cHBvcnQgYW5kIGFjdGlvbmFibGUgY29ycnVwdGlvbiByZWNvdmVyeSBndWlkYW5jZTsKLSBmdWxsIG1pZ3JhdGlvbiBpZGVtcG90ZW5jeS9pbnRlcnJ1cHRpb24gcHJvb2YsIHJlcGVhdGVkLWltcG9ydCBuby1kdXBsaWNhdGUgcHJvb2YsIHRyYW5zYWN0aW9uYWwgZG9tYWluLW11dGF0aW9uIHByb29mLCBhbmQgcm9sbGJhY2sgcmVhZGFiaWxpdHk7Ci0gY2xlYW4gSG9tZWJyZXcgKip1cGdyYWRlIGZyb20gdGhlIHByZXZpb3VzIHRhZ2dlZCByZWxlYXNlKiosIG5vdCBvbmx5IGNsZWFuIGluc3RhbGw7Ci0gZmluYWwgUGhhc2UgNCByZXBvc2l0b3J5IGV2aWRlbmNlIGJlZm9yZSBQaGFzZSA1IGJlZ2lucy4KClByb2R1Y3Rpb24gU1FMaXRlIGF1dGhvcml0eSBhbmQgcm9sbGJhY2sgcmVtYWluIHVuYXV0aG9yaXplZCB1bnRpbCB0aGlzIGlzIGFsbCBwcm92ZW4uCgojIyA1LiBSZWNvbW1lbmRlZCBmaXJzdCB3b3JrIGluIHRoZSBuZXh0IHNlc3Npb24KCkRvIG5vdCBpbW1lZGlhdGVseSB3cml0ZSBhbm90aGVyIHBhaXJpbmcgc2xpY2UuIEZpcnN0IHBlcmZvcm0gYSAqKnJlYWQtb25seSBQaGFzZSA0IGRvbWFpbi1zdGF0ZSBpbnZlbnRvcnkgb24gdGhlIGN1cnJlbnQgYW5jZXN0cnkqKjoKCjEuIGVudW1lcmF0ZSBldmVyeSBjdXJyZW50IHdyaXRhYmxlIEpTT04vZG9tYWluLXN0YXRlIHN0b3JlIGFuZCBpdHMgZmlsZS9sb2NrL2JhY2t1cCBiZWhhdmlvcjsKMi4gY2xhc3NpZnkgZWFjaCByZWNvcmQgYXMgdHJhbnNhY3Rpb25hbCBkb21haW4gc3RhdGUgdnMgcnVudGltZS9wcm9jZXNzL2ZpbGVzeXN0ZW0gZXZpZGVuY2UgdW5kZXIgQURSLTAwMDM7CjMuIG1hcCBleGlzdGluZyBTUUxpdGUgc2NoZW1hL3JlcG9zaXRvcmllcy9pbXBvcnQgY2hlY2twb2ludHMgYWdhaW5zdCB0aGF0IGludmVudG9yeTsKNC4gaWRlbnRpZnkgd2hpY2ggbm9uLXBhaXJpbmcgZG9tYWlucyBzdGlsbCBoYXZlIG5vIG5vcm1hbGl6ZWQgcmVwb3NpdG9yeS9pbXBvcnQvc2hhZG93IHBhdGg7CjUuIGluc3BlY3QgY2FsbCBzaXRlcyB0byBkZXRlcm1pbmUgdHJhbnNhY3Rpb25hbCBib3VuZGFyaWVzIGFuZCBjcm9zcy1kb21haW4gaW52YXJpYW50czsKNi4gdXBkYXRlIHRoZSBQaGFzZSA0IHNlY3Rpb24gb2YgdGhlIHByb2dyZXNzIGxlZGdlciB3aXRoIHRoZSBpbnZlbnRvcnkgYW5kIHByb3Bvc2VkIHRyYW5jaGUgb3JkZXIgYmVmb3JlIGltcGxlbWVudGluZyB0aGUgZmlyc3QgbmV3IHJlcG9zaXRvcnkgc2xpY2UuCgpUaGVuIGNob29zZSB0aGUgKipzbWFsbGVzdCBjb2hlcmVudCBub24tcGFpcmluZyBkb21haW4gdHJhbmNoZSoqIHRoYXQgbWVhbmluZ2Z1bGx5IHJlZHVjZXMgY3VzdG9tIEpTT04gYXV0aG9yaXR5LiBUaGUgZmlyc3QgbmV3IGltcGxlbWVudGF0aW9uIHNsaWNlIHNob3VsZCBhZGQgcmVwb3NpdG9yeS9zY2hlbWEvaW1wb3J0L3NoYWRvdyBldmlkZW5jZSBvbmx5OyBhdm9pZCBzd2l0Y2hpbmcgcHJvZHVjdGlvbiBhdXRob3JpdHkgaW4gdGhhdCBzYW1lIFBSLiBQcmVzZXJ2ZSByZWNvcmQgcHJvamVjdGlvbnMgYW5kIHVzZSByZWFsIHRlbXBvcmFyeSBTUUxpdGUvZmlsZXN5c3RlbSB0ZXN0cyBwbHVzIGZhdWx0IGluamVjdGlvbi4KCkEgc2Vuc2libGUgc2VxdWVuY2luZyBkZWZhdWx0LCBzdWJqZWN0IHRvIHRoZSBpbnZlbnRvcnksIGlzOgoKMS4gbm9ybWFsaXplZCBub24tcGFpcmluZyByZXBvc2l0b3JpZXMgKyBpbXBvcnRzL3NoYWRvdyBjb21wYXJpc29uOwoyLiBjcm9zcy1kb21haW4gdHJhbnNhY3Rpb24vY29oZXJlbmNlIGNvdmVyYWdlOwozLiBzdGFnZWQgcHJvZHVjdGlvbiBjb21wb3NpdGlvbiBpbiBzaGFkb3cvcmVhZC1vbmx5IG1vZGU7CjQuIGF1dGhvcml0eSBjdXRvdmVyIHdpdGggcm9sbGJhY2sgd2luZG93Owo1LiBkb2N0b3IvZXhwb3J0L2NvcnJ1cHRpb24gcmVjb3Zlcnk7CjYuIHByZXZpb3VzLXRhZyBIb21lYnJldyB1cGdyYWRlIGFuZCBmdWxsIFBoYXNlIDQgZ2F0ZSBhdWRpdC4KCkRvIG5vdCB0cmVhdCB0aGF0IGxpc3QgYXMgcGVybWlzc2lvbiB0byBza2lwIHRoZSBpbnZlbnRvcnkgb3IgbWVyZ2UgbXVsdGlwbGUgc2FmZXR5IHRyYW5zaXRpb25zIGludG8gb25lIFBSLgoKIyMgNi4gS25vd24gdG9vbGluZy9wdWJsaWNhdGlvbiBmYWN0cyBmcm9tIHRoZSBwcmV2aW91cyBzZXNzaW9uCgotIFRoaXMgQ2hhdEdQVCBHaXRIdWIgaGFybmVzcyBjb3VsZCBub3QgcmVseSBvbiBhIGxvY2FsIGNsb25lIGZvciBjYW5vbmljYWwgcHVibGljYXRpb24uIFRlbXBvcmFyeSBHaXRIdWIgQWN0aW9ucyBvcmFjbGVzIHdlcmUgdXNlZCB0byBydW4gTm9kZSAyNC9mdWxsIHJlcG9zaXRvcnkgZ2F0ZXMsIGFuZCBwcm9kdWN0IHJlZnMgbW92ZWQgb25seSBhZnRlciBleGFjdCBzb3VyY2UvdGFyZ2V0IGd1YXJkcy4KLSBHaXRIdWIncyBhcmNoaXRlY3R1cmUgaW52ZW50b3J5IGludGVudGlvbmFsbHkgcmVqZWN0cyBtaXNsZWFkaW5nIHB1c2gtZXZlbnQgbWV0YWRhdGEgc3VjaCBhcyBgcHVzaC5iZWZvcmUgPT0gY2hlY2tlZCBIRUFEYC4gVGVtcG9yYXJ5IHdvcmtmbG93cyB0aGF0IGNoZWNrIG91dCBhIGRpZmZlcmVudCBleGFjdCBwcm9kdWN0IFNIQSBtdXN0IGlzb2xhdGUvdW5zZXQgR2l0SHViIGV2ZW50IG1ldGFkYXRhIGJlZm9yZSBpbnZva2luZyB0aGUgaGlzdG9yeS1hd2FyZSBhcmNoaXRlY3R1cmUgZ2F0ZS4gRG8gbm90IHdlYWtlbiB0aGUgaW52ZW50b3J5IHRvIGFjY29tbW9kYXRlIGEgaGFybmVzcyBhcnRpZmFjdC4KLSBBUEkvR0lUSFVCX1RPS0VOLWF1dGhvcmVkIGNvbW1pdHMgY2FuIHlpZWxkIGBhY3Rpb25fcmVxdWlyZWRgIHdpdGggbm8gam9icy4gU2FtZS10cmVlIG5hdHVyYWwgdmVyaWZpY2F0aW9uIGNvbW1pdHMgd2VyZSB1c2VkIHdoZXJlIG5lY2Vzc2FyeTsgbmV2ZXIgY2xhaW0gYSBydW4gcGFzc2VkIHVubGVzcyBqb2JzIGFjdHVhbGx5IHJhbiBhbmQgY29tcGxldGVkIHN1Y2Nlc3NmdWxseS4KLSBJbmNpZGVudGFsIGZvcm1hdHRpbmcgb2YgbGVnYWN5IGZpbGVzIG91dHNpZGUgdGhlIHJlcG8ncyBmb3JtYXR0ZXIgc3VyZmFjZSBpcyBub3QgYWNjZXB0YWJsZS4gUHJlc2VydmUgY2xlYW4gZGlmZnM7IGlmIGEgdmFsaWRhdGVkIGNvbW1pdCBjb250YWlucyBhY2NpZGVudGFsIGNodXJuLCBjb3JyZWN0IGl0IHdpdGggYW4gb3JkaW5hcnkgY2hpbGQgY29tbWl0IHJhdGhlciB0aGFuIHJld3JpdGluZyBoaXN0b3J5LgoKIyMgNy4gRW5kLW9mLXNlc3Npb24gZGlzY2lwbGluZQoKQmVmb3JlIGhhbmRpbmcgb2ZmIGFnYWluOgoKLSBrZWVwIHRoZSBjYW5vbmljYWwgcHJvZ3Jlc3MgbGVkZ2VyIGN1cnJlbnQgYXQgaXRzIHRvcCBzdW1tYXJ5IGFuZCBkZXRhaWxlZCBwaGFzZSBzZWN0aW9uOwotIHJlY29yZCBleGFjdCBiYXNlL2hlYWQsIFBSLCB2ZXJpZmljYXRpb24gcnVuLCBwcm9kdWN0IHRyZWUgaWYgcmVsZXZhbnQsIGNoYW5nZWQtZmlsZSBzY29wZSwgcm9sbGJhY2sgc3RhdGUsIGFuZCByZW1haW5pbmcgZ2F0ZTsKLSBhZGQgb3IgdXBkYXRlIHRoaXMgY3VycmVudCBoYW5kb2ZmIGFuZCBjdXJyZW50IG5leHQtYWdlbnQgcHJvbXB0IHdoZW4gY29udGV4dCBpcyBhYm91dCB0byBiZSBsb3N0OwotIGtlZXAgdGVtcG9yYXJ5IG9yYWNsZS9wdWJsaXNoZXIgYnJhbmNoZXMgb3V0IG9mIHByb2R1Y3QgYW5jZXN0cnk7Ci0gbGVhdmUgZHJhZnQvdW5tZXJnZWQgc3RhdGUgZXhwbGljaXQgYW5kIGRvIG5vdCBpbXBseSBNaWd1ZWwgYXV0aG9yaXplZCBhIG1lcmdlIHVubGVzcyBoZSBhY3R1YWxseSBkaWQuCg=="
+          prompt_b64 = "Q29udGludWUgdGhlIFN3aWZ0LVNpbSBhcmNoaXRlY3R1cmUgY29uc29saWRhdGlvbiBmcm9tIHRoZSBjdXJyZW50IHJlcG9zaXRvcnkgc3RhdGUuCgpCZWZvcmUgZG9pbmcgYW55dGhpbmcgZWxzZSwgcmVhZCB0aGUgcmVwb3NpdG9yeSdzIGludGVybmFsIGFyY2hpdGVjdHVyZSBkb2NzIGluIHRoZSBvcmRlciBzcGVjaWZpZWQgYnk6CgpgZG9jcy9pbnRlcm5hbC9wbGFucy9ORVhUX0FHRU5UX0hBTkRPRkZfQVJDSElURUNUVVJFX0NPTlNPTElEQVRJT05fQ1VSUkVOVC5tZGAKClRoZW4gcmVhZDoKCmBkb2NzL2ludGVybmFsL3BsYW5zL0FSQ0hJVEVDVFVSRV9DT05TT0xJREFUSU9OX1BST0dSRVNTLm1kYAoKYW5kIG9iZXkgdGhlIG1hc3RlciBwbGFuLCBpbnZhcmlhbnRzLCBleGVjdXRpb24gZ3VpZGUsIGJhdGNoZWQtZXhlY3V0aW9uIGFtZW5kbWVudCwgY2hlY2twb2ludCBwcm90b2NvbCwgQURScywgYW5kIE1pZ3VlbCdzIEdpdEh1YiBwdWJsaWNhdGlvbiBydWxlcyBhdCBgaHR0cHM6Ly9wYXN0ZWJpbi5jb20vcmF3L3J2eUVVdUFXYC4KCkltcG9ydGFudCBjdXJyZW50IGZhY3RzIHlvdSBtdXN0IGluZGVwZW5kZW50bHkgY29uZmlybSBmcm9tIEdpdC9HaXRIdWIgYmVmb3JlIHdyaXRpbmc6CgotIFBoYXNlIDMgaW1wbGVtZW50YXRpb24gZ2F0ZSBpcyBjb21wbGV0ZSBhdCBleGFjdCBydW50aW1lL3Byb2R1Y3QgaGVhZCBgMDdhODI5NWYwMjIxZjFmMjAwN2NiMWYwMWM5OWE1OTk4ZjM3MWY4YWAgKFBSICM5MyksIHdpdGggbmF0dXJhbCBWZXJpZnkgIzg2NSAvIHJ1biBgMzE0NDQzNTg1ODZgIGZ1bGx5IGdyZWVuIGFuZCBleGFjdC1oZWFkIFBoYXNlIDMgY2xvc3VyZSBhdWRpdCBgMzE0NDQ1ODEyMDFgIGZ1bGx5IGdyZWVuLgotIFRoZSBjYW5vbmljYWwgZG9jdW1lbnRhdGlvbi9oYW5kb2ZmIGJyYW5jaCBpcyBQUiAjOTQsIGBhZ2VudC9hcmNoaXRlY3R1cmUtY29uc29saWRhdGlvbi1waGFzZS0zLWNvbXBsZXRpb24tbGVkZ2VyYC4gUmVzb2x2ZSBpdHMgbGl2ZSBoZWFkIGZpcnN0OyBkb2N1bWVudGF0aW9uIFNIQXMgbWF5IGhhdmUgYWR2YW5jZWQgYWZ0ZXIgdGhpcyBwcm9tcHQgd2FzIHdyaXR0ZW4uCi0gUGhhc2UgNCdzIFNRTGl0ZS9wYWlyaW5nIHRyYW5jaGUgdGhyb3VnaCBFNCBpcyBhbHJlYWR5IGluIHRoZSBmaW5hbCBQaGFzZSAzIGFuY2VzdHJ5LiBgYjFmYWMwZGYzMzYwZmRjNjhjYTc2ZDkxMGU0NjdiOGExZjQ5NDRkN2AgaXMgYSBkaXJlY3QgYW5jZXN0b3Igb2YgYDA3YTgyOTVm4oCmYC4gRG8gbm90IHJlcGxheS9yZWJhc2UvcmUtcG9ydCBpdC4KLSBGdWxsIFBoYXNlIDQgaXMgc3RpbGwgaW5jb21wbGV0ZS4gUHJvZHVjdGlvbiBTUUxpdGUgYXV0aG9yaXR5LCBtaWdyYXRpb24gY3V0b3Zlci9yb2xsYmFjaywgYW5kIFBoYXNlIDUgcHJlbG9hZCByZW1vdmFsIGFyZSBOT1QgYXV0aG9yaXplZC4KLSBBbGwgUGhhc2UgMisgYXJjaGl0ZWN0dXJlIFBScyByZW1haW4gZHJhZnQvdW5tZXJnZWQuIERvIG5vdCBtZXJnZSBvciBmb3JjZS1wdXNoOyBmaW5hbCBwZXJzaXN0ZW50LWxvY2FsL2RldmljZSB2ZXJpZmljYXRpb24gYmVsb25ncyB0byB0aGUgTHVuYSBoYW5kb2ZmIGFuZCBmaW5hbCBtZXJnZSByZXF1aXJlcyBNaWd1ZWwncyBleHBsaWNpdCBhdXRob3JpemF0aW9uLgoKWW91ciBpbW1lZGlhdGUgdGFzayBpcyB0byBjb250aW51ZSBQaGFzZSA0IGNvcnJlY3RseSwgbm90IHRvIHN0YXJ0IFBoYXNlIDU6CgoxLiBQZXJmb3JtIGEgcmVhZC1vbmx5IGludmVudG9yeSBvZiBldmVyeSBjdXJyZW50IHdyaXRhYmxlIEpTT04vZG9tYWluLXN0YXRlIHN0b3JlIGFuZCBjbGFzc2lmeSBpdCB1bmRlciBBRFItMDAwMyBhcyB0cmFuc2FjdGlvbmFsIGRvbWFpbiBzdGF0ZSB2cyBydW50aW1lL3Byb2Nlc3MvZmlsZXN5c3RlbSBldmlkZW5jZS4KMi4gTWFwIHRoZSBleGlzdGluZyBTUUxpdGUgc2NoZW1hL3JlcG9zaXRvcmllcy9pbXBvcnQvc2hhZG93L2N1dG92ZXIgbWFjaGluZXJ5IGFnYWluc3QgdGhhdCBpbnZlbnRvcnkuCjMuIElkZW50aWZ5IHRoZSBtaXNzaW5nIG5vbi1wYWlyaW5nIHJlcG9zaXRvcmllcyBhbmQgY3Jvc3MtZG9tYWluIHRyYW5zYWN0aW9uYWwgYm91bmRhcmllcy4KNC4gVXBkYXRlIHRoZSBQaGFzZSA0IHByb2dyZXNzIHBsYW4gd2l0aCB0aGUgcmVzdWx0aW5nIHRyYW5jaGUgb3JkZXIuCjUuIEltcGxlbWVudCB0aGUgc21hbGxlc3QgY29oZXJlbnQgbmV4dCBub24tcGFpcmluZyByZXBvc2l0b3J5L2ltcG9ydC9zaGFkb3cgc2xpY2Ugd2l0aG91dCBzd2l0Y2hpbmcgcHJvZHVjdGlvbiBhdXRob3JpdHkgaW4gdGhhdCBzYW1lIFBSLgo2LiBWYWxpZGF0ZSBhZHZlcnNhcmlhbGx5IHdpdGggcmVhbCB0ZW1wb3JhcnkgU1FMaXRlL2ZpbGVzeXN0ZW0gdGVzdHMsIHN0cmljdCB0eXBlcywgYXJjaGl0ZWN0dXJlIGRlYnQgY2hlY2tzLCBmdWxsIE5vZGUvcGFja2FnZSBnYXRlcywgYW5kIGhvc3RlZCBWZXJpZnkgd2hlcmUgdGhlIGhhcm5lc3MgcGVybWl0cy4KNy4gQ29udGludWUgYXV0b25vbW91c2x5IHRocm91Z2ggbWVhbmluZ2Z1bCBib3VuZGVkIFBoYXNlIDQgc2xpY2VzLCBrZWVwaW5nIGRvY3MgY3VycmVudCBhcyB5b3UgZ28uIERvIG5vdCBzdG9wIG1lcmVseSBiZWNhdXNlIG9uZSBpbnRlcm1lZGlhdGUgc2xpY2UgaXMgZ3JlZW47IHN0b3AgYXQgYSBnZW51aW5lIGNvaGVyZW50IGNoZWNrcG9pbnQsIGEgcmVhbCBibG9ja2VyLCBvciB3aGVuIGEgZnJlc2ggaGFuZG9mZiBpcyByZXF1aXJlZC4KClByZXNlcnZlIGV4aXN0aW5nIHJlY29yZCBwcm9qZWN0aW9ucywgZmFpbC1jbG9zZWQgYmVoYXZpb3IsIHByb2Nlc3MtaWRlbnRpdHkgc2VwYXJhdGlvbiwgcHVibGljL3ByaXZhdGUgcm91dGUgY29udHJhY3RzLCBhbmQgcm9sbGJhY2sgc2FmZXR5LiBLZWVwIGxlZ2FjeSBKU09OIHJlYWQtb25seSBvbmx5IHdoZW4gYSBsYXRlciBwcm92ZW4gY3V0b3ZlciBleHBsaWNpdGx5IG1ha2VzIFNRTGl0ZSBhdXRob3JpdGF0aXZlOyBuZXZlciBjcmVhdGUgcGVybWFuZW50IGR1YWwgd3JpdGFibGUgdHJ1dGguCg=="
+          Path('docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md').write_bytes(base64.b64decode(handoff_b64))
+          Path('docs/internal/plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md').write_bytes(base64.b64decode(prompt_b64))
           PY
       - name: Validate exact handoff diff
         shell: bash
@@ -278,8 +109,8 @@ Preserve existing record projections, fail-closed behavior, process-identity sep
               'docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md',
               'docs/internal/plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md',
           }
-          actual = set(subprocess.check_output(['git', 'status', '--short'], text=True).splitlines())
-          paths = {line[3:] for line in actual}
+          output = subprocess.check_output(['git', 'status', '--porcelain'], text=True)
+          paths = {line[3:] for line in output.splitlines()}
           if paths != expected:
               raise SystemExit(f'Unexpected handoff paths: {sorted(paths)}')
           PY
@@ -290,10 +121,7 @@ Preserve existing record projections, fail-closed behavior, process-identity sep
         run: |
           git config user.name Miguel
           git config user.email serram1994@gmail.com
-          git add docs/internal/README.md \
-            docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md \
-            docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md \
-            docs/internal/plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md
+          git add docs/internal/README.md docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md docs/internal/plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md
           git commit -m 'docs: hand off Phase 4 continuation'
           test "$(git diff-tree --no-commit-id --name-only -r HEAD | sort | tr '\n' ' ')" = "docs/internal/README.md docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md docs/internal/plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md docs/internal/plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_CURRENT.md "
       - name: Guard temporary output and publish candidate tree
