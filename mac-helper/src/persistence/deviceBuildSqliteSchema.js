@@ -98,4 +98,35 @@ export const DEVICE_BUILD_SQLITE_MIGRATIONS = Object.freeze([
       "delivery_reference_cleanup_jobs",
     ]),
   }),
+  Object.freeze({
+    version: 7,
+    name: "device_build_shadow_mismatch_evidence",
+    statements: Object.freeze([
+      `CREATE TABLE device_build_shadow_mismatches (
+        mismatch_id TEXT PRIMARY KEY CHECK (
+          length(mismatch_id) = 64 AND mismatch_id NOT GLOB '*[^0-9a-f]*'
+        ),
+        key_hash TEXT NOT NULL CHECK (
+          length(key_hash) = 64 AND key_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        legacy_projection_hash TEXT NOT NULL CHECK (
+          length(legacy_projection_hash) = 64 AND
+          legacy_projection_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        sqlite_projection_hash TEXT NOT NULL CHECK (
+          length(sqlite_projection_hash) = 64 AND
+          sqlite_projection_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        first_observed_at TEXT NOT NULL CHECK (length(first_observed_at) > 0),
+        last_observed_at TEXT NOT NULL CHECK (length(last_observed_at) > 0),
+        observation_count INTEGER NOT NULL CHECK (
+          observation_count >= 1 AND observation_count <= 9007199254740991
+        ),
+        CHECK (legacy_projection_hash != sqlite_projection_hash)
+      ) STRICT`,
+      `CREATE INDEX device_build_shadow_mismatches_key_idx
+        ON device_build_shadow_mismatches(key_hash, last_observed_at)`,
+    ]),
+    requiredTables: Object.freeze(["device_build_shadow_mismatches"]),
+  }),
 ]);

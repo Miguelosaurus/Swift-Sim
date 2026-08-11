@@ -57,3 +57,35 @@ export interface DeviceBuildStateReader {
 export interface DeviceBuildStateRepository extends DeviceBuildStateReader {
   replace(snapshot: DeviceBuildStateSnapshot): void;
 }
+
+export interface DeviceBuildShadowMismatchObservation {
+  mismatchID: string;
+  keyHash: string;
+  legacyProjectionHash: string;
+  sqliteProjectionHash: string;
+  observedAt: string;
+}
+
+export interface DeviceBuildShadowMismatchEvidence {
+  mismatchID: string;
+  keyHash: string;
+  legacyProjectionHash: string;
+  sqliteProjectionHash: string;
+  firstObservedAt: string;
+  lastObservedAt: string;
+  observationCount: number;
+}
+
+export interface DeviceBuildShadowMismatchRepository {
+  get(mismatchID: string): DeviceBuildShadowMismatchEvidence | null;
+  list(): DeviceBuildShadowMismatchEvidence[];
+  observe(observation: DeviceBuildShadowMismatchObservation): DeviceBuildShadowMismatchEvidence;
+}
+
+export interface DeviceBuildShadowComparisonResult {
+  matched: boolean;
+  keyHash: string;
+  legacyProjectionHash: string;
+  sqliteProjectionHash: string;
+  evidence: DeviceBuildShadowMismatchEvidence | null;
+}
