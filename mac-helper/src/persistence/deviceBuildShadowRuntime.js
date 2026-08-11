@@ -61,6 +61,12 @@ import { SwiftSimSqliteDatabase } from "./swiftSimSqliteDatabase.js";
  * Darwin `ps -o lstart=` identity required to interoperate with `startedAt`
  * owners; this module imports no child-process API itself.
  *
+ * SQLite creation, WAL setup, and migrations are synchronous. Temporarily
+ * tightening the process umask to 077 across that bounded constructor window
+ * ensures newly created database/WAL/SHM files are private without adding a
+ * second filesystem-permission owner. The previous process umask is restored
+ * before this factory returns or throws.
+ *
  * @param {{
  *   databasePath: string,
  *   source: DeviceBuildLegacySource,
@@ -98,11 +104,14 @@ export function createDeviceBuildShadowRuntime(options) {
   /** @type {SwiftSimSqliteDatabase | undefined} */
   let database;
   try {
-    const openedDatabase = new SwiftSimSqliteDatabase({
-      path: databasePath,
-      migrations: DEVICE_BUILD_SQLITE_MIGRATIONS,
-      now: () => clock.now().toISOString(),
-    });
+    const openedDatabase = withPrivateFileCreationMask(
+      () =>
+        new SwiftSimSqliteDatabase({
+          path: databasePath,
+          migrations: DEVICE_BUILD_SQLITE_MIGRATIONS,
+          now: () => clock.now().toISOString(),
+        }),
+    );
     database = openedDatabase;
     const deviceBuildRepository = new SqliteDeviceBuildStateRepository(openedDatabase);
     const checkpointRepository = new SqliteLegacyImportCheckpointRepository(openedDatabase);
@@ -143,6 +152,16 @@ export function createDeviceBuildShadowRuntime(options) {
       // Construction already failed; do not replace the original error.
     }
     throw error;
+  }
+}
+
+/** @template T @param {() => T} operation @returns {T} */
+function withPrivateFileCreationMask(operation) {
+  const previousUmask = process.umask(0o077);
+  try {
+    return operation();
+  } finally {
+    process.umask(previousUmask);
   }
 }
 
