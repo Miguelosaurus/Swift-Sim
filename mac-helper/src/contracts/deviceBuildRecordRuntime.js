@@ -20,10 +20,9 @@ const INSTALLATION_STATES = new Set([
 ]);
 
 /**
- * Source-loadable runtime predicate for the canonical DeviceBuildRecord shape.
- * The typed `build.ts` contract delegates to this function so raw-source and
- * emitted runtimes validate the same record rather than maintaining separate
- * persistence validators.
+ * Source-loadable runtime predicate mirroring the canonical DeviceBuildRecord
+ * contract. Persistence modules use this predicate so the raw-source helper
+ * does not depend on emitted-only TypeScript contract output.
  *
  * @param {unknown} value
  * @returns {boolean}
@@ -70,6 +69,8 @@ export function isDeviceBuildRecordRuntime(value) {
     (Array.isArray(value.capabilities) && value.capabilities.every(isCapability))
   );
 }
+
+export const isDeviceBuildRecord = isDeviceBuildRecordRuntime;
 
 /** @param {unknown} value */
 function isDelivery(value) {
