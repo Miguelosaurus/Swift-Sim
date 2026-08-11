@@ -75,7 +75,10 @@ export async function prepareDeviceBuildShadowCompatibility({
     components = await loadComponents();
     validateComponents(components);
   } catch {
-    reportGeneric(reportError, "Device-build SQLite shadow initialization failed; using JSON only.");
+    reportGeneric(
+      reportError,
+      "Device-build SQLite shadow initialization failed; using JSON only.",
+    );
     return disabledStartup();
   }
 
