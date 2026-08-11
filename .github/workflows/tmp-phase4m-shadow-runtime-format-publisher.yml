@@ -1,0 +1,32 @@
+name: Temporary Phase 4M Shadow Runtime Format Publisher
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4m-shadow-runtime-format-publisher
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ed4c2ba2a8bb9a137d7591e57df095966442b37d
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Publish exact formatted test to temporary output branch
+        shell: bash
+        run: |
+          npx prettier --write test/deviceBuildShadowRuntime.test.ts
+          git config user.name "swift-sim-phase4m-oracle"
+          git config user.email "actions@users.noreply.github.com"
+          git add test/deviceBuildShadowRuntime.test.ts
+          git commit -m "Format Phase 4M shadow runtime test"
+          git push origin HEAD:refs/heads/agent/tmp-phase4m-shadow-runtime-formatted-output
