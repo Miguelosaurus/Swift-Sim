@@ -74,7 +74,9 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   assert.equal(first.sourceVersion, BUILD_STATE_VERSION);
   assert.equal(first.recordCount, 0);
   assert.equal(first.backups.length, 1);
-  assert.equal(statSync(first.backups[0]).mode & 0o777, 0o600);
+  const backupPath = first.backups[0];
+  assert.ok(backupPath);
+  assert.equal(statSync(backupPath).mode & 0o777, 0o600);
   assert.ok(processIdentityCalls > 0);
 
   const retry = runtime.importLegacy();
