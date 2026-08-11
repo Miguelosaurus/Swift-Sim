@@ -58,19 +58,34 @@ export interface DeviceBuildStateRepository extends DeviceBuildStateReader {
   replace(snapshot: DeviceBuildStateSnapshot): void;
 }
 
+export type DeviceBuildShadowSurface =
+  | "build"
+  | "app"
+  | "artifact-cleanup-job"
+  | "delivery-cleanup-job";
+
+export type DeviceBuildShadowProjection =
+  | DeviceBuildRecord
+  | DeviceBuildAppStateRecord
+  | ArtifactCleanupJobRecord
+  | DeliveryReferenceCleanupJobRecord
+  | null;
+
 export interface DeviceBuildShadowMismatchObservation {
   mismatchID: string;
+  surface: DeviceBuildShadowSurface;
   keyHash: string;
-  legacyProjectionHash: string;
-  sqliteProjectionHash: string;
+  legacyProjectionHash: string | null;
+  sqliteProjectionHash: string | null;
   observedAt: string;
 }
 
 export interface DeviceBuildShadowMismatchEvidence {
   mismatchID: string;
+  surface: DeviceBuildShadowSurface;
   keyHash: string;
-  legacyProjectionHash: string;
-  sqliteProjectionHash: string;
+  legacyProjectionHash: string | null;
+  sqliteProjectionHash: string | null;
   firstObservedAt: string;
   lastObservedAt: string;
   observationCount: number;
@@ -84,8 +99,9 @@ export interface DeviceBuildShadowMismatchRepository {
 
 export interface DeviceBuildShadowComparisonResult {
   matched: boolean;
+  surface: DeviceBuildShadowSurface;
   keyHash: string;
-  legacyProjectionHash: string;
-  sqliteProjectionHash: string;
+  legacyProjectionHash: string | null;
+  sqliteProjectionHash: string | null;
   evidence: DeviceBuildShadowMismatchEvidence | null;
 }

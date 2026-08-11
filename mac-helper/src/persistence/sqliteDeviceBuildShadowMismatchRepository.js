@@ -4,11 +4,13 @@ import { deviceBuildShadowMismatchID } from "./deviceBuildShadowComparison.js";
 
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildShadowMismatchEvidence} DeviceBuildShadowMismatchEvidence */
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildShadowMismatchObservation} DeviceBuildShadowMismatchObservation */
+/** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildShadowSurface} DeviceBuildShadowSurface */
 /** @typedef {import("./swiftSimSqliteDatabase.js").SwiftSimSqliteDatabase} SwiftSimSqliteDatabase */
 
 const MAX_OBSERVATION_COUNT = Number.MAX_SAFE_INTEGER;
 const SELECT_COLUMNS = `SELECT
   mismatch_id,
+  surface,
   key_hash,
   legacy_projection_hash,
   sqlite_projection_hash,
@@ -27,16 +29,17 @@ export class SqliteDeviceBuildShadowMismatchRepository {
     this.#getStatement = database.prepare(`${SELECT_COLUMNS}
       WHERE mismatch_id = ?`);
     this.#listStatement = database.prepare(`${SELECT_COLUMNS}
-      ORDER BY key_hash, mismatch_id`);
+      ORDER BY surface, key_hash, mismatch_id`);
     this.#observeStatement = database.prepare(`INSERT INTO device_build_shadow_mismatches(
       mismatch_id,
+      surface,
       key_hash,
       legacy_projection_hash,
       sqlite_projection_hash,
       first_observed_at,
       last_observed_at,
       observation_count
-    ) VALUES (?, ?, ?, ?, ?, ?, 1)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     ON CONFLICT(mismatch_id) DO UPDATE SET
       last_observed_at = CASE
         WHEN excluded.last_observed_at > device_build_shadow_mismatches.last_observed_at
@@ -49,9 +52,10 @@ export class SqliteDeviceBuildShadowMismatchRepository {
         ELSE device_build_shadow_mismatches.observation_count
       END
     WHERE
+      device_build_shadow_mismatches.surface = excluded.surface AND
       device_build_shadow_mismatches.key_hash = excluded.key_hash AND
-      device_build_shadow_mismatches.legacy_projection_hash = excluded.legacy_projection_hash AND
-      device_build_shadow_mismatches.sqlite_projection_hash = excluded.sqlite_projection_hash`);
+      device_build_shadow_mismatches.legacy_projection_hash IS excluded.legacy_projection_hash AND
+      device_build_shadow_mismatches.sqlite_projection_hash IS excluded.sqlite_projection_hash`);
   }
 
   /** @param {string} mismatchID @returns {DeviceBuildShadowMismatchEvidence | null} */
@@ -73,6 +77,7 @@ export class SqliteDeviceBuildShadowMismatchRepository {
     const record = validateObservation(observation);
     this.#observeStatement.run(
       record.mismatchID,
+      record.surface,
       record.keyHash,
       record.legacyProjectionHash,
       record.sqliteProjectionHash,
@@ -93,12 +98,13 @@ function validateObservation(observation) {
     throw new Error("Device-build shadow mismatch observation must be an object.");
   }
   const values = /** @type {Record<string, unknown>} */ (observation);
+  const surface = requireSurface(values.surface);
   const keyHash = requireHash(values.keyHash, "Device-build shadow keyHash");
-  const legacyProjectionHash = requireHash(
+  const legacyProjectionHash = requireNullableHash(
     values.legacyProjectionHash,
     "Device-build shadow legacyProjectionHash",
   );
-  const sqliteProjectionHash = requireHash(
+  const sqliteProjectionHash = requireNullableHash(
     values.sqliteProjectionHash,
     "Device-build shadow sqliteProjectionHash",
   );
@@ -107,6 +113,7 @@ function validateObservation(observation) {
   }
   const mismatchID = requireHash(values.mismatchID, "Device-build shadow mismatchID");
   const expectedMismatchID = deviceBuildShadowMismatchID({
+    surface,
     keyHash,
     legacyProjectionHash,
     sqliteProjectionHash,
@@ -116,6 +123,7 @@ function validateObservation(observation) {
   }
   return {
     mismatchID,
+    surface,
     keyHash,
     legacyProjectionHash,
     sqliteProjectionHash,
@@ -133,16 +141,18 @@ function mapEvidenceRow(row) {
   if (
     typeof observationCount !== "number" ||
     !Number.isSafeInteger(observationCount) ||
-    observationCount < 1
+    observationCount < 1 ||
+    observationCount > MAX_OBSERVATION_COUNT
   ) {
     throw new Error("Device-build shadow observationCount must be a positive safe integer.");
   }
+  const surface = requireSurface(values.surface);
   const keyHash = requireHash(values.key_hash, "Device-build shadow keyHash");
-  const legacyProjectionHash = requireHash(
+  const legacyProjectionHash = requireNullableHash(
     values.legacy_projection_hash,
     "Device-build shadow legacyProjectionHash",
   );
-  const sqliteProjectionHash = requireHash(
+  const sqliteProjectionHash = requireNullableHash(
     values.sqlite_projection_hash,
     "Device-build shadow sqliteProjectionHash",
   );
@@ -153,6 +163,7 @@ function mapEvidenceRow(row) {
   if (
     mismatchID !==
     deviceBuildShadowMismatchID({
+      surface,
       keyHash,
       legacyProjectionHash,
       sqliteProjectionHash,
@@ -173,6 +184,7 @@ function mapEvidenceRow(row) {
   }
   return {
     mismatchID,
+    surface,
     keyHash,
     legacyProjectionHash,
     sqliteProjectionHash,
@@ -182,12 +194,30 @@ function mapEvidenceRow(row) {
   };
 }
 
+/** @param {unknown} value @returns {DeviceBuildShadowSurface} */
+function requireSurface(value) {
+  if (
+    value !== "build" &&
+    value !== "app" &&
+    value !== "artifact-cleanup-job" &&
+    value !== "delivery-cleanup-job"
+  ) {
+    throw new Error("Device-build shadow surface is invalid.");
+  }
+  return value;
+}
+
 /** @param {unknown} value @param {string} label */
 function requireHash(value, label) {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
     throw new Error(`${label} must be a lowercase SHA-256 digest.`);
   }
   return value;
+}
+
+/** @param {unknown} value @param {string} label */
+function requireNullableHash(value, label) {
+  return value === null ? null : requireHash(value, label);
 }
 
 /** @param {unknown} value @param {string} label */
