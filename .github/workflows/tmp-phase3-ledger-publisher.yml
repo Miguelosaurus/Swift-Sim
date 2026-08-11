@@ -1,0 +1,102 @@
+name: Temporary Phase 3 Completion Ledger Publisher
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase3-ledger-publisher
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tmp-phase3-ledger-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      BASE_SHA: 07a8295f0221f1f2007cb1f01c99a5998f371f8a
+      PRODUCT_BRANCH: agent/architecture-consolidation-phase-3-completion-ledger
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: 07a8295f0221f1f2007cb1f01c99a5998f371f8a
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Update canonical Phase 3 ledger
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md')
+          text = path.read_text()
+
+          lines = text.splitlines()
+          replaced = {"status": False, "head": False, "ancestry": False}
+          for index, line in enumerate(lines):
+              if line.startswith('- Status: Partially implemented in draft PRs #34–#40'):
+                  lines[index] = '- Status: **Phase 3 implementation gate complete** on the draft corrective stack through PR #93; all Phase 3 PRs remain open/draft/unmerged and merge still requires Miguel authorization.'
+                  replaced['status'] = True
+              elif line.startswith('- Current Phase 3G head:'):
+                  lines[index] = '- Final Phase 3 exact verification head: PR #93 / `07a8295f0221f1f2007cb1f01c99a5998f371f8a` (product tree `c025296d0a458809809b948e16d47ffa6f8c82fd`).'
+                  replaced['head'] = True
+              elif line.startswith('- Corrective active-ancestry implementation head:'):
+                  lines[index] = '- Corrective active ancestry now runs through PRs #77, #80, #85/#87, #89, #91, #92, and #93. Earlier validated sibling/corrective history remains preserved; temporary oracle/publisher branches are not product ancestry.'
+                  replaced['ancestry'] = True
+          if not all(replaced.values()):
+              raise SystemExit(f'Phase 3 header replacement anchors missing: {replaced}')
+          text = '\n'.join(lines) + '\n'
+
+          marker = '### Gate correction\n'
+          if text.count(marker) != 1:
+              raise SystemExit(f'expected one Phase 3 gate correction marker, found {text.count(marker)}')
+
+          evidence = '''### Corrective Phase 3O evidence\n\n- PR #77 / `bbd773972e33dcc5d7e2e7758482aafabb8f318d` centralizes interrupted-build recovery, initial cleanup, HTTP listen/socket ownership, reconciliation/cleanup timers, keepalive, signals, graceful drain, forced socket closure, and the bounded fail-safe exit in `HelperServiceLifecycle`, while retaining the corrected device-installation reconciliation coordinator.\n- Authoritative Verify #807 / run `31425602501` passed full Node/package checks, isolated clean Homebrew installation/service, YAML/shell gates, and iOS Simulator tests.\n\n### Corrective Phase 3P evidence\n\n- PR #80 / `c92668eee8f17c96346279cc75fc0dd9d5492415` makes compatibility-helper import inert and moves all concrete store/adapter/transport construction behind explicit `createCompatibilityHelperRuntime()` composition with fail-before-construction factory validation.\n- Authoritative Verify #815 / run `31427558750` passed end to end.\n\n### Corrective Phase 3Q–R evidence\n\n- PR #85 / `ad9dd22721b0f5f99143d1f47fc8d02ff42cd7ce` extracts `delete-app` into selective command composition and reuses the delivery-maintenance coordinator. Verify #819 / run `31428505506` passed end to end.\n- PR #87 / `b994cfa3d5a4f4a8aa5fe0aa8760a943745b2cb1` reconciles the hosted-green CLI siblings and moves all remaining compatibility option parsing/output formatting out of the helper. Verify #827 / run `31430219744` passed end to end.\n\n### Corrective Phase 3S evidence\n\n- PR #89 / `387e69f35dc3e5adec71d30f03fc1983abdf3292` extracts session start/reuse/stop, stream recovery, input/control channels, CA-debug state, and restart coalescing into a strict-typed `SessionRuntimeController`. Adversarial corrections route token generation through `IdGenerator` and timestamps/deliberate input delays through `Clock`.\n- Authoritative Verify #859 / run `31440168113` passed full Node/package, isolated clean Homebrew, YAML/shell, and iOS gates.\n\n### Corrective Phase 3T evidence\n\n- PR #91 / `2b870d1cd6f76f1b822802219d52b7780bd77e3d` extracts setup-status, Tailscale backend/Serve probing, and helper-health probing into a typed service. Tailscale commands use the established `CommandRunner`, bounded output, deadlines, and owned process groups; the stale helper oversized-file cap is removed while the immutable baseline snapshot stays unchanged.\n- Authoritative Verify #861 / run `31441333912` passed end to end.\n\n### Corrective Phase 3U evidence\n\n- PR #92 / `db5d66b84aff7efbda69ee7383abe07424b296bd` extracts device-build/delivery orchestration into a typed controller owning active task coordination, delivery cleanup, interruption recovery, CLI signal ownership, and build/delivery lifecycle. The compatibility runtime no longer exports mutable active-task coordination state.\n- Natural Verify run `31442751740` passed full Node/package, isolated clean Homebrew, YAML/shell, and iOS gates.\n\n### Corrective Phase 3V and closure evidence\n\n- PR #93 final exact head `07a8295f0221f1f2007cb1f01c99a5998f371f8a` (tree `c025296d0a458809809b948e16d47ffa6f8c82fd`) extracts the fallback session/install HTML, AASA document, and escaping from the composition entrypoint; the remaining install/capability current-time callbacks use `Clock`; and public-delivery isolation is derived from every declared Phase 3 authorization matrix.\n- The initial semantic commit `ed89b80647a198c08aed2d600ba932af70a517c4` is preserved in history. Clean-tree correction `71177a0c30533f5fac3f06ed4db6a9989f01915b` removes incidental legacy formatting churn without rewriting history; `07a8295f…` is a same-tree natural-Verify trigger.\n- Authoritative Verify #865 / run `31444358586` passed full Node/package, architecture/types/format/lint, isolated clean Homebrew installation/service, YAML/shell, and iOS Simulator gates.\n- Exact-head closure audit run `31444581201` passed 88/88 focused Phase 3 contracts, import-inert composition, atomic lifecycle authorization/recovery, every route authorization matrix, matrix-complete public-gateway allow/404 proof, raw route-authority scanning, the architecture debt gate, strict types, and diff hygiene. The exact clean entrypoint is 354 lines and contains no extracted setup/build/session/presentation implementation.\n\n'''
+          text = text.replace(marker, evidence + marker, 1)
+
+          gate_start = text.index(marker)
+          phase4 = text.index('## Phase 4 — Repository interfaces and SQLite migration\n', gate_start)
+          gate = '''### Phase 3 gate completion\n\nThe 2026-08-11 exact-head closure audit supersedes the earlier corrective gate note. The master-plan Phase 3 implementation gate is now met at `07a8295f0221f1f2007cb1f01c99a5998f371f8a`:\n\n- `swift-sim-helper.js` is primarily composition/wiring; its exact clean-tree size is 354 lines.\n- route paths, projections, exposure classes, and authorization modes are explicit and contract-tested; the public delivery gateway is proved against the complete declared authorization matrix and rejects every private route.\n- route modules contain no direct child-process or raw filesystem mutation authority; persistence/process behavior is behind application/runtime services.\n- importing the compatibility helper is inert; concrete infrastructure construction occurs only through explicit compatibility composition.\n- service startup, interrupted-build recovery, reconciliation/cleanup timers, socket ownership, signals, graceful drain, and forced shutdown are centralized in `HelperServiceLifecycle`.\n- CLI parsing, session runtime, setup-status probing, device-build/delivery orchestration, installation reconciliation, and fallback presentation are behind bounded typed seams.\n- architecture debt, strict type, full package/install, clean Homebrew, and iOS gates pass on the exact final product tree.\n\nPhase 3 remains draft/unmerged and does not authorize a storage cutover. Compatibility preloads still exist only as a time-bounded Phase 5 migration concern; they are not being removed here. The existing Phase 4 SQLite/pairing tranche predates this final Phase 3 head and must be reconciled onto the finalized ancestry before broader Phase 4 domain repositories, shadow composition, authority cutover, rollback, diagnostics, and upgrade proof can proceed.\n\n'''
+          text = text[:gate_start] + gate + text[phase4:]
+          path.write_text(text)
+          PY
+      - name: Validate documentation update
+        shell: bash
+        run: |
+          git diff --check
+          npm run check:docs
+          env -u GITHUB_EVENT_PATH -u GITHUB_EVENT_NAME npm run check:architecture
+      - name: Commit exact one-file ledger update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Miguel"
+          git config user.email "serram1994@gmail.com"
+          git add docs/internal/plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = "1"
+          git commit -m "docs: record Phase 3 completion gate"
+          test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
+      - name: Guard and publish ledger commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT=$(git ls-remote origin "refs/heads/${PRODUCT_BRANCH}" | cut -f1)
+          if [[ "$CURRENT" != "$BASE_SHA" ]]; then
+            echo "Ledger ref moved: expected $BASE_SHA, found $CURRENT" >&2
+            exit 1
+          fi
+          CURRENT=$(git ls-remote origin "refs/heads/${PRODUCT_BRANCH}" | cut -f1)
+          if [[ "$CURRENT" != "$BASE_SHA" ]]; then
+            echo "Ledger ref moved before publication: expected $BASE_SHA, found $CURRENT" >&2
+            exit 1
+          fi
+          git push origin "HEAD:refs/heads/${PRODUCT_BRANCH}"
