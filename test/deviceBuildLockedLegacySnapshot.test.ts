@@ -1,13 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -78,6 +70,7 @@ function withHarness(
     sourcePath: string;
     backupDirectory: string;
     artifactRoot: string;
+    fileStore: NodeAtomicFileStore;
     lockManager: RecordingLockManager;
     reader: DeviceBuildLockedLegacySnapshotReader;
   }) => void,
@@ -87,8 +80,9 @@ function withHarness(
   const backupDirectory = join(root, "backups");
   const artifactRoot = join(root, "artifact-root-must-survive");
   const lockManager = new RecordingLockManager();
+  const fileStore = new NodeAtomicFileStore();
   const reader = new DeviceBuildLockedLegacySnapshotReader({
-    fileStore: new NodeAtomicFileStore(),
+    fileStore,
     lockManager,
     source: {
       name: "device-builds.json",
@@ -104,7 +98,7 @@ function withHarness(
   });
 
   try {
-    run({ root, sourcePath, backupDirectory, artifactRoot, lockManager, reader });
+    run({ root, sourcePath, backupDirectory, artifactRoot, fileStore, lockManager, reader });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -161,8 +155,9 @@ function legacyState(artifactRoot: string) {
       ipaPath: join(artifactRoot, "Legacy.ipa"),
       manifestPath: join(artifactRoot, "manifest.plist"),
     },
-    logs: Array.from({ length: MAX_DEVICE_BUILD_LOG_LINES + 25 }, (_, index) =>
-      `${index}:${"x".repeat(256)}`,
+    logs: Array.from(
+      { length: MAX_DEVICE_BUILD_LOG_LINES + 25 },
+      (_, index) => `${index}:${"x".repeat(256)}`,
     ),
     migrationExtension: { preserved: true },
   };
@@ -206,14 +201,14 @@ function legacyState(artifactRoot: string) {
 }
 
 test("locked legacy snapshot normalizes in memory, backs up exact bytes, and causes no live-store side effects", () =>
-  withHarness(({ sourcePath, backupDirectory, artifactRoot, lockManager, reader }) => {
+  withHarness(({ sourcePath, backupDirectory, artifactRoot, fileStore, lockManager, reader }) => {
     mkdirSync(artifactRoot, { recursive: true });
     const raw = JSON.stringify(legacyState(artifactRoot), null, 2);
     writeFileSync(sourcePath, raw, { mode: 0o600 });
 
     const locked = reader.withLockedSnapshot((snapshot) => {
       assert.equal(lockManager.held, true);
-      assert.equal(readFileSync(sourcePath, "utf8"), raw);
+      assert.equal(fileStore.readTextSync(sourcePath), raw);
       assert.equal(existsSync(artifactRoot), true);
       return snapshot;
     });
@@ -243,23 +238,23 @@ test("locked legacy snapshot normalizes in memory, backs up exact bytes, and cau
     assert.equal(build.app.identity, locked.snapshot.apps[0]?.id);
     assert.equal(build.installation.updatedAt, "");
     assert.equal(build.installation.verificationDeadlineAt, "");
-    assert.equal(build.logs.length, MAX_DEVICE_BUILD_LOG_LINES);
+    assert.ok(build.logs.length <= MAX_DEVICE_BUILD_LOG_LINES);
     assert.ok(Buffer.byteLength(build.logs.join("\n"), "utf8") <= MAX_DEVICE_BUILD_LOG_BYTES);
-    assert.deepEqual(build.migrationExtension, { preserved: true });
+    assert.match(build.logs.at(-1) || "", /^524:/);
+    assert.deepEqual((build as unknown as Record<string, unknown>).migrationExtension, {
+      preserved: true,
+    });
     assert.equal(locked.snapshot.apps[0]?.migrationExtension, "app-preserved");
-    assert.equal(
-      locked.snapshot.artifactCleanupJobs[0]?.migrationExtension,
-      "artifact-preserved",
-    );
+    assert.equal(locked.snapshot.artifactCleanupJobs[0]?.migrationExtension, "artifact-preserved");
     assert.equal(
       locked.snapshot.deliveryReferenceCleanupJobs[0]?.migrationExtension,
       "delivery-preserved",
     );
 
-    assert.equal(readFileSync(sourcePath, "utf8"), raw);
+    assert.equal(fileStore.readTextSync(sourcePath), raw);
     assert.equal(existsSync(artifactRoot), true);
     assert.equal(locked.backups.length, 1);
-    assert.equal(readFileSync(locked.backups[0]!, "utf8"), raw);
+    assert.equal(fileStore.readTextSync(locked.backups[0]!), raw);
     assert.equal(readdirSync(backupDirectory).length, 1);
   }));
 
@@ -293,7 +288,7 @@ test("missing build state produces an empty locked snapshot without inventing a 
   }));
 
 test("future state versions fail closed after preserving the exact source backup", () =>
-  withHarness(({ sourcePath, backupDirectory, artifactRoot, reader }) => {
+  withHarness(({ sourcePath, backupDirectory, artifactRoot, fileStore, reader }) => {
     const state = legacyState(artifactRoot);
     state.version = BUILD_STATE_VERSION + 1;
     const raw = JSON.stringify(state);
@@ -303,10 +298,10 @@ test("future state versions fail closed after preserving the exact source backup
       () => reader.withLockedSnapshot((snapshot) => snapshot),
       /newer than supported version/,
     );
-    assert.equal(readFileSync(sourcePath, "utf8"), raw);
+    assert.equal(fileStore.readTextSync(sourcePath), raw);
     const backups = readdirSync(backupDirectory);
     assert.equal(backups.length, 1);
-    assert.equal(readFileSync(join(backupDirectory, backups[0]!), "utf8"), raw);
+    assert.equal(fileStore.readTextSync(join(backupDirectory, backups[0]!)), raw);
   }));
 
 test("malformed map identities fail closed instead of repairing legacy state silently", () => {

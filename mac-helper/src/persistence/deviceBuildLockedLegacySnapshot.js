@@ -2,12 +2,11 @@
 
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import {
-  BUILD_STATE_VERSION,
-  normalizeDeviceBuildRecord,
-} from "../deviceBuildStoreCore.js";
+import { BUILD_STATE_VERSION, normalizeDeviceBuildRecord } from "../deviceBuildStoreCore.js";
 import { normalizeDeviceBuildStateSnapshot } from "./sqliteDeviceBuildStateRepository.js";
 
+/** @typedef {import("../contracts/deviceBuildRepository.js").ArtifactCleanupJobRecord} ArtifactCleanupJobRecord */
+/** @typedef {import("../contracts/deviceBuildRepository.js").DeliveryReferenceCleanupJobRecord} DeliveryReferenceCleanupJobRecord */
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildStateSnapshot} DeviceBuildStateSnapshot */
 /** @typedef {import("../infrastructure/ports.js").AtomicFileStore} AtomicFileStore */
 /** @typedef {import("../infrastructure/ports.js").LockManager} LockManager */
@@ -148,10 +147,7 @@ export class DeviceBuildLockedLegacySnapshotReader {
   #publishBackup(loaded) {
     if (loaded.raw === null || loaded.digest === null) return;
     const safeName = sanitizeSourceName(loaded.source.name);
-    const backupPath = join(
-      this.#backupDirectory,
-      `device-build-${safeName}.${loaded.digest}.bak`,
-    );
+    const backupPath = join(this.#backupDirectory, `device-build-${safeName}.${loaded.digest}.bak`);
     try {
       this.#fileStore.writeTextSync(backupPath, loaded.raw, BACKUP_WRITE_OPTIONS);
     } catch (error) {
@@ -202,15 +198,15 @@ export function parseDeviceBuildLegacySnapshot(raw, sourcePath = "device-builds.
 
   const builds = normalizeBuildArray(values.builds, sourcePath);
   const apps = normalizeAppMap(values.apps, sourcePath);
-  const artifactCleanupJobs = normalizeRecordMap(
-    values.artifactCleanupJobs,
-    sourcePath,
-    "artifact cleanup job",
+  const artifactCleanupJobs = /** @type {ArtifactCleanupJobRecord[]} */ (
+    normalizeRecordMap(values.artifactCleanupJobs, sourcePath, "artifact cleanup job")
   );
-  const deliveryReferenceCleanupJobs = normalizeRecordMap(
-    values.deliveryReferenceCleanupJobs,
-    sourcePath,
-    "delivery-reference cleanup job",
+  const deliveryReferenceCleanupJobs = /** @type {DeliveryReferenceCleanupJobRecord[]} */ (
+    normalizeRecordMap(
+      values.deliveryReferenceCleanupJobs,
+      sourcePath,
+      "delivery-reference cleanup job",
+    )
   );
 
   return {
@@ -240,9 +236,7 @@ function normalizeBuildArray(value, sourcePath) {
   if (!Array.isArray(value)) {
     throw new Error(`Device-build legacy builds must be an array: ${sourcePath}.`);
   }
-  return value.map((build) =>
-    normalizeDeviceBuildRecord(structuredClone(build)),
-  );
+  return value.map((build) => normalizeDeviceBuildRecord(structuredClone(build)));
 }
 
 /** @param {unknown} value @param {string} sourcePath */
@@ -391,7 +385,7 @@ function isThenable(value) {
     value !== null &&
     (typeof value === "object" || typeof value === "function") &&
     "then" in value &&
-    typeof /** @type {{ then?: unknown }} */ (value).then === "function"
+    typeof (/** @type {{ then?: unknown }} */ (value).then) === "function"
   );
 }
 

@@ -9,7 +9,7 @@ import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 export const MAX_DEVICE_BUILD_LOG_BYTES = 64 * 1024;
 export const BUILD_STATE_LOCK_TIMEOUT_CODE = "SWIFT_SIM_BUILD_STATE_LOCK_TIMEOUT";
-const BUILD_STATE_VERSION = 6;
+export const BUILD_STATE_VERSION = 6;
 const LOG_TRUNCATION_MARKER = "[earlier build output truncated]";
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
@@ -85,7 +85,7 @@ export class DeviceBuildStore {
       logs: [],
     };
     return this.withTransaction((state) => {
-      const incoming = normalizeBuild(structuredClone(build));
+      const incoming = normalizeDeviceBuildRecord(structuredClone(build));
       incoming.revision = 1;
       state.builds.set(incoming.id, incoming);
       Object.assign(build, structuredClone(incoming));
@@ -100,7 +100,7 @@ export class DeviceBuildStore {
       // writer from resurrecting a build after its app has been deleted.
       if (!existing) return build;
 
-      const incoming = normalizeBuild(structuredClone(build));
+      const incoming = normalizeDeviceBuildRecord(structuredClone(build));
       incoming.installation = newerInstallation(existing.installation, incoming.installation);
       incoming.logs = mergeLogs(existing.logs, incoming.logs);
       if (Number(existing.revision || 0) > Number(incoming.revision || 0)) {
@@ -345,7 +345,7 @@ export class DeviceBuildStore {
       return {
         builds: new Map((parsed.builds || []).map((build) => {
           const previousLogs = Array.isArray(build.logs) ? build.logs : [];
-          const normalized = normalizeBuild(build);
+          const normalized = normalizeDeviceBuildRecord(build);
           if (!sameLogs(previousLogs, normalized.logs)) needsCompaction = true;
           return [normalized.id, normalized];
         })),
@@ -465,7 +465,7 @@ function touchBuild(build) {
   build.updatedAt = new Date().toISOString();
 }
 
-function normalizeBuild(build) {
+export function normalizeDeviceBuildRecord(build) {
   build.app = build.app || {};
   build.app.identity = build.app.identity || deviceAppIdentity(build.app);
   build.installation = normalizeInstallation(build.installation);
