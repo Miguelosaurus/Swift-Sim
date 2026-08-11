@@ -99,7 +99,8 @@ jobs:
           print('Entrypoint remains bounded and primarily composition/wiring.')
           PY
       - name: Architecture debt gate
-        run: npm run check:architecture
+        shell: bash
+        run: env -u GITHUB_EVENT_PATH -u GITHUB_EVENT_NAME npm run check:architecture
       - name: Strict type gate
         run: npm run check:types
       - name: Diff hygiene
