@@ -1,0 +1,32 @@
+name: Temporary Phase 4S Compatibility Format Publisher
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4s-compat-format-publisher
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 03ca5d74987df42f10613df5f1ecdcb92d810bf6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Publish exact formatted compatibility module
+        shell: bash
+        run: |
+          npx prettier --write mac-helper/src/persistence/deviceBuildShadowCompatibility.js
+          git config user.name "swift-sim-phase4s-oracle"
+          git config user.email "actions@users.noreply.github.com"
+          git add mac-helper/src/persistence/deviceBuildShadowCompatibility.js
+          git commit -m "Format Phase 4S shadow compatibility"
+          git push origin HEAD:refs/heads/agent/tmp-phase4s-compat-formatted-output
