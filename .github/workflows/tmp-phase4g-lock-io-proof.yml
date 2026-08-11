@@ -1,0 +1,119 @@
+name: Temporary Phase 4G Lock IO Proof
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase4g-lock-io-proof
+
+permissions:
+  contents: write
+
+jobs:
+  prove:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      SOURCE_HEAD: 8febc6a09a68c72722da86a7a1a2d17feb022188
+      OUTPUT_BRANCH: agent/tmp-phase4g-lock-io-proof-output
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 8febc6a09a68c72722da86a7a1a2d17feb022188
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Add lock-aware migration I/O proof
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('test/deviceBuildLockedLegacySnapshot.test.ts')
+          text = path.read_text()
+
+          text = text.replace(
+              'import type {\n  LockLease,\n  LockManager,\n  LockRequest,\n} from "../mac-helper/src/infrastructure/ports.js";',
+              'import type {\n  AtomicWriteOptions,\n  LockLease,\n  LockManager,\n  LockRequest,\n} from "../mac-helper/src/infrastructure/ports.js";',
+          )
+
+          marker = '''\nfunction withHarness(\n'''
+          insertion = '''\n\ntype MigrationIOEvent = {\n  operation: "read" | "write";\n  path: string;\n  lockHeld: boolean;\n};\n\nclass LockTrackingAtomicFileStore extends NodeAtomicFileStore {\n  readonly events: MigrationIOEvent[] = [];\n\n  constructor(private readonly lockManager: RecordingLockManager) {\n    super();\n  }\n\n  override readTextSync(path: string): string {\n    this.events.push({ operation: "read", path, lockHeld: this.lockManager.held });\n    return super.readTextSync(path);\n  }\n\n  override writeTextSync(path: string, value: string, options: AtomicWriteOptions): void {\n    this.events.push({ operation: "write", path, lockHeld: this.lockManager.held });\n    super.writeTextSync(path, value, options);\n  }\n}\n'''
+          if text.count(marker) != 1:
+              raise SystemExit('withHarness marker changed')
+          text = text.replace(marker, insertion + marker)
+
+          text = text.replace(
+              '    fileStore: NodeAtomicFileStore;\n    lockManager: RecordingLockManager;',
+              '    verifierStore: NodeAtomicFileStore;\n    migrationFileStore: LockTrackingAtomicFileStore;\n    lockManager: RecordingLockManager;',
+          )
+          text = text.replace(
+              '  const lockManager = new RecordingLockManager();\n  const fileStore = new NodeAtomicFileStore();\n  const reader = new DeviceBuildLockedLegacySnapshotReader({\n    fileStore,',
+              '  const lockManager = new RecordingLockManager();\n  const verifierStore = new NodeAtomicFileStore();\n  const migrationFileStore = new LockTrackingAtomicFileStore(lockManager);\n  const reader = new DeviceBuildLockedLegacySnapshotReader({\n    fileStore: migrationFileStore,',
+          )
+          text = text.replace(
+              '    run({ root, sourcePath, backupDirectory, artifactRoot, fileStore, lockManager, reader });',
+              '    run({\n      root,\n      sourcePath,\n      backupDirectory,\n      artifactRoot,\n      verifierStore,\n      migrationFileStore,\n      lockManager,\n      reader,\n    });',
+          )
+          text = text.replace(
+              '  withHarness(({ sourcePath, backupDirectory, artifactRoot, fileStore, lockManager, reader }) => {',
+              '  withHarness(\n    ({\n      sourcePath,\n      backupDirectory,\n      artifactRoot,\n      verifierStore,\n      migrationFileStore,\n      lockManager,\n      reader,\n    }) => {',
+              1,
+          )
+          text = text.replace('assert.equal(fileStore.readTextSync(sourcePath), raw);', 'assert.equal(verifierStore.readTextSync(sourcePath), raw);')
+          text = text.replace('assert.equal(fileStore.readTextSync(locked.backups[0]!), raw);', 'assert.equal(verifierStore.readTextSync(locked.backups[0]!), raw);')
+          anchor = '''    assert.deepEqual(lockManager.requests, [\n      {\n        path: `${sourcePath}.lock`,\n        waitMs: 5_000,\n        staleAfterMs: 250,\n        ownerMode: 0o600,\n      },\n    ]);\n'''
+          proof = anchor + '''    assert.deepEqual(migrationFileStore.events, [\n      { operation: "read", path: sourcePath, lockHeld: true },\n      { operation: "write", path: locked.backups[0]!, lockHeld: true },\n      { operation: "read", path: locked.backups[0]!, lockHeld: true },\n    ]);\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit('lock request assertion anchor changed')
+          text = text.replace(anchor, proof)
+
+          text = text.replace(
+              '  withHarness(({ sourcePath, backupDirectory, artifactRoot, fileStore, reader }) => {',
+              '  withHarness(({ sourcePath, backupDirectory, artifactRoot, verifierStore, reader }) => {',
+          )
+          text = text.replace('assert.equal(fileStore.readTextSync(join(backupDirectory, backups[0]!)), raw);', 'assert.equal(verifierStore.readTextSync(join(backupDirectory, backups[0]!)), raw);')
+
+          if 'fileStore.readTextSync' in text:
+              raise SystemExit('stale fileStore verification remains')
+          path.write_text(text)
+          PY
+          npx prettier test/deviceBuildLockedLegacySnapshot.test.ts --write
+      - name: Focused proof
+        shell: bash
+        run: |
+          npm run build
+          node --test \
+            test/deviceBuildStore.test.js \
+            dist/test/deviceBuildSqliteRepositories.test.js \
+            dist/test/deviceBuildLockedLegacySnapshot.test.js
+      - name: Architecture debt gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check:architecture
+      - name: Strict type gate
+        run: npm run check:types
+      - name: Full Node/package gate
+        shell: bash
+        run: |
+          unset GITHUB_EVENT_PATH GITHUB_EVENT_NAME
+          npm run check
+      - name: Commit test-only proof
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          test "$(git diff --name-only)" = "test/deviceBuildLockedLegacySnapshot.test.ts"
+          git diff --check
+          git config user.name Miguel
+          git config user.email serram1994@gmail.com
+          git add test/deviceBuildLockedLegacySnapshot.test.ts
+          git commit -m "Phase 4G oracle: prove legacy snapshot I/O stays locked"
+      - name: Guard and publish strengthened candidate
+        shell: bash
+        run: |
+          test "$(git ls-remote origin refs/heads/$OUTPUT_BRANCH | cut -f1)" = "$SOURCE_HEAD"
+          git push origin HEAD:refs/heads/$OUTPUT_BRANCH
