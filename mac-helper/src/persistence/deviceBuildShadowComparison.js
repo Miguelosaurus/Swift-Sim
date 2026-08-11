@@ -199,7 +199,11 @@ function validateArtifactCleanupJob(value) {
   requireString(record.lastError, "Device-build shadow artifact cleanup lastError");
   requireOptionalString(record, "buildId", "Device-build shadow artifact cleanup buildId");
   requireOptionalString(record, "notBefore", "Device-build shadow artifact cleanup notBefore");
-  requireOptionalString(record, "nextAttemptAt", "Device-build shadow artifact cleanup nextAttemptAt");
+  requireOptionalString(
+    record,
+    "nextAttemptAt",
+    "Device-build shadow artifact cleanup nextAttemptAt",
+  );
   requireOptionalString(record, "updatedAt", "Device-build shadow artifact cleanup updatedAt");
   return /** @type {ArtifactCleanupJobRecord} */ (record);
 }
@@ -214,7 +218,11 @@ function validateDeliveryCleanupJob(value) {
   requireNonNegativeInteger(record.attempts, "Device-build shadow delivery cleanup attempts");
   requireString(record.lastError, "Device-build shadow delivery cleanup lastError");
   requireOptionalString(record, "buildId", "Device-build shadow delivery cleanup buildId");
-  requireOptionalString(record, "nextAttemptAt", "Device-build shadow delivery cleanup nextAttemptAt");
+  requireOptionalString(
+    record,
+    "nextAttemptAt",
+    "Device-build shadow delivery cleanup nextAttemptAt",
+  );
   requireOptionalString(record, "updatedAt", "Device-build shadow delivery cleanup updatedAt");
   return /** @type {DeliveryReferenceCleanupJobRecord} */ (record);
 }
