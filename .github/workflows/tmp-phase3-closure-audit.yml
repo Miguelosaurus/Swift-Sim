@@ -1,0 +1,106 @@
+name: Temporary Phase 3 Closure Audit
+
+on:
+  push:
+    branches:
+      - agent/tmp-phase3-closure-audit
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      PHASE3_HEAD: 07a8295f0221f1f2007cb1f01c99a5998f371f8a
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: 07a8295f0221f1f2007cb1f01c99a5998f371f8a
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify exact audited head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$PHASE3_HEAD"
+      - name: Phase 3 contract tests
+        run: >-
+          node --test
+          test/compatibilityHelperImport.test.js
+          test/confirmationRound4AtomicAuthorization.test.js
+          test/publicGatewayAuthorizationMatrix.test.js
+          test/deviceBuildCapabilityRoutes.test.js
+          test/deviceBuildCommandRoutes.test.js
+          test/deviceAppRoutes.test.js
+          test/sessionRoutes.test.js
+          test/helperControlRoutes.test.js
+          test/pairingPageRoutes.test.js
+          test/helperPresentation.test.js
+          test/deviceBuildRuntimeController.test.js
+          test/sessionRuntimeController.test.js
+          test/setupStatusService.test.js
+      - name: Raw authority audit for route modules
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          route_files = sorted(Path('mac-helper/src/http').glob('*Routes.js'))
+          if not route_files:
+              raise SystemExit('No route modules found')
+
+          forbidden_imports = ('node:child_process', 'node:fs', 'node:fs/promises')
+          forbidden_calls = (
+              re.compile(r'\bspawnSync?\s*\('),
+              re.compile(r'\bexecFileSync?\s*\('),
+              re.compile(r'\bwriteFileSync?\s*\('),
+              re.compile(r'\bappendFileSync?\s*\('),
+              re.compile(r'\brmSync?\s*\('),
+              re.compile(r'\bunlinkSync?\s*\('),
+          )
+          violations = []
+          for path in route_files:
+              text = path.read_text()
+              for token in forbidden_imports:
+                  if token in text:
+                      violations.append(f'{path}: imports {token}')
+              for pattern in forbidden_calls:
+                  if pattern.search(text):
+                      violations.append(f'{path}: raw authority call {pattern.pattern}')
+          if violations:
+              raise SystemExit('\n'.join(violations))
+          print(f'Audited {len(route_files)} route modules: no raw process/filesystem authority.')
+          PY
+      - name: Entrypoint composition audit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('mac-helper/bin/swift-sim-helper.js')
+          text = path.read_text()
+          lines = text.splitlines()
+          functions = re.findall(r'^\s*(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(', text, re.M)
+          print(f'{path}: {len(lines)} lines')
+          print('Top-level/helper functions: ' + ', '.join(functions))
+          if len(lines) > 450:
+              raise SystemExit(f'Composition entrypoint unexpectedly regrew to {len(lines)} lines')
+          if 'function sessionFallbackHtml(' in text or 'function deviceBuildFallbackHtml(' in text:
+              raise SystemExit('Fallback presentation leaked back into composition entrypoint')
+          if 'function setupStatus(' in text or 'function createDeviceBuild(' in text or 'function startManagedDeviceBuild(' in text:
+              raise SystemExit('Extracted runtime orchestration leaked back into composition entrypoint')
+          print('Entrypoint remains bounded and primarily composition/wiring.')
+          PY
+      - name: Architecture debt gate
+        run: npm run check:architecture
+      - name: Strict type gate
+        run: npm run check:types
+      - name: Diff hygiene
+        run: git diff --check
