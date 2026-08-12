@@ -133,8 +133,16 @@ HOME="$STATE_HOME" SWIFT_SIM_PORT="$PORT" "$PREFIX/bin/swift-sim" doctor --json 
 "$NODE24" -e 'const fs=require("fs"); const setup=JSON.parse(fs.readFileSync(process.argv[1])); const doctor=JSON.parse(fs.readFileSync(process.argv[2])); if (setup.version !== process.argv[3] || doctor.version !== setup.version) process.exit(1);' "$TEST_ROOT/setup.json" "$TEST_ROOT/doctor.json" "$VERSION"
 
 service_with_state services start "$TAP/$TEST_FORMULA" >/dev/null
+LSOF_BIN="$(command -v lsof || true)"
+if [[ -z "$LSOF_BIN" && -x /usr/sbin/lsof ]]; then
+  LSOF_BIN=/usr/sbin/lsof
+fi
+if [[ -z "$LSOF_BIN" ]]; then
+  echo "Homebrew verification requires lsof to identify the helper listener." >&2
+  exit 1
+fi
 listener_pid() {
-  lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t | head -n 1
+  "$LSOF_BIN" -nP -iTCP:"$PORT" -sTCP:LISTEN -t | head -n 1
 }
 wait_for_listener() {
   for _ in {1..30}; do
