@@ -21,7 +21,9 @@ import { NodeArtifactStore } from "./infrastructure/nodeArtifactStore.js";
  */
 export function createDeviceBuildArtifactRetentionCompatibility({ deviceBuildStore, clock }) {
   if (!deviceBuildStore || typeof deviceBuildStore.scheduleArtifactCleanup !== "function") {
-    throw new TypeError("Device-build retention compatibility requires durable cleanup scheduling.");
+    throw new TypeError(
+      "Device-build retention compatibility requires durable cleanup scheduling.",
+    );
   }
   if (!clock || typeof clock.now !== "function") {
     throw new TypeError("Device-build retention compatibility requires a clock.");

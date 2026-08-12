@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import {
   DeviceBuildStore as DeviceBuildStoreCore,
@@ -49,8 +49,12 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     if (!maintenance) return;
     this.runMaintenance();
     this.maintenanceTimer = setInterval(() => {
-      try { this.runMaintenance(); } catch {}
-      try { this.drainArtifactCleanupJobs(); } catch {}
+      try {
+        this.runMaintenance();
+      } catch {}
+      try {
+        this.drainArtifactCleanupJobs();
+      } catch {}
     }, CLEANUP_RETRY_INTERVAL_MS);
     this.maintenanceTimer.unref?.();
   }
@@ -114,7 +118,8 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
         incoming.tokenExpiredAt = incoming.tokenExpiredAt || existing.tokenExpiredAt || "";
       }
 
-      incoming.revision = Math.max(Number(existing.revision || 0), Number(incoming.revision || 0)) + 1;
+      incoming.revision =
+        Math.max(Number(existing.revision || 0), Number(incoming.revision || 0)) + 1;
       incoming.updatedAt = new Date().toISOString();
       state.builds.set(incoming.id, incoming);
       Object.assign(build, structuredClone(incoming));
@@ -135,19 +140,24 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
   }
 
   getApp(id) {
-    return this.readOnly((state) => listAppsFromState(state, true).find((app) => app.id === id) || null);
+    return this.readOnly(
+      (state) => listAppsFromState(state, true).find((app) => app.id === id) || null,
+    );
   }
 
   latestReusableBuildForApp(id) {
     const app = this.getApp(id);
     if (!app) return null;
-    return app.builds.find((build) => (
-      build.state === "ready"
-      && Boolean(build.project || build.workspace)
-      && Boolean(build.scheme)
-      && Boolean(build.app?.bundleIdentifier)
-      && Boolean(build.app?.teamID)
-    )) || null;
+    return (
+      app.builds.find(
+        (build) =>
+          build.state === "ready" &&
+          Boolean(build.project || build.workspace) &&
+          Boolean(build.scheme) &&
+          Boolean(build.app?.bundleIdentifier) &&
+          Boolean(build.app?.teamID),
+      ) || null
+    );
   }
 
   nextBuildNumber(app, projectBuildNumber = "") {
@@ -155,15 +165,12 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     if (!identity) return String(projectBuildNumber || "");
     const projectNumber = parseBuildNumber(projectBuildNumber);
     const previousNumbers = this.list()
-      .filter((build) => (
-        build.app?.identity === identity
-        || deviceAppIdentity(build.app) === identity
-      ))
+      .filter(
+        (build) => build.app?.identity === identity || deviceAppIdentity(build.app) === identity,
+      )
       .map((build) => parseBuildNumber(build.app?.build))
       .filter((value) => value !== null);
-    const previousMaximum = previousNumbers.length > 0
-      ? Math.max(...previousNumbers)
-      : null;
+    const previousMaximum = previousNumbers.length > 0 ? Math.max(...previousNumbers) : null;
 
     if (projectNumber === null && previousMaximum === null) return String(projectBuildNumber || "");
     if (previousMaximum === null) return String(projectNumber);
@@ -172,11 +179,13 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
   }
 
   findRebuild({ appID, idempotencyKey, activeOnly = false }) {
-    return this.list().find((build) => {
-      if (build.rebuild?.appID !== appID) return false;
-      if (idempotencyKey && build.rebuild?.idempotencyKey !== idempotencyKey) return false;
-      return !activeOnly || REBUILD_ACTIVE_STATES.has(build.state);
-    }) || null;
+    return (
+      this.list().find((build) => {
+        if (build.rebuild?.appID !== appID) return false;
+        if (idempotencyKey && build.rebuild?.idempotencyKey !== idempotencyKey) return false;
+        return !activeOnly || REBUILD_ACTIVE_STATES.has(build.state);
+      }) || null
+    );
   }
 
   createRebuild(source, { appID, idempotencyKey }) {
@@ -190,9 +199,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       delivery: "quick-tunnel",
       ttlMinutes: source.installTTLMinutes || source.ttlMinutes,
     });
-    build.buildSettings = Array.isArray(source.buildSettings)
-      ? [...source.buildSettings]
-      : [];
+    build.buildSettings = Array.isArray(source.buildSettings) ? [...source.buildSettings] : [];
     build.allowProvisioningUpdates = Boolean(source.allowProvisioningUpdates);
     build.app = { ...source.app };
     build.signing = {
@@ -219,7 +226,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
 
       if (!build.pendingRenewal) {
         const requestedTTLMinutes = normalizeDeviceBuildTTLMinutes(
-          ttlMinutes ?? build.installTTLMinutes
+          ttlMinutes ?? build.installTTLMinutes,
         );
         const custom = build.delivery?.mode === "custom";
         build.pendingRenewal = {
@@ -256,10 +263,14 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
         const active = ACTIVE_BUILD_STATES.has(build.state);
         if (active && build.control?.cancelPath) {
           mkdirSync(dirname(build.control.cancelPath), { recursive: true, mode: 0o700 });
-          writeFileSync(build.control.cancelPath, JSON.stringify({
-            buildId: build.id,
-            cancelledAt: new Date(now).toISOString(),
-          }), { mode: 0o600 });
+          writeFileSync(
+            build.control.cancelPath,
+            JSON.stringify({
+              buildId: build.id,
+              cancelledAt: new Date(now).toISOString(),
+            }),
+            { mode: 0o600 },
+          );
         }
         if (deleteArtifacts && build.artifacts?.root) {
           const delay = active ? ACTIVE_BUILD_CLEANUP_DELAY_MS : 0;
@@ -277,7 +288,9 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
         }
         for (const delivery of [
           build.delivery,
-          ...(Array.isArray(build.capabilities) ? build.capabilities.map((capability) => capability.delivery) : []),
+          ...(Array.isArray(build.capabilities)
+            ? build.capabilities.map((capability) => capability.delivery)
+            : []),
         ]) {
           if (!delivery?.generation || !delivery?.referenceID) continue;
           const key = `${delivery.generation}\0${delivery.referenceID}`;
@@ -304,9 +317,45 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     return result.deleted;
   }
 
+  scheduleArtifactCleanup({ buildID, root, notBefore }) {
+    if (typeof buildID !== "string" || buildID.length === 0) {
+      throw new TypeError("Artifact cleanup build ID is required.");
+    }
+    const canonicalRoot = resolve(join(dirname(this.path), "device-builds", buildID));
+    if (typeof root !== "string" || resolve(root) !== canonicalRoot) {
+      throw new Error("Artifact cleanup root does not match the canonical device-build root.");
+    }
+    const dueAt = Date.parse(notBefore || "");
+    if (!Number.isFinite(dueAt)) {
+      throw new TypeError("Artifact cleanup notBefore must be a valid timestamp.");
+    }
+    const due = new Date(dueAt).toISOString();
+    return this.withTransaction((state) => {
+      const existing = [...state.artifactCleanupJobs.values()].find(
+        (job) => job.buildId === buildID && resolve(job.root) === canonicalRoot,
+      );
+      if (existing) return existing;
+      const job = {
+        id: randomUUID(),
+        root: canonicalRoot,
+        buildId: buildID,
+        createdAt: new Date().toISOString(),
+        notBefore: due,
+        nextAttemptAt: due,
+        attempts: 0,
+        lastError: "",
+      };
+      state.artifactCleanupJobs.set(job.id, job);
+      return job;
+    });
+  }
+
   listDeliveryReferenceCleanupJobs() {
-    return this.readOnly((state) => [...(state.deliveryReferenceCleanupJobs || new Map()).values()]
-      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))));
+    return this.readOnly((state) =>
+      [...(state.deliveryReferenceCleanupJobs || new Map()).values()].sort((a, b) =>
+        String(a.createdAt).localeCompare(String(b.createdAt)),
+      ),
+    );
   }
 
   completeDeliveryReferenceCleanupJob(id) {
@@ -322,7 +371,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       job.updatedAt = new Date().toISOString();
       const backoff = Math.min(
         MAX_CLEANUP_BACKOFF_MS,
-        CLEANUP_RETRY_INTERVAL_MS * 2 ** Math.min(job.attempts - 1, 7)
+        CLEANUP_RETRY_INTERVAL_MS * 2 ** Math.min(job.attempts - 1, 7),
       );
       job.nextAttemptAt = new Date(Date.now() + backoff).toISOString();
       return true;
@@ -350,7 +399,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
           current.updatedAt = new Date().toISOString();
           const backoff = Math.min(
             MAX_CLEANUP_BACKOFF_MS,
-            CLEANUP_RETRY_INTERVAL_MS * 2 ** Math.min(current.attempts - 1, 7)
+            CLEANUP_RETRY_INTERVAL_MS * 2 ** Math.min(current.attempts - 1, 7),
           );
           current.nextAttemptAt = new Date(Date.now() + backoff).toISOString();
           return false;
@@ -417,7 +466,9 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
         }
         if (error?.code !== "EEXIST") throw error;
         let existingOwner;
-        try { existingOwner = JSON.parse(readFileSync(ownerPath, "utf8")); } catch {}
+        try {
+          existingOwner = JSON.parse(readFileSync(ownerPath, "utf8"));
+        } catch {}
         if (existingOwner && !lockOwnerIsAlive(existingOwner)) {
           rmSync(this.lockPath, { recursive: true, force: true });
           continue;
@@ -456,9 +507,8 @@ function renewalCandidate(build, pending) {
   candidate.remoteBaseUrl = pending.target.remoteBaseUrl;
   candidate.delivery = {
     mode: pending.target.deliveryMode,
-    provider: pending.target.deliveryMode === "custom"
-      ? "user-configured"
-      : "cloudflare-quick-tunnel",
+    provider:
+      pending.target.deliveryMode === "custom" ? "user-configured" : "cloudflare-quick-tunnel",
     expiresAt: "",
   };
   candidate.pendingRenewal = structuredClone(pending);
@@ -470,15 +520,19 @@ function renewalCandidateIsReady(build, target) {
   if (!Number.isFinite(capabilityExpiry) || capabilityExpiry <= Date.now()) return false;
   if (normalizeDeviceBuildTTLMinutes(build.installTTLMinutes) !== target.ttlMinutes) return false;
   if (target.deliveryMode === "custom") {
-    return build.delivery?.mode === "custom"
-      && build.remoteBaseUrl === target.remoteBaseUrl
-      && build.delivery?.expiresAt === build.expiresAt;
+    return (
+      build.delivery?.mode === "custom" &&
+      build.remoteBaseUrl === target.remoteBaseUrl &&
+      build.delivery?.expiresAt === build.expiresAt
+    );
   }
   const deliveryExpiry = Date.parse(build.delivery?.expiresAt || "");
-  return build.delivery?.mode === "quick-tunnel"
-    && Boolean(build.remoteBaseUrl)
-    && Number.isFinite(deliveryExpiry)
-    && deliveryExpiry >= capabilityExpiry;
+  return (
+    build.delivery?.mode === "quick-tunnel" &&
+    Boolean(build.remoteBaseUrl) &&
+    Number.isFinite(deliveryExpiry) &&
+    deliveryExpiry >= capabilityExpiry
+  );
 }
 
 function preserveSecurityFields(target, source) {
@@ -518,7 +572,7 @@ function normalizeIncomingBuild(build) {
   build.revision = Number(build.revision || 0);
   build.tokenExpiredAt = build.tokenExpiredAt || "";
   build.installTTLMinutes = normalizeDeviceBuildTTLMinutes(
-    build.installTTLMinutes ?? build.ttlMinutes
+    build.installTTLMinutes ?? build.ttlMinutes,
   );
   build.ttlMinutes = build.installTTLMinutes;
   build.capabilities = normalizeCapabilities(build.capabilities);
@@ -555,8 +609,7 @@ function normalizeCapabilities(capabilities, now = Date.now()) {
     if (!capabilityIsLive(normalized, now)) continue;
     byToken.set(normalized.token, normalized);
   }
-  return [...byToken.values()]
-    .sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt));
+  return [...byToken.values()].sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt));
 }
 
 function mergeCapabilities(first, second) {
@@ -609,7 +662,9 @@ function mergeLogs(first = [], second = []) {
 }
 
 function sortedBuilds(builds) {
-  return [...builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return [...builds.values()].sort((a, b) =>
+    String(b.createdAt).localeCompare(String(a.createdAt)),
+  );
 }
 
 function listAppsFromState(state, includeArchived) {
@@ -636,26 +691,28 @@ function listAppsFromState(state, includeArchived) {
   }
   return [...grouped.values()]
     .filter((app) => includeArchived || !app.archivedAt)
-    .sort((a, b) => String(b.builds[0]?.createdAt || "").localeCompare(String(a.builds[0]?.createdAt || "")));
+    .sort((a, b) =>
+      String(b.builds[0]?.createdAt || "").localeCompare(String(a.builds[0]?.createdAt || "")),
+    );
 }
 
 export function isInternalCatalogBuild(build = {}) {
   const project = String(build.project || build.workspace || "").replaceAll("\\", "/");
   const bundleIdentifier = String(build.app?.bundleIdentifier || "").toLowerCase();
   return (
-    project.includes("/Swift-Sim/.build/qa-")
-    || project.includes("/Swift-Sim/Companion/")
-    || project.includes("/SwiftSimPhysicalProbe/")
-    || (project.includes("/tmp/") && bundleIdentifier.endsWith(".test"))
-    || project.includes("/swift-sim-benchmark-")
-    || project.includes("/swift-sim-debug-device-")
-    || project.includes("benchmarks/fixtures/")
-    || bundleIdentifier === "dev.local.mirrorqa"
-    || bundleIdentifier === "dev.local.swiftsimcompanion"
-    || bundleIdentifier === "com.seaandsea.swiftsimcompanion"
-    || bundleIdentifier === "com.seaandsea.swiftsimupdateprobe"
-    || bundleIdentifier === "com.miguel.swift-sim-physical-probe"
-    || bundleIdentifier === "com.swiftsim.benchmark.catalog"
+    project.includes("/Swift-Sim/.build/qa-") ||
+    project.includes("/Swift-Sim/Companion/") ||
+    project.includes("/SwiftSimPhysicalProbe/") ||
+    (project.includes("/tmp/") && bundleIdentifier.endsWith(".test")) ||
+    project.includes("/swift-sim-benchmark-") ||
+    project.includes("/swift-sim-debug-device-") ||
+    project.includes("benchmarks/fixtures/") ||
+    bundleIdentifier === "dev.local.mirrorqa" ||
+    bundleIdentifier === "dev.local.swiftsimcompanion" ||
+    bundleIdentifier === "com.seaandsea.swiftsimcompanion" ||
+    bundleIdentifier === "com.seaandsea.swiftsimupdateprobe" ||
+    bundleIdentifier === "com.miguel.swift-sim-physical-probe" ||
+    bundleIdentifier === "com.swiftsim.benchmark.catalog"
   );
 }
 
@@ -686,7 +743,9 @@ function requiredProcessStartedAt(pid) {
     if (startedAt) return startedAt;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
-  throw new Error("Unable to establish a process start identity for the Swift Sim build-state lock.");
+  throw new Error(
+    "Unable to establish a process start identity for the Swift Sim build-state lock.",
+  );
 }
 
 function processStartedAt(pid) {

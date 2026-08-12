@@ -28,7 +28,9 @@ import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "./device
  *   expiresAt?: string,
  *   logs?: string[],
  *   app?: unknown,
+ *   artifacts?: unknown,
  * }} BuildRecord */
+/** @typedef {{ afterTerminalBuild(build: BuildRecord): unknown }} ArtifactRetentionLike */
 /** @typedef {{ id: string, generation: string, referenceID: string, nextAttemptAt?: string, createdAt?: string }} DeliveryCleanupJob */
 /** @typedef {{ generation?: string, provider?: string, publicBaseUrl?: string, expiresAt?: string, references?: string[] }} DeliveryStatus */
 /** @typedef {{ generation?: string, provider?: string, publicBaseUrl: string, expiresAt?: string }} DeliveryResult */
@@ -60,6 +62,8 @@ import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "./device
  *   requestCancellation(build: BuildRecord, reason: string): unknown,
  *   terminateRecordedWorker(build: BuildRecord): Promise<boolean>,
  *   signals: SignalRuntime,
+ *   artifactRetention?: ArtifactRetentionLike,
+ *   reportRetentionError?(message: string): unknown,
  * }} DeviceBuildRuntimeDependencies */
 
 const ACTIVE_BUILD_STATES = new Set([
@@ -219,6 +223,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
           try {
             dependencies.store.save(build);
           } catch {}
+          retainTerminalBuild(build);
         }
         return undefined;
       }
@@ -262,6 +267,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
       try {
         dependencies.store.save(build);
       } catch {}
+      retainTerminalBuild(build);
     }
   }
 
@@ -295,17 +301,37 @@ export function createDeviceBuildRuntimeController(dependencies) {
 
   /** @param {BuildRecord} build */
   async function runBuildPipeline(build) {
-    await dependencies.runBuild(build, {
-      save: (next) => dependencies.store.save(next),
-      nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
-    });
-    build.state = "delivering";
-    buildLogs(build).push("Creating temporary install link.");
-    dependencies.store.save(build);
-    const readyBuild = await prepareDelivery(build);
-    buildLogs(readyBuild).push("Install link is ready.");
-    dependencies.store.save(readyBuild);
-    return readyBuild;
+    try {
+      await dependencies.runBuild(build, {
+        save: (next) => dependencies.store.save(next),
+        nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
+      });
+      build.state = "delivering";
+      buildLogs(build).push("Creating temporary install link.");
+      dependencies.store.save(build);
+      const readyBuild = await prepareDelivery(build);
+      buildLogs(readyBuild).push("Install link is ready.");
+      dependencies.store.save(readyBuild);
+      retainTerminalBuild(readyBuild);
+      return readyBuild;
+    } catch (error) {
+      if (build.state === "failed") retainTerminalBuild(build);
+      throw error;
+    }
+  }
+
+  /** @param {BuildRecord} build */
+  function retainTerminalBuild(build) {
+    if (!dependencies.artifactRetention) return;
+    try {
+      dependencies.artifactRetention.afterTerminalBuild(build);
+    } catch {
+      try {
+        dependencies.reportRetentionError?.(
+          "Device-build artifact retention failed; build metadata and install state were preserved.",
+        );
+      } catch {}
+    }
   }
 
   /**
@@ -386,5 +412,19 @@ function validateDependencies(dependencies) {
     if (typeof implementation !== "function") {
       throw new TypeError(`Device build runtime controller requires ${name}.`);
     }
+  }
+  if (
+    dependencies.artifactRetention !== undefined &&
+    typeof dependencies.artifactRetention?.afterTerminalBuild !== "function"
+  ) {
+    throw new TypeError(
+      "Device build runtime controller artifactRetention requires afterTerminalBuild.",
+    );
+  }
+  if (
+    dependencies.reportRetentionError !== undefined &&
+    typeof dependencies.reportRetentionError !== "function"
+  ) {
+    throw new TypeError("Device build runtime controller reportRetentionError must be a function.");
   }
 }
