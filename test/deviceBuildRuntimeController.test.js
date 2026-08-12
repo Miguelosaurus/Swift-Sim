@@ -38,8 +38,7 @@ function harness(overrides = {}) {
     nextBuildNumber: (_app, current) => String(Number(current || 0) + 1),
     listDeliveryReferenceCleanupJobs: () => cleanupJobs,
     completeDeliveryReferenceCleanupJob: (id) => saved.push({ complete: id }),
-    failDeliveryReferenceCleanupJob: (id, error) =>
-      saved.push({ failed: id, error: String(error) }),
+    failDeliveryReferenceCleanupJob: (id, error) => saved.push({ failed: id, error: String(error) }),
   };
   const delivery = {
     async ensure() {
@@ -78,12 +77,8 @@ function harness(overrides = {}) {
       return true;
     },
     signals: {
-      once(signal, listener) {
-        signals.push(["once", signal, listener]);
-      },
-      off(signal, listener) {
-        signals.push(["off", signal, listener]);
-      },
+      once(signal, listener) { signals.push(["once", signal, listener]); },
+      off(signal, listener) { signals.push(["off", signal, listener]); },
     },
     ...overrides,
   };
@@ -125,11 +120,7 @@ test("createBuild preserves validation, defaults, and build-setting projection",
 test("prepareDelivery preserves custom and quick-tunnel projections with clock-owned expiry", async () => {
   const { deps, saved, stopped } = harness();
   const runtime = createDeviceBuildRuntimeController(deps);
-  const custom = {
-    ...build("custom"),
-    remoteBaseUrl: "https://example.test",
-    delivery: { mode: "custom" },
-  };
+  const custom = { ...build("custom"), remoteBaseUrl: "https://example.test", delivery: { mode: "custom" } };
   await runtime.prepareDelivery(custom);
   assert.equal(custom.state, "ready");
   assert.equal(custom.delivery.provider, "user-configured");
@@ -140,9 +131,7 @@ test("prepareDelivery preserves custom and quick-tunnel projections with clock-o
   assert.equal(quick.state, "ready");
   assert.equal(quick.remoteBaseUrl, "https://build.trycloudflare.com");
   assert.equal(quick.delivery.referenceID, "build:quick");
-  assert.ok(
-    quick.logs.includes("Temporary HTTPS install link is ready. Tailscale is not required."),
-  );
+  assert.ok(quick.logs.includes("Temporary HTTPS install link is ready. Tailscale is not required."));
   assert.equal(stopped.length, 0);
   assert.ok(saved.some((entry) => entry.id === "quick" && entry.state === "ready"));
 });
@@ -169,19 +158,14 @@ test("prepareDelivery releases a started generation when cancellation wins after
     },
   });
   const runtime = createDeviceBuildRuntimeController(deps);
-  await assert.rejects(
-    runtime.prepareDelivery(build("cancelled")),
-    /cancelled while delivery was starting/,
-  );
+  await assert.rejects(runtime.prepareDelivery(build("cancelled")), /cancelled while delivery was starting/);
   assert.deepEqual(stopped, [["generation-cancelled", "build:cancelled"]]);
 });
 
 test("managed starts coalesce by build ID and keep detached failure semantics", async () => {
   let runs = 0;
   let release;
-  const gate = new Promise((resolve) => {
-    release = resolve;
-  });
+  const gate = new Promise((resolve) => { release = resolve; });
   const { deps } = harness({
     async runBuild() {
       runs += 1;
@@ -206,9 +190,7 @@ test("managed starts coalesce by build ID and keep detached failure semantics", 
 test("managed cancellation records interruption while the detached start resolves", async () => {
   const cancellation = Object.assign(new Error("cancelled"), { code: "SWIFT_SIM_BUILD_CANCELLED" });
   const { deps, saved } = harness({
-    async runBuild() {
-      throw cancellation;
-    },
+    async runBuild() { throw cancellation; },
   });
   const runtime = createDeviceBuildRuntimeController(deps);
   const value = build("interrupted");
@@ -222,15 +204,12 @@ test("CLI build owns temporary signal listeners and always detaches them", async
   const { deps, signals } = harness();
   const runtime = createDeviceBuildRuntimeController(deps);
   await runtime.runCliBuild(build("cli"));
-  assert.deepEqual(
-    signals.map(([kind, signal]) => [kind, signal]),
-    [
-      ["once", "SIGTERM"],
-      ["once", "SIGINT"],
-      ["off", "SIGTERM"],
-      ["off", "SIGINT"],
-    ],
-  );
+  assert.deepEqual(signals.map(([kind, signal]) => [kind, signal]), [
+    ["once", "SIGTERM"],
+    ["once", "SIGINT"],
+    ["off", "SIGTERM"],
+    ["off", "SIGINT"],
+  ]);
   assert.strictEqual(signals[0][2], signals[2][2]);
   assert.strictEqual(signals[1][2], signals[3][2]);
 });
@@ -239,9 +218,7 @@ test("delivery cleanup uses the injected clock, skips future jobs, and records o
   let releases = 0;
   const { deps, cleanupJobs, saved } = harness({
     delivery: {
-      async ensure() {
-        throw new Error("not used");
-      },
+      async ensure() { throw new Error("not used"); },
       stopGeneration() {
         releases += 1;
         if (releases === 1) return true;
@@ -251,24 +228,9 @@ test("delivery cleanup uses the injected clock, skips future jobs, and records o
     },
   });
   cleanupJobs.push(
-    {
-      id: "future",
-      generation: "g-future",
-      referenceID: "r-future",
-      nextAttemptAt: "2026-08-10T22:01:00.000Z",
-    },
-    {
-      id: "ready",
-      generation: "g-ready",
-      referenceID: "r-ready",
-      nextAttemptAt: "2026-08-10T21:59:00.000Z",
-    },
-    {
-      id: "retry",
-      generation: "g-retry",
-      referenceID: "r-retry",
-      createdAt: "2026-08-10T21:00:00.000Z",
-    },
+    { id: "future", generation: "g-future", referenceID: "r-future", nextAttemptAt: "2026-08-10T22:01:00.000Z" },
+    { id: "ready", generation: "g-ready", referenceID: "r-ready", nextAttemptAt: "2026-08-10T21:59:00.000Z" },
+    { id: "retry", generation: "g-retry", referenceID: "r-retry", createdAt: "2026-08-10T21:00:00.000Z" },
   );
   const runtime = createDeviceBuildRuntimeController(deps);
   await runtime.drainDeliveryReferences();
@@ -280,16 +242,12 @@ test("delivery cleanup uses the injected clock, skips future jobs, and records o
 test("recovery cancels active builds, cleans matching delivery references, and persists failure", async () => {
   const { deps, builds, cancelled, stopped, saved } = harness({
     delivery: {
-      async ensure() {
-        throw new Error("not used");
-      },
+      async ensure() { throw new Error("not used"); },
       stopGeneration(generation, options) {
         stopped.push([generation, options.referenceID]);
         return true;
       },
-      statuses: () => [
-        { generation: "generation-1", references: ["build:recover", "renewal:lease-1", "other"] },
-      ],
+      statuses: () => [{ generation: "generation-1", references: ["build:recover", "renewal:lease-1", "other"] }],
     },
   });
   const value = { ...build("recover"), state: "building", pendingRenewal: { id: "lease-1" } };
@@ -305,6 +263,7 @@ test("recovery cancels active builds, cleans matching delivery references, and p
   assert.ok(value.logs[0].startsWith("A previous helper run ended during this build."));
   assert.ok(saved.some((entry) => entry.id === "recover" && entry.state === "failed"));
 });
+
 
 test("successful builds run retention after ready delivery and retention failure is nonfatal", async () => {
   const retained = [];
