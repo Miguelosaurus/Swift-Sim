@@ -118,11 +118,9 @@ jobs:
               raise SystemExit("doctor helper status anchor missing")
           text = text.replace(old, new, 1)
 
-          old = '''    remoteHotReload: {
-              optional: true,'''
+          old = '    remoteHotReload: {'
           new = '''    ...(includeStorage ? { storage: deviceBuildArtifactDoctorSection(artifactAudit) } : {}),
-              remoteHotReload: {
-              optional: true,'''
+            remoteHotReload: {'''
           if old not in text:
               raise SystemExit("doctor report storage anchor missing")
           text = text.replace(old, new, 1)
