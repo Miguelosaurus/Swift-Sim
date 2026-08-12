@@ -23,7 +23,7 @@ import { parseDeviceBuildLegacySnapshot } from "./persistence/deviceBuildLockedL
  *   commandRunner: CommandRunner,
  *   environmentNames(): string[],
  *   fileStore?: AtomicFileStore,
- *   usage?: { measure(input: { builds: object[], artifactDirectory: string }): Promise<{ inventory: unknown[], orphanRoots: unknown[], issues: unknown[] }> },
+ *   usage?: { measure(input: { builds: readonly object[], artifactDirectory: string }): Promise<{ inventory: unknown[], orphanRoots: unknown[], issues: unknown[] }> },
  * }} options
  */
 export function createDeviceBuildArtifactAuditCompatibility({
