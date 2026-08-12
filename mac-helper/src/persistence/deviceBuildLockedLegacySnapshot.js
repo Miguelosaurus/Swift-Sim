@@ -236,7 +236,37 @@ function normalizeBuildArray(value, sourcePath) {
   if (!Array.isArray(value)) {
     throw new Error(`Device-build legacy builds must be an array: ${sourcePath}.`);
   }
-  return value.map((build) => normalizeDeviceBuildRecord(structuredClone(build)));
+  return value.map((build, index) => {
+    const record = cloneRecord(build, `Device-build legacy build ${index}`);
+    return normalizeDeviceBuildRecord(upgradeLegacyDeviceBuildRecord(record));
+  });
+}
+
+/**
+ * Historical v6 files may predate fields that are now required by the
+ * strict persistence contract. Upgrade only omissions with known legacy
+ * defaults; present-but-malformed values still flow to strict validation.
+ *
+ * @param {Record<string, unknown>} build
+ */
+function upgradeLegacyDeviceBuildRecord(build) {
+  if (!Object.prototype.hasOwnProperty.call(build, "delivery")) {
+    build.delivery = {
+      mode: "quick-tunnel",
+      provider: "cloudflare-quick-tunnel",
+      expiresAt: "",
+    };
+  }
+
+  const signingValue = build.signing;
+  const signing =
+    signingValue && typeof signingValue === "object" && !Array.isArray(signingValue)
+      ? /** @type {Record<string, unknown>} */ (signingValue)
+      : null;
+  if (signing && !Object.prototype.hasOwnProperty.call(signing, "deviceInstallable")) {
+    signing.deviceInstallable = false;
+  }
+  return build;
 }
 
 /** @param {unknown} value @param {string} sourcePath */
