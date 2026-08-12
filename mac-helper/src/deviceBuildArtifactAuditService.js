@@ -34,10 +34,12 @@ export function createDeviceBuildArtifactAuditService(dependencies) {
     const inventory = Array.isArray(measurement.inventory) ? measurement.inventory : [];
     const orphanRoots = Array.isArray(measurement.orphanRoots) ? measurement.orphanRoots : [];
     const measurementIssues = Array.isArray(measurement.issues) ? measurement.issues : [];
+    const typedInventory = /** @type {Parameters<typeof planDeviceBuildArtifactAudit>[0]["inventory"]} */ (inventory);
+    const typedOrphanRoots = /** @type {NonNullable<Parameters<typeof planDeviceBuildArtifactAudit>[0]["orphanRoots"]>} */ (orphanRoots);
     const plan = planDeviceBuildArtifactAudit({
       builds,
-      inventory: /** @type {Parameters<typeof planDeviceBuildArtifactAudit>[0]["inventory"]} */ (inventory),
-      orphanRoots: /** @type {Parameters<typeof planDeviceBuildArtifactAudit>[0]["orphanRoots"]} */ (orphanRoots),
+      inventory: typedInventory,
+      orphanRoots: typedOrphanRoots,
     });
     return Object.freeze({
       ...plan,
