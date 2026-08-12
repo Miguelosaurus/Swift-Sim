@@ -12,9 +12,9 @@ import { planDeviceBuildArtifactAudit } from "./deviceBuildArtifactAuditPlan.js"
  * measurement adapter. No cleanup operation is exposed from this service.
  *
  * @param {{
- *   listBuilds(): BuildRecord[],
+ *   listBuilds(): readonly BuildRecord[],
  *   artifactDirectory(): string,
- *   usage: { measure(input: { builds: BuildRecord[], artifactDirectory: string }): Promise<MeasurementResult> },
+ *   usage: { measure(input: { builds: readonly BuildRecord[], artifactDirectory: string }): Promise<MeasurementResult> },
  * }} dependencies
  */
 export function createDeviceBuildArtifactAuditService(dependencies) {

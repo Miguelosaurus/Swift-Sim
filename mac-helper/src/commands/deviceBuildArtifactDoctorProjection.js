@@ -24,7 +24,8 @@ export function deviceBuildArtifactDoctorSection(value) {
         ready: false,
         informational: true,
         cleanupEnabled: false,
-        detail: "Device-build artifact audit did not prove read-only mode; no cleanup was attempted.",
+        detail:
+          "Device-build artifact audit did not prove read-only mode; no cleanup was attempted.",
       }),
     });
   }

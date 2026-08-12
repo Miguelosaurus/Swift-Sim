@@ -4,6 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL, URL } from "node:url";
 import { ServeSimError } from "../src/serveSimAdapter.js";
 import {
@@ -56,6 +57,11 @@ import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeCon
 import { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBuildArtifactRetentionCompatibility.js";
 import { createSetupStatusService } from "../src/commands/setupStatusService.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
+import { createDeviceBuildArtifactAuditCompatibility } from "../src/deviceBuildArtifactAuditCompatibility.js";
+import {
+  deviceBuildArtifactAuditCommandIsSupported,
+  dispatchDeviceBuildArtifactAuditCommand,
+} from "../src/commands/deviceBuildArtifactAuditCommand.js";
 
 const DEFAULT_PORT = Number(process.env.SWIFT_SIM_PORT || 47217);
 const DEFAULT_HOST = process.env.SWIFT_SIM_HOST || "127.0.0.1";
@@ -77,6 +83,19 @@ let compatibilityRuntimeInitialized = false;
 
 export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
   if (await runExtractedHelperCommand(argv)) return;
+  if (deviceBuildArtifactAuditCommandIsSupported(argv[0])) {
+    const commandRunner = new NodeCommandRunner({ spawn, spawnSync });
+    const audit = createDeviceBuildArtifactAuditCompatibility({
+      legacyPath: join(homedir(), ".swift-sim", "device-builds.json"),
+      commandRunner,
+      environmentNames: () => Object.keys(process.env),
+    });
+    await dispatchDeviceBuildArtifactAuditCommand({
+      argv,
+      inspect: () => audit.inspect(),
+    });
+    return;
+  }
   initializeCompatibilityRuntime();
   await main(argv);
 }

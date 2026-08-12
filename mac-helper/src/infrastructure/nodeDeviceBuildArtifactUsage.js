@@ -73,7 +73,7 @@ export class NodeDeviceBuildArtifactUsage {
   }
 
   /**
-   * @param {{ builds: BuildRecord[], artifactDirectory: string }} input
+   * @param {{ builds: readonly BuildRecord[], artifactDirectory: string }} input
    * @returns {Promise<{ inventory: BuildArtifactInventory[], orphanRoots: OrphanArtifactRoot[], issues: MeasurementIssue[] }>}
    */
   async measure({ builds, artifactDirectory }) {

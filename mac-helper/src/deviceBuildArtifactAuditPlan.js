@@ -39,7 +39,7 @@ export const DEVICE_BUILD_ARTIFACT_AUDIT_VERSION = 1;
  * - orphan roots are diagnostic/manual-review only, never auto-reclaimable.
  *
  * @param {{
- *   builds: BuildRecord[],
+ *   builds: readonly BuildRecord[],
  *   inventory: BuildArtifactInventory[],
  *   orphanRoots?: OrphanArtifactRoot[],
  * }} input
