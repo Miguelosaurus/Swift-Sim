@@ -1,0 +1,56 @@
+name: Temporary Phase 4Z5 CLI style publisher
+
+on:
+  push:
+    branches:
+      - agent/architecture-consolidation-phase-4z5-doctor-artifact-audit
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Normalize only Phase 4Z5 inserted CLI indentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("mac-helper/bin/swift-sim.js")
+          text = path.read_text()
+          replacements = [
+            (
+              '''const artifactAudit = includeStorage
+          ? runHelperJSON(["device-build-artifact-audit"])
+          : null;
+          const codex = findCodexCommand();''',
+              '''  const artifactAudit = includeStorage
+            ? runHelperJSON(["device-build-artifact-audit"])
+            : null;
+          const codex = findCodexCommand();''',
+            ),
+            ('\n  remoteHotReload: {', '\n    remoteHotReload: {'),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"Phase 4Z5 style anchor mismatch: {old!r}")
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          node --check mac-helper/bin/swift-sim.js
+          node --test --test-name-pattern="doctor reports stale Codex and Claude integrations" test/cli.test.js
+          git diff --check
+      - name: Publish style correction and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mac-helper/bin/swift-sim.js
+          git rm .github/workflows/tmp-phase4z5-cli-style.yml
+          git commit -m "style: align Phase 4Z5 doctor wiring"
+          git push origin HEAD:agent/architecture-consolidation-phase-4z5-doctor-artifact-audit
