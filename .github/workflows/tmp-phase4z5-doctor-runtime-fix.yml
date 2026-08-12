@@ -57,17 +57,19 @@ jobs:
           npm run check:types
           npm run check:architecture
           git diff --check
+
+          # The audit command itself must be non-writing. Whole `doctor` has
+          # pre-existing live-engine inspection behavior that may create its
+          # own engine directory, so keep the no-write proof isolated here.
           tmp_home="$(mktemp -d)"
-          HOME="$tmp_home" node mac-helper/bin/swift-sim.js doctor --json > "$tmp_home/doctor.json"
+          HOME="$tmp_home" node mac-helper/bin/swift-sim-helper.js device-build-artifact-audit > "$tmp_home/audit.json"
           node -e '
             const fs = require("fs");
             const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const artifacts = value.storage?.artifacts;
-            if (!artifacts || artifacts.available !== true) process.exit(1);
-            if (artifacts.informational !== true || artifacts.cleanupEnabled !== false) process.exit(1);
-          ' "$tmp_home/doctor.json"
+            if (value.readOnly !== true || value.cleanupEnabled !== false) process.exit(1);
+          ' "$tmp_home/audit.json"
           if [ -e "$tmp_home/.swift-sim" ]; then
-            echo "Doctor audit unexpectedly created Swift Sim state" >&2
+            echo "Read-only artifact audit unexpectedly created Swift Sim state" >&2
             find "$tmp_home/.swift-sim" -maxdepth 3 -print >&2 || true
             exit 1
           fi
