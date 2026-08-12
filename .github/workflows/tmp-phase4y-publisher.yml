@@ -27,66 +27,33 @@ jobs:
 
           source = Path('mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js')
           text = source.read_text()
-          marker = '''  if (signing && !Object.prototype.hasOwnProperty.call(signing, "deviceInstallable")) {
-            signing.deviceInstallable = false;
-          }
-          return build;
-          '''
-          replacement = '''  if (signing && !Object.prototype.hasOwnProperty.call(signing, "deviceInstallable")) {
-            signing.deviceInstallable = false;
-          }
-          if (signing && !Object.prototype.hasOwnProperty.call(signing, "style")) {
-            signing.style = "";
-          }
-          return build;
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit(f'signing upgrade marker count={text.count(marker)}')
-          source.write_text(text.replace(marker, replacement, 1))
+          old = '    signing.deviceInstallable = false;\n  }\n  return build;'
+          new = '    signing.deviceInstallable = false;\n  }\n  if (signing && !Object.prototype.hasOwnProperty.call(signing, "style")) {\n    signing.style = "";\n  }\n  return build;'
+          if text.count(old) != 1:
+              raise SystemExit(f'signing upgrade marker count={text.count(old)}')
+          source.write_text(text.replace(old, new, 1))
 
           test = Path('test/deviceBuildLegacyCompatibility.test.js')
           text = test.read_text()
-          marker = '''  delete build.delivery;
-            delete build.signing.deviceInstallable;
+          old = '  delete build.delivery;\n  delete build.signing.deviceInstallable;\n\n  const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));'
+          new = '  delete build.delivery;\n  delete build.signing.deviceInstallable;\n  delete build.signing.style;\n\n  const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));'
+          if text.count(old) != 1:
+              raise SystemExit(f'historical omission marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
 
-            const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));
-          '''
-          replacement = '''  delete build.delivery;
-            delete build.signing.deviceInstallable;
-            delete build.signing.style;
+          old = '  assert.equal(imported.signing.deviceInstallable, false);\n});'
+          new = '  assert.equal(imported.signing.deviceInstallable, false);\n  assert.equal(imported.signing.style, "");\n});'
+          if text.count(old) != 1:
+              raise SystemExit(f'historical style assertion marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
 
-            const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit(f'historical omission marker count={text.count(marker)}')
-          text = text.replace(marker, replacement, 1)
+          old = '  assert.deepEqual(imported.delivery, build.delivery);\n  assert.equal(imported.signing.deviceInstallable, true);\n});'
+          new = '  assert.deepEqual(imported.delivery, build.delivery);\n  assert.equal(imported.signing.deviceInstallable, true);\n  assert.equal(imported.signing.style, "automatic");\n});'
+          if text.count(old) != 1:
+              raise SystemExit(f'explicit style preservation marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
 
-          marker = '''  assert.equal(imported.signing.deviceInstallable, false);
-          });
-          '''
-          replacement = '''  assert.equal(imported.signing.deviceInstallable, false);
-            assert.equal(imported.signing.style, "");
-          });
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit(f'historical style assertion marker count={text.count(marker)}')
-          text = text.replace(marker, replacement, 1)
-
-          marker = '''  assert.deepEqual(imported.delivery, build.delivery);
-            assert.equal(imported.signing.deviceInstallable, true);
-          });
-          '''
-          replacement = '''  assert.deepEqual(imported.delivery, build.delivery);
-            assert.equal(imported.signing.deviceInstallable, true);
-            assert.equal(imported.signing.style, "automatic");
-          });
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit(f'explicit style preservation marker count={text.count(marker)}')
-          text = text.replace(marker, replacement, 1)
-
-          marker = '''test("legacy snapshot does not invent a missing signing object", () => {
-          '''
+          marker = 'test("legacy snapshot does not invent a missing signing object", () => {'
           inserted = '''test("legacy snapshot does not repair a malformed present signing style", () => {
             const build = legacyBuild();
             build.signing.style = null;
@@ -97,8 +64,7 @@ jobs:
             );
           });
 
-          test("legacy snapshot does not invent a missing signing object", () => {
-          '''
+          test("legacy snapshot does not invent a missing signing object", () => {'''
           if text.count(marker) != 1:
               raise SystemExit(f'malformed style test marker count={text.count(marker)}')
           test.write_text(text.replace(marker, inserted, 1))
