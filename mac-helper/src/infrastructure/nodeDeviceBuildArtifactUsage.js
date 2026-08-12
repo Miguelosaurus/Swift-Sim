@@ -54,12 +54,7 @@ export class NodeDeviceBuildArtifactUsage {
    *   lstat?: typeof lstatSync,
    * }} dependencies
    */
-  constructor({
-    commandRunner,
-    environmentNames,
-    readDirectory = readdirSync,
-    lstat = lstatSync,
-  }) {
+  constructor({ commandRunner, environmentNames, readDirectory = readdirSync, lstat = lstatSync }) {
     if (!commandRunner || typeof commandRunner.run !== "function") {
       throw new TypeError("Device-build artifact usage requires commandRunner.");
     }
@@ -170,9 +165,7 @@ export class NodeDeviceBuildArtifactUsage {
 
     const rootPaths = [
       ...measurableBuilds.map((entry) => entry.root),
-      ...orphanCandidates
-        .filter(({ entry }) => !entry.isSymbolicLink?.())
-        .map(({ root }) => root),
+      ...orphanCandidates.filter(({ entry }) => !entry.isSymbolicLink?.()).map(({ root }) => root),
     ];
     const componentPaths = measurableBuilds.flatMap((entry) => Object.values(entry.components));
     const rootUsage = await this.measurePaths(rootPaths, issues);
@@ -549,8 +542,8 @@ function issue(code, buildID, path, message) {
 function hasCode(error, code) {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      /** @type {{ code?: unknown }} */ (error).code === code,
+    typeof error === "object" &&
+    "code" in error &&
+    /** @type {{ code?: unknown }} */ (error).code === code,
   );
 }
