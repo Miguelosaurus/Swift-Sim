@@ -52,12 +52,15 @@ test("ready retention prunes heavyweight intermediates but preserves install pay
   const result = pruneReadyIntermediates(build, artifactStore);
 
   assert.equal(result.action, "pruned-ready");
-  assert.deepEqual(new Set(artifactStore.removed), new Set([
-    resolve(join(build.artifacts.root, "DerivedData")),
-    resolve(build.artifacts.archivePath),
-    resolve(build.artifacts.resultBundlePath),
-    resolve(join(build.artifacts.root, "ExportOptions.plist")),
-  ]));
+  assert.deepEqual(
+    new Set(artifactStore.removed),
+    new Set([
+      resolve(join(build.artifacts.root, "DerivedData")),
+      resolve(build.artifacts.archivePath),
+      resolve(build.artifacts.resultBundlePath),
+      resolve(join(build.artifacts.root, "ExportOptions.plist")),
+    ]),
+  );
   assert.equal(artifactStore.removed.includes(resolve(build.artifacts.exportPath)), false);
   assert.equal(artifactStore.removed.includes(resolve(build.artifacts.ipaPath)), false);
   assert.deepEqual(result.preserved, [resolve(build.artifacts.ipaPath)]);
@@ -89,11 +92,13 @@ test("retention schedules failed whole-root cleanup after a diagnostic grace per
   const result = retention.afterTerminalBuild(build);
 
   assert.equal(result.action, "scheduled-failed");
-  assert.deepEqual(scheduled, [{
-    buildID: "build-1",
-    root: build.artifacts.root,
-    notBefore: new Date(now + FAILED_BUILD_ARTIFACT_RETENTION_MS).toISOString(),
-  }]);
+  assert.deepEqual(scheduled, [
+    {
+      buildID: "build-1",
+      root: build.artifacts.root,
+      notBefore: new Date(now + FAILED_BUILD_ARTIFACT_RETENTION_MS).toISOString(),
+    },
+  ]);
   assert.deepEqual(artifactStore.removed, []);
 });
 

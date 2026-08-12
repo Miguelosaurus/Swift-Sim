@@ -108,9 +108,16 @@ export function scheduleFailedBuildCleanup(build, scheduleFailedCleanup, nowMs) 
   return { action: "scheduled-failed", request };
 }
 
-/** @param {unknown[]} values */
+/** @param {unknown[]} values @returns {string[]} */
 function uniqueStrings(values) {
-  return [...new Set(values.filter((value) => typeof value === "string" && value.length > 0))];
+  /** @type {string[]} */
+  const strings = [];
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0 && !strings.includes(value)) {
+      strings.push(value);
+    }
+  }
+  return strings;
 }
 
 /** @param {string} parent @param {string} child */
@@ -119,7 +126,9 @@ function containsPath(parent, child) {
   const resolvedChild = resolve(child);
   if (resolvedParent === resolvedChild) return true;
   const nested = relative(resolvedParent, resolvedChild);
-  return Boolean(nested && !isAbsolute(nested) && nested !== ".." && !nested.startsWith(`..${sep}`));
+  return Boolean(
+    nested && !isAbsolute(nested) && nested !== ".." && !nested.startsWith(`..${sep}`),
+  );
 }
 
 /** @param {string} first @param {string} second */
