@@ -27,19 +27,22 @@ jobs:
 
           store = Path('mac-helper/src/infrastructure/nodeAtomicFileStore.js')
           text = store.read_text()
-          text = text.replace('import {\n  closeSync,', 'import {\n  chmodSync,\n  closeSync,', 1)
-          text = text.replace('  fsyncSync,\n  linkSync,', '  fsyncSync,\n  linkSync,\n  lstatSync,', 1)
-          marker = '''  removeSync(path) {
-            rmSync(path, { force: true });
-          }
-          }
+          old = 'import {\n  closeSync,'
+          if text.count(old) != 1:
+              raise SystemExit(f'atomic-store chmod import marker count={text.count(old)}')
+          text = text.replace(old, 'import {\n  chmodSync,\n  closeSync,', 1)
+          old = '  fsyncSync,\n  linkSync,'
+          if text.count(old) != 1:
+              raise SystemExit(f'atomic-store lstat import marker count={text.count(old)}')
+          text = text.replace(old, '  fsyncSync,\n  linkSync,\n  lstatSync,', 1)
+          marker = '''/**
+           * @param {string} path
+           * @param {string} value
+           * @param {AtomicWriteOptions} options
+           */
+          async function writeAtomic(path, value, options) {
           '''
-          replacement = '''  removeSync(path) {
-            rmSync(path, { force: true });
-          }
-          }
-
-          /** @param {string} path @param {number} mode */
+          helper = '''/** @param {string} path @param {number} mode */
           export function ensureDirectoryModeSync(path, mode) {
             if (typeof path !== "string" || path.length === 0) {
               throw new TypeError("Directory path must be a non-empty string.");
@@ -52,16 +55,29 @@ jobs:
             }
             chmodSync(path, normalizedMode);
           }
+
+          /**
+           * @param {string} path
+           * @param {string} value
+           * @param {AtomicWriteOptions} options
+           */
+          async function writeAtomic(path, value, options) {
           '''
           if text.count(marker) != 1:
-              raise SystemExit(f'atomic-store insertion marker count={text.count(marker)}')
-          store.write_text(text.replace(marker, replacement, 1))
+              raise SystemExit(f'atomic-store helper insertion marker count={text.count(marker)}')
+          store.write_text(text.replace(marker, helper, 1))
 
           runtime = Path('mac-helper/src/persistence/deviceBuildShadowRuntime.js')
           text = runtime.read_text()
-          text = text.replace('// @ts-check\n\n', '// @ts-check\n\nimport { dirname } from "node:path";\n', 1)
+          old = '// @ts-check\n\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'shadow-runtime path import marker count={text.count(old)}')
+          text = text.replace(old, '// @ts-check\n\nimport { dirname } from "node:path";\n', 1)
+          old = 'import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";'
+          if text.count(old) != 1:
+              raise SystemExit(f'shadow-runtime atomic-store import marker count={text.count(old)}')
           text = text.replace(
-              'import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";',
+              old,
               'import {\n  ensureDirectoryModeSync,\n  NodeAtomicFileStore,\n} from "../infrastructure/nodeAtomicFileStore.js";',
               1,
           )
@@ -82,32 +98,31 @@ jobs:
 
           test = Path('test/deviceBuildShadowRuntime.test.ts')
           text = test.read_text()
-          text = text.replace(
-              'import { mkdtempSync, rmSync, statSync } from "node:fs";',
-              'import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";',
-              1,
-          )
-          text = text.replace(
-              '  const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-shadow-runtime-"));\n',
-              '  const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-shadow-runtime-"));\n  chmodSync(root, 0o755);\n',
-              1,
-          )
-          text = text.replace(
-              '  assert.equal(process.umask(), originalUmask);\n',
-              '  assert.equal(process.umask(), originalUmask);\n  assert.equal(statSync(root).mode & 0o777, 0o700);\n',
-              1,
-          )
+          old = 'import { mkdtempSync, rmSync, statSync } from "node:fs";'
+          if text.count(old) != 1:
+              raise SystemExit(f'shadow-runtime test fs import marker count={text.count(old)}')
+          text = text.replace(old, 'import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";', 1)
+          old = '  const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-shadow-runtime-"));\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'shadow-runtime root marker count={text.count(old)}')
+          text = text.replace(old, old + '  chmodSync(root, 0o755);\n', 1)
+          old = '  assert.equal(process.umask(), originalUmask);\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'shadow-runtime umask marker count={text.count(old)}')
+          text = text.replace(old, old + '  assert.equal(statSync(root).mode & 0o777, 0o700);\n', 1)
           test.write_text(text)
 
           adapters = Path('test/persistenceAdapters.test.ts')
           text = adapters.read_text()
+          old = 'import { mkdtemp, readdir, rm, stat } from "node:fs/promises";'
+          if text.count(old) != 1:
+              raise SystemExit(f'persistence-adapter fs import marker count={text.count(old)}')
+          text = text.replace(old, 'import { chmod, mkdtemp, readdir, rm, stat } from "node:fs/promises";', 1)
+          old = 'import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";'
+          if text.count(old) != 1:
+              raise SystemExit(f'persistence-adapter atomic import marker count={text.count(old)}')
           text = text.replace(
-              'import { mkdtemp, readdir, rm, stat } from "node:fs/promises";',
-              'import { chmod, mkdtemp, readdir, rm, stat } from "node:fs/promises";',
-              1,
-          )
-          text = text.replace(
-              'import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";',
+              old,
               'import {\n  ensureDirectoryModeSync,\n  NodeAtomicFileStore,\n} from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";',
               1,
           )
