@@ -1,0 +1,120 @@
+name: Temporary Phase 4Y publisher
+
+on:
+  push:
+    branches:
+      - agent/architecture-consolidation-phase-4y-historical-signing-style
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Add historical signing-style upgrade
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js')
+          text = source.read_text()
+          marker = '''  if (signing && !Object.prototype.hasOwnProperty.call(signing, "deviceInstallable")) {
+            signing.deviceInstallable = false;
+          }
+          return build;
+          '''
+          replacement = '''  if (signing && !Object.prototype.hasOwnProperty.call(signing, "deviceInstallable")) {
+            signing.deviceInstallable = false;
+          }
+          if (signing && !Object.prototype.hasOwnProperty.call(signing, "style")) {
+            signing.style = "";
+          }
+          return build;
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'signing upgrade marker count={text.count(marker)}')
+          source.write_text(text.replace(marker, replacement, 1))
+
+          test = Path('test/deviceBuildLegacyCompatibility.test.js')
+          text = test.read_text()
+          marker = '''  delete build.delivery;
+            delete build.signing.deviceInstallable;
+
+            const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));
+          '''
+          replacement = '''  delete build.delivery;
+            delete build.signing.deviceInstallable;
+            delete build.signing.style;
+
+            const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'historical omission marker count={text.count(marker)}')
+          text = text.replace(marker, replacement, 1)
+
+          marker = '''  assert.equal(imported.signing.deviceInstallable, false);
+          });
+          '''
+          replacement = '''  assert.equal(imported.signing.deviceInstallable, false);
+            assert.equal(imported.signing.style, "");
+          });
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'historical style assertion marker count={text.count(marker)}')
+          text = text.replace(marker, replacement, 1)
+
+          marker = '''  assert.deepEqual(imported.delivery, build.delivery);
+            assert.equal(imported.signing.deviceInstallable, true);
+          });
+          '''
+          replacement = '''  assert.deepEqual(imported.delivery, build.delivery);
+            assert.equal(imported.signing.deviceInstallable, true);
+            assert.equal(imported.signing.style, "automatic");
+          });
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'explicit style preservation marker count={text.count(marker)}')
+          text = text.replace(marker, replacement, 1)
+
+          marker = '''test("legacy snapshot does not invent a missing signing object", () => {
+          '''
+          inserted = '''test("legacy snapshot does not repair a malformed present signing style", () => {
+            const build = legacyBuild();
+            build.signing.style = null;
+
+            assert.throws(
+              () => parseDeviceBuildLegacySnapshot(legacyState(build)),
+              /Device build record is invalid\\./,
+            );
+          });
+
+          test("legacy snapshot does not invent a missing signing object", () => {
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'malformed style test marker count={text.count(marker)}')
+          test.write_text(text.replace(marker, inserted, 1))
+          PY
+      - name: Format and focused validation
+        run: |
+          npx prettier --write mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js test/deviceBuildLegacyCompatibility.test.js
+          node --test test/deviceBuildLegacyCompatibility.test.js
+          npm run check:types
+          npm run check:architecture
+          git diff --check
+      - name: Publish product commit
+        run: |
+          rm .github/workflows/tmp-phase4y-publisher.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js test/deviceBuildLegacyCompatibility.test.js .github/workflows/tmp-phase4y-publisher.yml
+          git commit -m 'fix: upgrade historical missing signing style'
+          git push
