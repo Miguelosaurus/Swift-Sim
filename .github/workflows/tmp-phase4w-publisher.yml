@@ -1,0 +1,145 @@
+name: Temporary Phase 4W publisher
+
+on:
+  push:
+    branches:
+      - agent/architecture-consolidation-phase-4w-private-state-root
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Harden existing state directory through filesystem owner
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          store = Path('mac-helper/src/infrastructure/nodeAtomicFileStore.js')
+          text = store.read_text()
+          text = text.replace('import {\n  closeSync,', 'import {\n  chmodSync,\n  closeSync,', 1)
+          text = text.replace('  fsyncSync,\n  linkSync,', '  fsyncSync,\n  linkSync,\n  lstatSync,', 1)
+          marker = '''  removeSync(path) {
+            rmSync(path, { force: true });
+          }
+          }
+          '''
+          replacement = '''  removeSync(path) {
+            rmSync(path, { force: true });
+          }
+          }
+
+          /** @param {string} path @param {number} mode */
+          export function ensureDirectoryModeSync(path, mode) {
+            if (typeof path !== "string" || path.length === 0) {
+              throw new TypeError("Directory path must be a non-empty string.");
+            }
+            const normalizedMode = normalizeMode(mode, "directory");
+            mkdirSync(path, { recursive: true, mode: normalizedMode });
+            const current = lstatSync(path);
+            if (current.isSymbolicLink() || !current.isDirectory()) {
+              throw new Error("Directory path must resolve to a directory.");
+            }
+            chmodSync(path, normalizedMode);
+          }
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'atomic-store insertion marker count={text.count(marker)}')
+          store.write_text(text.replace(marker, replacement, 1))
+
+          runtime = Path('mac-helper/src/persistence/deviceBuildShadowRuntime.js')
+          text = runtime.read_text()
+          text = text.replace('// @ts-check\n\n', '// @ts-check\n\nimport { dirname } from "node:path";\n', 1)
+          text = text.replace(
+              'import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";',
+              'import {\n  ensureDirectoryModeSync,\n  NodeAtomicFileStore,\n} from "../infrastructure/nodeAtomicFileStore.js";',
+              1,
+          )
+          marker = '''  const clock = options.clock || new SystemClock();
+            validateClock(clock);
+
+            const identity = createDarwinLegacyProcessIdentity({ spawnSync: options.spawnSync });
+          '''
+          replacement = '''  const clock = options.clock || new SystemClock();
+            validateClock(clock);
+
+            ensureDirectoryModeSync(dirname(databasePath), 0o700);
+            const identity = createDarwinLegacyProcessIdentity({ spawnSync: options.spawnSync });
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'shadow-runtime insertion marker count={text.count(marker)}')
+          runtime.write_text(text.replace(marker, replacement, 1))
+
+          test = Path('test/deviceBuildShadowRuntime.test.ts')
+          text = test.read_text()
+          text = text.replace(
+              'import { mkdtempSync, rmSync, statSync } from "node:fs";',
+              'import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";',
+              1,
+          )
+          text = text.replace(
+              '  const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-shadow-runtime-"));\n',
+              '  const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-shadow-runtime-"));\n  chmodSync(root, 0o755);\n',
+              1,
+          )
+          text = text.replace(
+              '  assert.equal(process.umask(), originalUmask);\n',
+              '  assert.equal(process.umask(), originalUmask);\n  assert.equal(statSync(root).mode & 0o777, 0o700);\n',
+              1,
+          )
+          test.write_text(text)
+
+          adapters = Path('test/persistenceAdapters.test.ts')
+          text = adapters.read_text()
+          text = text.replace(
+              'import { mkdtemp, readdir, rm, stat } from "node:fs/promises";',
+              'import { chmod, mkdtemp, readdir, rm, stat } from "node:fs/promises";',
+              1,
+          )
+          text = text.replace(
+              'import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";',
+              'import {\n  ensureDirectoryModeSync,\n  NodeAtomicFileStore,\n} from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";',
+              1,
+          )
+          marker = '''  assert.equal((await stat(join(root, "nested"))).mode & 0o777, 0o700);
+
+            assert.throws(
+          '''
+          replacement = '''  assert.equal((await stat(join(root, "nested"))).mode & 0o777, 0o700);
+
+            await chmod(join(root, "nested"), 0o755);
+            ensureDirectoryModeSync(join(root, "nested"), 0o700);
+            assert.equal((await stat(join(root, "nested"))).mode & 0o777, 0o700);
+
+            assert.throws(
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit(f'persistence-adapter insertion marker count={text.count(marker)}')
+          adapters.write_text(text.replace(marker, replacement, 1))
+          PY
+      - name: Format and focused validation
+        run: |
+          npx prettier --write mac-helper/src/infrastructure/nodeAtomicFileStore.js mac-helper/src/persistence/deviceBuildShadowRuntime.js test/deviceBuildShadowRuntime.test.ts test/persistenceAdapters.test.ts
+          npm run check:types
+          npm run check:architecture
+          npm run build
+          node --test --test-concurrency=1 dist/test/persistenceAdapters.test.js dist/test/deviceBuildShadowRuntime.test.js
+          git diff --check
+      - name: Publish product commit
+        run: |
+          rm .github/workflows/tmp-phase4w-publisher.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mac-helper/src/infrastructure/nodeAtomicFileStore.js mac-helper/src/persistence/deviceBuildShadowRuntime.js test/deviceBuildShadowRuntime.test.ts test/persistenceAdapters.test.ts .github/workflows/tmp-phase4w-publisher.yml
+          git commit -m 'fix: harden existing Swift Sim state directory'
+          git push
