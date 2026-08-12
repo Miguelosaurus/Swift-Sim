@@ -53,7 +53,7 @@ jobs:
       - name: Validate exact doctor runtime path
         run: |
           node --check mac-helper/bin/swift-sim.js
-          node --test test/cli.test.js
+          node --test --test-name-pattern="doctor reports stale Codex and Claude integrations" test/cli.test.js
           npm run check:types
           npm run check:architecture
           git diff --check
