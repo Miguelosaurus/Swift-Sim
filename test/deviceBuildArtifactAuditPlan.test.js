@@ -151,4 +151,16 @@ test("audit rejects duplicate and internally inconsistent inventory", () => {
     }),
     /exceeds total size/,
   );
+  assert.throws(
+    () => planDeviceBuildArtifactAudit({
+      builds: [value],
+      inventory: [{
+        buildID: value.id,
+        root: value.artifacts.root,
+        totalKiB: 10,
+        archiveKiB: Number.NaN,
+      }],
+    }),
+    /archiveKiB must be a nonnegative finite number/,
+  );
 });
