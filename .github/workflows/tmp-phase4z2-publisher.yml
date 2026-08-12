@@ -25,14 +25,15 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # Durable, canonical-root failed cleanup scheduling.
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label} count={count}')
+              return text.replace(old, new, 1)
+
           store = Path('mac-helper/src/deviceBuildStore.js')
           text = store.read_text()
-          old = 'import { dirname, join } from "node:path";'
-          if text.count(old) != 1:
-              raise SystemExit(f'store path import marker count={text.count(old)}')
-          text = text.replace(old, 'import { dirname, join, resolve } from "node:path";', 1)
-          marker = '  listDeliveryReferenceCleanupJobs() {'
+          text = replace_once(text, 'import { dirname, join } from "node:path";', 'import { dirname, join, resolve } from "node:path";', 'store path import')
           method = '''  scheduleArtifactCleanup({ buildID, root, notBefore }) {
             if (typeof buildID !== "string" || buildID.length === 0) {
               throw new TypeError("Artifact cleanup build ID is required.");
@@ -67,63 +68,36 @@ jobs:
           }
 
           listDeliveryReferenceCleanupJobs() {'''
-          if text.count(marker) != 1:
-              raise SystemExit(f'cleanup scheduling insertion marker count={text.count(marker)}')
-          store.write_text(text.replace(marker, method, 1))
+          text = replace_once(text, '  listDeliveryReferenceCleanupJobs() {', method, 'cleanup method insertion')
+          store.write_text(text)
 
-          # Controller retention injection and nonfatal terminal handling.
           controller = Path('mac-helper/src/deviceBuildRuntimeController.js')
           text = controller.read_text()
-          old = ' *   app?: unknown,\n * }} BuildRecord */'
-          new = ' *   app?: unknown,\n *   artifacts?: unknown,\n * }} BuildRecord */\n/** @typedef {{ afterTerminalBuild(build: BuildRecord): unknown }} ArtifactRetentionLike */'
-          if text.count(old) != 1:
-              raise SystemExit(f'controller build typedef marker count={text.count(old)}')
-          text = text.replace(old, new, 1)
-          old = ' *   signals: SignalRuntime,\n * }} DeviceBuildRuntimeDependencies */'
-          new = ' *   signals: SignalRuntime,\n *   artifactRetention?: ArtifactRetentionLike,\n *   reportRetentionError?(message: string): unknown,\n * }} DeviceBuildRuntimeDependencies */'
-          if text.count(old) != 1:
-              raise SystemExit(f'controller deps typedef marker count={text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          old = '''          try {
-                    dependencies.store.save(build);
-                  } catch {}
-                }
-                return undefined;
-          '''
-          new = '''          try {
-                    dependencies.store.save(build);
-                  } catch {}
-                  retainTerminalBuild(build);
-                }
-                return undefined;
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f'cancellation retention marker count={text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          old = '''      try {
-                dependencies.store.save(build);
-              } catch {}
-            }
-          }
-
-          async function drainDeliveryReferences() {
-          '''
-          new = '''      try {
-                dependencies.store.save(build);
-              } catch {}
-              retainTerminalBuild(build);
-            }
-          }
-
-          async function drainDeliveryReferences() {
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f'recovery retention marker count={text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          old = '''  async function runBuildPipeline(build) {
+          text = replace_once(
+              text,
+              ' *   app?: unknown,\n * }} BuildRecord */',
+              ' *   app?: unknown,\n *   artifacts?: unknown,\n * }} BuildRecord */\n/** @typedef {{ afterTerminalBuild(build: BuildRecord): unknown }} ArtifactRetentionLike */',
+              'build typedef',
+          )
+          text = replace_once(
+              text,
+              ' *   signals: SignalRuntime,\n * }} DeviceBuildRuntimeDependencies */',
+              ' *   signals: SignalRuntime,\n *   artifactRetention?: ArtifactRetentionLike,\n *   reportRetentionError?(message: string): unknown,\n * }} DeviceBuildRuntimeDependencies */',
+              'dependency typedef',
+          )
+          text = replace_once(
+              text,
+              '          } catch {}\n        }\n        return undefined;',
+              '          } catch {}\n          retainTerminalBuild(build);\n        }\n        return undefined;',
+              'cancelled build retention',
+          )
+          text = replace_once(
+              text,
+              '      try {\n        dependencies.store.save(build);\n      } catch {}\n    }\n  }\n\n  async function drainDeliveryReferences()',
+              '      try {\n        dependencies.store.save(build);\n      } catch {}\n      retainTerminalBuild(build);\n    }\n  }\n\n  async function drainDeliveryReferences()',
+              'recovered build retention',
+          )
+          old_pipeline = '''  async function runBuildPipeline(build) {
             await dependencies.runBuild(build, {
               save: (next) => dependencies.store.save(next),
               nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
@@ -136,8 +110,8 @@ jobs:
             dependencies.store.save(readyBuild);
             return readyBuild;
           }
-          '''
-          new = '''  async function runBuildPipeline(build) {
+          '''.replace('          ', '')
+          new_pipeline = '''  async function runBuildPipeline(build) {
             try {
               await dependencies.runBuild(build, {
                 save: (next) => dependencies.store.save(next),
@@ -170,18 +144,15 @@ jobs:
               } catch {}
             }
           }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f'pipeline retention marker count={text.count(old)}')
-          text = text.replace(old, new, 1)
-
-          marker = '''  for (const [name, implementation] of required) {
+          '''.replace('          ', '')
+          text = replace_once(text, old_pipeline, new_pipeline, 'pipeline retention')
+          validation_tail = '''  for (const [name, implementation] of required) {
             if (typeof implementation !== "function") {
               throw new TypeError(`Device build runtime controller requires ${name}.`);
             }
           }
-          }'''
-          replacement = '''  for (const [name, implementation] of required) {
+          }'''.replace('          ', '')
+          validation_new = '''  for (const [name, implementation] of required) {
             if (typeof implementation !== "function") {
               throw new TypeError(`Device build runtime controller requires ${name}.`);
             }
@@ -200,134 +171,123 @@ jobs:
           ) {
             throw new TypeError("Device build runtime controller reportRetentionError must be a function.");
           }
-          }'''
-          if text.count(marker) != 1:
-              raise SystemExit(f'controller validation marker count={text.count(marker)}')
-          controller.write_text(text.replace(marker, replacement, 1))
+          }'''.replace('          ', '')
+          text = replace_once(text, validation_tail, validation_new, 'controller validation')
+          controller.write_text(text)
 
-          # Helper composition uses the dedicated compatibility composer.
           helper = Path('mac-helper/bin/swift-sim-helper.js')
           text = helper.read_text()
-          old = 'import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";'
-          new = 'import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";\nimport { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBuildArtifactRetentionCompatibility.js";'
-          if text.count(old) != 1:
-              raise SystemExit(f'helper retention import marker count={text.count(old)}')
-          text = text.replace(old, new, 1)
-          old = '''  deviceBuildRuntime = createDeviceBuildRuntimeController({
-            store: deviceBuildStore,
-          '''
-          new = '''  const deviceBuildArtifactRetention = createDeviceBuildArtifactRetentionCompatibility({
-            deviceBuildStore,
-            clock: runtime.clock,
-          });
-          deviceBuildRuntime = createDeviceBuildRuntimeController({
-            store: deviceBuildStore,
-            artifactRetention: deviceBuildArtifactRetention,
-            reportRetentionError: (message) => console.error(message),
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f'helper retention composition marker count={text.count(old)}')
-          helper.write_text(text.replace(old, new, 1))
+          text = replace_once(
+              text,
+              'import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";',
+              'import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";\nimport { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBuildArtifactRetentionCompatibility.js";',
+              'helper retention import',
+          )
+          text = replace_once(
+              text,
+              '  deviceBuildRuntime = createDeviceBuildRuntimeController({\n    store: deviceBuildStore,',
+              '  const deviceBuildArtifactRetention = createDeviceBuildArtifactRetentionCompatibility({\n    deviceBuildStore,\n    clock: runtime.clock,\n  });\n  deviceBuildRuntime = createDeviceBuildRuntimeController({\n    store: deviceBuildStore,\n    artifactRetention: deviceBuildArtifactRetention,\n    reportRetentionError: (message) => console.error(message),',
+              'helper retention composition',
+          )
+          helper.write_text(text)
 
-          # Store regression: canonical root, durable due time, and dedupe.
           store_test = Path('test/deviceBuildStore.test.js')
           text = store_test.read_text()
-          append = '''
-
-          test("failed-build artifact cleanup scheduling is canonical, durable, and deduplicated", () =>
-            withStore((store, directory) => {
-              const build = store.create({ scheme: "Cleanup" });
-              const notBefore = "2026-08-13T12:00:00.000Z";
-              const first = store.scheduleArtifactCleanup({
-                buildID: build.id,
-                root: build.artifacts.root,
-                notBefore,
-              });
-              const second = store.scheduleArtifactCleanup({
-                buildID: build.id,
-                root: build.artifacts.root,
-                notBefore: "2026-08-14T12:00:00.000Z",
-              });
-
-              assert.equal(second.id, first.id);
-              assert.equal(second.notBefore, notBefore);
-              const state = JSON.parse(readFileSync(join(directory, "builds.json"), "utf8"));
-              assert.equal(Object.keys(state.artifactCleanupJobs).length, 1);
-              assert.equal(state.artifactCleanupJobs[first.id].root, build.artifacts.root);
-              assert.equal(state.artifactCleanupJobs[first.id].nextAttemptAt, notBefore);
-              assert.throws(
-                () =>
-                  store.scheduleArtifactCleanup({
-                    buildID: build.id,
-                    root: join(directory, "outside"),
-                    notBefore,
-                  }),
-                /canonical device-build root/,
-              );
-            }));
-          '''
           if 'failed-build artifact cleanup scheduling is canonical' in text:
               raise SystemExit('store retention test already present')
-          store_test.write_text(text + append)
+          text += '''
 
-          # Controller regression: terminal callbacks and failure isolation.
+test("failed-build artifact cleanup scheduling is canonical, durable, and deduplicated", () =>
+  withStore((store, directory) => {
+    const build = store.create({ scheme: "Cleanup" });
+    const notBefore = "2026-08-13T12:00:00.000Z";
+    const first = store.scheduleArtifactCleanup({
+      buildID: build.id,
+      root: build.artifacts.root,
+      notBefore,
+    });
+    const second = store.scheduleArtifactCleanup({
+      buildID: build.id,
+      root: build.artifacts.root,
+      notBefore: "2026-08-14T12:00:00.000Z",
+    });
+
+    assert.equal(second.id, first.id);
+    assert.equal(second.notBefore, notBefore);
+    const state = JSON.parse(readFileSync(join(directory, "builds.json"), "utf8"));
+    assert.equal(Object.keys(state.artifactCleanupJobs).length, 1);
+    assert.equal(state.artifactCleanupJobs[first.id].root, build.artifacts.root);
+    assert.equal(state.artifactCleanupJobs[first.id].nextAttemptAt, notBefore);
+    assert.throws(
+      () =>
+        store.scheduleArtifactCleanup({
+          buildID: build.id,
+          root: join(directory, "outside"),
+          notBefore,
+        }),
+      /canonical device-build root/,
+    );
+  }));
+'''
+          store_test.write_text(text)
+
           runtime_test = Path('test/deviceBuildRuntimeController.test.js')
           text = runtime_test.read_text()
-          append = '''
-
-          test("successful builds run retention after ready delivery and retention failure is nonfatal", async () => {
-            const retained = [];
-            const diagnostics = [];
-            const { deps } = harness({
-              artifactRetention: {
-                afterTerminalBuild(value) {
-                  retained.push(value.state);
-                  throw new Error("simulated retention failure");
-                },
-              },
-              reportRetentionError: (message) => diagnostics.push(message),
-            });
-            const runtime = createDeviceBuildRuntimeController(deps);
-            const value = build("retained-ready");
-
-            await runtime.runCliBuild(value);
-
-            assert.equal(value.state, "ready");
-            assert.deepEqual(retained, ["ready"]);
-            assert.deepEqual(diagnostics, [
-              "Device-build artifact retention failed; build metadata and install state were preserved.",
-            ]);
-          });
-
-          test("failed and recovered builds hand terminal artifacts to retention", async () => {
-            const retained = [];
-            const { deps, builds } = harness({
-              artifactRetention: {
-                afterTerminalBuild(value) {
-                  retained.push([value.id, value.state]);
-                },
-              },
-              async runBuild(value) {
-                value.state = "failed";
-                throw new Error("build failed");
-              },
-            });
-            const runtime = createDeviceBuildRuntimeController(deps);
-            await assert.rejects(runtime.runCliBuild(build("failed-build")), /build failed/);
-
-            const recovered = { ...build("recovered-build"), state: "building" };
-            builds.push(recovered);
-            await runtime.recoverInterruptedBuilds();
-
-            assert.deepEqual(retained, [
-              ["failed-build", "failed"],
-              ["recovered-build", "failed"],
-            ]);
-          });
-          '''
           if 'successful builds run retention after ready delivery' in text:
               raise SystemExit('runtime retention tests already present')
-          runtime_test.write_text(text + append)
+          text += '''
+
+test("successful builds run retention after ready delivery and retention failure is nonfatal", async () => {
+  const retained = [];
+  const diagnostics = [];
+  const { deps } = harness({
+    artifactRetention: {
+      afterTerminalBuild(value) {
+        retained.push(value.state);
+        throw new Error("simulated retention failure");
+      },
+    },
+    reportRetentionError: (message) => diagnostics.push(message),
+  });
+  const runtime = createDeviceBuildRuntimeController(deps);
+  const value = build("retained-ready");
+
+  await runtime.runCliBuild(value);
+
+  assert.equal(value.state, "ready");
+  assert.deepEqual(retained, ["ready"]);
+  assert.deepEqual(diagnostics, [
+    "Device-build artifact retention failed; build metadata and install state were preserved.",
+  ]);
+});
+
+test("failed and recovered builds hand terminal artifacts to retention", async () => {
+  const retained = [];
+  const { deps, builds } = harness({
+    artifactRetention: {
+      afterTerminalBuild(value) {
+        retained.push([value.id, value.state]);
+      },
+    },
+    async runBuild(value) {
+      value.state = "failed";
+      throw new Error("build failed");
+    },
+  });
+  const runtime = createDeviceBuildRuntimeController(deps);
+  await assert.rejects(runtime.runCliBuild(build("failed-build")), /build failed/);
+
+  const recovered = { ...build("recovered-build"), state: "building" };
+  builds.push(recovered);
+  await runtime.recoverInterruptedBuilds();
+
+  assert.deepEqual(retained, [
+    ["failed-build", "failed"],
+    ["recovered-build", "failed"],
+  ]);
+});
+'''
+          runtime_test.write_text(text)
           PY
       - name: Format and focused validation
         run: |
