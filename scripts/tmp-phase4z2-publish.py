@@ -1,0 +1,272 @@
+from pathlib import Path
+
+
+def replace_once(text, old, new, label):
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label} count={count}")
+    return text.replace(old, new, 1)
+
+
+store = Path("mac-helper/src/deviceBuildStore.js")
+text = store.read_text()
+text = replace_once(
+    text,
+    'import { dirname, join } from "node:path";',
+    'import { dirname, join, resolve } from "node:path";',
+    "store path import",
+)
+method = '''  scheduleArtifactCleanup({ buildID, root, notBefore }) {
+    if (typeof buildID !== "string" || buildID.length === 0) {
+      throw new TypeError("Artifact cleanup build ID is required.");
+    }
+    const canonicalRoot = resolve(join(dirname(this.path), "device-builds", buildID));
+    if (typeof root !== "string" || resolve(root) !== canonicalRoot) {
+      throw new Error("Artifact cleanup root does not match the canonical device-build root.");
+    }
+    const dueAt = Date.parse(notBefore || "");
+    if (!Number.isFinite(dueAt)) {
+      throw new TypeError("Artifact cleanup notBefore must be a valid timestamp.");
+    }
+    const due = new Date(dueAt).toISOString();
+    return this.withTransaction((state) => {
+      const existing = [...state.artifactCleanupJobs.values()].find(
+        (job) => job.buildId === buildID && resolve(job.root) === canonicalRoot,
+      );
+      if (existing) return existing;
+      const job = {
+        id: randomUUID(),
+        root: canonicalRoot,
+        buildId: buildID,
+        createdAt: new Date().toISOString(),
+        notBefore: due,
+        nextAttemptAt: due,
+        attempts: 0,
+        lastError: "",
+      };
+      state.artifactCleanupJobs.set(job.id, job);
+      return job;
+    });
+  }
+
+  listDeliveryReferenceCleanupJobs() {'''
+text = replace_once(text, "  listDeliveryReferenceCleanupJobs() {", method, "cleanup method insertion")
+store.write_text(text)
+
+controller = Path("mac-helper/src/deviceBuildRuntimeController.js")
+text = controller.read_text()
+text = replace_once(
+    text,
+    " *   app?: unknown,\n * }} BuildRecord */",
+    " *   app?: unknown,\n *   artifacts?: unknown,\n * }} BuildRecord */\n/** @typedef {{ afterTerminalBuild(build: BuildRecord): unknown }} ArtifactRetentionLike */",
+    "build typedef",
+)
+text = replace_once(
+    text,
+    " *   signals: SignalRuntime,\n * }} DeviceBuildRuntimeDependencies */",
+    " *   signals: SignalRuntime,\n *   artifactRetention?: ArtifactRetentionLike,\n *   reportRetentionError?(message: string): unknown,\n * }} DeviceBuildRuntimeDependencies */",
+    "dependency typedef",
+)
+text = replace_once(
+    text,
+    "          } catch {}\n        }\n        return undefined;",
+    "          } catch {}\n          retainTerminalBuild(build);\n        }\n        return undefined;",
+    "cancelled build retention",
+)
+text = replace_once(
+    text,
+    "      try {\n        dependencies.store.save(build);\n      } catch {}\n    }\n  }\n\n  async function drainDeliveryReferences()",
+    "      try {\n        dependencies.store.save(build);\n      } catch {}\n      retainTerminalBuild(build);\n    }\n  }\n\n  async function drainDeliveryReferences()",
+    "recovered build retention",
+)
+old_pipeline = '''  async function runBuildPipeline(build) {
+    await dependencies.runBuild(build, {
+      save: (next) => dependencies.store.save(next),
+      nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
+    });
+    build.state = "delivering";
+    buildLogs(build).push("Creating temporary install link.");
+    dependencies.store.save(build);
+    const readyBuild = await prepareDelivery(build);
+    buildLogs(readyBuild).push("Install link is ready.");
+    dependencies.store.save(readyBuild);
+    return readyBuild;
+  }
+'''
+new_pipeline = '''  async function runBuildPipeline(build) {
+    try {
+      await dependencies.runBuild(build, {
+        save: (next) => dependencies.store.save(next),
+        nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
+      });
+      build.state = "delivering";
+      buildLogs(build).push("Creating temporary install link.");
+      dependencies.store.save(build);
+      const readyBuild = await prepareDelivery(build);
+      buildLogs(readyBuild).push("Install link is ready.");
+      dependencies.store.save(readyBuild);
+      retainTerminalBuild(readyBuild);
+      return readyBuild;
+    } catch (error) {
+      if (build.state === "failed") retainTerminalBuild(build);
+      throw error;
+    }
+  }
+
+  /** @param {BuildRecord} build */
+  function retainTerminalBuild(build) {
+    if (!dependencies.artifactRetention) return;
+    try {
+      dependencies.artifactRetention.afterTerminalBuild(build);
+    } catch {
+      try {
+        dependencies.reportRetentionError?.(
+          "Device-build artifact retention failed; build metadata and install state were preserved.",
+        );
+      } catch {}
+    }
+  }
+'''
+text = replace_once(text, old_pipeline, new_pipeline, "pipeline retention")
+old_validation = '''  for (const [name, implementation] of required) {
+    if (typeof implementation !== "function") {
+      throw new TypeError(`Device build runtime controller requires ${name}.`);
+    }
+  }
+}'''
+new_validation = '''  for (const [name, implementation] of required) {
+    if (typeof implementation !== "function") {
+      throw new TypeError(`Device build runtime controller requires ${name}.`);
+    }
+  }
+  if (
+    dependencies.artifactRetention !== undefined &&
+    typeof dependencies.artifactRetention?.afterTerminalBuild !== "function"
+  ) {
+    throw new TypeError(
+      "Device build runtime controller artifactRetention requires afterTerminalBuild.",
+    );
+  }
+  if (
+    dependencies.reportRetentionError !== undefined &&
+    typeof dependencies.reportRetentionError !== "function"
+  ) {
+    throw new TypeError("Device build runtime controller reportRetentionError must be a function.");
+  }
+}'''
+text = replace_once(text, old_validation, new_validation, "controller validation")
+controller.write_text(text)
+
+helper = Path("mac-helper/bin/swift-sim-helper.js")
+text = helper.read_text()
+text = replace_once(
+    text,
+    'import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";',
+    'import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";\nimport { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBuildArtifactRetentionCompatibility.js";',
+    "helper retention import",
+)
+text = replace_once(
+    text,
+    "  deviceBuildRuntime = createDeviceBuildRuntimeController({\n    store: deviceBuildStore,",
+    "  const deviceBuildArtifactRetention = createDeviceBuildArtifactRetentionCompatibility({\n    deviceBuildStore,\n    clock: runtime.clock,\n  });\n  deviceBuildRuntime = createDeviceBuildRuntimeController({\n    store: deviceBuildStore,\n    artifactRetention: deviceBuildArtifactRetention,\n    reportRetentionError: (message) => console.error(message),",
+    "helper retention composition",
+)
+helper.write_text(text)
+
+store_test = Path("test/deviceBuildStore.test.js")
+text = store_test.read_text()
+if "failed-build artifact cleanup scheduling is canonical" in text:
+    raise SystemExit("store retention test already present")
+text += '''
+
+test("failed-build artifact cleanup scheduling is canonical, durable, and deduplicated", () =>
+  withStore((store, directory) => {
+    const build = store.create({ scheme: "Cleanup" });
+    const notBefore = "2026-08-13T12:00:00.000Z";
+    const first = store.scheduleArtifactCleanup({
+      buildID: build.id,
+      root: build.artifacts.root,
+      notBefore,
+    });
+    const second = store.scheduleArtifactCleanup({
+      buildID: build.id,
+      root: build.artifacts.root,
+      notBefore: "2026-08-14T12:00:00.000Z",
+    });
+
+    assert.equal(second.id, first.id);
+    assert.equal(second.notBefore, notBefore);
+    const state = JSON.parse(readFileSync(join(directory, "builds.json"), "utf8"));
+    assert.equal(Object.keys(state.artifactCleanupJobs).length, 1);
+    assert.equal(state.artifactCleanupJobs[first.id].root, build.artifacts.root);
+    assert.equal(state.artifactCleanupJobs[first.id].nextAttemptAt, notBefore);
+    assert.throws(
+      () =>
+        store.scheduleArtifactCleanup({
+          buildID: build.id,
+          root: join(directory, "outside"),
+          notBefore,
+        }),
+      /canonical device-build root/,
+    );
+  }));
+'''
+store_test.write_text(text)
+
+runtime_test = Path("test/deviceBuildRuntimeController.test.js")
+text = runtime_test.read_text()
+if "successful builds run retention after ready delivery" in text:
+    raise SystemExit("runtime retention tests already present")
+text += '''
+
+test("successful builds run retention after ready delivery and retention failure is nonfatal", async () => {
+  const retained = [];
+  const diagnostics = [];
+  const { deps } = harness({
+    artifactRetention: {
+      afterTerminalBuild(value) {
+        retained.push(value.state);
+        throw new Error("simulated retention failure");
+      },
+    },
+    reportRetentionError: (message) => diagnostics.push(message),
+  });
+  const runtime = createDeviceBuildRuntimeController(deps);
+  const value = build("retained-ready");
+
+  await runtime.runCliBuild(value);
+
+  assert.equal(value.state, "ready");
+  assert.deepEqual(retained, ["ready"]);
+  assert.deepEqual(diagnostics, [
+    "Device-build artifact retention failed; build metadata and install state were preserved.",
+  ]);
+});
+
+test("failed and recovered builds hand terminal artifacts to retention", async () => {
+  const retained = [];
+  const { deps, builds } = harness({
+    artifactRetention: {
+      afterTerminalBuild(value) {
+        retained.push([value.id, value.state]);
+      },
+    },
+    async runBuild(value) {
+      value.state = "failed";
+      throw new Error("build failed");
+    },
+  });
+  const runtime = createDeviceBuildRuntimeController(deps);
+  await assert.rejects(runtime.runCliBuild(build("failed-build")), /build failed/);
+
+  const recovered = { ...build("recovered-build"), state: "building" };
+  builds.push(recovered);
+  await runtime.recoverInterruptedBuilds();
+
+  assert.deepEqual(retained, [
+    ["failed-build", "failed"],
+    ["recovered-build", "failed"],
+  ]);
+});
+'''
+runtime_test.write_text(text)
