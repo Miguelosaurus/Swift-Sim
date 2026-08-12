@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ const WRITE_OPTIONS = {
 
 test("device-build shadow runtime composes resumable import, health, observer, and legacy lock identity", (t) => {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-device-build-shadow-runtime-"));
+  chmodSync(root, 0o755);
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const sourcePath = join(root, "device-builds.json");
   const databasePath = join(root, "state.sqlite");
@@ -63,6 +64,7 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   t.after(() => runtime.close());
 
   assert.equal(process.umask(), originalUmask);
+  assert.equal(statSync(root).mode & 0o777, 0o700);
   assert.equal(statSync(databasePath).mode & 0o777, 0o600);
   const health = runtime.health();
   assert.equal(health.ok, true);

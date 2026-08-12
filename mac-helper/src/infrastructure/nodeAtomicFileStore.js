@@ -1,9 +1,11 @@
 // @ts-check
 import { randomUUID } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   fsyncSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -84,6 +86,20 @@ export class NodeAtomicFileStore {
   removeSync(path) {
     rmSync(path, { force: true });
   }
+}
+
+/** @param {string} path @param {number} mode */
+export function ensureDirectoryModeSync(path, mode) {
+  if (typeof path !== "string" || path.length === 0) {
+    throw new TypeError("Directory path must be a non-empty string.");
+  }
+  const normalizedMode = normalizeMode(mode, "directory");
+  mkdirSync(path, { recursive: true, mode: normalizedMode });
+  const current = lstatSync(path);
+  if (current.isSymbolicLink() || !current.isDirectory()) {
+    throw new Error("Directory path must resolve to a directory.");
+  }
+  chmodSync(path, normalizedMode);
 }
 
 /**

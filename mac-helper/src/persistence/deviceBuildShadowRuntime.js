@@ -1,7 +1,11 @@
 // @ts-check
 
+import { dirname } from "node:path";
 import { createDarwinLegacyProcessIdentity } from "../infrastructure/darwinLegacyProcessIdentity.js";
-import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
+import {
+  ensureDirectoryModeSync,
+  NodeAtomicFileStore,
+} from "../infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../infrastructure/nodeLockManager.js";
 import { SystemClock } from "../infrastructure/systemClock.js";
 import { DEVICE_BUILD_SQLITE_MIGRATIONS } from "./deviceBuildSqliteSchema.js";
@@ -99,6 +103,7 @@ export function createDeviceBuildShadowRuntime(options) {
   const clock = options.clock || new SystemClock();
   validateClock(clock);
 
+  ensureDirectoryModeSync(dirname(databasePath), 0o700);
   const identity = createDarwinLegacyProcessIdentity({ spawnSync: options.spawnSync });
   const lockManager = new NodeLockManager({ identity, fileStore, clock });
   /** @type {SwiftSimSqliteDatabase | undefined} */
