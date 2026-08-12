@@ -9,9 +9,15 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  *   root?: unknown,
  *   archivePath?: unknown,
  *   exportPath?: unknown,
+ *   ipaPath?: unknown,
  *   resultBundlePath?: unknown,
  * }} BuildArtifacts
- * @typedef {{ id: string, artifacts?: BuildArtifacts }} BuildRecord
+ * @typedef {{
+ *   id: string,
+ *   state?: string,
+ *   liveReload?: { compilerReady?: boolean },
+ *   artifacts?: BuildArtifacts,
+ * }} BuildRecord
  * @typedef {{
  *   derivedData: string,
  *   archive: string,
@@ -60,7 +66,9 @@ export class NodeDeviceBuildArtifactUsage {
       throw new TypeError("Device-build artifact usage requires environmentNames.");
     }
     if (typeof readDirectory !== "function" || typeof lstat !== "function") {
-      throw new TypeError("Device-build artifact usage requires filesystem inspection dependencies.");
+      throw new TypeError(
+        "Device-build artifact usage requires filesystem inspection dependencies.",
+      );
     }
     this.commandRunner = commandRunner;
     this.environmentNames = environmentNames;
@@ -95,36 +103,44 @@ export class NodeDeviceBuildArtifactUsage {
       referencedNames.add(build.id);
       const canonicalRoot = canonicalChild(rootDirectory, build.id);
       if (!canonicalRoot) {
-        issues.push(issue(
-          "invalid-build-id",
-          build.id,
-          rootDirectory,
-          "Build id does not resolve to one direct artifact-root child.",
-        ));
+        issues.push(
+          issue(
+            "invalid-build-id",
+            build.id,
+            rootDirectory,
+            "Build id does not resolve to one direct artifact-root child.",
+          ),
+        );
         continue;
       }
       const recordedRoot = stringValue(build.artifacts?.root);
       if (!recordedRoot || resolve(recordedRoot) !== canonicalRoot) {
-        issues.push(issue(
-          "root-mismatch",
-          build.id,
-          recordedRoot || canonicalRoot,
-          "Build metadata root does not match the canonical device-build root.",
-        ));
+        issues.push(
+          issue(
+            "root-mismatch",
+            build.id,
+            recordedRoot || canonicalRoot,
+            "Build metadata root does not match the canonical device-build root.",
+          ),
+        );
         continue;
       }
       const entry = entriesByName.get(build.id);
       if (!entry) {
-        issues.push(issue("missing-root", build.id, canonicalRoot, "Referenced artifact root is missing."));
+        issues.push(
+          issue("missing-root", build.id, canonicalRoot, "Referenced artifact root is missing."),
+        );
         continue;
       }
       if (entry.isSymbolicLink?.() || !entry.isDirectory?.()) {
-        issues.push(issue(
-          "unsafe-root",
-          build.id,
-          canonicalRoot,
-          "Referenced artifact root is not a normal directory and was not measured.",
-        ));
+        issues.push(
+          issue(
+            "unsafe-root",
+            build.id,
+            canonicalRoot,
+            "Referenced artifact root is not a normal directory and was not measured.",
+          ),
+        );
         continue;
       }
 
@@ -162,12 +178,14 @@ export class NodeDeviceBuildArtifactUsage {
     const orphanRoots = orphanCandidates.map(({ entry, root }) => {
       const totalKiB = entry.isSymbolicLink?.() ? 0 : usage.get(root) || 0;
       if (entry.isSymbolicLink?.()) {
-        issues.push(issue(
-          "orphan-symlink",
-          "",
-          root,
-          "Unreferenced artifact entry is a symlink; it was not followed or counted as reclaimable.",
-        ));
+        issues.push(
+          issue(
+            "orphan-symlink",
+            "",
+            root,
+            "Unreferenced artifact entry is a symlink; it was not followed or counted as reclaimable.",
+          ),
+        );
       }
       return { name: entry.name, root, totalKiB };
     });
@@ -180,36 +198,138 @@ export class NodeDeviceBuildArtifactUsage {
     try {
       const stat = this.lstat(artifactDirectory);
       if (stat.isSymbolicLink() || !stat.isDirectory()) {
-        issues.push(issue(
-          "unsafe-artifact-directory",
-          "",
-          artifactDirectory,
-          "Device-build artifact directory is not a normal directory; audit stopped without traversal.",
-        ));
+        issues.push(
+          issue(
+            "unsafe-artifact-directory",
+            "",
+            artifactDirectory,
+            "Device-build artifact directory is not a normal directory; audit stopped without traversal.",
+          ),
+        );
         return null;
       }
       return this.readDirectory(artifactDirectory, { withFileTypes: true });
     } catch (error) {
       if (hasCode(error, "ENOENT")) return [];
-      issues.push(issue(
-        "artifact-directory-unreadable",
-        "",
-        artifactDirectory,
-        error instanceof Error ? error.message : String(error),
-      ));
+      issues.push(
+        issue(
+          "artifact-directory-unreadable",
+          "",
+          artifactDirectory,
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
       return null;
     }
   }
 
-  /** @param {BuildRecord} build @param {string} root @param {MeasurementIssue[]} issues @returns {ComponentPaths} */
+  /**
+   * @param {BuildRecord} build
+   * @param {string} root
+   * @param {MeasurementIssue[]} issues
+   * @returns {ComponentPaths}
+   */
   componentPaths(build, root, issues) {
+    const derivedData = this.measurableContainedPath(
+      root,
+      resolve(root, "DerivedData"),
+      build.id,
+      issues,
+    );
+    const archive = this.measurableContainedPath(
+      root,
+      stringValue(build.artifacts?.archivePath),
+      build.id,
+      issues,
+    );
+    const resultBundle = this.measurableContainedPath(
+      root,
+      stringValue(build.artifacts?.resultBundlePath),
+      build.id,
+      issues,
+    );
+    const exportPayload = this.measurableContainedPath(
+      root,
+      stringValue(build.artifacts?.exportPath),
+      build.id,
+      issues,
+    );
+    const scratch = this.measurableContainedPath(
+      root,
+      resolve(root, "ExportOptions.plist"),
+      build.id,
+      issues,
+    );
+
+    if (build.state !== "ready") {
+      return { derivedData, archive, resultBundle, exportPayload, scratch };
+    }
+
+    const retainedIpa = this.retainedInstallPayloadPath(build, root, issues);
+    if (!retainedIpa) {
+      return {
+        derivedData: build.liveReload?.compilerReady === true ? derivedData : "",
+        archive: "",
+        resultBundle: "",
+        exportPayload,
+        scratch: "",
+      };
+    }
+
     return {
-      derivedData: this.measurableContainedPath(root, resolve(root, "DerivedData"), build.id, issues),
-      archive: this.measurableContainedPath(root, stringValue(build.artifacts?.archivePath), build.id, issues),
-      resultBundle: this.measurableContainedPath(root, stringValue(build.artifacts?.resultBundlePath), build.id, issues),
-      exportPayload: this.measurableContainedPath(root, stringValue(build.artifacts?.exportPath), build.id, issues),
-      scratch: this.measurableContainedPath(root, resolve(root, "ExportOptions.plist"), build.id, issues),
+      derivedData:
+        build.liveReload?.compilerReady === true
+          ? derivedData
+          : reclaimableCandidate(derivedData, root, retainedIpa, build.id, issues),
+      archive: reclaimableCandidate(archive, root, retainedIpa, build.id, issues),
+      resultBundle: reclaimableCandidate(resultBundle, root, retainedIpa, build.id, issues),
+      exportPayload,
+      scratch: reclaimableCandidate(scratch, root, retainedIpa, build.id, issues),
     };
+  }
+
+  /**
+   * @param {BuildRecord} build
+   * @param {string} root
+   * @param {MeasurementIssue[]} issues
+   */
+  retainedInstallPayloadPath(build, root, issues) {
+    const ipaPath = stringValue(build.artifacts?.ipaPath);
+    if (!ipaPath) {
+      issues.push(
+        issue(
+          "install-payload-unproven",
+          build.id,
+          root,
+          "Ready build has no retained IPA path; reclaimable intermediates were conservatively excluded.",
+        ),
+      );
+      return "";
+    }
+    const resolved = resolve(ipaPath);
+    if (!isContained(root, resolved)) {
+      issues.push(
+        issue(
+          "install-payload-unproven",
+          build.id,
+          resolved,
+          "Ready build IPA path is outside its canonical root; reclaimable intermediates were conservatively excluded.",
+        ),
+      );
+      return "";
+    }
+    if (!this.pathExistsWithoutSymlinkTraversal(root, resolved)) {
+      issues.push(
+        issue(
+          "install-payload-unproven",
+          build.id,
+          resolved,
+          "Ready build IPA path is missing or crosses a symlink; reclaimable intermediates were conservatively excluded.",
+        ),
+      );
+      return "";
+    }
+    return resolved;
   }
 
   /**
@@ -222,36 +342,38 @@ export class NodeDeviceBuildArtifactUsage {
     if (!candidate) return "";
     const resolved = resolve(candidate);
     if (!isContained(root, resolved)) {
-      issues.push(issue(
-        "component-outside-root",
-        buildID,
-        resolved,
-        "Artifact component path is outside its canonical build root and was not measured.",
-      ));
-      return "";
-    }
-    try {
-      const stat = this.lstat(resolved);
-      if (stat.isSymbolicLink()) {
-        issues.push(issue(
-          "component-symlink",
+      issues.push(
+        issue(
+          "component-outside-root",
           buildID,
           resolved,
-          "Artifact component is a symlink; it was not followed or counted as reclaimable.",
-        ));
-        return "";
-      }
-      return resolved;
-    } catch (error) {
-      if (hasCode(error, "ENOENT")) return "";
-      issues.push(issue(
-        "component-unreadable",
-        buildID,
-        resolved,
-        error instanceof Error ? error.message : String(error),
-      ));
+          "Artifact component path is outside its canonical build root and was not measured.",
+        ),
+      );
       return "";
     }
+    if (!this.pathExistsWithoutSymlinkTraversal(root, resolved)) {
+      return "";
+    }
+    return resolved;
+  }
+
+  /** @param {string} root @param {string} candidate */
+  pathExistsWithoutSymlinkTraversal(root, candidate) {
+    const nested = relative(resolve(root), resolve(candidate));
+    const parts = nested ? nested.split(sep).filter(Boolean) : [];
+    let current = resolve(root);
+    for (const part of parts) {
+      current = resolve(current, part);
+      try {
+        const stat = this.lstat(current);
+        if (stat.isSymbolicLink()) return false;
+      } catch (error) {
+        if (hasCode(error, "ENOENT")) return false;
+        return false;
+      }
+    }
+    return true;
   }
 
   /** @param {string[]} paths @param {MeasurementIssue[]} issues */
@@ -279,12 +401,14 @@ export class NodeDeviceBuildArtifactUsage {
         },
       });
       if (result.error) {
-        issues.push(issue(
-          "disk-usage-failed",
-          "",
-          firstPath,
-          `Read-only disk usage measurement failed: ${result.error}`,
-        ));
+        issues.push(
+          issue(
+            "disk-usage-failed",
+            "",
+            firstPath,
+            `Read-only disk usage measurement failed: ${result.error}`,
+          ),
+        );
         continue;
       }
       for (const line of String(result.stdout || "").split(/\r?\n/)) {
@@ -298,17 +422,42 @@ export class NodeDeviceBuildArtifactUsage {
       }
       for (const path of batch) {
         if (!usage.has(path)) {
-          issues.push(issue(
-            "disk-usage-missing",
-            "",
-            path,
-            "Read-only disk usage measurement returned no size for this path.",
-          ));
+          issues.push(
+            issue(
+              "disk-usage-missing",
+              "",
+              path,
+              "Read-only disk usage measurement returned no size for this path.",
+            ),
+          );
         }
       }
     }
     return usage;
   }
+}
+
+/**
+ * @param {string} candidate
+ * @param {string} root
+ * @param {string} retainedIpa
+ * @param {string} buildID
+ * @param {MeasurementIssue[]} issues
+ */
+function reclaimableCandidate(candidate, root, retainedIpa, buildID, issues) {
+  if (!candidate) return "";
+  if (samePath(candidate, root) || containsPath(candidate, retainedIpa)) {
+    issues.push(
+      issue(
+        "component-protects-install-payload",
+        buildID,
+        candidate,
+        "Artifact component is the build root or contains the retained IPA and was excluded from reclaimable bytes.",
+      ),
+    );
+    return "";
+  }
+  return candidate;
 }
 
 /** @param {string} root @param {string} name */
@@ -321,7 +470,24 @@ function canonicalChild(root, name) {
 /** @param {string} root @param {string} candidate */
 function isContained(root, candidate) {
   const child = relative(resolve(root), resolve(candidate));
-  return child === "" || Boolean(child && !isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
+  return (
+    child === "" ||
+    Boolean(child && !isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`))
+  );
+}
+
+/** @param {string} parent @param {string} child */
+function containsPath(parent, child) {
+  const nested = relative(resolve(parent), resolve(child));
+  return (
+    nested === "" ||
+    Boolean(nested && !isAbsolute(nested) && nested !== ".." && !nested.startsWith(`..${sep}`))
+  );
+}
+
+/** @param {string} first @param {string} second */
+function samePath(first, second) {
+  return resolve(first) === resolve(second);
 }
 
 /** @param {unknown} value */
@@ -346,8 +512,8 @@ function issue(code, buildID, path, message) {
 function hasCode(error, code) {
   return Boolean(
     error &&
-    typeof error === "object" &&
-    "code" in error &&
-    /** @type {{ code?: unknown }} */ (error).code === code,
+      typeof error === "object" &&
+      "code" in error &&
+      /** @type {{ code?: unknown }} */ (error).code === code,
   );
 }
