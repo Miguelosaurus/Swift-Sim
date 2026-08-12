@@ -41,7 +41,7 @@ function usageHarness({ entries, sizes, pathKinds = {} }) {
   const commandRunner = {
     async run(request) {
       commands.push(request);
-      const paths = request.args.slice(1);
+      const paths = request.args.slice(2);
       return {
         code: 0,
         stdout: paths.map((path) => `${sizes[path] ?? 0}\t${path}`).join("\n"),
@@ -124,9 +124,10 @@ test("usage adapter measures canonical roots/components and reports orphan roots
   assert.equal(result.inventory[1].derivedDataKiB, 1_500);
   assert.deepEqual(result.orphanRoots, [{ name: "orphan", root: orphan, totalKiB: 25 }]);
   assert.deepEqual(result.issues, []);
-  assert.ok(commands.length >= 1);
+  assert.ok(commands.length >= 2);
   assert.ok(commands.every((command) => command.executable === "/usr/bin/du"));
-  assert.ok(commands.every((command) => command.args[0] === "-sk"));
+  assert.ok(commands.every((command) => command.args[0] === "-P"));
+  assert.ok(commands.every((command) => command.args[1] === "-sk"));
 });
 
 test("ready audit never counts a root or IPA ancestor as reclaimable", async () => {
