@@ -150,6 +150,9 @@ test("doctor reports stale Codex and Claude integrations", () => {
     assert.match(report.deviceInstalls.agents.codex.detail, /does not match/);
     assert.equal(report.deviceInstalls.agents.claude.ready, false);
     assert.match(report.deviceInstalls.agents.claude.detail, /does not match/);
+    assert.equal(report.storage.artifacts.available, true);
+    assert.equal(report.storage.artifacts.informational, true);
+    assert.equal(report.storage.artifacts.cleanupEnabled, false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

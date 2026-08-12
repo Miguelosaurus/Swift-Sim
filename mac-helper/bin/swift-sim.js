@@ -382,7 +382,10 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
   const identities = runCapture("security", ["find-identity", "-v", "-p", "codesigning"], { allowFailure: true });
   const helper = await helperHealth();
   const setup = runHelperJSON(["setup-status"]);
-  const codex = findCodexCommand();
+const artifactAudit = includeStorage
+  ? runHelperJSON(["device-build-artifact-audit"])
+  : null;
+const codex = findCodexCommand();
   const pluginList = codex ? runCapture(codex, ["plugin", "list"], { allowFailure: true }) : emptyResult();
   const claude = findClaudeCommand();
   const claudePluginList = claude ? runCapture(claude, ["plugin", "list", "--json"], { allowFailure: true }) : emptyResult();
