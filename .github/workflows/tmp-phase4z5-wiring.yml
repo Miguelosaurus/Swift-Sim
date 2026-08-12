@@ -1,0 +1,187 @@
+name: Temporary Phase 4Z5 doctor wiring publisher
+
+on:
+  push:
+    branches:
+      - agent/architecture-consolidation-phase-4z5-doctor-artifact-audit
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Wire read-only helper audit and doctor projection
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          helper = Path("mac-helper/bin/swift-sim-helper.js")
+          text = helper.read_text()
+          old = 'import { homedir } from "node:os";\nimport { pathToFileURL, URL } from "node:url";'
+          new = 'import { homedir } from "node:os";\nimport { join } from "node:path";\nimport { pathToFileURL, URL } from "node:url";'
+          if old not in text:
+              raise SystemExit("helper path import anchor missing")
+          text = text.replace(old, new, 1)
+
+          old = 'import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";'
+          new = '''import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
+          import { createDeviceBuildArtifactAuditCompatibility } from "../src/deviceBuildArtifactAuditCompatibility.js";
+          import {
+            deviceBuildArtifactAuditCommandIsSupported,
+            dispatchDeviceBuildArtifactAuditCommand,
+          } from "../src/commands/deviceBuildArtifactAuditCommand.js";'''
+          if old not in text:
+              raise SystemExit("helper audit import anchor missing")
+          text = text.replace(old, new, 1)
+
+          old = '''export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
+            if (await runExtractedHelperCommand(argv)) return;
+            initializeCompatibilityRuntime();
+            await main(argv);
+          }'''
+          new = '''export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
+            if (await runExtractedHelperCommand(argv)) return;
+            if (deviceBuildArtifactAuditCommandIsSupported(argv[0])) {
+              const commandRunner = new NodeCommandRunner({ spawn, spawnSync });
+              const audit = createDeviceBuildArtifactAuditCompatibility({
+                legacyPath: join(homedir(), ".swift-sim", "device-builds.json"),
+                commandRunner,
+                environmentNames: () => Object.keys(process.env),
+              });
+              await dispatchDeviceBuildArtifactAuditCommand({
+                argv,
+                inspect: () => audit.inspect(),
+              });
+              return;
+            }
+            initializeCompatibilityRuntime();
+            await main(argv);
+          }'''
+          if old not in text:
+              raise SystemExit("helper early-command anchor missing")
+          helper.write_text(text.replace(old, new, 1))
+
+          cli = Path("mac-helper/bin/swift-sim.js")
+          text = cli.read_text()
+          old = 'import { deliverChange } from "../src/changeDelivery.js";'
+          new = '''import { deliverChange } from "../src/changeDelivery.js";
+          import { deviceBuildArtifactDoctorSection } from "../src/commands/deviceBuildArtifactDoctorProjection.js";'''
+          if old not in text:
+              raise SystemExit("cli doctor projection import anchor missing")
+          text = text.replace(old, new, 1)
+
+          old = '''async function doctor(args) {
+            const { values } = parseArgs({ args, options: { json: { type: "boolean" } } });
+            const report = await buildDoctorReport();
+            if (values.json) {
+              console.log(JSON.stringify(report, null, 2));
+            } else {
+              printDoctorReport(report);
+            }
+          }'''
+          new = '''async function doctor(args) {
+            const { values } = parseArgs({ args, options: { json: { type: "boolean" } } });
+            const report = await buildDoctorReport({ includeStorage: true });
+            if (values.json) {
+              console.log(JSON.stringify(report, null, 2));
+            } else {
+              printDoctorReport(report);
+            }
+          }'''
+          if old not in text:
+              raise SystemExit("doctor function anchor missing")
+          text = text.replace(old, new, 1)
+
+          old = 'async function buildDoctorReport() {\n'
+          new = 'async function buildDoctorReport({ includeStorage = false } = {}) {\n'
+          if old not in text:
+              raise SystemExit("buildDoctorReport signature anchor missing")
+          text = text.replace(old, new, 1)
+
+          old = '  const setup = runHelperJSON(["setup-status"]);\n'
+          new = '''  const setup = runHelperJSON(["setup-status"]);
+            const artifactAudit = includeStorage
+              ? runHelperJSON(["device-build-artifact-audit"])
+              : null;
+          '''
+          if old not in text:
+              raise SystemExit("doctor helper status anchor missing")
+          text = text.replace(old, new, 1)
+
+          old = '''    remoteHotReload: {
+              optional: true,'''
+          new = '''    ...(includeStorage ? { storage: deviceBuildArtifactDoctorSection(artifactAudit) } : {}),
+              remoteHotReload: {
+              optional: true,'''
+          if old not in text:
+              raise SystemExit("doctor report storage anchor missing")
+          text = text.replace(old, new, 1)
+
+          old = '''  printCheck("Tailscale", report.simulatorPreview.tailscale);
+            printCheck("Private route", report.simulatorPreview.privateServe);
+          }'''
+          new = '''  printCheck("Tailscale", report.simulatorPreview.tailscale);
+            printCheck("Private route", report.simulatorPreview.privateServe);
+            if (report.storage?.artifacts) {
+              console.log("");
+              console.log("Local storage (read-only)");
+              printCheck("Build artifacts", report.storage.artifacts);
+            }
+          }'''
+          if old not in text:
+              raise SystemExit("doctor print storage anchor missing")
+          cli.write_text(text.replace(old, new, 1))
+          PY
+      - name: Format governed new modules
+        run: |
+          npx prettier --write \
+            mac-helper/src/commands/deviceBuildArtifactAuditCommand.js \
+            mac-helper/src/commands/deviceBuildArtifactDoctorProjection.js
+      - name: Focused read-only validation
+        run: |
+          node --check mac-helper/bin/swift-sim-helper.js
+          node --check mac-helper/bin/swift-sim.js
+          npm run check:types
+          node --test \
+            test/deviceBuildArtifactAuditPlan.test.js \
+            test/deviceBuildArtifactAuditMeasurement.test.js \
+            test/deviceBuildArtifactAuditCommand.test.js \
+            test/deviceBuildArtifactDoctorProjection.test.js
+          npm run check:architecture
+          git diff --check
+          tmp_home="$(mktemp -d)"
+          HOME="$tmp_home" node mac-helper/bin/swift-sim-helper.js device-build-artifact-audit > "$tmp_home/audit.json"
+          node -e '
+            const fs = require("fs");
+            const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (value.readOnly !== true || value.cleanupEnabled !== false) process.exit(1);
+            if (value.totalKiB !== 0 || value.reclaimableKiB !== 0) process.exit(1);
+          ' "$tmp_home/audit.json"
+          if [ -e "$tmp_home/.swift-sim" ]; then
+            echo "Read-only audit unexpectedly created Swift Sim state" >&2
+            find "$tmp_home/.swift-sim" -maxdepth 3 -print >&2 || true
+            exit 1
+          fi
+          rm -rf "$tmp_home"
+      - name: Publish product wiring and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            mac-helper/bin/swift-sim-helper.js \
+            mac-helper/bin/swift-sim.js \
+            mac-helper/src/commands/deviceBuildArtifactAuditCommand.js \
+            mac-helper/src/commands/deviceBuildArtifactDoctorProjection.js
+          git rm .github/workflows/tmp-phase4z5-wiring.yml
+          git commit -m "feat: expose read-only artifact audit in doctor"
+          git push origin HEAD:agent/architecture-consolidation-phase-4z5-doctor-artifact-audit
