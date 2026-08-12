@@ -26,14 +26,8 @@ jobs:
           text = path.read_text()
           replacements = [
             (
-              '''const artifactAudit = includeStorage
-          ? runHelperJSON(["device-build-artifact-audit"])
-          : null;
-          const codex = findCodexCommand();''',
-              '''  const artifactAudit = includeStorage
-            ? runHelperJSON(["device-build-artifact-audit"])
-            : null;
-          const codex = findCodexCommand();''',
+              'const artifactAudit = includeStorage\n  ? runHelperJSON(["device-build-artifact-audit"])\n  : null;\nconst codex = findCodexCommand();',
+              '  const artifactAudit = includeStorage\n    ? runHelperJSON(["device-build-artifact-audit"])\n    : null;\n  const codex = findCodexCommand();',
             ),
             ('\n  remoteHotReload: {', '\n    remoteHotReload: {'),
           ]
