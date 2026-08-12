@@ -61,11 +61,13 @@ jobs:
               };
             }
 
-            const signing = build.signing;
+            const signingValue = build.signing;
+            const signing =
+              signingValue && typeof signingValue === "object" && !Array.isArray(signingValue)
+                ? /** @type {Record<string, unknown>} */ (signingValue)
+                : null;
             if (
               signing &&
-              typeof signing === "object" &&
-              !Array.isArray(signing) &&
               !Object.prototype.hasOwnProperty.call(signing, "deviceInstallable")
             ) {
               signing.deviceInstallable = false;
