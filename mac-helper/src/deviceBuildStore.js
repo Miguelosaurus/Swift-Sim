@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import {
   DeviceBuildStore as DeviceBuildStoreCore,
@@ -302,6 +302,39 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     });
     if (result.deleted) this.drainArtifactCleanupJobs();
     return result.deleted;
+  }
+
+  scheduleArtifactCleanup({ buildID, root, notBefore }) {
+    if (typeof buildID !== "string" || buildID.length === 0) {
+      throw new TypeError("Artifact cleanup build ID is required.");
+    }
+    const canonicalRoot = resolve(join(dirname(this.path), "device-builds", buildID));
+    if (typeof root !== "string" || resolve(root) !== canonicalRoot) {
+      throw new Error("Artifact cleanup root does not match the canonical device-build root.");
+    }
+    const dueAt = Date.parse(notBefore || "");
+    if (!Number.isFinite(dueAt)) {
+      throw new TypeError("Artifact cleanup notBefore must be a valid timestamp.");
+    }
+    const due = new Date(dueAt).toISOString();
+    return this.withTransaction((state) => {
+      const existing = [...state.artifactCleanupJobs.values()].find(
+        (job) => job.buildId === buildID && resolve(job.root) === canonicalRoot,
+      );
+      if (existing) return existing;
+      const job = {
+        id: randomUUID(),
+        root: canonicalRoot,
+        buildId: buildID,
+        createdAt: new Date().toISOString(),
+        notBefore: due,
+        nextAttemptAt: due,
+        attempts: 0,
+        lastError: "",
+      };
+      state.artifactCleanupJobs.set(job.id, job);
+      return job;
+    });
   }
 
   listDeliveryReferenceCleanupJobs() {

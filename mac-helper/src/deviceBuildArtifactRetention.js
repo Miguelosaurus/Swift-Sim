@@ -11,10 +11,12 @@ import { isAbsolute, relative, resolve, sep, join } from "node:path";
  *   ipaPath?: unknown,
  *   resultBundlePath?: unknown,
  * }} BuildArtifacts
+ * @typedef {{ compilerReady?: boolean }} BuildLiveReload
  * @typedef {{
  *   id: string,
  *   state: string,
  *   artifacts?: BuildArtifacts,
+ *   liveReload?: BuildLiveReload,
  * }} BuildRecord
  * @typedef {{ buildID: string, root: string, notBefore: string }} FailedCleanupRequest
  */
@@ -24,8 +26,10 @@ export const FAILED_BUILD_ARTIFACT_RETENTION_MS = 24 * 60 * 60 * 1000;
 /**
  * Build-history metadata is durable, but heavyweight Xcode intermediates are
  * cache-like. Ready builds retain their export directory/IPA so install-link
- * renewal remains possible. Failed builds are handed to the durable whole-root
- * cleanup queue after a short diagnostic grace period.
+ * renewal remains possible. A live-reload-ready build also retains DerivedData
+ * because the captured patch-compiler context may contain search paths into it.
+ * Failed builds are handed to the durable whole-root cleanup queue after a
+ * short diagnostic grace period.
  *
  * This service intentionally has no startup reconciliation. Historical cleanup
  * is a separate migration decision; wiring this service prevents future growth
@@ -63,8 +67,10 @@ export function pruneReadyIntermediates(build, artifactStore) {
   if (!root || !ipaPath) return { action: "none" };
 
   const approvedIpa = artifactStore.resolveContained(root, ipaPath);
+  const derivedDataPath = join(root, "DerivedData");
+  const preserveLiveDerivedData = build.liveReload?.compilerReady === true;
   const candidates = uniqueStrings([
-    join(root, "DerivedData"),
+    preserveLiveDerivedData ? "" : derivedDataPath,
     stringValue(build.artifacts?.archivePath),
     stringValue(build.artifacts?.resultBundlePath),
     join(root, "ExportOptions.plist"),
@@ -73,6 +79,9 @@ export function pruneReadyIntermediates(build, artifactStore) {
   const removed = [];
   /** @type {string[]} */
   const preserved = [approvedIpa];
+  if (preserveLiveDerivedData) {
+    preserved.push(artifactStore.resolveContained(root, derivedDataPath));
+  }
 
   for (const candidate of candidates) {
     const approved = artifactStore.resolveContained(root, candidate);

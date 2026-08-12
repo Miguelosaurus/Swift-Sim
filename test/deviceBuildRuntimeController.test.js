@@ -263,3 +263,54 @@ test("recovery cancels active builds, cleans matching delivery references, and p
   assert.ok(value.logs[0].startsWith("A previous helper run ended during this build."));
   assert.ok(saved.some((entry) => entry.id === "recover" && entry.state === "failed"));
 });
+
+
+test("successful builds run retention after ready delivery and retention failure is nonfatal", async () => {
+  const retained = [];
+  const diagnostics = [];
+  const { deps } = harness({
+    artifactRetention: {
+      afterTerminalBuild(value) {
+        retained.push(value.state);
+        throw new Error("simulated retention failure");
+      },
+    },
+    reportRetentionError: (message) => diagnostics.push(message),
+  });
+  const runtime = createDeviceBuildRuntimeController(deps);
+  const value = build("retained-ready");
+
+  await runtime.runCliBuild(value);
+
+  assert.equal(value.state, "ready");
+  assert.deepEqual(retained, ["ready"]);
+  assert.deepEqual(diagnostics, [
+    "Device-build artifact retention failed; build metadata and install state were preserved.",
+  ]);
+});
+
+test("failed and recovered builds hand terminal artifacts to retention", async () => {
+  const retained = [];
+  const { deps, builds } = harness({
+    artifactRetention: {
+      afterTerminalBuild(value) {
+        retained.push([value.id, value.state]);
+      },
+    },
+    async runBuild(value) {
+      value.state = "failed";
+      throw new Error("build failed");
+    },
+  });
+  const runtime = createDeviceBuildRuntimeController(deps);
+  await assert.rejects(runtime.runCliBuild(build("failed-build")), /build failed/);
+
+  const recovered = { ...build("recovered-build"), state: "building" };
+  builds.push(recovered);
+  await runtime.recoverInterruptedBuilds();
+
+  assert.deepEqual(retained, [
+    ["failed-build", "failed"],
+    ["recovered-build", "failed"],
+  ]);
+});

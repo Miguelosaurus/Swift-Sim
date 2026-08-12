@@ -53,6 +53,7 @@ import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";
 import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";
 import { createSessionRuntimeController } from "../src/sessionRuntimeController.js";
 import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";
+import { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBuildArtifactRetentionCompatibility.js";
 import { createSetupStatusService } from "../src/commands/setupStatusService.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 
@@ -108,8 +109,14 @@ function initializeCompatibilityRuntime() {
     idGenerator: runtime.idGenerator,
     clock: runtime.clock,
   });
+  const deviceBuildArtifactRetention = createDeviceBuildArtifactRetentionCompatibility({
+    deviceBuildStore,
+    clock: runtime.clock,
+  });
   deviceBuildRuntime = createDeviceBuildRuntimeController({
     store: deviceBuildStore,
+    artifactRetention: deviceBuildArtifactRetention,
+    reportRetentionError: (message) => console.error(message),
     delivery: deviceDelivery,
     pathExists: existsSync,
     clock: runtime.clock,

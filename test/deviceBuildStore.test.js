@@ -743,3 +743,36 @@ test("only a successful build with a complete private recipe can be reused", () 
   store.save(source);
   assert.equal(store.latestReusableBuildForApp(source.app.identity)?.id, source.id);
 }));
+
+
+test("failed-build artifact cleanup scheduling is canonical, durable, and deduplicated", () =>
+  withStore((store, directory) => {
+    const build = store.create({ scheme: "Cleanup" });
+    const notBefore = "2026-08-13T12:00:00.000Z";
+    const first = store.scheduleArtifactCleanup({
+      buildID: build.id,
+      root: build.artifacts.root,
+      notBefore,
+    });
+    const second = store.scheduleArtifactCleanup({
+      buildID: build.id,
+      root: build.artifacts.root,
+      notBefore: "2026-08-14T12:00:00.000Z",
+    });
+
+    assert.equal(second.id, first.id);
+    assert.equal(second.notBefore, notBefore);
+    const state = JSON.parse(readFileSync(join(directory, "builds.json"), "utf8"));
+    assert.equal(Object.keys(state.artifactCleanupJobs).length, 1);
+    assert.equal(state.artifactCleanupJobs[first.id].root, build.artifacts.root);
+    assert.equal(state.artifactCleanupJobs[first.id].nextAttemptAt, notBefore);
+    assert.throws(
+      () =>
+        store.scheduleArtifactCleanup({
+          buildID: build.id,
+          root: join(directory, "outside"),
+          notBefore,
+        }),
+      /canonical device-build root/,
+    );
+  }));

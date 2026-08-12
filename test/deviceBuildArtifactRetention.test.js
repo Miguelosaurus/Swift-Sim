@@ -66,6 +66,20 @@ test("ready retention prunes heavyweight intermediates but preserves install pay
   assert.deepEqual(result.preserved, [resolve(build.artifacts.ipaPath)]);
 });
 
+test("live-reload-ready retention preserves DerivedData used by captured compiler search paths", () => {
+  const artifactStore = new RecordingArtifactStore();
+  const build = readyBuild();
+  build.liveReload = { compilerReady: true };
+
+  const result = pruneReadyIntermediates(build, artifactStore);
+  const derivedData = resolve(join(build.artifacts.root, "DerivedData"));
+
+  assert.equal(artifactStore.removed.includes(derivedData), false);
+  assert.equal(result.preserved.includes(derivedData), true);
+  assert.equal(artifactStore.removed.includes(resolve(build.artifacts.resultBundlePath)), true);
+  assert.equal(artifactStore.removed.includes(resolve(build.artifacts.ipaPath)), false);
+});
+
 test("ready retention will not delete a candidate that aliases an IPA ancestor", () => {
   const artifactStore = new RecordingArtifactStore();
   const build = readyBuild();
