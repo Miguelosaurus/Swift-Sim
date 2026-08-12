@@ -26,34 +26,33 @@ jobs:
           from pathlib import Path
           source = Path('mac-helper/src/persistence/deviceBuildLockedLegacySnapshot.js')
           text = source.read_text()
-          old = '''  if (!Object.prototype.hasOwnProperty.call(build, "delivery")) {
-            build.delivery = {
-              mode: "quick-tunnel",
-              provider: "cloudflare-quick-tunnel",
-              expiresAt: "",
-            };
-          }
-          '''
-          new = '''  if (!Object.prototype.hasOwnProperty.call(build, "delivery")) {
-            const hasLegacyRemoteBaseUrl =
-              typeof build.remoteBaseUrl === "string" && build.remoteBaseUrl.length > 0;
-            build.delivery = {
-              mode: hasLegacyRemoteBaseUrl ? "custom" : "quick-tunnel",
-              provider: hasLegacyRemoteBaseUrl
-                ? "user-configured"
-                : "cloudflare-quick-tunnel",
-              expiresAt: "",
-            };
-          }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f'historical delivery block count={text.count(old)}')
-          source.write_text(text.replace(old, new, 1))
+          opening = '  if (!Object.prototype.hasOwnProperty.call(build, "delivery")) {\n    build.delivery = {'
+          if text.count(opening) != 1:
+              raise SystemExit(f'historical delivery opening count={text.count(opening)}')
+          text = text.replace(
+              opening,
+              '  if (!Object.prototype.hasOwnProperty.call(build, "delivery")) {\n'
+              '    const hasLegacyRemoteBaseUrl =\n'
+              '      typeof build.remoteBaseUrl === "string" && build.remoteBaseUrl.length > 0;\n'
+              '    build.delivery = {',
+              1,
+          )
+          defaults = '      mode: "quick-tunnel",\n      provider: "cloudflare-quick-tunnel",'
+          if text.count(defaults) != 1:
+              raise SystemExit(f'historical delivery defaults count={text.count(defaults)}')
+          text = text.replace(
+              defaults,
+              '      mode: hasLegacyRemoteBaseUrl ? "custom" : "quick-tunnel",\n'
+              '      provider: hasLegacyRemoteBaseUrl\n'
+              '        ? "user-configured"\n'
+              '        : "cloudflare-quick-tunnel",',
+              1,
+          )
+          source.write_text(text)
 
           test = Path('test/deviceBuildLegacyCompatibility.test.js')
           text = test.read_text()
-          marker = '''test("legacy snapshot preserves explicit delivery and device-installable semantics", () => {
-          '''
+          marker = 'test("legacy snapshot preserves explicit delivery and device-installable semantics", () => {'
           inserted = '''test("legacy snapshot reconstructs custom delivery from a legacy remote base URL", () => {
             const build = legacyBuild();
             build.remoteBaseUrl = "https://legacy.example.test";
@@ -67,8 +66,7 @@ jobs:
             });
           });
 
-          test("legacy snapshot preserves explicit delivery and device-installable semantics", () => {
-          '''
+          test("legacy snapshot preserves explicit delivery and device-installable semantics", () => {'''
           if text.count(marker) != 1:
               raise SystemExit(f'legacy compatibility test marker count={text.count(marker)}')
           test.write_text(text.replace(marker, inserted, 1))
