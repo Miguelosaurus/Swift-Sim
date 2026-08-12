@@ -18,6 +18,7 @@ import {
   startLiveReload,
 } from "../src/liveReload.js";
 import { deliverChange } from "../src/changeDelivery.js";
+import { deviceBuildArtifactDoctorSection } from "../src/commands/deviceBuildArtifactDoctorProjection.js";
 
 const runtimeRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const packageRoot = basename(runtimeRoot) === "dist" ? dirname(runtimeRoot) : runtimeRoot;
@@ -90,6 +91,9 @@ async function pair(args) {
     },
   });
   const setup = runHelperJSON(["setup-status"]);
+  const artifactAudit = includeStorage
+    ? runHelperJSON(["device-build-artifact-audit"])
+    : null;
   if (!setup) {
     throw new Error("Swift Sim could not inspect remote pairing readiness. Run swift-sim setup-status.");
   }
@@ -331,7 +335,7 @@ async function setup(args) {
 
 async function doctor(args) {
   const { values } = parseArgs({ args, options: { json: { type: "boolean" } } });
-  const report = await buildDoctorReport();
+  const report = await buildDoctorReport({ includeStorage: true });
   if (values.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
@@ -373,11 +377,14 @@ async function update() {
   console.log("Swift Sim and detected agent integrations are up to date.");
 }
 
-async function buildDoctorReport() {
+async function buildDoctorReport({ includeStorage = false } = {}) {
   const xcode = runCapture("xcodebuild", ["-version"], { allowFailure: true });
   const identities = runCapture("security", ["find-identity", "-v", "-p", "codesigning"], { allowFailure: true });
   const helper = await helperHealth();
   const setup = runHelperJSON(["setup-status"]);
+  const artifactAudit = includeStorage
+    ? runHelperJSON(["device-build-artifact-audit"])
+    : null;
   const codex = findCodexCommand();
   const pluginList = codex ? runCapture(codex, ["plugin", "list"], { allowFailure: true }) : emptyResult();
   const claude = findClaudeCommand();
@@ -434,6 +441,7 @@ async function buildDoctorReport() {
       agents,
       codexPlugin: check(codexReady, codexReady ? "Codex plugin is installed and enabled" : "Codex plugin is not installed"),
     },
+    ...(includeStorage ? { storage: deviceBuildArtifactDoctorSection(artifactAudit) } : {}),
     remoteHotReload: {
       optional: true,
       ready: liveReload.engine.installed && Boolean(liveReload.host),
@@ -747,6 +755,11 @@ function printDoctorReport(report) {
   console.log("Live Simulator preview (optional)");
   printCheck("Tailscale", report.simulatorPreview.tailscale);
   printCheck("Private route", report.simulatorPreview.privateServe);
+  if (report.storage?.artifacts) {
+    console.log("");
+    console.log("Local storage (read-only)");
+    printCheck("Build artifacts", report.storage.artifacts);
+  }
 }
 
 function displayAgentName(name) {
