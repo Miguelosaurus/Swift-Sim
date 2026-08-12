@@ -4,11 +4,7 @@ import { planDeviceBuildArtifactAudit } from "./deviceBuildArtifactAuditPlan.js"
 
 /**
  * @typedef {{ id: string, state: string, liveReload?: { compilerReady?: boolean }, artifacts?: { root?: unknown } }} BuildRecord
- * @typedef {{
- *   inventory: import("./deviceBuildArtifactAuditPlan.js").BuildArtifactInventory[] | unknown[],
- *   orphanRoots: import("./deviceBuildArtifactAuditPlan.js").OrphanArtifactRoot[] | unknown[],
- *   issues: unknown[],
- * }} MeasurementResult
+ * @typedef {{ inventory: unknown[], orphanRoots: unknown[], issues: unknown[] }} MeasurementResult
  */
 
 /**
