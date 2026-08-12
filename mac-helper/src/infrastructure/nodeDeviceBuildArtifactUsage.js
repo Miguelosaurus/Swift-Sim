@@ -37,6 +37,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  * }} BuildArtifactInventory
  * @typedef {{ name: string, root: string, totalKiB: number }} OrphanArtifactRoot
  * @typedef {{ code: string, buildID?: string, path: string, message: string }} MeasurementIssue
+ * @typedef {{ ok: true, path: string } | { ok: false, reason: string, path: string, message?: string }} PathInspection
  */
 
 const DU_EXECUTABLE = "/usr/bin/du";
@@ -143,6 +144,18 @@ export class NodeDeviceBuildArtifactUsage {
         );
         continue;
       }
+      const rootInspection = this.inspectExistingPath(rootDirectory, canonicalRoot);
+      if (!rootInspection.ok) {
+        issues.push(
+          issue(
+            "unsafe-root",
+            build.id,
+            rootInspection.path,
+            `Referenced artifact root could not be safely revalidated: ${rootInspection.reason}.`,
+          ),
+        );
+        continue;
+      }
 
       measurableBuilds.push({
         build,
@@ -162,21 +175,26 @@ export class NodeDeviceBuildArtifactUsage {
         .map(({ root }) => root),
     ];
     const componentPaths = measurableBuilds.flatMap((entry) => Object.values(entry.components));
-    const usage = await this.measurePaths([...rootPaths, ...componentPaths], issues);
+    const rootUsage = await this.measurePaths(rootPaths, issues);
+    const componentUsage = await this.measurePaths(componentPaths, issues);
 
     const inventory = measurableBuilds.map(({ build, root, components }) => ({
       buildID: build.id,
       root,
-      totalKiB: usage.get(root) || 0,
-      derivedDataKiB: usage.get(components.derivedData) || 0,
-      archiveKiB: components.archive ? usage.get(components.archive) || 0 : 0,
-      resultBundleKiB: components.resultBundle ? usage.get(components.resultBundle) || 0 : 0,
-      exportPayloadKiB: components.exportPayload ? usage.get(components.exportPayload) || 0 : 0,
-      scratchKiB: usage.get(components.scratch) || 0,
+      totalKiB: rootUsage.get(root) || 0,
+      derivedDataKiB: componentUsage.get(components.derivedData) || 0,
+      archiveKiB: components.archive ? componentUsage.get(components.archive) || 0 : 0,
+      resultBundleKiB: components.resultBundle
+        ? componentUsage.get(components.resultBundle) || 0
+        : 0,
+      exportPayloadKiB: components.exportPayload
+        ? componentUsage.get(components.exportPayload) || 0
+        : 0,
+      scratchKiB: componentUsage.get(components.scratch) || 0,
     }));
 
     const orphanRoots = orphanCandidates.map(({ entry, root }) => {
-      const totalKiB = entry.isSymbolicLink?.() ? 0 : usage.get(root) || 0;
+      const totalKiB = entry.isSymbolicLink?.() ? 0 : rootUsage.get(root) || 0;
       if (entry.isSymbolicLink?.()) {
         issues.push(
           issue(
@@ -318,13 +336,14 @@ export class NodeDeviceBuildArtifactUsage {
       );
       return "";
     }
-    if (!this.pathExistsWithoutSymlinkTraversal(root, resolved)) {
+    const inspection = this.inspectExistingPath(root, resolved);
+    if (!inspection.ok) {
       issues.push(
         issue(
           "install-payload-unproven",
           build.id,
-          resolved,
-          "Ready build IPA path is missing or crosses a symlink; reclaimable intermediates were conservatively excluded.",
+          inspection.path,
+          `Ready build IPA path is not safely measurable (${inspection.reason}); reclaimable intermediates were conservatively excluded.`,
         ),
       );
       return "";
@@ -352,14 +371,23 @@ export class NodeDeviceBuildArtifactUsage {
       );
       return "";
     }
-    if (!this.pathExistsWithoutSymlinkTraversal(root, resolved)) {
-      return "";
-    }
-    return resolved;
+    const inspection = this.inspectExistingPath(root, resolved);
+    if (inspection.ok) return resolved;
+    if (inspection.reason === "missing") return "";
+    issues.push(
+      issue(
+        inspection.reason === "symlink" ? "component-symlink" : "component-unreadable",
+        buildID,
+        inspection.path,
+        inspection.message ||
+          "Artifact component could not be safely measured without following a symlink.",
+      ),
+    );
+    return "";
   }
 
-  /** @param {string} root @param {string} candidate */
-  pathExistsWithoutSymlinkTraversal(root, candidate) {
+  /** @param {string} root @param {string} candidate @returns {PathInspection} */
+  inspectExistingPath(root, candidate) {
     const nested = relative(resolve(root), resolve(candidate));
     const parts = nested ? nested.split(sep).filter(Boolean) : [];
     let current = resolve(root);
@@ -367,13 +395,22 @@ export class NodeDeviceBuildArtifactUsage {
       current = resolve(current, part);
       try {
         const stat = this.lstat(current);
-        if (stat.isSymbolicLink()) return false;
+        if (stat.isSymbolicLink()) {
+          return { ok: false, reason: "symlink", path: current };
+        }
       } catch (error) {
-        if (hasCode(error, "ENOENT")) return false;
-        return false;
+        if (hasCode(error, "ENOENT")) {
+          return { ok: false, reason: "missing", path: current };
+        }
+        return {
+          ok: false,
+          reason: "unreadable",
+          path: current,
+          message: error instanceof Error ? error.message : String(error),
+        };
       }
     }
-    return true;
+    return { ok: true, path: resolve(candidate) };
   }
 
   /** @param {string[]} paths @param {MeasurementIssue[]} issues */
@@ -387,7 +424,7 @@ export class NodeDeviceBuildArtifactUsage {
       if (!firstPath) continue;
       const result = await this.commandRunner.run({
         executable: DU_EXECUTABLE,
-        args: ["-sk", ...batch],
+        args: ["-P", "-sk", ...batch],
         environment: {
           inherit: this.environmentNames(),
           overrides: { LC_ALL: "C" },
