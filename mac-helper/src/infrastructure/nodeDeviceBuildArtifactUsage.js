@@ -13,6 +13,13 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  * }} BuildArtifacts
  * @typedef {{ id: string, artifacts?: BuildArtifacts }} BuildRecord
  * @typedef {{
+ *   derivedData: string,
+ *   archive: string,
+ *   resultBundle: string,
+ *   exportPayload: string,
+ *   scratch: string,
+ * }} ComponentPaths
+ * @typedef {{
  *   buildID: string,
  *   root: string,
  *   totalKiB: number,
@@ -77,7 +84,7 @@ export class NodeDeviceBuildArtifactUsage {
 
     const entriesByName = new Map(directoryEntries.map((entry) => [entry.name, entry]));
     const referencedNames = new Set();
-    /** @type {{ build: BuildRecord, root: string, components: Record<string, string> }[]} */
+    /** @type {{ build: BuildRecord, root: string, components: ComponentPaths }[]} */
     const measurableBuilds = [];
 
     for (const build of builds) {
@@ -194,7 +201,7 @@ export class NodeDeviceBuildArtifactUsage {
     }
   }
 
-  /** @param {BuildRecord} build @param {string} root @param {MeasurementIssue[]} issues */
+  /** @param {BuildRecord} build @param {string} root @param {MeasurementIssue[]} issues @returns {ComponentPaths} */
   componentPaths(build, root, issues) {
     return {
       derivedData: this.measurableContainedPath(root, resolve(root, "DerivedData"), build.id, issues),
@@ -254,7 +261,8 @@ export class NodeDeviceBuildArtifactUsage {
     const usage = new Map();
     for (let offset = 0; offset < uniquePaths.length; offset += DU_BATCH_SIZE) {
       const batch = uniquePaths.slice(offset, offset + DU_BATCH_SIZE);
-      if (batch.length === 0) continue;
+      const firstPath = batch[0];
+      if (!firstPath) continue;
       const result = await this.commandRunner.run({
         executable: DU_EXECUTABLE,
         args: ["-sk", ...batch],
@@ -274,16 +282,18 @@ export class NodeDeviceBuildArtifactUsage {
         issues.push(issue(
           "disk-usage-failed",
           "",
-          batch[0],
+          firstPath,
           `Read-only disk usage measurement failed: ${result.error}`,
         ));
         continue;
       }
       for (const line of String(result.stdout || "").split(/\r?\n/)) {
         const match = line.match(/^\s*(\d+)\s+(.+)$/);
-        if (!match) continue;
-        const kib = Number(match[1]);
-        const path = resolve(match[2]);
+        const kibText = match?.[1];
+        const pathText = match?.[2];
+        if (!kibText || !pathText) continue;
+        const kib = Number(kibText);
+        const path = resolve(pathText);
         if (Number.isFinite(kib) && kib >= 0) usage.set(path, kib);
       }
       for (const path of batch) {
