@@ -25,23 +25,33 @@ PR #114 upgrades only known absent historical fields before the unchanged strict
 - explicit values are preserved
 - malformed present fields and a wholly missing signing object still fail closed
 
-The current Phase 4V exact-head verification trigger is `c629967876016f5501b9c44ee305bb4baafe95cd`.
+Exact head: `c629967876016f5501b9c44ee305bb4baafe95cd`.
+
+Hosted Verify #915 / run `31588984803`: passed end to end, including full `npm run check`, isolated clean Homebrew/service, YAML, shell syntax, and iOS tests.
 
 ### Phase 4W — private existing state root
 
 PR #115 adds a symlink-safe directory-mode operation to the existing Node atomic filesystem owner and ensures the SQLite database parent is `0700` before the shadow runtime opens the database. This changes directory metadata only; file bytes are untouched. Failure still falls through the existing JSON-only startup boundary.
 
-Current head: `3190e583c71c320c4c9c9cc4d25becacbd07ff67`.
+Exact head: `3190e583c71c320c4c9c9cc4d25becacbd07ff67`.
+
+Hosted Verify #916 / run `31589010976`: passed end to end, including full `npm run check`, isolated clean Homebrew/service, YAML, shell syntax, and iOS tests.
 
 ### Phase 4X — restricted-PATH Homebrew verification
 
-PR #116 preserves the existing `lsof` listener/PID proof but resolves `lsof` from PATH first and falls back to `/usr/sbin/lsof`. A dedicated macOS oracle reproduced a PATH without `/usr/sbin` and the full clean Homebrew package/service gate passed.
+PR #116 preserves the existing `lsof` listener/PID proof but resolves `lsof` from PATH first and falls back to `/usr/sbin/lsof`.
 
-Current combined product head: `63ceccdc630fc6c6c9d4aba9e3cb397b95c503a6`.
+Exact combined product head: `63ceccdc630fc6c6c9d4aba9e3cb397b95c503a6`.
+
+Hosted Verify #917 / run `31589040011`: passed end to end, including full `npm run check`, isolated clean Homebrew/service, YAML, shell syntax, and iOS tests.
+
+Dedicated macOS restricted-PATH oracle run `31588486021`: passed the full clean Homebrew package/service gate with `/usr/sbin` deliberately omitted from PATH, directly reproducing and resolving the local `lsof` failure class.
+
+The verifier still leaves pre-existing real launchers untouched; no launcher overwrite behavior was added.
 
 ## What must happen next
 
-Run the focused real-Mac rerun in `NEXT_LOCAL_VERIFICATION_PHASE4X.md` on the exact combined product head. Do not fix failures during that run. Report evidence back first.
+Run the focused real-Mac rerun in `NEXT_LOCAL_VERIFICATION_PHASE4X.md` on exact combined product head `63ceccdc630fc6c6c9d4aba9e3cb397b95c503a6`. Do not fix failures during that run. Report evidence back first.
 
 Only after the real 212-record import succeeds, the state root becomes `0700` without JSON hash changes, and the restricted-PATH Homebrew gate no longer fails at `lsof` may device-build authority/cutover work resume.
 
