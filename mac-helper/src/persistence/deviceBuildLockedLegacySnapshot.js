@@ -268,6 +268,9 @@ function upgradeLegacyDeviceBuildRecord(build) {
   if (signing && !Object.prototype.hasOwnProperty.call(signing, "deviceInstallable")) {
     signing.deviceInstallable = false;
   }
+  if (signing && !Object.prototype.hasOwnProperty.call(signing, "style")) {
+    signing.style = "";
+  }
   return build;
 }
 

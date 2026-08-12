@@ -69,6 +69,7 @@ test("legacy snapshot upgrades only known historical missing build fields", () =
   const build = legacyBuild();
   delete build.delivery;
   delete build.signing.deviceInstallable;
+  delete build.signing.style;
 
   const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));
   const imported = parsed.snapshot.builds[0];
@@ -79,6 +80,7 @@ test("legacy snapshot upgrades only known historical missing build fields", () =
     expiresAt: "",
   });
   assert.equal(imported.signing.deviceInstallable, false);
+  assert.equal(imported.signing.style, "");
 });
 
 test("legacy snapshot reconstructs custom delivery from a legacy remote base URL", () => {
@@ -108,6 +110,7 @@ test("legacy snapshot preserves explicit delivery and device-installable semanti
 
   assert.deepEqual(imported.delivery, build.delivery);
   assert.equal(imported.signing.deviceInstallable, true);
+  assert.equal(imported.signing.style, "automatic");
 });
 
 test("legacy snapshot does not repair malformed present delivery", () => {
@@ -117,6 +120,16 @@ test("legacy snapshot does not repair malformed present delivery", () => {
     provider: "cloudflare-quick-tunnel",
     expiresAt: "",
   };
+
+  assert.throws(
+    () => parseDeviceBuildLegacySnapshot(legacyState(build)),
+    /Device build record is invalid\./,
+  );
+});
+
+test("legacy snapshot does not repair a malformed present signing style", () => {
+  const build = legacyBuild();
+  build.signing.style = null;
 
   assert.throws(
     () => parseDeviceBuildLegacySnapshot(legacyState(build)),
