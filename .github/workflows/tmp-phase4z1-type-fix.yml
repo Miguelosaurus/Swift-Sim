@@ -20,16 +20,31 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Fix strict JSDoc return type
+      - name: Make candidate string typing explicit
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('mac-helper/src/deviceBuildArtifactRetention.js')
           text = path.read_text()
-          old = '/** @param {unknown[]} values */\nfunction uniqueStrings(values) {'
-          new = '/** @param {unknown[]} values @returns {string[]} */\nfunction uniqueStrings(values) {'
+          old = '''/** @param {unknown[]} values */
+          function uniqueStrings(values) {
+            return [...new Set(values.filter((value) => typeof value === "string" && value.length > 0))];
+          }
+          '''
+          new = '''/** @param {unknown[]} values @returns {string[]} */
+          function uniqueStrings(values) {
+            /** @type {string[]} */
+            const strings = [];
+            for (const value of values) {
+              if (typeof value === "string" && value.length > 0 && !strings.includes(value)) {
+                strings.push(value);
+              }
+            }
+            return strings;
+          }
+          '''
           if text.count(old) != 1:
-              raise SystemExit(f'uniqueStrings marker count={text.count(old)}')
+              raise SystemExit(f'uniqueStrings implementation marker count={text.count(old)}')
           path.write_text(text.replace(old, new, 1))
           PY
       - name: Focused validation
