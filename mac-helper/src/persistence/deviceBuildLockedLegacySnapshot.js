@@ -251,9 +251,11 @@ function normalizeBuildArray(value, sourcePath) {
  */
 function upgradeLegacyDeviceBuildRecord(build) {
   if (!Object.prototype.hasOwnProperty.call(build, "delivery")) {
+    const hasLegacyRemoteBaseUrl =
+      typeof build.remoteBaseUrl === "string" && build.remoteBaseUrl.length > 0;
     build.delivery = {
-      mode: "quick-tunnel",
-      provider: "cloudflare-quick-tunnel",
+      mode: hasLegacyRemoteBaseUrl ? "custom" : "quick-tunnel",
+      provider: hasLegacyRemoteBaseUrl ? "user-configured" : "cloudflare-quick-tunnel",
       expiresAt: "",
     };
   }

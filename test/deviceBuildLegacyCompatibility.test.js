@@ -81,6 +81,19 @@ test("legacy snapshot upgrades only known historical missing build fields", () =
   assert.equal(imported.signing.deviceInstallable, false);
 });
 
+test("legacy snapshot reconstructs custom delivery from a legacy remote base URL", () => {
+  const build = legacyBuild();
+  build.remoteBaseUrl = "https://legacy.example.test";
+  delete build.delivery;
+
+  const parsed = parseDeviceBuildLegacySnapshot(legacyState(build));
+  assert.deepEqual(parsed.snapshot.builds[0].delivery, {
+    mode: "custom",
+    provider: "user-configured",
+    expiresAt: "",
+  });
+});
+
 test("legacy snapshot preserves explicit delivery and device-installable semantics", () => {
   const build = legacyBuild();
   build.delivery = {
