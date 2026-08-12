@@ -1,0 +1,343 @@
+// @ts-check
+
+import { lstatSync, readdirSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
+
+/** @typedef {import("./ports.js").CommandRunner} CommandRunner */
+/**
+ * @typedef {{
+ *   root?: unknown,
+ *   archivePath?: unknown,
+ *   exportPath?: unknown,
+ *   resultBundlePath?: unknown,
+ * }} BuildArtifacts
+ * @typedef {{ id: string, artifacts?: BuildArtifacts }} BuildRecord
+ * @typedef {{
+ *   buildID: string,
+ *   root: string,
+ *   totalKiB: number,
+ *   derivedDataKiB: number,
+ *   archiveKiB: number,
+ *   resultBundleKiB: number,
+ *   exportPayloadKiB: number,
+ *   scratchKiB: number,
+ * }} BuildArtifactInventory
+ * @typedef {{ name: string, root: string, totalKiB: number }} OrphanArtifactRoot
+ * @typedef {{ code: string, buildID?: string, path: string, message: string }} MeasurementIssue
+ */
+
+const DU_EXECUTABLE = "/usr/bin/du";
+const DU_TIMEOUT_MS = 60_000;
+const DU_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
+const DU_BATCH_SIZE = 100;
+
+export class NodeDeviceBuildArtifactUsage {
+  /**
+   * @param {{
+   *   commandRunner: CommandRunner,
+   *   environmentNames(): string[],
+   *   readDirectory?: typeof readdirSync,
+   *   lstat?: typeof lstatSync,
+   * }} dependencies
+   */
+  constructor({
+    commandRunner,
+    environmentNames,
+    readDirectory = readdirSync,
+    lstat = lstatSync,
+  }) {
+    if (!commandRunner || typeof commandRunner.run !== "function") {
+      throw new TypeError("Device-build artifact usage requires commandRunner.");
+    }
+    if (typeof environmentNames !== "function") {
+      throw new TypeError("Device-build artifact usage requires environmentNames.");
+    }
+    if (typeof readDirectory !== "function" || typeof lstat !== "function") {
+      throw new TypeError("Device-build artifact usage requires filesystem inspection dependencies.");
+    }
+    this.commandRunner = commandRunner;
+    this.environmentNames = environmentNames;
+    this.readDirectory = readDirectory;
+    this.lstat = lstat;
+  }
+
+  /**
+   * @param {{ builds: BuildRecord[], artifactDirectory: string }} input
+   * @returns {Promise<{ inventory: BuildArtifactInventory[], orphanRoots: OrphanArtifactRoot[], issues: MeasurementIssue[] }>}
+   */
+  async measure({ builds, artifactDirectory }) {
+    if (!Array.isArray(builds)) throw new TypeError("Artifact usage builds must be an array.");
+    const rootDirectory = requiredAbsolutePath(artifactDirectory, "artifact directory");
+    /** @type {MeasurementIssue[]} */
+    const issues = [];
+    const directoryEntries = this.safeArtifactDirectoryEntries(rootDirectory, issues);
+    if (directoryEntries === null) {
+      return { inventory: [], orphanRoots: [], issues };
+    }
+
+    const entriesByName = new Map(directoryEntries.map((entry) => [entry.name, entry]));
+    const referencedNames = new Set();
+    /** @type {{ build: BuildRecord, root: string, components: Record<string, string> }[]} */
+    const measurableBuilds = [];
+
+    for (const build of builds) {
+      if (!build || typeof build !== "object" || typeof build.id !== "string" || !build.id) {
+        issues.push(issue("invalid-build-id", "", rootDirectory, "Build record has no usable id."));
+        continue;
+      }
+      referencedNames.add(build.id);
+      const canonicalRoot = canonicalChild(rootDirectory, build.id);
+      if (!canonicalRoot) {
+        issues.push(issue(
+          "invalid-build-id",
+          build.id,
+          rootDirectory,
+          "Build id does not resolve to one direct artifact-root child.",
+        ));
+        continue;
+      }
+      const recordedRoot = stringValue(build.artifacts?.root);
+      if (!recordedRoot || resolve(recordedRoot) !== canonicalRoot) {
+        issues.push(issue(
+          "root-mismatch",
+          build.id,
+          recordedRoot || canonicalRoot,
+          "Build metadata root does not match the canonical device-build root.",
+        ));
+        continue;
+      }
+      const entry = entriesByName.get(build.id);
+      if (!entry) {
+        issues.push(issue("missing-root", build.id, canonicalRoot, "Referenced artifact root is missing."));
+        continue;
+      }
+      if (entry.isSymbolicLink?.() || !entry.isDirectory?.()) {
+        issues.push(issue(
+          "unsafe-root",
+          build.id,
+          canonicalRoot,
+          "Referenced artifact root is not a normal directory and was not measured.",
+        ));
+        continue;
+      }
+
+      measurableBuilds.push({
+        build,
+        root: canonicalRoot,
+        components: this.componentPaths(build, canonicalRoot, issues),
+      });
+    }
+
+    const orphanCandidates = directoryEntries
+      .filter((entry) => !referencedNames.has(entry.name))
+      .map((entry) => ({ entry, root: resolve(rootDirectory, entry.name) }));
+
+    const rootPaths = [
+      ...measurableBuilds.map((entry) => entry.root),
+      ...orphanCandidates
+        .filter(({ entry }) => !entry.isSymbolicLink?.())
+        .map(({ root }) => root),
+    ];
+    const componentPaths = measurableBuilds.flatMap((entry) => Object.values(entry.components));
+    const usage = await this.measurePaths([...rootPaths, ...componentPaths], issues);
+
+    const inventory = measurableBuilds.map(({ build, root, components }) => ({
+      buildID: build.id,
+      root,
+      totalKiB: usage.get(root) || 0,
+      derivedDataKiB: usage.get(components.derivedData) || 0,
+      archiveKiB: components.archive ? usage.get(components.archive) || 0 : 0,
+      resultBundleKiB: components.resultBundle ? usage.get(components.resultBundle) || 0 : 0,
+      exportPayloadKiB: components.exportPayload ? usage.get(components.exportPayload) || 0 : 0,
+      scratchKiB: usage.get(components.scratch) || 0,
+    }));
+
+    const orphanRoots = orphanCandidates.map(({ entry, root }) => {
+      const totalKiB = entry.isSymbolicLink?.() ? 0 : usage.get(root) || 0;
+      if (entry.isSymbolicLink?.()) {
+        issues.push(issue(
+          "orphan-symlink",
+          "",
+          root,
+          "Unreferenced artifact entry is a symlink; it was not followed or counted as reclaimable.",
+        ));
+      }
+      return { name: entry.name, root, totalKiB };
+    });
+
+    return { inventory, orphanRoots, issues };
+  }
+
+  /** @param {string} artifactDirectory @param {MeasurementIssue[]} issues */
+  safeArtifactDirectoryEntries(artifactDirectory, issues) {
+    try {
+      const stat = this.lstat(artifactDirectory);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        issues.push(issue(
+          "unsafe-artifact-directory",
+          "",
+          artifactDirectory,
+          "Device-build artifact directory is not a normal directory; audit stopped without traversal.",
+        ));
+        return null;
+      }
+      return this.readDirectory(artifactDirectory, { withFileTypes: true });
+    } catch (error) {
+      if (hasCode(error, "ENOENT")) return [];
+      issues.push(issue(
+        "artifact-directory-unreadable",
+        "",
+        artifactDirectory,
+        error instanceof Error ? error.message : String(error),
+      ));
+      return null;
+    }
+  }
+
+  /** @param {BuildRecord} build @param {string} root @param {MeasurementIssue[]} issues */
+  componentPaths(build, root, issues) {
+    return {
+      derivedData: this.measurableContainedPath(root, resolve(root, "DerivedData"), build.id, issues),
+      archive: this.measurableContainedPath(root, stringValue(build.artifacts?.archivePath), build.id, issues),
+      resultBundle: this.measurableContainedPath(root, stringValue(build.artifacts?.resultBundlePath), build.id, issues),
+      exportPayload: this.measurableContainedPath(root, stringValue(build.artifacts?.exportPath), build.id, issues),
+      scratch: this.measurableContainedPath(root, resolve(root, "ExportOptions.plist"), build.id, issues),
+    };
+  }
+
+  /**
+   * @param {string} root
+   * @param {string} candidate
+   * @param {string} buildID
+   * @param {MeasurementIssue[]} issues
+   */
+  measurableContainedPath(root, candidate, buildID, issues) {
+    if (!candidate) return "";
+    const resolved = resolve(candidate);
+    if (!isContained(root, resolved)) {
+      issues.push(issue(
+        "component-outside-root",
+        buildID,
+        resolved,
+        "Artifact component path is outside its canonical build root and was not measured.",
+      ));
+      return "";
+    }
+    try {
+      const stat = this.lstat(resolved);
+      if (stat.isSymbolicLink()) {
+        issues.push(issue(
+          "component-symlink",
+          buildID,
+          resolved,
+          "Artifact component is a symlink; it was not followed or counted as reclaimable.",
+        ));
+        return "";
+      }
+      return resolved;
+    } catch (error) {
+      if (hasCode(error, "ENOENT")) return "";
+      issues.push(issue(
+        "component-unreadable",
+        buildID,
+        resolved,
+        error instanceof Error ? error.message : String(error),
+      ));
+      return "";
+    }
+  }
+
+  /** @param {string[]} paths @param {MeasurementIssue[]} issues */
+  async measurePaths(paths, issues) {
+    const uniquePaths = [...new Set(paths.filter(Boolean).map((path) => resolve(path)))];
+    /** @type {Map<string, number>} */
+    const usage = new Map();
+    for (let offset = 0; offset < uniquePaths.length; offset += DU_BATCH_SIZE) {
+      const batch = uniquePaths.slice(offset, offset + DU_BATCH_SIZE);
+      if (batch.length === 0) continue;
+      const result = await this.commandRunner.run({
+        executable: DU_EXECUTABLE,
+        args: ["-sk", ...batch],
+        environment: {
+          inherit: this.environmentNames(),
+          overrides: { LC_ALL: "C" },
+          unset: [],
+        },
+        policy: {
+          timeoutMs: DU_TIMEOUT_MS,
+          outputLimitBytes: DU_OUTPUT_LIMIT_BYTES,
+          processGroup: "new",
+          acceptedExitCodes: [0],
+        },
+      });
+      if (result.error) {
+        issues.push(issue(
+          "disk-usage-failed",
+          "",
+          batch[0],
+          `Read-only disk usage measurement failed: ${result.error}`,
+        ));
+        continue;
+      }
+      for (const line of String(result.stdout || "").split(/\r?\n/)) {
+        const match = line.match(/^\s*(\d+)\s+(.+)$/);
+        if (!match) continue;
+        const kib = Number(match[1]);
+        const path = resolve(match[2]);
+        if (Number.isFinite(kib) && kib >= 0) usage.set(path, kib);
+      }
+      for (const path of batch) {
+        if (!usage.has(path)) {
+          issues.push(issue(
+            "disk-usage-missing",
+            "",
+            path,
+            "Read-only disk usage measurement returned no size for this path.",
+          ));
+        }
+      }
+    }
+    return usage;
+  }
+}
+
+/** @param {string} root @param {string} name */
+function canonicalChild(root, name) {
+  if (!name || name.includes("\0") || name.includes(sep)) return "";
+  const child = resolve(root, name);
+  return relative(root, child) === name ? child : "";
+}
+
+/** @param {string} root @param {string} candidate */
+function isContained(root, candidate) {
+  const child = relative(resolve(root), resolve(candidate));
+  return child === "" || Boolean(child && !isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
+}
+
+/** @param {unknown} value */
+function stringValue(value) {
+  return typeof value === "string" ? value : "";
+}
+
+/** @param {string} value @param {string} label */
+function requiredAbsolutePath(value, label) {
+  if (typeof value !== "string" || !isAbsolute(value) || value.includes("\0")) {
+    throw new TypeError(`Device-build ${label} must be an absolute NUL-free path.`);
+  }
+  return resolve(value);
+}
+
+/** @param {string} code @param {string} buildID @param {string} path @param {string} message */
+function issue(code, buildID, path, message) {
+  return Object.freeze({ code, ...(buildID ? { buildID } : {}), path, message });
+}
+
+/** @param {unknown} error @param {string} code */
+function hasCode(error, code) {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    /** @type {{ code?: unknown }} */ (error).code === code,
+  );
+}
