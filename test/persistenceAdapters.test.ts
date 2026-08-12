@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
+import {
+  ensureDirectoryModeSync,
+  NodeAtomicFileStore,
+} from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { NodeRuntimeJournalStore } from "../mac-helper/src/infrastructure/nodeRuntimeJournalStore.js";
 
 const writeOptions = Object.freeze({
@@ -22,6 +25,10 @@ test("atomic file store preserves no-replace, replacement, modes, and cleanup", 
   store.writeTextSync(textPath, "first", writeOptions);
   assert.equal(store.readTextSync(textPath), "first");
   assert.equal((await stat(textPath)).mode & 0o777, 0o600);
+  assert.equal((await stat(join(root, "nested"))).mode & 0o777, 0o700);
+
+  await chmod(join(root, "nested"), 0o755);
+  ensureDirectoryModeSync(join(root, "nested"), 0o700);
   assert.equal((await stat(join(root, "nested"))).mode & 0o777, 0o700);
 
   assert.throws(
