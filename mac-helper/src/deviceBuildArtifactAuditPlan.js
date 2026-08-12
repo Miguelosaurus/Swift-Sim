@@ -189,11 +189,11 @@ function planBuild(build, measured) {
 /** @param {BuildArtifactInventory} entry */
 function normalizedInventory(entry) {
   const totalKiB = nonnegativeNumber(entry.totalKiB, "totalKiB");
-  const derivedDataKiB = nonnegativeNumber(entry.derivedDataKiB || 0, "derivedDataKiB");
-  const archiveKiB = nonnegativeNumber(entry.archiveKiB || 0, "archiveKiB");
-  const resultBundleKiB = nonnegativeNumber(entry.resultBundleKiB || 0, "resultBundleKiB");
-  const exportPayloadKiB = nonnegativeNumber(entry.exportPayloadKiB || 0, "exportPayloadKiB");
-  const scratchKiB = nonnegativeNumber(entry.scratchKiB || 0, "scratchKiB");
+  const derivedDataKiB = nonnegativeNumber(entry.derivedDataKiB ?? 0, "derivedDataKiB");
+  const archiveKiB = nonnegativeNumber(entry.archiveKiB ?? 0, "archiveKiB");
+  const resultBundleKiB = nonnegativeNumber(entry.resultBundleKiB ?? 0, "resultBundleKiB");
+  const exportPayloadKiB = nonnegativeNumber(entry.exportPayloadKiB ?? 0, "exportPayloadKiB");
+  const scratchKiB = nonnegativeNumber(entry.scratchKiB ?? 0, "scratchKiB");
   const categorizedKiB = derivedDataKiB + archiveKiB + resultBundleKiB + exportPayloadKiB + scratchKiB;
   const otherKiB = entry.otherKiB === undefined
     ? Math.max(0, totalKiB - categorizedKiB)
