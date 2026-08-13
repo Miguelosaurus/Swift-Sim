@@ -14,10 +14,11 @@ Read the active architecture controls in this order:
 6. [Parallel Whole-Program Roadmap](plans/ARCHITECTURE_CONSOLIDATION_PARALLEL_ROADMAP.md)
 7. [Workstream Registry](plans/ARCHITECTURE_CONSOLIDATION_WORKSTREAM_REGISTRY.md)
 8. [Agent Protocol](plans/ARCHITECTURE_CONSOLIDATION_AGENT_PROTOCOL.md)
-9. [Architecture Consolidation Progress](plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md)
-10. [Current Architecture Handoff](plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md)
-11. [Mandatory Checkpoint Protocol](plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md)
-12. [Architecture Decision Records](adr/README.md)
+9. [Branch Index](plans/ARCHITECTURE_CONSOLIDATION_BRANCH_INDEX.md)
+10. [Architecture Consolidation Progress](plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md)
+11. [Current Architecture Handoff](plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md)
+12. [Mandatory Checkpoint Protocol](plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md)
+13. [Architecture Decision Records](adr/README.md)
 
 Root [`AGENTS.md`](../../AGENTS.md) points architecture workers into the same control plane.
 
