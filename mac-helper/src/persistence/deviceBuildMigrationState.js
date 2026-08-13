@@ -138,7 +138,9 @@ function normalizeLockedSnapshotEvidence(value) {
 
 /** @param {DeviceBuildMigrationState} state */
 function freezeState(state) {
-  return /** @type {Readonly<DeviceBuildMigrationState>} */ (Object.freeze({ ...state }));
+  return /** @type {Readonly<DeviceBuildMigrationState>} */ (
+    Object.freeze({ ...state })
+  );
 }
 
 /** @param {unknown} value @param {string} label */
