@@ -6,6 +6,7 @@ import { projectPhase4CompatibilityHealth } from "./phase4CompatibilityDiagnosti
 import { projectPhase4DatabaseHealth } from "./phase4DatabaseDiagnosticProjection.js";
 import { projectPhase4MigrationHealth } from "./phase4MigrationDiagnosticProjection.js";
 import { projectPhase4ShadowHealth } from "./phase4ShadowDiagnosticProjection.js";
+import { phase4SupportRecoveryActions } from "./phase4SupportRecovery.js";
 
 /**
  * Collect path-free Phase 4 support evidence from caller-owned read-only probes.
@@ -31,36 +32,24 @@ export function collectPhase4SupportDiagnostics(probes = {}) {
   const artifactStorage = projectPhase4ArtifactHealth(
     observePhase4DiagnosticProbe(probes.artifactStorage),
   );
-  const sections = [database, migration, shadow, compatibility, artifactStorage];
-  const actionCodes = recoveryActionCodes({
-    database,
-    migration,
-    shadow,
-    compatibility,
-    artifactStorage,
-  });
+  const sections = { database, migration, shadow, compatibility, artifactStorage };
 
   return Object.freeze({
     version: 1,
     readOnly: true,
     redacted: true,
     mutationAllowed: false,
-    overall: overallStatus(sections),
-    database,
-    migration,
-    shadow,
-    compatibility,
-    artifactStorage,
+    overall: overallStatus(Object.values(sections)),
+    ...sections,
     recovery: Object.freeze({
       mutationAllowed: false,
-      actionCodes: Object.freeze(actionCodes),
+      actionCodes: Object.freeze(phase4SupportRecoveryActions(sections)),
     }),
   });
 }
 
 /**
- * Serialize only a freshly collected redacted report. Raw probe values and raw
- * errors never enter the returned JSON support evidence.
+ * Serialize only freshly collected, allowlisted support evidence.
  *
  * @param {Parameters<typeof collectPhase4SupportDiagnostics>[0]} [probes]
  */
@@ -77,58 +66,4 @@ function overallStatus(sections) {
     return "attention";
   }
   return "healthy";
-}
-
-/** @param {Record<string, Record<string, unknown>>} sections */
-function recoveryActionCodes(sections) {
-  const actions = new Set();
-  const failure = sections.database.failureCategory;
-  if (failure === "busy") actions.add("retry-diagnostic-after-current-writer-completes");
-  if (failure === "corrupt" || sections.database.integrity === "failed") {
-    actions.add("preserve-state-and-restore-verified-backup");
-  }
-  if (failure === "incompatible" || schemaAhead(sections.database)) {
-    actions.add("use-compatible-build-before-migration");
-  }
-  if (failure === "permission-denied") actions.add("verify-private-state-permissions");
-  if (failure === "unavailable") actions.add("verify-state-availability");
-  if (sections.database.status === "attention") {
-    actions.add("keep-authority-unchanged-and-resume-supported-migration");
-  }
-  if (
-    sections.database.status === "blocked" &&
-    failure !== "corrupt" &&
-    sections.database.integrity !== "failed"
-  ) {
-    actions.add("preserve-state-and-review-database-health");
-  }
-  if (needsGuidance(sections.migration)) {
-    actions.add("keep-authority-unchanged-and-review-migration");
-  }
-  if (typeof sections.shadow.mismatchCount === "number" && sections.shadow.mismatchCount > 0) {
-    actions.add("keep-authority-unchanged-and-review-shadow-mismatches");
-  } else if (needsGuidance(sections.shadow)) {
-    actions.add("keep-authority-unchanged-and-review-shadow-availability");
-  }
-  if (needsGuidance(sections.compatibility)) {
-    actions.add("preserve-compatibility-paths-and-review-cutover-state");
-  }
-  if (needsGuidance(sections.artifactStorage)) {
-    actions.add("review-artifact-measurement-without-cleanup");
-  }
-  return [...actions].sort();
-}
-
-/** @param {Record<string, unknown>} section */
-function needsGuidance(section) {
-  return section.status !== "healthy" && section.failureCategory !== "not-observed";
-}
-
-/** @param {Record<string, unknown>} section */
-function schemaAhead(section) {
-  return (
-    typeof section.schemaVersion === "number" &&
-    typeof section.latestSchemaVersion === "number" &&
-    section.schemaVersion > section.latestSchemaVersion
-  );
 }
