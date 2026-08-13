@@ -79,10 +79,7 @@ export function parseDeviceBuildMigrationState(value) {
     authority: DEVICE_BUILD_MIGRATION_AUTHORITY,
     sourceRevision: requireHash(values.sourceRevision, "Device-build migration sourceRevision"),
     projectionHash: requireHash(values.projectionHash, "Device-build migration projectionHash"),
-    sourceVersion: requireSafeInteger(
-      values.sourceVersion,
-      "Device-build migration sourceVersion",
-    ),
+    sourceVersion: requireSafeInteger(values.sourceVersion, "Device-build migration sourceVersion"),
     recordCount: requireSafeInteger(values.recordCount, "Device-build migration recordCount"),
     cursor: requireSafeInteger(values.cursor, "Device-build migration cursor"),
   };
