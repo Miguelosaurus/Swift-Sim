@@ -16,10 +16,11 @@ const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const options = parseArguments(process.argv.slice(2));
 const corpusPath = resolve(root, options.corpus || "test/fixtures/swift-analyzer/corpus.json");
 const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
+const corpusCases = corpus.cases.map((row) => hydrateCase(corpus.fields, row));
 const legacyModule = await import(resolve(root, "mac-helper/src/liveReload.js"));
 
 const rows = [];
-for (const caseItem of corpus.cases) {
+for (const caseItem of corpusCases) {
   const legacy = classifyLegacy(caseItem, legacyModule);
   if (legacy.route !== caseItem.legacyExpected.route) {
     throw new Error(
@@ -66,6 +67,23 @@ if (options.format === "json") {
   process.stdout.write(`${JSON.stringify({ summary, rows }, null, 2)}\n`);
 } else {
   process.stdout.write(renderMarkdown(summary, rows));
+}
+
+function hydrateCase(fields, row) {
+  const item = Object.fromEntries(fields.map((field, index) => [field, row[index]]));
+  const base = {
+    id: item.id,
+    category: item.category,
+    description: item.description,
+    mode: item.mode,
+    legacyExpected: { route: item.legacyRoute },
+    prototypeExpected: { route: item.prototypeRoute },
+    physicalProofRequired: item.physicalProofRequired,
+    productionEnabled: item.productionEnabled,
+    notes: item.notes || "",
+  };
+  if (item.mode === "edit-set") return { ...base, files: item.payload };
+  return { ...base, beforeSource: item.payload[0], afterSource: item.payload[1] };
 }
 
 function classifyLegacy(caseItem, module) {
