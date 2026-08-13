@@ -11,6 +11,9 @@ export function projectPhase4ArtifactHealth(observation) {
   if (record.readOnly !== true || record.cleanupEnabled !== false) {
     return empty("invalid-observation");
   }
+  if (typeof record.measurementComplete !== "boolean") {
+    return empty("invalid-observation");
+  }
 
   const totalKiB = count(record.totalKiB);
   const reclaimableKiB = count(record.reclaimableKiB);
@@ -18,31 +21,25 @@ export function projectPhase4ArtifactHealth(observation) {
   const manualReviewKiB = count(record.manualReviewKiB);
   const orphanRootCount = count(record.orphanRootCount);
   const measurementIssueCount = count(record.measurementIssueCount);
-  const numericValues = [
-    totalKiB,
-    reclaimableKiB,
-    protectedKiB,
-    manualReviewKiB,
-    orphanRootCount,
-    measurementIssueCount,
-  ];
-  if (typeof record.measurementComplete !== "boolean" || numericValues.some(isMissingCount)) {
-    return empty("invalid-observation");
-  }
+  if (totalKiB === null) return empty("invalid-observation");
+  if (reclaimableKiB === null) return empty("invalid-observation");
+  if (protectedKiB === null) return empty("invalid-observation");
+  if (manualReviewKiB === null) return empty("invalid-observation");
+  if (orphanRootCount === null) return empty("invalid-observation");
+  if (measurementIssueCount === null) return empty("invalid-observation");
 
-  const measurementHealthy =
-    record.measurementComplete &&
-    measurementIssueCount === 0 &&
-    orphanRootCount === 0;
+  const measurementComplete = record.measurementComplete;
   let status = "attention";
-  if (measurementHealthy) status = "healthy";
+  if (measurementComplete && measurementIssueCount === 0 && orphanRootCount === 0) {
+    status = "healthy";
+  }
 
   return Object.freeze({
     available: true,
     status,
     informational: true,
     cleanupEnabled: false,
-    measurementComplete: record.measurementComplete,
+    measurementComplete,
     totalKiB,
     reclaimableKiB,
     protectedKiB,
@@ -77,9 +74,4 @@ function count(value) {
   if (!Number.isSafeInteger(value)) return null;
   if (value < 0) return null;
   return value;
-}
-
-/** @param {unknown} value */
-function isMissingCount(value) {
-  return value === null;
 }
