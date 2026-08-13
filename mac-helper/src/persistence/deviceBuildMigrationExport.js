@@ -230,10 +230,7 @@ function normalizeExportRecord(value, expectedIndex) {
   if (sha256(payloadJSON) !== payloadHash) {
     throw new Error("Device-build export payloadHash does not match payload.");
   }
-  const idempotencyKey = requireHash(
-    values.idempotencyKey,
-    "Device-build export idempotencyKey",
-  );
+  const idempotencyKey = requireHash(values.idempotencyKey, "Device-build export idempotencyKey");
   if (sha256(`${surface}\u0000${key}\u0000${payloadHash}`) !== idempotencyKey) {
     throw new Error("Device-build export idempotencyKey does not match record evidence.");
   }
