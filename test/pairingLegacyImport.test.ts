@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type {
   LegacyImportCheckpoint,
@@ -16,9 +16,9 @@ import { PAIRING_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/pairing
 import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
 import { SqlitePairingStateRepository } from "../mac-helper/src/persistence/sqlitePairingStateRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
+import { v061PairingFixture } from "./fixtures/upgrade-evidence/v0.6.1/fixtures.js";
 
 const IMPORTED_AT = "2026-08-05T18:00:00.000Z";
-const V061_STATE_ROOT = resolve("test/fixtures/upgrade-evidence/v0.6.1/home/.swift-sim");
 const CREDENTIAL = Object.freeze({
   token: "pairing-token",
   installationID: "installation-1",
@@ -328,9 +328,8 @@ test("invalid aggregate pairing state is backed up but never published", async (
 
 test("published v0.6.1 pairing fixture imports through the compiled legacy path", async (t) => {
   const harness = await createHarness(t);
-  const fixture = JSON.parse(await readFile(join(V061_STATE_ROOT, "pairing.json"), "utf8"));
   const credential = {
-    ...fixture,
+    ...v061PairingFixture,
     token: "synthetic-fixture-only",
   };
   await writeFile(harness.credentialPath, JSON.stringify(credential));
