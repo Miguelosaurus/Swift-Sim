@@ -1,9 +1,9 @@
 # P5-PRELOAD-INVENTORY
 
-Status: **PREPARATORY INVENTORY COMPLETE**  
-Class: **preparatory**  
-Phase: **5**  
-Dispatch base: `38eee4bfb1eabc2184d92aa3e52fee28b139cbf5`  
+Status: **PREPARATORY INVENTORY COMPLETE**
+Class: **preparatory**
+Phase: **5**
+Dispatch base: `38eee4bfb1eabc2184d92aa3e52fee28b139cbf5`
 Assigned branch: `agent/arch-ws-P5-PRELOAD-INVENTORY-preload-map`
 
 ## Goal and guardrails
