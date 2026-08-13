@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import "../mac-helper/src/deviceBuildCapabilityBoundaryPreload.js";
+import { createHash } from "node:crypto";
+import { createReadStream, copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
@@ -17,8 +19,10 @@ import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persis
 import { SqlitePairingStateRepository } from "../mac-helper/src/persistence/sqlitePairingStateRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
+const require = createRequire(import.meta.url);
 const UPGRADE_FIXTURE_ROOT = resolve("test/fixtures/upgrade-evidence/v0.6.1");
 const UPGRADE_IMPORTED_AT = "2026-08-13T20:00:00.000Z";
+const UPGRADE_STATE_FILES = ["pairing.json", "pairing-invites.json", "device-builds.json"];
 
 test("patched createServer intercepts capability routes before the downstream listener", async () => {
   const server = createServer((_req, res) => {
@@ -37,8 +41,8 @@ test("patched createServer intercepts capability routes before the downstream li
   }
 });
 
-test("published v0.6.1 state upgrades repeatably without rewriting rollback-readable legacy files", (t) => {
-  const manifest = JSON.parse(readFileSync(join(UPGRADE_FIXTURE_ROOT, "manifest.json"), "utf8"));
+test("published v0.6.1 state upgrades repeatably without rewriting rollback-readable legacy files", async (t) => {
+  const manifest = require("./fixtures/upgrade-evidence/v0.6.1/manifest.json");
   assert.equal(manifest.sourceRelease.tag, "v0.6.1");
   assert.equal(manifest.sourceRelease.commit, "23d671bdb7c712d1680a06e8fec9e9e973038b8a");
   assert.equal(manifest.sourceRelease.assetSha256, "c8edc4c7efac93d161540d9b34ca762856875929351de2b7975e5923784307aa");
@@ -47,14 +51,15 @@ test("published v0.6.1 state upgrades repeatably without rewriting rollback-read
   assert.notEqual(resolve(root, ".swift-sim"), resolve(homedir(), ".swift-sim"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const stateRoot = join(root, ".swift-sim");
-  for (const name of ["pairing.json", "pairing-invites.json", "device-builds.json"]) {
+  for (const name of UPGRADE_STATE_FILES) {
     const destination = join(stateRoot, name);
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(join(UPGRADE_FIXTURE_ROOT, "home", ".swift-sim", name), destination);
   }
   const original = Object.fromEntries(
-    ["pairing.json", "pairing-invites.json", "device-builds.json"]
-      .map((name) => [name, readFileSync(join(stateRoot, name), "utf8")]),
+    await Promise.all(
+      UPGRADE_STATE_FILES.map(async (name) => [name, await fileDigest(join(stateRoot, name))]),
+    ),
   );
 
   let pairing = pairingUpgradeHarness(root);
@@ -75,10 +80,16 @@ test("published v0.6.1 state upgrades repeatably without rewriting rollback-read
   assert.equal(device.repository.read().builds[0]?.app.bundleIdentifier, "com.example.swiftsim.upgradefixture");
   device.database.close();
 
-  for (const [name, bytes] of Object.entries(original)) {
-    assert.equal(readFileSync(join(stateRoot, name), "utf8"), bytes);
+  for (const [name, digest] of Object.entries(original)) {
+    assert.equal(await fileDigest(join(stateRoot, name)), digest);
   }
 });
+
+async function fileDigest(path) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+}
 
 function pairingUpgradeHarness(root) {
   const stateRoot = join(root, ".swift-sim");
