@@ -31,6 +31,7 @@ import { DEVICE_BUILD_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/de
 import { SqliteDeviceBuildStateRepository } from "../mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js";
 import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
+import { v061DeviceBuildFixture } from "./fixtures/upgrade-evidence/v0.6.1/fixtures.js";
 
 const IMPORTED_AT = "2026-08-11T10:30:00.000Z";
 const CHECKPOINT_SOURCE = "device-build-state-v1";
@@ -489,6 +490,30 @@ test("applier rejects forged locked evidence before SQLite or checkpoint mutatio
     /exceeds supported version/,
   );
   assert.deepEqual(harness.repository.read(), emptySnapshot());
+});
+
+test("published v0.6.1 device fixture imports with provider-compatible epoch evidence", (t) => {
+  const harness = createHarness(t);
+  const raw = JSON.stringify(v061DeviceBuildFixture);
+  harness.fileStore.writeTextSync(harness.sourcePath, raw, {
+    mode: 0o600,
+    createParentMode: 0o700,
+    replace: true,
+    syncDirectory: true,
+  });
+
+  const first = harness.coordinator().run();
+
+  assert.equal(first.status, "applied");
+  assert.equal(first.sourceVersion, 5);
+  assert.equal(first.recordCount, 1);
+  assert.equal(harness.repository.read().apps[0]?.id, "app-v061");
+  const checkpoint = harness.checkpointRepository.get(CHECKPOINT_SOURCE);
+  assert.equal(checkpoint?.sourceRevision, first.sourceRevision);
+  assert.equal(checkpoint?.projectionHash, first.projectionHash);
+  assert.equal(checkpoint?.recordCount, first.recordCount);
+  assert.equal(harness.coordinator().run().status, "already-current");
+  assert.equal(readdirSync(harness.backupDirectory).length, 1);
 });
 
 function emptySnapshot(): DeviceBuildStateSnapshot {
