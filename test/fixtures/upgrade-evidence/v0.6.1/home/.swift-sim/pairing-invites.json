@@ -1,0 +1,11 @@
+[
+  {
+    "id": "upgrade-invite-v061",
+    "inviteHash": "82bddd48c0c736ea143c3f078011abd09dbb0f91e577fc10145ed61993c055ff",
+    "installationID": "installation-v061",
+    "clientNonce": null,
+    "claimed": false,
+    "createdAt": "2026-08-02T18:06:00.000Z",
+    "expiresAt": "2026-08-02T18:16:00.000Z"
+  }
+]
