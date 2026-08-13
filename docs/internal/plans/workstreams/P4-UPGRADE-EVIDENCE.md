@@ -16,15 +16,17 @@ The fixture manifest pins the historical package, pairing-store, device-build-st
 
 ## Automated evidence
 
-`test/upgradeEvidence.test.ts` is a read-only compatibility proof. It verifies that current canonical parsers still accept the pinned v0.6.1 pairing credential, invitation, and version-5 device-build state while preserving their expected identities.
+`test/upgrade-evidence/previousRelease.test.js` runs after `npm run build` and imports the compiled candidate from `dist/`. It verifies that current canonical parsers accept the pinned v0.6.1 pairing credential, invitation, and version-5 device-build state while preserving the expected identities.
 
-The focused upgrade gate composes that release-specific compatibility proof with the existing compiled pairing and device-build legacy-import suites. Those existing suites exercise the production migration paths and cover first import, idempotent replay, restart-safe checkpoints, interruption after domain commit, checkpoint-only repair on retry, corrupt checkpoints, busy locks, invalid legacy state, backup failure, and preservation of legacy sources.
+`npm run check:upgrade` composes that release-specific compatibility proof with the existing compiled pairing and device-build legacy-import suites. Those suites exercise the production migration paths and cover first import, idempotent replay, restart-safe checkpoints, interruption after domain commit, checkpoint-only repair on retry, invalid or corrupted state, busy locks, backup failure, and preservation of legacy sources.
 
-The normal package gates continue to cover candidate package contents, a disposable package installation, and non-destructive Homebrew formula compatibility. Exact commands and hosted results are recorded on draft PR #131.
+The focused command is `npm run check:upgrade`. It expands to `npm run build` followed by one Node test invocation over `test/upgrade-evidence/previousRelease.test.js`, `dist/test/pairingLegacyImport.test.js`, and `dist/test/deviceBuildLegacyImport.test.js` with test concurrency set to one.
+
+Candidate packaging remains covered by `scripts/verify-package-content.sh`, `scripts/verify-package-install.sh`, and `scripts/verify-homebrew-package.sh`. Full composed verification is `npm run check`. Exact hosted results and the final head are recorded on draft PR #131.
 
 ## Real-environment evidence still required
 
-CI does not substitute for persistent-Mac installed-package upgrade and rollback, real Xcode and Simulator inventory validation, or physical-device install and reconnect evidence when the Phase 4 release gate requires it.
+CI does not substitute for an installed v0.6.1-to-candidate service upgrade on the persistent supported Mac, the opt-in clean Homebrew installation check there, validation against that Mac's real Xcode and Simulator inventory, an iPhone install/reconnect/launch check when required by the Phase 4 gate, or a prior-release reinstall/readability drill when the release process requires it.
 
 ## Scope boundary
 
