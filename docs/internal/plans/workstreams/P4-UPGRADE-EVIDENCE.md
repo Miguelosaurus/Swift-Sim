@@ -30,12 +30,12 @@ The provenance fixture also records the exact `v0.6.1` blobs that define the rel
 
 All mutable state used by this lane lives under a disposable `mkdtemp` root. The fixture is copied into that root before current migration code is invoked, and the test explicitly proves the disposable `~/.swift-sim` path differs from the process user's real `~/.swift-sim` path.
 
-The fixture-backed integration proof covers these transitions:
+The fixture-backed compiled proof covers these transitions:
 
 1. `v0.6.1 pairing.json + pairing-invites.json` -> current pairing SQLite import reports `applied` and preserves installation/invitation identity.
-2. close/reopen the SQLite database -> replay reports `already-current`.
+2. close the first SQLite graph, construct a fresh database/repository/coordinator graph over the same persisted database, and replay -> `already-current`.
 3. `v0.6.1 device-builds.json` (historical state version 5) -> current device-build SQLite import reports `applied` and preserves the build/application identity.
-4. close/reopen the SQLite database -> replay reports `already-current`.
+4. close the first SQLite graph, construct a fresh database/repository/coordinator graph over the same persisted database, and replay -> `already-current`.
 5. after both migrations/restarts, every legacy source file remains byte-for-byte unchanged. This is the authority-neutral rollback/readability expectation this lane can prove: a rollback-capable prior binary still has its original legacy source rather than an eagerly rewritten substitute.
 
 The existing compiled pairing/device migration suites are part of the same evidence matrix and already inject the reproducible failure boundaries this lane must not fake: checkpoint-write interruption after domain commit, corrupted checkpoint persistence, busy legacy locks, invalid legacy data, backup failure, exact retry/checkpoint repair, and idempotent replay. Reusing those fault-injection suites keeps one implementation of migration failure semantics instead of creating parallel test-only migration logic.
@@ -49,12 +49,18 @@ The existing package gates cover the candidate side of the upgrade:
 
 ### Focused commands
 
-Run the release-specific state/restart test plus the existing reproducible interruption suites:
+Run the dedicated previous-release harness together with the existing reproducible interruption/retry suites:
+
+```bash
+npm run check:upgrade
+```
+
+Equivalent expanded command:
 
 ```bash
 npm run build
 node --test --test-concurrency=1 \
-  test/capabilityBoundaryIntegration.test.js \
+  dist/test/upgradeEvidence.test.js \
   dist/test/pairingLegacyImport.test.js \
   dist/test/deviceBuildLegacyImport.test.js
 ```
@@ -67,7 +73,7 @@ bash scripts/verify-package-install.sh
 bash scripts/verify-homebrew-package.sh
 ```
 
-Run the repository-wide composed gate (it already contains the fixture-backed source test, compiled migration fault injection, and all three package gates):
+Run the repository-wide composed gate (it contains the dedicated upgrade harness, compiled migration fault injection, and all three package gates):
 
 ```bash
 npm run check
