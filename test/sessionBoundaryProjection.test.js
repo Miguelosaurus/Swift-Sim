@@ -5,7 +5,7 @@ import {
   joinSessionForPresentation,
   parseDurableSession,
   projectDurableSession,
-} from "../mac-helper/src/sessionBoundaryProjection.js";
+} from "../mac-helper/src/persistence/sessionBoundaryProjection.js";
 
 const LEGACY_SESSION = Object.freeze({
   id: "session-1",
