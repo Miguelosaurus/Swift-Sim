@@ -31,9 +31,9 @@ Preparation artifacts:
 - `test/swiftAnalyzerPrep.test.js`
 - `test/swiftAnalyzerProtocolBoundary.test.js`
 
-Corpus result: 69 cases, 48 equivalent, 17 stricter, 4 potentially more permissive, 21 total differences. All four potentially-more-permissive rows are disabled in the corpus and require physical-device proof before any future production hot route.
+Corpus result: 69 cases, 49 equivalent, 16 stricter, 4 potentially more permissive, 20 total differences. All four potentially-more-permissive rows are disabled in the corpus and require physical-device proof before any future production hot route.
 
-The stricter set includes syntax the current lexical analyzer misses, including access-controlled/attributed imports, nested inline access/static modifiers, additional Swift declaration/storage modifiers, macro invocations, and malformed syntax. A syntax-aware replacement may conservatively rebuild for those cases under ADR-0004.
+The stricter set includes syntax the current lexical analyzer misses, including access-controlled/attributed imports, nested inline access/static modifiers, additional Swift declaration/storage modifiers, macro invocations, and malformed syntax. A syntax-aware replacement may conservatively rebuild for those cases under ADR-0004. `convenience init` is not in that stricter set: the dispatch-base analyzer already rebuilds that case, and the corpus records it as equivalent.
 
 Packaging finding: Swift 6.2.1 alone did not make `SwiftSyntax`/`SwiftParser` directly importable in the dispatch feasibility environment. The isolated SwiftPM experiment pins `swift-syntax` 602.0.0, while release/Homebrew integration and clean-macOS execution remain Phase 7 evidence. No root package/compiler/release red-zone file was edited.
 
