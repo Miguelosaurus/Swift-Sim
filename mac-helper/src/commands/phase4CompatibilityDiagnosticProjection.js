@@ -1,10 +1,6 @@
 // @ts-check
 
-const COMPATIBILITY_STATES = new Set([
-  "compatible",
-  "transitioning",
-  "incompatible",
-]);
+const COMPATIBILITY_STATES = new Set(["compatible", "transitioning", "incompatible"]);
 
 /** @param {{ available: boolean, failureCategory?: string, value?: unknown }} observation */
 export function projectPhase4CompatibilityHealth(observation) {
@@ -16,10 +12,7 @@ export function projectPhase4CompatibilityHealth(observation) {
   const record = /** @type {Record<string, unknown>} */ (value);
 
   let state = "unknown";
-  if (
-    typeof record.state === "string" &&
-    COMPATIBILITY_STATES.has(record.state)
-  ) {
+  if (typeof record.state === "string" && COMPATIBILITY_STATES.has(record.state)) {
     state = record.state;
   }
 

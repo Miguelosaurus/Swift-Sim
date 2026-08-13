@@ -26,10 +26,7 @@ export function projectPhase4ArtifactHealth(observation) {
     orphanRootCount,
     measurementIssueCount,
   ];
-  if (
-    typeof record.measurementComplete !== "boolean" ||
-    numericValues.some(isMissingCount)
-  ) {
+  if (typeof record.measurementComplete !== "boolean" || numericValues.some(isMissingCount)) {
     return empty("invalid-observation");
   }
 

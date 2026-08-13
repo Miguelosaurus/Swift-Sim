@@ -1,12 +1,10 @@
 // @ts-check
 
 const BUSY_FAILURE = /sqlite_busy|sqlite_locked|\bbusy\b|\blocked\b/;
-const CORRUPT_FAILURE =
-  /sqlite_corrupt|sqlite_notadb|corrupt|malformed|not a database/;
+const CORRUPT_FAILURE = /sqlite_corrupt|sqlite_notadb|corrupt|malformed|not a database/;
 const INCOMPATIBLE_FAILURE =
   /schema version|newer than|incompatible|checksum|non-contiguous|migration history/;
-const PERMISSION_FAILURE =
-  /eacces|eperm|permission denied|operation not permitted/;
+const PERMISSION_FAILURE = /eacces|eperm|permission denied|operation not permitted/;
 
 /**
  * Reduce an operational failure to a coarse, redaction-safe support category.

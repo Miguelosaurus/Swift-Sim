@@ -24,12 +24,8 @@ export function collectPhase4SupportDiagnostics(probes = {}) {
   const database = projectPhase4DatabaseHealth(
     observePhase4DiagnosticProbe(probes.repositoryHealth),
   );
-  const migration = projectPhase4MigrationHealth(
-    observePhase4DiagnosticProbe(probes.migration),
-  );
-  const shadow = projectPhase4ShadowHealth(
-    observePhase4DiagnosticProbe(probes.shadow),
-  );
+  const migration = projectPhase4MigrationHealth(observePhase4DiagnosticProbe(probes.migration));
+  const shadow = projectPhase4ShadowHealth(observePhase4DiagnosticProbe(probes.shadow));
   const compatibility = projectPhase4CompatibilityHealth(
     observePhase4DiagnosticProbe(probes.compatibility),
   );
