@@ -1,0 +1,67 @@
+{
+  "version": 5,
+  "apps": {
+    "app-v061": {
+      "archivedAt": ""
+    }
+  },
+  "artifactCleanupJobs": {},
+  "deliveryReferenceCleanupJobs": {},
+  "builds": [
+    {
+      "id": "build-v061",
+      "token": "v061-device-build-token",
+      "tokenExpiredAt": "",
+      "revision": 4,
+      "remoteBaseUrl": "https://fixture.invalid",
+      "delivery": {
+        "mode": "custom",
+        "provider": "user-configured",
+        "expiresAt": "2026-08-03T18:00:00.000Z"
+      },
+      "project": "/tmp/SwiftSimUpgradeFixture.xcodeproj",
+      "workspace": "",
+      "scheme": "UpgradeFixture",
+      "configuration": "Release",
+      "exportMethod": "development",
+      "preserveData": true,
+      "createdAt": "2026-08-02T18:10:00.000Z",
+      "updatedAt": "2026-08-02T18:12:00.000Z",
+      "installTTLMinutes": 60,
+      "ttlMinutes": 60,
+      "expiresAt": "2026-08-03T18:00:00.000Z",
+      "state": "ready",
+      "app": {
+        "identity": "app-v061",
+        "name": "UpgradeFixture",
+        "bundleIdentifier": "com.example.swiftsim.upgradefixture",
+        "version": "1.0",
+        "build": "61",
+        "teamID": "FIXTURETEAM"
+      },
+      "signing": {
+        "style": "automatic",
+        "method": "development",
+        "deviceInstallable": true,
+        "updateSafe": "yes",
+        "warnings": []
+      },
+      "installation": {
+        "state": "unknown",
+        "requestedAt": "",
+        "verifiedAt": "",
+        "devices": []
+      },
+      "artifacts": {
+        "root": "/tmp/swift-sim-upgrade-fixture",
+        "archivePath": "/tmp/swift-sim-upgrade-fixture/UpgradeFixture.xcarchive",
+        "exportPath": "/tmp/swift-sim-upgrade-fixture/export",
+        "ipaPath": "/tmp/swift-sim-upgrade-fixture/UpgradeFixture.ipa",
+        "manifestPath": "/tmp/swift-sim-upgrade-fixture/manifest.plist"
+      },
+      "logs": [
+        "v0.6.1 upgrade fixture"
+      ]
+    }
+  ]
+}

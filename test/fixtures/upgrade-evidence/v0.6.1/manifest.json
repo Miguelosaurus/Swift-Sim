@@ -1,0 +1,26 @@
+{
+  "sourceRelease": {
+    "tag": "v0.6.1",
+    "commit": "23d671bdb7c712d1680a06e8fec9e9e973038b8a",
+    "publishedAt": "2026-08-02T20:22:59Z",
+    "asset": "swift-sim-0.6.1.tar.gz",
+    "assetSha256": "c8edc4c7efac93d161540d9b34ca762856875929351de2b7975e5923784307aa"
+  },
+  "historicalContract": {
+    "packageJsonBlob": "5dcba77ca06007ca799a7915430c950c95f66259",
+    "pairingStoreBlob": "1502b0333d3f4361bb8cd8d36a1f5fccec5c8f7a",
+    "deviceBuildStoreCoreBlob": "26f9ed25934e3712fe75a036f26d054e0bb8610d",
+    "homebrewTemplateBlob": "c539c908bf542b6e28c68fbb223c5090f3caa82c",
+    "homebrewFormulaClass": "SwiftSim",
+    "homebrewNodeFormula": "node@22",
+    "entrypoints": {
+      "swift-sim": "mac-helper/bin/swift-sim-entry.js",
+      "swift-sim-helper": "mac-helper/bin/swift-sim-helper-entry.js"
+    },
+    "state": {
+      "pairing": ".swift-sim/pairing.json",
+      "deviceBuilds": ".swift-sim/device-builds.json",
+      "deviceBuildVersion": 5
+    }
+  }
+}
