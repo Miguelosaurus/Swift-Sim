@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "matrixId": "phase10-compatibility-matrix",
+  "sourceSha": "REPLACE_WITH_TESTED_SHA",
+  "axes": [
+    { "id": "macos", "values": [] },
+    { "id": "xcode", "values": [] },
+    { "id": "project-size", "values": [] },
+    { "id": "dependency-shape", "values": [] },
+    { "id": "code-signing-mode", "values": [] },
+    { "id": "install-history", "values": ["fresh", "upgrade"] },
+    { "id": "network-shape", "values": [] }
+  ],
+  "cells": [],
+  "cellContract": {
+    "requiredFields": ["id", "coordinates", "requirementIds"],
+    "note": "Populate only combinations intentionally exercised. A cell is not passed until every referenced requirement is satisfied by evidence with class-correct provenance."
+  }
+}
