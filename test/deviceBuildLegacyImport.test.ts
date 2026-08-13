@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type {
   DeviceBuildStateRepository,
@@ -31,10 +31,10 @@ import { DEVICE_BUILD_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/de
 import { SqliteDeviceBuildStateRepository } from "../mac-helper/src/persistence/sqliteDeviceBuildStateRepository.js";
 import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
+import { v061DeviceBuildFixture } from "./fixtures/upgrade-evidence/v0.6.1/fixtures.js";
 
 const IMPORTED_AT = "2026-08-11T10:30:00.000Z";
 const CHECKPOINT_SOURCE = "device-build-state-v1";
-const V061_STATE_ROOT = resolve("test/fixtures/upgrade-evidence/v0.6.1/home/.swift-sim");
 
 const clock: Clock = {
   now: () => new Date(IMPORTED_AT),
@@ -494,7 +494,7 @@ test("applier rejects forged locked evidence before SQLite or checkpoint mutatio
 
 test("published v0.6.1 device fixture imports with provider-compatible epoch evidence", (t) => {
   const harness = createHarness(t);
-  const raw = readFileSync(join(V061_STATE_ROOT, "device-builds.json"), "utf8");
+  const raw = JSON.stringify(v061DeviceBuildFixture);
   harness.fileStore.writeTextSync(harness.sourcePath, raw, {
     mode: 0o600,
     createParentMode: 0o700,
