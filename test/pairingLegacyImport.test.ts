@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test, { type TestContext } from "node:test";
 import type {
   LegacyImportCheckpoint,
@@ -18,6 +18,7 @@ import { SqlitePairingStateRepository } from "../mac-helper/src/persistence/sqli
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
 const IMPORTED_AT = "2026-08-05T18:00:00.000Z";
+const V061_STATE_ROOT = resolve("test/fixtures/upgrade-evidence/v0.6.1/home/.swift-sim");
 const CREDENTIAL = Object.freeze({
   token: "pairing-token",
   installationID: "installation-1",
@@ -323,6 +324,28 @@ test("invalid aggregate pairing state is backed up but never published", async (
     credential: null,
     invitations: [],
   });
+});
+
+test("published v0.6.1 pairing fixture imports through the compiled legacy path", async (t) => {
+  const harness = await createHarness(t);
+  const fixture = JSON.parse(await readFile(join(V061_STATE_ROOT, "pairing.json"), "utf8"));
+  const credential = {
+    ...fixture,
+    token: "synthetic-fixture-only",
+  };
+  await writeFile(harness.credentialPath, JSON.stringify(credential));
+
+  const first = harness.coordinator().run();
+
+  assert.equal(first.status, "applied");
+  assert.equal(first.recordCount, 1);
+  assert.equal(harness.pairingRepository.read().credential?.installationID, "installation-v061");
+  assert.equal(
+    harness.checkpointRepository.get("pairing-state-v1")?.projectionHash,
+    first.projectionHash,
+  );
+  assert.equal(harness.coordinator().run().status, "already-current");
+  assert.equal((await readdir(harness.backupDirectory)).length, 1);
 });
 
 function lockRequest(path: string): LockRequest {
