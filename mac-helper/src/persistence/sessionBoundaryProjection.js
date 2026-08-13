@@ -127,7 +127,7 @@ function normalizePresentationStream(value) {
   if (!["starting", "running", "stopped", "failed"].includes(String(record.state || ""))) {
     throw new Error("Session presentation stream state is invalid.");
   }
-  return /** @type {SessionStreamRecord} */ (record);
+  return /** @type {SessionStreamRecord} */ (/** @type {unknown} */ (record));
 }
 
 /** @param {unknown} value */
