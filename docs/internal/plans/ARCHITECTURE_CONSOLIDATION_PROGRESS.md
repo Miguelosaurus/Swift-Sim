@@ -2,7 +2,7 @@
 
 This is the compact execution ledger for the architecture consolidation program. Pull-request bodies, checkpoint reports, ADRs, and Git history retain the detailed implementation record. Phase rows record validated implementation commits; documentation-only final heads are recorded in the owning PR body after the final metadata commit.
 
-The active execution control is [the batched-execution amendment](ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md), authorized by Miguel on 2026-08-04. It preserves phase boundaries, rollback points, fail-closed behavior, mandatory checkpoint records, final Luna local verification, and final Miguel merge authorization while allowing provisional stacked work between checkpoints.
+The active execution controls are [the batched-execution amendment](ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md), authorized on 2026-08-04, and [the parallel-execution amendment](ARCHITECTURE_CONSOLIDATION_PARALLEL_EXECUTION_AMENDMENT.md), authorized on 2026-08-13. They preserve numbered phase/checkpoint integration, rollback and evidence requirements, and final merge authorization while allowing stacked PRs plus bounded parallel workstreams beneath the serial integration spine.
 
 ## Program status
 
@@ -11,8 +11,8 @@ The active execution control is [the batched-execution amendment](ARCHITECTURE_C
 | 0 | Baseline and guardrails | Merged | [#23](https://github.com/Miguelosaurus/Swift-Sim/pull/23) | `4dfa15f` | `2a2239c`; merge `6f356df` | Existing debt is baselined and decrease-only |
 | 1 | TypeScript and package foundation | Merged | [#24](https://github.com/Miguelosaurus/Swift-Sim/pull/24) | `6f356df` | `2151d35`; merge `820ff2e` | Mixed JS/TS transition remains; compiled `dist` is runtime output |
 | 2 | Explicit infrastructure primitives | Checkpoint 1 hosted-green; draft stack unmerged | [#26–#33](https://github.com/Miguelosaurus/Swift-Sim/pull/33) | `820ff2e` | `d441798` | Weak delivery identity and unmigrated command/process call sites |
-| 3 | Helper and HTTP decomposition | Partial implementation through corrective 3M; draft stack unmerged | [#34–#40, #56–#60, #63](https://github.com/Miguelosaurus/Swift-Sim/pull/63) | Phase 2 final metadata / `f21e344` | Corrective implementation `ba97946` | HTTP route families are extracted; lifecycle/reconciliation/process behavior, module-global runtime construction, and remaining CLI composition still prevent the Phase 3 gate |
-| 4 | Repository interfaces and SQLite migration | Pairing rollback plus device-build live JSON-authoritative SQLite shadow and future artifact retention through 4Z2 hosted-green; full phase incomplete and draft | [#41, #44–#50, #52–#54, #95–#120](https://github.com/Miguelosaurus/Swift-Sim/pull/120) | Phase 3G / `7367fa2` | Device-build retention head `19547d5`; pairing E4 remains direct ancestor | Real 212-record import rerun, historical artifact dry-run/reconciliation, device-build cutover/rollback/export, sessions/remaining domains, doctor/export/corruption, previous-release upgrade, and final Phase 4 gate remain required |
+| 3 | Helper and HTTP decomposition | Implementation gate complete through corrective 3V; draft stack unmerged | [#34–#40, #56–#60, #63, #77, #80, #85, #87, #89, #91–#93](https://github.com/Miguelosaurus/Swift-Sim/pull/93) | Phase 2 final metadata / `f21e344` | `07a8295` | Exact-head closure audit passed; final helper composition is 354 lines and Phase 4 current ancestry descends from this gate |
+| 4 | Repository interfaces and SQLite migration | In progress through 4Z5 hosted-green plus persistent-Mac shadow/audit proof; full phase incomplete and draft | [#41, #44–#50, #52–#54, #95–#124](https://github.com/Miguelosaurus/Swift-Sim/pull/124) | Phase 3G / `7367fa2` | Current product head `0be8234`; pairing E4 and final Phase 3 are direct ancestors | 212/212 real import and read-only artifact audit are proven; remaining domains, migration-state integration, support/upgrade evidence, shared composition, and final Phase 4 gate remain |
 | 5 | Preload removal | Not started | — | — | — | Checkpoint 2 required before Phase 6 |
 | 6 | Live reload module split | Not started | — | — | — | — |
 | 7 | SwiftSyntax analyzer | Not started | — | — | — | Newly permissive cases remain disabled without physical proof |
@@ -352,11 +352,11 @@ Phase 3 remains draft/unmerged and does not authorize a storage cutover. Compati
 
 ## Phase 4 — Repository interfaces and SQLite migration
 
-- Status: The pairing migration tranche through E4 plus the device-build 4F/4G repository and locked-source foundation are hosted-green in the draft stack; full Phase 4 is incomplete and all production cutover and rollback wiring remains disabled.
+- Status: The pairing migration tranche, device-build repository/import/shadow/runtime work, historical compatibility corrections, future-build retention, and read-only historical artifact audit are hosted-green through 4Z5; persistent-Mac import/audit evidence passes, but full Phase 4 remains incomplete.
 - Full Phase 4 stack base: Phase 3G head `7367fa2574ff8fa88499be7c8b02ece72ff11ffa`.
 - Pairing E stack base: Phase 4D2 head `1364fa1ea570840e779b4f6b65195b3bb4433ac6`.
 - Validated E4 implementation: `7ce31e6f859180af213d7d3d52e2dd564bcbd63d`.
-- Active continuation head: PR #96 / `e8508440459d2f649432e4ce3c02ae84d1997b3a`, stacked from the hosted-green Phase 3 completion-ledger ancestry and retaining E4 as a direct ancestor.
+- Active product continuation head: PR #124 / `0be8234583e9c989b1831c9bce5e042b19b3d46c`, stacked from the finalized Phase 3 ancestry and retaining pairing E4/helper-state-growth corrections as direct ancestors.
 - Remaining Phase 4 finalization is required by the master plan. The local E5 label is not an optional waiver for unfinished domain repositories, composition, diagnostics, upgrade, or phase-gate evidence.
 
 ### Stack order and live state
@@ -426,6 +426,19 @@ The E4 pairing rollback slice has no remaining finding from its focused audit. P
 - Authoritative natural Verify #873 / run `31481810512` passed full Node/package, isolated clean Homebrew, YAML/shell, and iOS gates on the exact product head.
 - Production lock composition is deliberately deferred: the legacy build lock uses a PID-reuse-safe `/bin/ps ... lstart` `startedAt` token whose representation differs from the generic kernel identity provider. A later composition slice must supply an exactly compatible identity provider rather than weakening stale-lock checks to PID-only behavior.
 - No SQLite import, shadow observer, production reader/writer, authority switch, legacy deletion, or real-user-state operation is introduced.
+
+### Phase 4 continuation — 4H through 4Z5
+
+The current ancestry continued the device-build migration after 4G without changing the recorded production source of truth:
+
+- **4H–4M** added resumable legacy import/checkpointing, per-entity shadow comparison, best-effort observation, legacy lock-identity compatibility, the authorized build-read observation seam, and an initially unwired SQLite-shadow runtime composition.
+- **4N–4U** added revision fencing so stale shadow rows cannot become false mismatches; explicit resource shutdown; fail-open shadow startup; canonical state/backup/lock paths; source-loadable runtime validation; dynamic compatibility composition; the first live JSON-authoritative shadow wiring; and private SQLite/state-root permission handling.
+- Persistent-Mac verification then exposed historical compatibility and verifier-environment gaps. **4V–4Y** reconstructed only known historical omissions before unchanged strict validation, hardened the existing state root, fixed restricted-PATH Homebrew `lsof` resolution, and added the final historical `signing.style` compatibility rule. The subsequent real import passed **212/212** records with healthy schema 7/WAL/foreign-keys/integrity and zero shadow mismatches while legacy JSON remained byte-identical and authoritative.
+- **4Z1–4Z2** established future-build artifact retention. Non-live ready builds can shed heavy build intermediates while preserving install payload/history; live-ready DerivedData remains protected because hot-reload compiler context may reference build-local search paths; failed/interrupted builds use the durable delayed cleanup-job model. Existing historical artifact trees are not automatically scanned by startup.
+- **4Z3–4Z5** turned the real 42.10 GiB historical artifact finding into a deterministic conservative planner, read-only filesystem measurement, and a path-safe/read-only `swift-sim doctor` projection. PR #124 exact head `0be8234583e9c989b1831c9bce5e042b19b3d46c` passed Verify #955 / run `31616562330` end to end.
+- Real-Mac 4Z5 verification measured all 212 builds with zero measurement issues: 44,144,176 KiB total, 9,495,592 KiB / 9.055702 GiB conservatively reclaimable under the proven policy, and 34,648,584 KiB protected. JSON, SQLite, cleanup-job counts, migration backup, artifact-root inventory, helper process/health, and recorded authority behavior were unchanged during the read-only audit.
+
+Phase 4 is still open. The parallel workstream control plane now tracks the remaining artifact-maintenance capability, device-build migration-state integration, sessions/remaining transactional domains, diagnostics, upgrade evidence, shared schema/composition, and final persistent-Mac Phase 4 gate. Canonical Phase 5 integration remains after that gate.
 
 ## Cross-phase reliability correction — helper state growth
 
