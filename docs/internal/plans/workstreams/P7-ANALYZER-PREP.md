@@ -21,7 +21,7 @@ Production routing changed: **no**
 Preparation artifacts:
 
 - `docs/internal/analysis/P7_SWIFT_ANALYZER_PREP_REPORT.md`
-- `test/fixtures/swift-analyzer/corpus.json`
+- `test/fixtures/swift-analyzer/corpus.json` and `parts/`
 - `test/fixtures/swift-analyzer/protocol.json`
 - `test/fixtures/swift-analyzer/degraded.json`
 - `scripts/analyzer-prep/protocol.mjs`
@@ -29,8 +29,11 @@ Preparation artifacts:
 - `scripts/analyzer-prep/package-feasibility.mjs`
 - `tools/swift-analyzer-prep/SwiftSyntaxProbe/`
 - `test/swiftAnalyzerPrep.test.js`
+- `test/swiftAnalyzerProtocolBoundary.test.js`
 
-Corpus result: 69 cases, 50 equivalent, 15 stricter, 4 potentially more permissive, 19 total differences. All four potentially-more-permissive rows are disabled in the corpus and require physical-device proof before any future production hot route.
+Corpus result: 69 cases, 48 equivalent, 17 stricter, 4 potentially more permissive, 21 total differences. All four potentially-more-permissive rows are disabled in the corpus and require physical-device proof before any future production hot route.
+
+The stricter set includes syntax the current lexical analyzer misses, including access-controlled/attributed imports, nested inline access/static modifiers, additional Swift declaration/storage modifiers, macro invocations, and malformed syntax. A syntax-aware replacement may conservatively rebuild for those cases under ADR-0004.
 
 Packaging finding: Swift 6.2.1 alone did not make `SwiftSyntax`/`SwiftParser` directly importable in the dispatch feasibility environment. The isolated SwiftPM experiment pins `swift-syntax` 602.0.0, while release/Homebrew integration and clean-macOS execution remain Phase 7 evidence. No root package/compiler/release red-zone file was edited.
 
