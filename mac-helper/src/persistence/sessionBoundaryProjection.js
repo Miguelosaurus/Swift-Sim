@@ -2,6 +2,8 @@
 
 /** @typedef {import("../contracts/durableSession.js").DurableSessionRecord} DurableSessionRecord */
 /** @typedef {import("../contracts/session.js").SessionRecord} SessionRecord */
+/** @typedef {import("../contracts/session.js").SessionBuildRecord} SessionBuildRecord */
+/** @typedef {import("../contracts/session.js").SessionStreamRecord} SessionStreamRecord */
 
 const DURABLE_FIELDS = Object.freeze([
   "id",
@@ -67,12 +69,8 @@ export function parseDurableSession(value) {
 export function joinSessionForPresentation(durableValue, runtimeValue) {
   const durable = parseDurableSession(durableValue);
   const runtime = sessionLikeRecord(runtimeValue);
-  const build = plainObject(runtime.build)
-    ? structuredClone(runtime.build)
-    : { state: "external-or-not-run" };
-  const stream = plainObject(runtime.stream)
-    ? structuredClone(runtime.stream)
-    : { state: "stopped", transport: "serve-sim", raw: {}, limitations: [] };
+  const build = normalizePresentationBuild(runtime.build);
+  const stream = normalizePresentationStream(runtime.stream);
   const logs = Array.isArray(runtime.logs) ? runtime.logs.map((line) => String(line)) : [];
   const remoteBaseUrl = optionalString(runtime.remoteBaseUrl, "session remoteBaseUrl");
   const updatedAt = optionalString(runtime.updatedAt, "session updatedAt");
@@ -108,6 +106,28 @@ function normalizeDurableSession(value) {
     simulatorUDID: optionalString(record.simulatorUDID, "session simulatorUDID"),
     createdAt: optionalString(record.createdAt, "session createdAt"),
   };
+}
+
+/** @param {unknown} value @returns {SessionBuildRecord} */
+function normalizePresentationBuild(value) {
+  if (!plainObject(value)) return { state: "external-or-not-run" };
+  const record = /** @type {Record<string, unknown>} */ (structuredClone(value));
+  if (typeof record.state !== "string") {
+    throw new Error("Session presentation build state must be a string.");
+  }
+  return /** @type {SessionBuildRecord} */ (record);
+}
+
+/** @param {unknown} value @returns {SessionStreamRecord} */
+function normalizePresentationStream(value) {
+  if (!plainObject(value)) {
+    return { state: "stopped", transport: "serve-sim", raw: {}, limitations: [] };
+  }
+  const record = /** @type {Record<string, unknown>} */ (structuredClone(value));
+  if (!["starting", "running", "stopped", "failed"].includes(String(record.state || ""))) {
+    throw new Error("Session presentation stream state is invalid.");
+  }
+  return /** @type {SessionStreamRecord} */ (record);
 }
 
 /** @param {unknown} value */
