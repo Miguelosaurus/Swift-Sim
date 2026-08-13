@@ -24,7 +24,9 @@ export function collectPhase4SupportDiagnostics(probes = {}) {
   const database = projectPhase4DatabaseHealth(
     observePhase4DiagnosticProbe(probes.repositoryHealth),
   );
-  const migration = projectPhase4MigrationHealth(observePhase4DiagnosticProbe(probes.migration));
+  const migration = projectPhase4MigrationHealth(
+    observePhase4DiagnosticProbe(probes.migration),
+  );
   const shadow = projectPhase4ShadowHealth(observePhase4DiagnosticProbe(probes.shadow));
   const compatibility = projectPhase4CompatibilityHealth(
     observePhase4DiagnosticProbe(probes.compatibility),
@@ -62,10 +64,15 @@ function overallStatus(sections) {
   if (sections.some((section) => section.status === "blocked")) return "blocked";
   const availableCount = sections.filter((section) => section.available).length;
   if (availableCount === 0) {
-    const attempted = sections.some((section) => section.failureCategory !== "not-observed");
+    const attempted = sections.some(
+      (section) => section.failureCategory !== "not-observed",
+    );
     return attempted ? "attention" : "unavailable";
   }
-  if (availableCount !== sections.length || sections.some((section) => section.status !== "healthy")) {
+  if (
+    availableCount !== sections.length ||
+    sections.some((section) => section.status !== "healthy")
+  ) {
     return "attention";
   }
   return "healthy";

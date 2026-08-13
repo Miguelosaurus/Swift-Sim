@@ -19,16 +19,23 @@ export function projectPhase4ArtifactHealth(observation) {
   const measurementIssueCount = count(record.measurementIssueCount);
   if (
     typeof record.measurementComplete !== "boolean" ||
-    [totalKiB, reclaimableKiB, protectedKiB, manualReviewKiB, orphanRootCount, measurementIssueCount].some(
-      (entry) => entry === null,
-    )
+    [
+      totalKiB,
+      reclaimableKiB,
+      protectedKiB,
+      manualReviewKiB,
+      orphanRootCount,
+      measurementIssueCount,
+    ].some((entry) => entry === null)
   ) {
     return empty("invalid-observation");
   }
   return Object.freeze({
     available: true,
     status:
-      record.measurementComplete && measurementIssueCount === 0 && orphanRootCount === 0
+      record.measurementComplete &&
+      measurementIssueCount === 0 &&
+      orphanRootCount === 0
         ? "healthy"
         : "attention",
     informational: true,

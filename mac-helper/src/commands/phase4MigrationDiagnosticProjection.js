@@ -10,9 +10,10 @@ export function projectPhase4MigrationHealth(observation) {
     return unavailable("invalid-observation");
   }
   const record = /** @type {Record<string, unknown>} */ (value);
-  const outcome = typeof record.status === "string" && OUTCOMES.has(record.status)
-    ? record.status
-    : "unknown";
+  const outcome =
+    typeof record.status === "string" && OUTCOMES.has(record.status)
+      ? record.status
+      : "unknown";
   const recordCount = count(record.recordCount);
   if (recordCount === undefined) return unavailable("invalid-observation");
   return Object.freeze({

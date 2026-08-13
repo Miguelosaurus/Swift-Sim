@@ -9,16 +9,25 @@ export function projectPhase4CompatibilityHealth(observation) {
   }
   const record = /** @type {Record<string, unknown>} */ (value);
   const states = ["compatible", "transitioning", "incompatible"];
-  const state = typeof record.state === "string" && states.includes(record.state)
-    ? record.state
-    : "unknown";
+  const state =
+    typeof record.state === "string" && states.includes(record.state)
+      ? record.state
+      : "unknown";
   return Object.freeze({
     available: true,
-    status: state === "compatible" ? "healthy" : state === "incompatible" ? "blocked" : "attention",
+    status:
+      state === "compatible"
+        ? "healthy"
+        : state === "incompatible"
+          ? "blocked"
+          : "attention",
     state,
-    legacyReadable: typeof record.legacyReadable === "boolean" ? record.legacyReadable : null,
-    sqliteReadable: typeof record.sqliteReadable === "boolean" ? record.sqliteReadable : null,
-    rollbackReadable: typeof record.rollbackReadable === "boolean" ? record.rollbackReadable : null,
+    legacyReadable:
+      typeof record.legacyReadable === "boolean" ? record.legacyReadable : null,
+    sqliteReadable:
+      typeof record.sqliteReadable === "boolean" ? record.sqliteReadable : null,
+    rollbackReadable:
+      typeof record.rollbackReadable === "boolean" ? record.rollbackReadable : null,
     failureCategory: null,
   });
 }

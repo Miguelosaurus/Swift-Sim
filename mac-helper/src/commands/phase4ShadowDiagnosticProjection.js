@@ -8,7 +8,9 @@ export function projectPhase4ShadowHealth(observation) {
     return unavailable("invalid-observation");
   }
   const record = /** @type {Record<string, unknown>} */ (value);
-  if (typeof record.enabled !== "boolean") return unavailable("invalid-observation");
+  if (typeof record.enabled !== "boolean") {
+    return unavailable("invalid-observation");
+  }
   const mismatchCount = count(record.mismatchCount);
   const observationCount = count(record.observationCount);
   if (mismatchCount === undefined || observationCount === undefined) {
