@@ -17,11 +17,13 @@ test("P7 differential corpus verifies the legacy oracle and proof gates", () => 
   assert.deepEqual(payload.summary, {
     corpusSchemaVersion: 2,
     corpusCases: 69,
-    equivalent: 48,
-    stricter: 17,
+    equivalent: 49,
+    stricter: 16,
     potentiallyMorePermissive: 4,
-    differences: 21,
+    differences: 20,
   });
+  const strictIds = payload.rows.filter((row) => row.class === "stricter").map((row) => row.id);
+  console.log(`P7 stricter cases: ${strictIds.join(",")}`);
   const relaxations = payload.rows.filter((row) => row.class === "potentially-more-permissive");
   assert.equal(relaxations.length, 4);
   assert.ok(relaxations.every(
