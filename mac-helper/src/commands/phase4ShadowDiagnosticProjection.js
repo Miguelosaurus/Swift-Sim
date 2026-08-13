@@ -11,17 +11,19 @@ export function projectPhase4ShadowHealth(observation) {
   if (typeof record.enabled !== "boolean") {
     return unavailable("invalid-observation");
   }
+
   const mismatchCount = count(record.mismatchCount);
   const observationCount = count(record.observationCount);
   if (mismatchCount === undefined || observationCount === undefined) {
     return unavailable("invalid-observation");
   }
+
+  let status = "attention";
+  const noKnownMismatch = mismatchCount === null || mismatchCount === 0;
+  if (record.enabled && noKnownMismatch) status = "healthy";
   return Object.freeze({
     available: true,
-    status:
-      record.enabled && (mismatchCount === null || mismatchCount === 0)
-        ? "healthy"
-        : "attention",
+    status,
     enabled: record.enabled,
     mismatchCount,
     observationCount,
@@ -44,7 +46,8 @@ function unavailable(failureCategory = "unavailable") {
 /** @param {unknown} value @returns {number | null | undefined} */
 function count(value) {
   if (value === undefined) return null;
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : undefined;
+  if (typeof value !== "number") return undefined;
+  if (!Number.isSafeInteger(value)) return undefined;
+  if (value < 0) return undefined;
+  return value;
 }

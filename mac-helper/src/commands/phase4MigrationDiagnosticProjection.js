@@ -10,15 +10,19 @@ export function projectPhase4MigrationHealth(observation) {
     return unavailable("invalid-observation");
   }
   const record = /** @type {Record<string, unknown>} */ (value);
-  const outcome =
-    typeof record.status === "string" && OUTCOMES.has(record.status)
-      ? record.status
-      : "unknown";
+
+  let outcome = "unknown";
+  if (typeof record.status === "string" && OUTCOMES.has(record.status)) {
+    outcome = record.status;
+  }
   const recordCount = count(record.recordCount);
   if (recordCount === undefined) return unavailable("invalid-observation");
+
+  let status = "healthy";
+  if (outcome === "unknown") status = "attention";
   return Object.freeze({
     available: true,
-    status: outcome === "unknown" ? "attention" : "healthy",
+    status,
     outcome,
     recordCount,
     failureCategory: null,
@@ -39,7 +43,8 @@ function unavailable(failureCategory = "unavailable") {
 /** @param {unknown} value @returns {number | null | undefined} */
 function count(value) {
   if (value === undefined) return null;
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : undefined;
+  if (typeof value !== "number") return undefined;
+  if (!Number.isSafeInteger(value)) return undefined;
+  if (value < 0) return undefined;
+  return value;
 }

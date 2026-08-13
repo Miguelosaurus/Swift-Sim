@@ -1,10 +1,12 @@
 // @ts-check
 
 const BUSY_FAILURE = /sqlite_busy|sqlite_locked|\bbusy\b|\blocked\b/;
-const CORRUPT_FAILURE = /sqlite_corrupt|sqlite_notadb|corrupt|malformed|not a database/;
+const CORRUPT_FAILURE =
+  /sqlite_corrupt|sqlite_notadb|corrupt|malformed|not a database/;
 const INCOMPATIBLE_FAILURE =
   /schema version|newer than|incompatible|checksum|non-contiguous|migration history/;
-const PERMISSION_FAILURE = /eacces|eperm|permission denied|operation not permitted/;
+const PERMISSION_FAILURE =
+  /eacces|eperm|permission denied|operation not permitted/;
 
 /**
  * Reduce an operational failure to a coarse, redaction-safe support category.
@@ -14,10 +16,10 @@ const PERMISSION_FAILURE = /eacces|eperm|permission denied|operation not permitt
  * @returns {"busy" | "corrupt" | "incompatible" | "permission-denied" | "unavailable"}
  */
 export function classifyPhase4DiagnosticFailure(error) {
-  const code =
-    isRecord(error) && typeof error.code === "string"
-      ? error.code.toLowerCase()
-      : "";
+  let code = "";
+  if (isRecord(error) && typeof error.code === "string") {
+    code = error.code.toLowerCase();
+  }
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   const text = `${code} ${message}`;
 
@@ -43,6 +45,7 @@ export function observePhase4DiagnosticProbe(probe) {
       failureCategory: "not-observed",
     });
   }
+
   try {
     const value = probe();
     if (isPromiseLike(value)) {
@@ -68,8 +71,8 @@ function isRecord(value) {
 
 /** @param {unknown} value @returns {value is PromiseLike<unknown>} */
 function isPromiseLike(value) {
-  if (!value || (typeof value !== "object" && typeof value !== "function")) {
-    return false;
-  }
-  return typeof /** @type {{ then?: unknown }} */ (value).then === "function";
+  if (!value) return false;
+  if (typeof value !== "object" && typeof value !== "function") return false;
+  const thenable = /** @type {{ then?: unknown }} */ (value);
+  return typeof thenable.then === "function";
 }

@@ -27,25 +27,35 @@ export function collectPhase4SupportDiagnostics(probes = {}) {
   const migration = projectPhase4MigrationHealth(
     observePhase4DiagnosticProbe(probes.migration),
   );
-  const shadow = projectPhase4ShadowHealth(observePhase4DiagnosticProbe(probes.shadow));
+  const shadow = projectPhase4ShadowHealth(
+    observePhase4DiagnosticProbe(probes.shadow),
+  );
   const compatibility = projectPhase4CompatibilityHealth(
     observePhase4DiagnosticProbe(probes.compatibility),
   );
   const artifactStorage = projectPhase4ArtifactHealth(
     observePhase4DiagnosticProbe(probes.artifactStorage),
   );
-  const sections = { database, migration, shadow, compatibility, artifactStorage };
+  const sections = {
+    database,
+    migration,
+    shadow,
+    compatibility,
+    artifactStorage,
+  };
+  const sectionList = Object.values(sections);
+  const actionCodes = phase4SupportRecoveryActions(sections);
 
   return Object.freeze({
     version: 1,
     readOnly: true,
     redacted: true,
     mutationAllowed: false,
-    overall: overallStatus(Object.values(sections)),
+    overall: overallStatus(sectionList),
     ...sections,
     recovery: Object.freeze({
       mutationAllowed: false,
-      actionCodes: Object.freeze(phase4SupportRecoveryActions(sections)),
+      actionCodes: Object.freeze(actionCodes),
     }),
   });
 }
@@ -56,24 +66,28 @@ export function collectPhase4SupportDiagnostics(probes = {}) {
  * @param {Parameters<typeof collectPhase4SupportDiagnostics>[0]} [probes]
  */
 export function serializePhase4SupportEvidence(probes = {}) {
-  return `${JSON.stringify(collectPhase4SupportDiagnostics(probes), null, 2)}\n`;
+  const report = collectPhase4SupportDiagnostics(probes);
+  return `${JSON.stringify(report, null, 2)}\n`;
 }
 
 /** @param {readonly { available: boolean, status: string, failureCategory?: unknown }[]} sections */
 function overallStatus(sections) {
-  if (sections.some((section) => section.status === "blocked")) return "blocked";
+  const blocked = sections.some((section) => section.status === "blocked");
+  if (blocked) return "blocked";
+
   const availableCount = sections.filter((section) => section.available).length;
   if (availableCount === 0) {
-    const attempted = sections.some(
-      (section) => section.failureCategory !== "not-observed",
-    );
-    return attempted ? "attention" : "unavailable";
+    const attempted = sections.some(hasAttemptedObservation);
+    if (attempted) return "attention";
+    return "unavailable";
   }
-  if (
-    availableCount !== sections.length ||
-    sections.some((section) => section.status !== "healthy")
-  ) {
-    return "attention";
-  }
+
+  const degraded = sections.some((section) => section.status !== "healthy");
+  if (availableCount !== sections.length || degraded) return "attention";
   return "healthy";
+}
+
+/** @param {{ failureCategory?: unknown }} section */
+function hasAttemptedObservation(section) {
+  return section.failureCategory !== "not-observed";
 }

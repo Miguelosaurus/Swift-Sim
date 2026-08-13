@@ -1,5 +1,11 @@
 // @ts-check
 
+const COMPATIBILITY_STATES = new Set([
+  "compatible",
+  "transitioning",
+  "incompatible",
+]);
+
 /** @param {{ available: boolean, failureCategory?: string, value?: unknown }} observation */
 export function projectPhase4CompatibilityHealth(observation) {
   if (!observation.available) return empty(observation.failureCategory);
@@ -8,39 +14,47 @@ export function projectPhase4CompatibilityHealth(observation) {
     return empty("invalid-observation");
   }
   const record = /** @type {Record<string, unknown>} */ (value);
-  const states = ["compatible", "transitioning", "incompatible"];
-  const state =
-    typeof record.state === "string" && states.includes(record.state)
-      ? record.state
-      : "unknown";
+
+  let state = "unknown";
+  if (
+    typeof record.state === "string" &&
+    COMPATIBILITY_STATES.has(record.state)
+  ) {
+    state = record.state;
+  }
+
+  let status = "attention";
+  if (state === "compatible") status = "healthy";
+  if (state === "incompatible") status = "blocked";
+
   return Object.freeze({
     available: true,
-    status:
-      state === "compatible"
-        ? "healthy"
-        : state === "incompatible"
-          ? "blocked"
-          : "attention",
+    status,
     state,
-    legacyReadable:
-      typeof record.legacyReadable === "boolean" ? record.legacyReadable : null,
-    sqliteReadable:
-      typeof record.sqliteReadable === "boolean" ? record.sqliteReadable : null,
-    rollbackReadable:
-      typeof record.rollbackReadable === "boolean" ? record.rollbackReadable : null,
+    legacyReadable: readable(record.legacyReadable),
+    sqliteReadable: readable(record.sqliteReadable),
+    rollbackReadable: readable(record.rollbackReadable),
     failureCategory: null,
   });
 }
 
 /** @param {string | undefined} failureCategory */
 function empty(failureCategory = "unavailable") {
+  let status = "unavailable";
+  if (failureCategory === "incompatible") status = "blocked";
   return Object.freeze({
     available: false,
-    status: failureCategory === "incompatible" ? "blocked" : "unavailable",
+    status,
     state: "unknown",
     legacyReadable: null,
     sqliteReadable: null,
     rollbackReadable: null,
     failureCategory,
   });
+}
+
+/** @param {unknown} value */
+function readable(value) {
+  if (typeof value === "boolean") return value;
+  return null;
 }

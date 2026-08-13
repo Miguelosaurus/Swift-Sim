@@ -11,33 +11,38 @@ export function projectPhase4ArtifactHealth(observation) {
   if (record.readOnly !== true || record.cleanupEnabled !== false) {
     return empty("invalid-observation");
   }
+
   const totalKiB = count(record.totalKiB);
   const reclaimableKiB = count(record.reclaimableKiB);
   const protectedKiB = count(record.protectedKiB);
   const manualReviewKiB = count(record.manualReviewKiB);
   const orphanRootCount = count(record.orphanRootCount);
   const measurementIssueCount = count(record.measurementIssueCount);
+  const numericValues = [
+    totalKiB,
+    reclaimableKiB,
+    protectedKiB,
+    manualReviewKiB,
+    orphanRootCount,
+    measurementIssueCount,
+  ];
   if (
     typeof record.measurementComplete !== "boolean" ||
-    [
-      totalKiB,
-      reclaimableKiB,
-      protectedKiB,
-      manualReviewKiB,
-      orphanRootCount,
-      measurementIssueCount,
-    ].some((entry) => entry === null)
+    numericValues.some(isMissingCount)
   ) {
     return empty("invalid-observation");
   }
+
+  const measurementHealthy =
+    record.measurementComplete &&
+    measurementIssueCount === 0 &&
+    orphanRootCount === 0;
+  let status = "attention";
+  if (measurementHealthy) status = "healthy";
+
   return Object.freeze({
     available: true,
-    status:
-      record.measurementComplete &&
-      measurementIssueCount === 0 &&
-      orphanRootCount === 0
-        ? "healthy"
-        : "attention",
+    status,
     informational: true,
     cleanupEnabled: false,
     measurementComplete: record.measurementComplete,
@@ -71,5 +76,13 @@ function empty(failureCategory = "unavailable") {
 
 /** @param {unknown} value */
 function count(value) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  if (typeof value !== "number") return null;
+  if (!Number.isSafeInteger(value)) return null;
+  if (value < 0) return null;
+  return value;
+}
+
+/** @param {unknown} value */
+function isMissingCount(value) {
+  return value === null;
 }
