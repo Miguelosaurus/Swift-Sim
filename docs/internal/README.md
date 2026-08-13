@@ -19,7 +19,7 @@ Read the active architecture controls in this order:
 11. [Mandatory Checkpoint Protocol](plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md)
 12. [Architecture Decision Records](adr/README.md)
 
-Root [`AGENTS.md`](../AGENTS.md) points architecture workers into the same control plane.
+Root [`AGENTS.md`](../../AGENTS.md) points architecture workers into the same control plane.
 
 ### Mandatory checkpoint templates
 
