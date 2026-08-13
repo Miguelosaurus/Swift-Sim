@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
@@ -15,16 +15,17 @@ import {
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const options = parseArguments(process.argv.slice(2));
 const corpusPath = resolve(root, options.corpus || "test/fixtures/swift-analyzer/corpus.json");
-const corpus = JSON.parse(readFileSync(corpusPath, "utf8"));
+const corpus = loadCorpus(corpusPath);
 const corpusCases = corpus.cases.map((row) => hydrateCase(corpus.fields, row));
 const legacyModule = await import(resolve(root, "mac-helper/src/liveReload.js"));
 
 const rows = [];
+const legacySnapshotMismatches = [];
 for (const caseItem of corpusCases) {
   const legacy = classifyLegacy(caseItem, legacyModule);
   if (legacy.route !== caseItem.legacyExpected.route) {
-    throw new Error(
-      `${caseItem.id}: legacy snapshot expected ${caseItem.legacyExpected.route}, received ${legacy.route}.`,
+    legacySnapshotMismatches.push(
+      `${caseItem.id}: expected ${caseItem.legacyExpected.route}, received ${legacy.route}`,
     );
   }
 
@@ -54,6 +55,12 @@ for (const caseItem of corpusCases) {
   });
 }
 
+if (legacySnapshotMismatches.length > 0) {
+  throw new Error(
+    `Legacy analyzer snapshot drifted in ${legacySnapshotMismatches.length} corpus case(s):\n${legacySnapshotMismatches.join("\n")}`,
+  );
+}
+
 const summary = {
   corpusSchemaVersion: corpus.schemaVersion,
   corpusCases: rows.length,
@@ -67,6 +74,34 @@ if (options.format === "json") {
   process.stdout.write(`${JSON.stringify({ summary, rows }, null, 2)}\n`);
 } else {
   process.stdout.write(renderMarkdown(summary, rows));
+}
+
+function loadCorpus(path) {
+  const document = readJson(path);
+  return {
+    ...document,
+    cases: loadCaseRows(path, document),
+  };
+}
+
+function loadCaseRows(path, document) {
+  if (Array.isArray(document.cases)) return document.cases;
+  if (!Array.isArray(document.parts) || document.parts.length === 0) {
+    throw new Error(`${path}: corpus document must contain nonempty cases or parts.`);
+  }
+  const baseDirectory = dirname(path);
+  return document.parts.flatMap(part => {
+    const childPath = resolve(baseDirectory, part);
+    return loadCaseRows(childPath, readJson(childPath));
+  });
+}
+
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`${path}: unable to read analyzer corpus JSON: ${error.message}`);
+  }
 }
 
 function hydrateCase(fields, row) {
