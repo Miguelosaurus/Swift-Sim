@@ -1,1 +1,1 @@
-import "./upgradeCompatibilityEvidence.test.js";
+import "./upgradeReleaseCompatibility.test.js";
