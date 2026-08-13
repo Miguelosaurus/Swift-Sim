@@ -1,7 +1,7 @@
 // @ts-check
 
-/** @typedef {import("./contracts/durableSession.js").DurableSessionRecord} DurableSessionRecord */
-/** @typedef {import("./contracts/session.js").SessionRecord} SessionRecord */
+/** @typedef {import("../contracts/durableSession.js").DurableSessionRecord} DurableSessionRecord */
+/** @typedef {import("../contracts/session.js").SessionRecord} SessionRecord */
 
 const DURABLE_FIELDS = Object.freeze([
   "id",
