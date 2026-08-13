@@ -30,7 +30,7 @@ Default branch form: `agent/arch-ws-<ID>-<slug>`.
 
 | ID | Phase | Class | Status | Primary responsibility | Contract |
 | --- | --- | --- | --- | --- | --- |
-| P4-ARTIFACT-MAINTENANCE | 4 | implementation-ready | READY | explicit historical artifact maintenance core based on the proven audit policy | `workstreams/P4-ARTIFACT-MAINTENANCE.md` |
+| P4-ARTIFACT-EXECUTION | 4 | implementation-ready | READY | explicit historical artifact maintenance core based on the proven audit policy | `workstreams/P4-ARTIFACT-EXECUTION.md` |
 | P4-DEVICE-CUTOVER | 4 | implementation-ready | READY | device-build cutover/rollback/export machinery, initially non-authoritative | `workstreams/P4-DEVICE-CUTOVER.md` |
 | P4-SESSIONS-DOMAINS | 4 | implementation-ready | READY | sessions and remaining transactional-domain repositories/importers/shadow fixtures | `workstreams/P4-SESSIONS-DOMAINS.md` |
 | P4-DIAGNOSTICS | 4 | implementation-ready | READY | SQLite/shadow/cutover support diagnostics and recovery reporting | `workstreams/P4-DIAGNOSTICS.md` |
