@@ -7,169 +7,155 @@ Production analyzer/routing changed: **no**
 
 ## Result
 
-This workstream adds a versioned analyzer protocol fixture, a 69-case differential corpus, fail-closed boundary tooling, an isolated SwiftSyntax/SwiftParser package probe, and a reusable legacy-versus-candidate comparator.
+This workstream adds a versioned analyzer protocol fixture, a 69-case differential corpus, fail-closed process-boundary tooling, an isolated SwiftSyntax/SwiftParser packaging experiment, and a reusable current-analyzer-versus-candidate comparator.
 
 | Classification | Cases |
 | --- | ---: |
-| Equivalent | 50 |
-| Stricter | 15 |
+| Equivalent | 49 |
+| Stricter | 16 |
 | Potentially more permissive | 4 |
-| Total differences | 19 |
+| Total differences | 20 |
 | Total corpus cases | 69 |
 
-All four potentially-more-permissive cases are explicitly disabled for production and require physical-device proof. No conclusion in this report authorizes those cases for hot reload.
+All four potentially-more-permissive cases are explicitly disabled with `productionEnabled=false` and `physicalProofRequired=true`. Nothing in this preparation authorizes them for production hot reload.
 
 ## Current analyzer characterization
 
-At the dispatch base, production classification is still implemented inside `mac-helper/src/liveReload.js`.
+At the dispatch base, production classification remains inside `mac-helper/src/liveReload.js`:
 
-- `classifyEditSet` owns edit-set aggregation and fail-closed file-kind/lifecycle decisions.
+- `classifyEditSet` owns edit-set aggregation, non-Swift/lifecycle handling, and whole-set rebuild decisions.
 - `classifySwiftSource` compares a handwritten declaration surface and returns `no-change`, `hot-reload`, or `rebuild-required`.
-- comments plus ordinary/raw/extended/multiline strings are masked before structural scanning;
-- Swift regex literals are rejected wholesale;
+- comments and ordinary/raw/extended/multiline Swift strings are masked before structural scanning;
+- any detected Swift regex literal is rejected conservatively;
 - explicit macro declarations and `@_dynamicReplacement` are unsupported;
-- imports, compiler conditions, runtime availability, attributes, selected modifiers, stored properties, signatures, and declarations are compared textually.
+- imports, compiler conditions, runtime availability, attributes, selected modifiers, stored properties, signatures, and declarations are compared lexically/textually.
 
-That code is a useful compatibility oracle, but it is not a Swift parser. The corpus therefore targets both supported behavior and lexical blind spots.
+That implementation is the compatibility oracle for this workstream, but it is not a Swift grammar. The preparation therefore emphasizes both established behavior and lexical blind spots.
 
 ## Corpus methodology
 
-`test/fixtures/swift-analyzer/corpus.json` records each semantic case with the dispatch-base legacy route, intended syntax-aware prototype route, and proof gate. The compact tuple schema declares field names once so the 69 cases remain reviewable without duplicating JSON keys.
+`test/fixtures/swift-analyzer/corpus.json` is a small manifest containing the dispatch SHA, tuple field schema, methodology, and references to reviewable case files under `test/fixtures/swift-analyzer/parts/`. `scripts/analyzer-prep/diff.mjs` recursively loads those parts.
 
-Coverage includes:
+Each case records:
 
-- ordinary, raw, extended, multiline, and interpolated strings;
-- line and nested block comments;
-- SwiftUI, functions, actors, extensions, generics, initializers, subscripts, async functions, and computed properties;
-- plain/testable imports plus access-controlled and attributed import forms;
-- declarations, signatures, stored state, property wrappers, access/static modifiers;
-- conditional compilation, runtime availability, and `@available`;
-- macro declarations, macro invocation syntax, and macro-style attributes;
-- malformed/unterminated syntax;
-- regex literals;
-- non-Swift files, added/removed Swift files, mixed edit sets, and multi-file hot candidates.
+- source/edit-set input;
+- the dispatch-base legacy route;
+- the intended syntax-aware prototype route;
+- whether physical proof is required;
+- whether the candidate behavior is production-enabled;
+- notes for exceptional cases.
 
-The differential rule is deliberately simple:
+Before classifying a candidate, the differential runner executes every corpus case through the public current analyzer and verifies the recorded legacy snapshot. Snapshot drift is aggregated and reported as an error rather than silently updating expectations.
+
+Coverage includes ordinary/interpolated/raw/multiline strings; line and nested block comments; SwiftUI/function/actor/extension/generic bodies; initializers, subscripts, async functions and computed properties; plain, testable, access-controlled and attributed imports; stored state, declarations and signatures; property wrappers, attributes and modifiers; conditional compilation and availability; macro declaration/invocation syntax; malformed syntax; regex literals; non-Swift changes; added/removed Swift files; and mixed/multi-file edit sets.
+
+Differential classification is intentionally mechanical:
 
 1. same route -> `equivalent`;
 2. legacy hot/no-change -> candidate rebuild -> `stricter`;
-3. every other relaxation -> `potentially-more-permissive`.
+3. every other candidate route relaxation -> `potentially-more-permissive`.
 
-The tooling rejects a potentially-more-permissive row unless `productionEnabled=false` and `physicalProofRequired=true`.
+The runner rejects any potentially-more-permissive case that is not both disabled and marked for physical proof.
 
 ## Difference findings
 
-### Stricter: 15
+### Stricter: 16
 
-The intended syntax-aware model is more conservative for cases where the legacy scanner does not own enough grammar or cannot establish parse validity. Representative cases include:
+The intended syntax-aware behavior is deliberately more conservative where the handwritten analyzer lacks enough grammar coverage or cannot prove syntactic validity. The stricter set covers:
 
 - `public import`, `package import`, `@preconcurrency import`, and `@_exported import` target changes;
-- `required`, `convenience`, and `override` modifiers;
-- `weak` and `unowned` storage modifiers;
-- `indirect` enum and `distributed` actor modifiers;
+- nested inline `public` and `static` declaration modifier changes that the legacy line-anchored modifier capture misses;
+- `required`, `override`, `weak`, `unowned`, `indirect`, and `distributed` modifier changes not fully represented by the current lexical surface;
 - `#Preview` macro invocation changes;
-- missing closing braces, unterminated block comments, and unterminated strings.
+- malformed source including missing braces, unterminated block comments, and unterminated strings.
 
-This is acceptable under ADR-0004 because a replacement analyzer may be more conservative.
+`convenience init` is intentionally **not** in the stricter set: final dispatch-base verification showed that the existing analyzer already routes that case to rebuild, so it is equivalent in the corpus.
+
+ADR-0004 allows the replacement analyzer to be more conservative. These rows therefore remain rebuild-safe instead of attempting to preserve lexical blind spots.
 
 ### Potentially more permissive: 4
 
-The four rows are:
+The only route relaxations in the preparation snapshot are:
 
 - `regex-bare-body`;
 - `regex-extended-body`;
 - `regex-character-class`;
 - `regex-present-unrelated-body`.
 
-The legacy classifier rebuilds whenever it detects a Swift regex literal. A real parser could determine that these examples only change implementation syntax, so a future syntax-aware implementation may produce a hot route. That is a route relaxation and therefore remains **disabled**. Each row requires the master-plan physical-device proof before production enablement, and failed valid proof attempts must remain in the evidence record.
+The legacy classifier rebuilds whenever a Swift regex literal is present. A grammar-aware implementation could determine that these examples are implementation-only, but that would relax the established route. All four remain disabled and require the master-plan physical-device proof plus explicit review before production enablement. Failed valid proof attempts must remain part of the evidence record.
 
 ## Protocol and degraded behavior
 
-`test/fixtures/swift-analyzer/protocol.json` plus `scripts/analyzer-prep/protocol.mjs` define the preparation-stage process seam. Requests carry `protocolVersion`, `requestId`, and the complete edit set. Responses carry matching protocol/request identity, analyzer version, status, route, and reason code.
+`test/fixtures/swift-analyzer/protocol.json` and `scripts/analyzer-prep/protocol.mjs` define the reusable preparation-stage boundary. Requests carry a protocol version, request identity, and complete edit set. Responses carry matching identity, analyzer version, status, route, and reason code.
 
-Preparation defaults are a 1500 ms process timeout and 1 MiB stdout bound. These are experiment defaults, not final production policy.
+Preparation defaults are a 1500 ms process timeout and 1 MiB stdout bound. These are experiment values, not final production policy.
 
-`test/fixtures/swift-analyzer/degraded.json` and behavioral tests cover analyzer unavailability, timeout, process failure, invalid JSON, protocol mismatch, invalid unsupported/hot combinations, missing reason code, request mismatch, and output overflow. Every one normalizes to `rebuild-required`.
+`test/fixtures/swift-analyzer/degraded.json` and `test/swiftAnalyzerProtocolBoundary.test.js` cover analyzer unavailability, timeout, process failure, malformed output, protocol mismatch, invalid unsupported/hot combinations, request mismatch, missing reason, and output overflow. Every degraded condition becomes `rebuild-required`.
 
-The important policy is that the legacy analyzer is **not** modeled as an automatic permissive fallback. During the eventual rollback window it may be diagnostic-only; analyzer failure must still rebuild.
+The handwritten analyzer is not modeled as an automatic permissive fallback. During the eventual rollback window it may be diagnostic-only; analyzer failure must still fail closed to a signed rebuild.
 
-## Reusable comparator
+## Reusable differential tooling
 
-Run the checked-in snapshot comparison:
+The checked-in snapshot comparator is reusable by the eventual implementation lanes:
 
 ```sh
 node scripts/analyzer-prep/diff.mjs
 node scripts/analyzer-prep/diff.mjs --json
 ```
 
-A future candidate executable can use the same corpus:
+A future executable can be compared through the same corpus and bounded protocol:
 
 ```sh
 node scripts/analyzer-prep/diff.mjs --candidate-command /absolute/path/to/analyzer
 ```
 
-Candidate process failures are normalized through the fail-closed protocol helper before differential classification.
+Candidate unavailability, timeout, process failure, malformed output, or protocol incompatibility is normalized through the fail-closed boundary before differential classification.
 
-## SwiftSyntax packaging/runtime experiment
+## SwiftSyntax packaging/runtime feasibility
 
-`tools/swift-analyzer-prep/SwiftSyntaxProbe` is an isolated SwiftPM package and is not referenced by production routing, the root package, release composition, or Homebrew.
+`tools/swift-analyzer-prep/SwiftSyntaxProbe` is an isolated SwiftPM experiment and is not referenced by production routing, the root package, release composition, or Homebrew.
 
-The experiment pins `swift-syntax` `602.0.0`, matching the Swift 6.2 family used by the dispatch-time environment. `Probe.swift` uses `SwiftParser` and `SwiftSyntax` only to prove the parser/process/package seam; it does not authorize hot reload.
+The experiment pins `swift-syntax` `602.0.0`, matching the Swift 6.2 family used by the dispatch-time feasibility environment. `Probe.swift` imports `SwiftParser`/`SwiftSyntax` only to prove the parser/process/package seam; it is not a production classifier.
 
-The feasibility environment reported:
+Observed feasibility constraints:
 
-- Swift 6.2.1 and `swiftc` 6.2.1 available;
-- direct `import SwiftSyntax` / `import SwiftParser` unavailable;
-- `xcrun` unavailable in this Linux environment;
-- isolated SwiftPM manifest syntactically valid.
+- Swift and `swiftc` 6.2.1 were available;
+- direct `import SwiftSyntax` / `import SwiftParser` was unavailable;
+- `xcrun` was unavailable in the Linux preparation environment;
+- the isolated SwiftPM manifest was valid.
 
-The key packaging conclusion is that “Swift is installed” is not a sufficient dependency contract. Phase 7 needs an explicit distribution decision. The preferred proof target is a prebuilt analyzer included with or installed alongside the supported package, with exact analyzer/protocol metadata, checksum verification, supported architecture/OS coverage, clean install/upgrade evidence, and no first-use source compilation. Root package/Homebrew/release edits are red-zone and were not made here.
+Therefore “Swift is installed” is not a sufficient dependency contract. Phase 7 needs an explicit distribution decision with pinned Swift/SwiftSyntax compatibility, analyzer/protocol metadata, integrity/checksum verification, supported OS/architecture evidence, clean install/upgrade proof, and no unexpected first-use SwiftSyntax source compilation. A prebuilt analyzer packaged with the supported release/Homebrew path is the strongest current proof target. Root release/Homebrew/compiler edits remain orchestrator/red-zone work and were intentionally not made here.
 
 ## Proposed Phase 7 implementation packages
 
 ### P7-A — SwiftSyntax analyzer core
 
-Own the production Swift analyzer source, syntax-tree declaration surface, parse diagnostics, unsupported syntax policy, deterministic protocol responses, and analyzer-unit corpus. It must not own Node routing or cutover authority.
+Own syntax-tree classification, parse diagnostics, unsupported-syntax policy, deterministic protocol responses, and analyzer-unit corpus. Do not own Node routing or production authority.
 
 ### P7-B — Analyzer client and fail-closed boundary
 
-After Phase 6 exposes the seam, own the `SwiftEditAnalyzer` client, timeout/output bounds, version/request validation, artifact compatibility/checksum verification, failure-to-rebuild mapping, and diagnostic-only legacy comparison hook.
+After Phase 6 exposes the seam, own process invocation, timeout/output bounds, version/request validation, analyzer artifact compatibility/integrity verification, failure-to-rebuild mapping, and diagnostic legacy comparison.
 
 ### P7-C — Package and release integration
 
-Own the pinned Swift/SwiftSyntax compatibility choice, analyzer build artifact, release/Homebrew inclusion, integrity metadata, and clean install/upgrade tests. This package requires orchestrator delegation for red-zone release files.
+Own the pinned Swift/SwiftSyntax compatibility decision, analyzer build artifact, release/Homebrew inclusion, integrity metadata, and clean install/upgrade verification under orchestrator delegation for red-zone files.
 
 ### P7-D — Differential corpus and acceptance evidence
 
-Expand this corpus with captured real edit sets, run old/new analyzers on exact implementation heads, publish machine/human reports, retain failed evidence, and ensure zero ungated permissive drift.
+Expand this corpus with captured real edit sets, run old/new analyzers on exact implementation heads, publish machine/human reports, retain failed evidence, and enforce zero ungated permissive drift.
 
 ### P7-E — Physical permissiveness proof
 
-Own physical-device proof only for `legacy rebuild -> candidate hot` rows. The four regex cases belong here if the implementation seeks to enable them. Unproven rows remain rebuild-only.
+Own physical-device proof only for legacy-rebuild/candidate-hot rows. The four regex cases belong here if an implementation seeks to enable them; otherwise they remain rebuild-only.
 
 ### P7-F — Serialized cutover and rollback-window removal
 
 After Phase 6 and P7-A through P7-E prerequisites, own production authority selection, diagnostic-only legacy flag, one-release rollback window, acceptance gates, and eventual handwritten-parser deletion. This remains orchestrator-controlled.
 
-## Remaining production gates
+## Remaining gates and invariant review
 
-1. Phase 6 must expose the analyzer boundary without behavior change.
-2. A supported macOS/Xcode environment must build and execute the pinned SwiftSyntax analyzer.
-3. Release/Homebrew clean-install and upgrade behavior must be proven.
-4. Final timeout/output/checksum policy must be benchmarked and adopted.
-5. Real edit sets must join the differential corpus.
-6. Every newly permissive row remains disabled until physical-device proof and explicit review.
-7. Exact SwiftSyntax/toolchain compatibility must match the supported Swift/Xcode release line.
-8. The temporary diagnostic legacy path needs a concrete deletion condition.
+Phase 6 must expose the analyzer boundary without behavior change. A supported macOS/Xcode environment must build and execute the pinned analyzer. Release/Homebrew clean-install and upgrade behavior must be proven. Final timeout/output/integrity policy must be benchmarked. Real edit sets must join acceptance evidence. Every route relaxation must remain disabled until physical-device proof succeeds.
 
-## Invariant review
+Production authority, durable state, user data, root packaging/release/compiler policy, and canonical control-plane files are unchanged. All corpus inputs are synthetic. Uncertainty at the preparatory analyzer boundary fails closed.
 
-- Production source of truth/authority: unchanged.
-- Live safety: uncertainty in the preparatory boundary fails closed.
-- Potential permissiveness: four rows found, all disabled and physically gated.
-- Durable state/migration: none.
-- User data: synthetic fixtures only.
-- Root packaging/release/compiler red zone: untouched.
-- Production compatibility bridge: none added.
-
-**Recommendation:** ready for orchestrator review as preparatory input; not sufficient for Phase 7 production cutover by itself.
+**Recommendation:** ready for orchestrator review as Phase 7 preparation, but not sufficient for production cutover by itself.
