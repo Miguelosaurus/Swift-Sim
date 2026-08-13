@@ -7,7 +7,9 @@ import { normalizeDeviceBuildStateSnapshot } from "./sqliteDeviceBuildStateRepos
  * @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildStateSnapshot} DeviceBuildStateSnapshot
  */
 
+/** @type {1} */
 export const DEVICE_BUILD_MIGRATION_STATE_VERSION = 1;
+/** @type {"legacy"} */
 export const DEVICE_BUILD_MIGRATION_AUTHORITY = "legacy";
 
 /**
@@ -71,6 +73,7 @@ export function parseDeviceBuildMigrationState(value) {
   if (values.authority !== DEVICE_BUILD_MIGRATION_AUTHORITY) {
     throw new Error("Device-build migration state cannot select non-legacy authority.");
   }
+  /** @type {DeviceBuildMigrationState} */
   const state = {
     version: DEVICE_BUILD_MIGRATION_STATE_VERSION,
     authority: DEVICE_BUILD_MIGRATION_AUTHORITY,

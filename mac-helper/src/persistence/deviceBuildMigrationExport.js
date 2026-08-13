@@ -138,6 +138,10 @@ export function acknowledgeDeviceBuildExportBatch(state, batch) {
 function exportRecords(snapshot) {
   /** @type {DeviceBuildExportRecord[]} */
   const records = [];
+  /**
+   * @param {DeviceBuildExportRecord["surface"]} surface
+   * @param {readonly unknown[]} values
+   */
   const append = (surface, values) => {
     for (const value of values) {
       const payload = immutableRecord(value, `Device-build ${surface} export payload`);
@@ -302,11 +306,17 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-/** @param {unknown} value */
+/**
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(/** @type {Record<string, unknown>} */ (value))) {
+  const record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (value));
+  for (const nested of Object.values(record)) {
     deepFreeze(nested);
   }
-  return Object.freeze(value);
+  Object.freeze(/** @type {object} */ (/** @type {unknown} */ (value)));
+  return value;
 }
