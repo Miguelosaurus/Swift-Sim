@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "id": "unavailable", "expectedReasonCode": "ANALYZER_UNAVAILABLE" },
+    { "id": "timeout", "expectedReasonCode": "ANALYZER_TIMEOUT" },
+    { "id": "process-failed", "expectedReasonCode": "ANALYZER_PROCESS_FAILED" },
+    { "id": "malformed-json", "expectedReasonCode": "ANALYZER_MALFORMED_OUTPUT" },
+    { "id": "version-mismatch", "expectedReasonCode": "ANALYZER_VERSION_MISMATCH" },
+    { "id": "unsupported-permissive-invalid", "expectedReasonCode": "ANALYZER_MALFORMED_OUTPUT" },
+    { "id": "missing-reason", "expectedReasonCode": "ANALYZER_MALFORMED_OUTPUT" },
+    { "id": "wrong-request", "expectedReasonCode": "ANALYZER_MALFORMED_OUTPUT" },
+    { "id": "output-limit", "expectedReasonCode": "ANALYZER_OUTPUT_LIMIT" }
+  ],
+  "expectedRoute": "rebuild-required",
+  "note": "The behavioral test constructs each execution payload so malformed examples are not serialized as reusable data."
+}
