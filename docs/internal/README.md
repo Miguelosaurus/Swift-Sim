@@ -4,14 +4,22 @@ These documents preserve implementation decisions and completed engineering reco
 
 ## Active Architecture Program
 
-- [Architecture Consolidation Master Plan](plans/ARCHITECTURE_CONSOLIDATION_MASTER_PLAN.md)
-- [Architecture Consolidation Invariants](plans/ARCHITECTURE_CONSOLIDATION_INVARIANTS.md)
-- [Architecture Consolidation Execution Guide](plans/ARCHITECTURE_CONSOLIDATION_EXECUTION_GUIDE.md)
-- [Mandatory Checkpoint Protocol](plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md)
-- [Batched Execution Amendment](plans/ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md)
-- [Architecture Consolidation Progress](plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md)
-- [Next Agent Prompt — Phase 0](plans/NEXT_AGENT_PROMPT_ARCHITECTURE_CONSOLIDATION_PHASE0.md)
-- [Architecture Decision Records](adr/README.md)
+Read the active architecture controls in this order:
+
+1. [Architecture Consolidation Master Plan](plans/ARCHITECTURE_CONSOLIDATION_MASTER_PLAN.md)
+2. [Architecture Consolidation Invariants](plans/ARCHITECTURE_CONSOLIDATION_INVARIANTS.md)
+3. [Architecture Consolidation Execution Guide](plans/ARCHITECTURE_CONSOLIDATION_EXECUTION_GUIDE.md)
+4. [Batched Execution Amendment](plans/ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md)
+5. [Parallel Execution Amendment](plans/ARCHITECTURE_CONSOLIDATION_PARALLEL_EXECUTION_AMENDMENT.md)
+6. [Parallel Whole-Program Roadmap](plans/ARCHITECTURE_CONSOLIDATION_PARALLEL_ROADMAP.md)
+7. [Workstream Registry](plans/ARCHITECTURE_CONSOLIDATION_WORKSTREAM_REGISTRY.md)
+8. [Agent Protocol](plans/ARCHITECTURE_CONSOLIDATION_AGENT_PROTOCOL.md)
+9. [Architecture Consolidation Progress](plans/ARCHITECTURE_CONSOLIDATION_PROGRESS.md)
+10. [Current Architecture Handoff](plans/NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md)
+11. [Mandatory Checkpoint Protocol](plans/ARCHITECTURE_CONSOLIDATION_CHECKPOINT_PROTOCOL.md)
+12. [Architecture Decision Records](adr/README.md)
+
+Root [`AGENTS.md`](../AGENTS.md) points architecture workers into the same control plane.
 
 ### Mandatory checkpoint templates
 
@@ -19,13 +27,13 @@ These documents preserve implementation decisions and completed engineering reco
 - [Checkpoint 2 — Domain State and Hidden Runtime Removal](plans/checkpoints/CHECKPOINT_2_TEMPLATE.md)
 - [Checkpoint 3 — Live Architecture and Companion Decomposition](plans/checkpoints/CHECKPOINT_3_TEMPLATE.md)
 
-The architecture program is the current implementation roadmap. Execute it in behavior-preserving phase pull requests rather than as one rewrite.
+The numbered Phase 0–10 sequence and mandatory checkpoints remain the canonical integration order. The batched-execution amendment permits the deliberate draft-PR stack; the parallel-execution amendment adds bounded concurrent workstreams beneath that integration spine.
 
-The batched execution amendment is the active execution control for the current program. After Phase 1, the repository implementation agent may build later phases as a deliberate stack of draft, unmerged PRs, perform the scheduled repository architecture checkpoints, and continue provisionally when the amendment's continuation conditions are met. Miguel is not expected to run local verification or relay checkpoint reviews between phases.
+Workers do not self-select from old PRs or branches. The workstream registry determines READY/PREP/BLOCKED work and the agent protocol defines branch, ownership, verification, and return-report rules. Shared schema, central composition, canonical control documents, and phase integration are orchestrator-owned by default.
 
-Local Mac, Homebrew, Simulator, physical-device, network-environment, and release-machine verification is deferred to the consolidated Luna handoff required by the amendment. Deferred checks must remain explicitly marked as unproven until Luna runs them. Phase 2 and later PRs remain draft and unmerged until that final verification and Miguel's final merge authorization.
+Hosted CI, persistent-Mac verification, physical-device proof, and external-beta evidence remain distinct evidence classes. A green repository gate never converts an environment-specific requirement into passing evidence.
 
-Passing CI, performing self-review, or reaching a provisional checkpoint does not convert a deferred local or hardware gate into a passing result.
+Phase 2 and later architecture PRs remain draft/unmerged until the controlling verification/authorization process says otherwise.
 
 ## Other Plans
 
@@ -39,4 +47,4 @@ Passing CI, performing self-review, or reaching a provisional checkpoint does no
 - [Confirmation Round 5](reviews/CONFIRMATION_ROUND5.md)
 - [Main Post-Merge Review](reviews/MAIN_POST_MERGE_REVIEW_ROUND1.md)
 
-Historical review records explain how earlier changes were reached. They are not current product instructions or the architecture roadmap. Verify current behavior in the public guides, implementation, tests, active architecture decisions, checkpoint reports, the batched execution amendment, and final Luna verification evidence.
+Historical review records explain how earlier changes were reached. They are not current product instructions or the architecture roadmap. Verify current behavior against the implementation, tests, active architecture decisions, canonical control-plane documents, checkpoint reports, and current evidence.
