@@ -57,11 +57,14 @@ export function serializePhase4SupportEvidence(probes = {}) {
   return `${JSON.stringify(collectPhase4SupportDiagnostics(probes), null, 2)}\n`;
 }
 
-/** @param {readonly { available: boolean, status: string }[]} sections */
+/** @param {readonly { available: boolean, status: string, failureCategory?: unknown }[]} sections */
 function overallStatus(sections) {
   if (sections.some((section) => section.status === "blocked")) return "blocked";
   const availableCount = sections.filter((section) => section.available).length;
-  if (availableCount === 0) return "unavailable";
+  if (availableCount === 0) {
+    const attempted = sections.some((section) => section.failureCategory !== "not-observed");
+    return attempted ? "attention" : "unavailable";
+  }
   if (availableCount !== sections.length || sections.some((section) => section.status !== "healthy")) {
     return "attention";
   }
