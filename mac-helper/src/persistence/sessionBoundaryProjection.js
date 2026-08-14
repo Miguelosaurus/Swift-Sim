@@ -32,10 +32,7 @@ export function parseDurableSession(value) {
   const record = sessionLikeRecord(value);
   const keys = Object.keys(record).sort();
   const expected = [...DURABLE_FIELDS].sort();
-  if (
-    keys.length !== expected.length ||
-    keys.some((key, index) => key !== expected[index])
-  ) {
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
     throw new Error("Durable session record contains fields outside the frozen boundary.");
   }
   return projectDurableSession(record);
@@ -51,9 +48,7 @@ export function joinSessionForPresentation(durableValue, runtimeValue) {
   const runtime = sessionLikeRecord(runtimeValue);
   const build = presentationBuild(runtime.build);
   const stream = presentationStream(runtime.stream);
-  const logs = Array.isArray(runtime.logs)
-    ? runtime.logs.map(String)
-    : [];
+  const logs = Array.isArray(runtime.logs) ? runtime.logs.map(String) : [];
   const orientation =
     runtime.orientation === undefined
       ? undefined
@@ -98,11 +93,7 @@ function presentationStream(value) {
     };
   }
   const record = structuredClone(value);
-  if (
-    !["starting", "running", "stopped", "failed"].includes(
-      String(record.state || ""),
-    )
-  ) {
+  if (!["starting", "running", "stopped", "failed"].includes(String(record.state || ""))) {
     throw new Error("Session presentation stream state is invalid.");
   }
   const validated = /** @type {unknown} */ (record);
@@ -143,9 +134,7 @@ function optionalString(value, label) {
 function optionalRevision(value) {
   if (value === undefined) return 0;
   if (!Number.isSafeInteger(value) || Number(value) < 0) {
-    throw new Error(
-      "session revision must be a non-negative safe integer when present.",
-    );
+    throw new Error("session revision must be a non-negative safe integer when present.");
   }
   return Number(value);
 }
