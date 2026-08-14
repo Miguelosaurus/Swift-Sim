@@ -12,6 +12,11 @@ const REQUIRED_TABLES = Object.freeze([
   "schema_migrations",
   ...new Set(PHASE4_SQLITE_MIGRATIONS.flatMap((migration) => migration.requiredTables)),
 ]);
+const LEGACY_AUTHORITY_FILES = Object.freeze([
+  "pairing.json",
+  "device-builds.json",
+  "sessions.json",
+]);
 
 /**
  * Build the accepted Phase-4 support report from read-only operator probes.
@@ -128,15 +133,19 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
 
   const compatibility = () => {
     const health = repositoryHealth();
+    const legacyReadable = canReadLegacyAuthority(stateRoot);
     return {
       state:
         health.schemaVersion === LATEST_SCHEMA_VERSION &&
-        health.migrationsApplied === LATEST_SCHEMA_VERSION
+        health.migrationsApplied === LATEST_SCHEMA_VERSION &&
+        legacyReadable
           ? "compatible"
-          : "transitioning",
-      legacyReadable: canReadStateRoot(stateRoot),
+          : legacyReadable
+            ? "transitioning"
+            : "incompatible",
+      legacyReadable,
       sqliteReadable: true,
-      rollbackReadable: canReadStateRoot(stateRoot),
+      rollbackReadable: legacyReadable,
     };
   };
 
@@ -188,9 +197,15 @@ function assertPrivateStorageReadable(stateRoot, databasePath) {
 }
 
 /** @param {string} stateRoot */
-function canReadStateRoot(stateRoot) {
+function canReadLegacyAuthority(stateRoot) {
   try {
     accessSync(stateRoot, constants.R_OK | constants.X_OK);
+    for (const name of LEGACY_AUTHORITY_FILES) {
+      const path = join(stateRoot, name);
+      if (!existsSync(path)) continue;
+      accessSync(path, constants.R_OK);
+      JSON.parse(readFileSync(path, "utf8"));
+    }
     return true;
   } catch {
     return false;
