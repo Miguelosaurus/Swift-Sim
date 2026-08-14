@@ -91,9 +91,6 @@ async function pair(args) {
     },
   });
   const setup = runHelperJSON(["setup-status"]);
-  const artifactAudit = includeStorage
-    ? runHelperJSON(["device-build-artifact-audit"])
-    : null;
   if (!setup) {
     throw new Error("Swift Sim could not inspect remote pairing readiness. Run swift-sim setup-status.");
   }
