@@ -134,10 +134,7 @@ export class SessionLegacyImportApplier {
       source: this.#checkpointSource,
       sourceRevision: locked.sourceRevision,
       projectionHash: locked.projectionHash,
-      importedAt: requireTimestamp(
-        this.#clock.now().toISOString(),
-        "Session legacy importedAt",
-      ),
+      importedAt: requireTimestamp(this.#clock.now().toISOString(), "Session legacy importedAt"),
       recordCount: locked.recordCount,
     };
 
