@@ -1,10 +1,13 @@
 // @ts-check
 
+import { collectPhase4OperatorDiagnostics } from "./phase4OperatorDiagnostics.js";
+
 /**
  * @param {unknown} value
- * @returns {{ artifacts: Record<string, unknown> }}
+ * @returns {{ artifacts: Record<string, unknown>, phase4Support: Readonly<Record<string, unknown>> }}
  */
 export function deviceBuildArtifactDoctorSection(value) {
+  const phase4Support = collectPhase4OperatorDiagnostics({ artifactAudit: value });
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return Object.freeze({
       artifacts: Object.freeze({
@@ -12,8 +15,11 @@ export function deviceBuildArtifactDoctorSection(value) {
         ready: false,
         informational: true,
         cleanupEnabled: false,
-        detail: "Read-only device-build artifact audit is unavailable; no cleanup was attempted.",
+        detail:
+          "Read-only device-build artifact audit is unavailable; no cleanup was attempted. " +
+          phase4Summary(phase4Support),
       }),
+      phase4Support,
     });
   }
   const summary = /** @type {Record<string, unknown>} */ (value);
@@ -25,8 +31,10 @@ export function deviceBuildArtifactDoctorSection(value) {
         informational: true,
         cleanupEnabled: false,
         detail:
-          "Device-build artifact audit did not prove read-only mode; no cleanup was attempted.",
+          "Device-build artifact audit did not prove read-only mode; no cleanup was attempted. " +
+          phase4Summary(phase4Support),
       }),
+      phase4Support,
     });
   }
 
@@ -58,9 +66,37 @@ export function deviceBuildArtifactDoctorSection(value) {
       detail:
         `${formatGiB(reclaimableKiB)} safely reclaimable under the proven policy; ` +
         `${formatGiB(protectedKiB)} protected; ${orphanCount} orphan ` +
-        `${orphanCount === 1 ? "root" : "roots"} for manual review; ${qualifier}.`,
+        `${orphanCount === 1 ? "root" : "roots"} for manual review; ${qualifier}. ` +
+        phase4Summary(phase4Support),
     }),
+    phase4Support,
   });
+}
+
+/** @param {Readonly<Record<string, unknown>>} report */
+function phase4Summary(report) {
+  const database = record(report.database);
+  const migration = record(report.migration);
+  const shadow = record(report.shadow);
+  const compatibility = record(report.compatibility);
+  const recovery = record(report.recovery);
+  const actionCodes = Array.isArray(recovery.actionCodes) ? recovery.actionCodes : [];
+  const actions = actionCodes.length > 0 ? actionCodes.join(", ") : "none";
+  return (
+    `Phase-4 support: ${String(report.overall || "unavailable")}; ` +
+    `database=${String(database.status || "unavailable")}; ` +
+    `migration=${String(migration.status || "unavailable")}; ` +
+    `shadow=${String(shadow.status || "unavailable")}; ` +
+    `compatibility=${String(compatibility.status || "unavailable")}; ` +
+    `recovery=${actions}. Evidence is read-only, redacted, and mutation-disabled.`
+  );
+}
+
+/** @param {unknown} value */
+function record(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? /** @type {Record<string, unknown>} */ (value)
+    : {};
 }
 
 /** @param {number} kib */
