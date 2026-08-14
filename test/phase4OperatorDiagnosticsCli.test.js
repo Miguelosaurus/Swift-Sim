@@ -47,7 +47,7 @@ const healthyFixture = Object.freeze({
 });
 
 test("doctor --json exposes healthy accepted Phase-4 support diagnostics without mutation", () => {
-  withDoctorFixture(structuredClone(healthyFixture), ({ report, before, after }) => {
+  withDoctorFixture(structuredClone(healthyFixture), ({ report, before, after, fixtureBefore, fixtureAfter }) => {
     const phase4 = report.storage.phase4Support;
     assert.equal(phase4.version, 1);
     assert.equal(phase4.readOnly, true);
@@ -60,21 +60,23 @@ test("doctor --json exposes healthy accepted Phase-4 support diagnostics without
     assert.equal(phase4.compatibility.status, "healthy");
     assert.equal(phase4.artifactStorage.status, "healthy");
     assert.deepEqual(before, after);
+    assert.deepEqual(fixtureBefore, fixtureAfter);
   });
 });
 
-test("doctor classifies corrupt, incompatible, permission, and busy database failures with recovery guidance", () => {
+test("doctor classifies corrupt, incompatible, permission, busy, and unavailable database failures with recovery guidance", () => {
   const cases = [
     ["corrupt", { message: "/Users/private/state.sqlite is malformed: not a database" }],
     ["incompatible", { message: "SQLite schema version 9 is newer than this Swift Sim build" }],
     ["permission-denied", { code: "EACCES", message: "permission denied /Users/private/state.sqlite" }],
     ["busy", { code: "SQLITE_BUSY", message: "database is locked /Users/private/state.sqlite" }],
+    ["unavailable", { code: "ENOENT", message: "database unavailable /Users/private/state.sqlite" }],
   ];
 
   for (const [category, failure] of cases) {
     const fixture = structuredClone(healthyFixture);
     fixture.repositoryHealth = { throw: failure };
-    withDoctorFixture(fixture, ({ report, raw, before, after }) => {
+    withDoctorFixture(fixture, ({ report, raw, before, after, fixtureBefore, fixtureAfter }) => {
       const phase4 = report.storage.phase4Support;
       assert.equal(phase4.database.failureCategory, category);
       assert.equal(phase4.readOnly, true);
@@ -83,6 +85,7 @@ test("doctor classifies corrupt, incompatible, permission, and busy database fai
       assert.ok(phase4.recovery.actionCodes.length > 0, `${category} should offer recovery guidance`);
       assert.doesNotMatch(raw, /Users\/private\/state\.sqlite/);
       assert.deepEqual(before, after);
+      assert.deepEqual(fixtureBefore, fixtureAfter);
     });
   }
 });
@@ -95,7 +98,7 @@ test("doctor reports artifact orphan/manual-review evidence without enabling cle
     manualReviewKiB: 96,
     orphanRootCount: 2,
   };
-  withDoctorFixture(fixture, ({ report, before, after }) => {
+  withDoctorFixture(fixture, ({ report, before, after, fixtureBefore, fixtureAfter }) => {
     const phase4 = report.storage.phase4Support;
     assert.equal(phase4.artifactStorage.status, "attention");
     assert.equal(phase4.artifactStorage.orphanRootCount, 2);
@@ -104,6 +107,7 @@ test("doctor reports artifact orphan/manual-review evidence without enabling cle
     assert.equal(phase4.mutationAllowed, false);
     assert.ok(phase4.recovery.actionCodes.length > 0);
     assert.deepEqual(before, after);
+    assert.deepEqual(fixtureBefore, fixtureAfter);
   });
 });
 
@@ -115,6 +119,7 @@ test("human doctor output includes the read-only Phase-4 health and recovery sum
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Phase-4 support: healthy/);
+    assert.match(result.stdout, /recovery=none/);
     assert.match(result.stdout, /Evidence is read-only, redacted, and mutation-disabled/);
     assert.equal(readFileSync(sentinelPath, "utf8"), "preserve-authority\n");
   });
@@ -127,6 +132,7 @@ function withDoctorFixture(fixture, assertion) {
   writeFileSync(fixturePath, JSON.stringify(fixture));
   writeFileSync(sentinelPath, "preserve-authority\n");
   const before = readFileSync(sentinelPath);
+  const fixtureBefore = readFileSync(fixturePath);
   try {
     const result = spawnSync(process.execPath, [cli.pathname, "doctor", "--json"], {
       encoding: "utf8",
@@ -136,7 +142,8 @@ function withDoctorFixture(fixture, assertion) {
     const raw = result.stdout;
     const report = JSON.parse(raw);
     const after = readFileSync(sentinelPath);
-    assertion({ report, raw, before, after, directory, fixturePath, sentinelPath });
+    const fixtureAfter = readFileSync(fixturePath);
+    assertion({ report, raw, before, after, fixtureBefore, fixtureAfter, directory, fixturePath, sentinelPath });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
