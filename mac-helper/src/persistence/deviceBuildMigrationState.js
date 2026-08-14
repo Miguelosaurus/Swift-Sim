@@ -66,9 +66,7 @@ export function parseDeviceBuildMigrationState(value) {
   }
   const values = /** @type {Record<string, unknown>} */ (parsed);
   if (values.version !== DEVICE_BUILD_MIGRATION_STATE_VERSION) {
-    throw new Error(
-      `Unsupported device-build migration state version: ${String(values.version)}.`,
-    );
+    throw new Error(`Unsupported device-build migration state version: ${String(values.version)}.`);
   }
   if (values.authority !== DEVICE_BUILD_MIGRATION_AUTHORITY) {
     throw new Error("Device-build migration state cannot select non-legacy authority.");
@@ -79,10 +77,7 @@ export function parseDeviceBuildMigrationState(value) {
     authority: DEVICE_BUILD_MIGRATION_AUTHORITY,
     sourceRevision: requireHash(values.sourceRevision, "Device-build migration sourceRevision"),
     projectionHash: requireHash(values.projectionHash, "Device-build migration projectionHash"),
-    sourceVersion: requireSafeInteger(
-      values.sourceVersion,
-      "Device-build migration sourceVersion",
-    ),
+    sourceVersion: requireSafeInteger(values.sourceVersion, "Device-build migration sourceVersion"),
     recordCount: requireSafeInteger(values.recordCount, "Device-build migration recordCount"),
     cursor: requireSafeInteger(values.cursor, "Device-build migration cursor"),
   };
@@ -138,9 +133,7 @@ function normalizeLockedSnapshotEvidence(value) {
 
 /** @param {DeviceBuildMigrationState} state */
 function freezeState(state) {
-  return /** @type {Readonly<DeviceBuildMigrationState>} */ (
-    Object.freeze({ ...state })
-  );
+  return /** @type {Readonly<DeviceBuildMigrationState>} */ (Object.freeze({ ...state }));
 }
 
 /** @param {unknown} value @param {string} label */

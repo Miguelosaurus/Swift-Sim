@@ -132,7 +132,7 @@ function requireReader(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} reader is required.`);
   }
-  if (typeof /** @type {Record<string, unknown>} */ (value).read !== "function") {
+  if (typeof (/** @type {Record<string, unknown>} */ (value).read) !== "function") {
     throw new Error(`${label} reader must implement read().`);
   }
   return /** @type {{ read(): DeviceBuildStateSnapshot }} */ (value);
