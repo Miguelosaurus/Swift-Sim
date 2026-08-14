@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync as readBytes, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,7 +25,7 @@ test("packaged swift-sim pair reaches setup-status and the real pair dispatch pa
     );
 
     assert.equal(result.status, 0, result.stderr);
-    const calls = readFileSync(callsPath, "utf8")
+    const calls = readBytes(callsPath, "utf8")
       .trim()
       .split(/\r?\n/)
       .filter(Boolean)
