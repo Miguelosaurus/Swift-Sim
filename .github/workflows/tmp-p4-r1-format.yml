@@ -1,0 +1,40 @@
+name: Temporary P4 R1 formatter proof
+
+on:
+  push:
+    branches:
+      - agent/arch-ws-P4-INTEGRATION-CORRECTIONS-R1-operator-diagnostics
+
+permissions:
+  contents: write
+
+jobs:
+  format-and-prove:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Format bounded diagnostics source
+        run: npx prettier --write mac-helper/src/commands/phase4OperatorDiagnostics.js
+      - name: Prove strict types
+        run: npm run check:types
+      - name: Prove focused diagnostics and pair behavior
+        run: node --test test/phase4OperatorDiagnosticsCli.test.js test/pairCliRegression.test.js
+      - name: Publish formatted product tree and self-remove
+        run: |
+          rm .github/workflows/tmp-p4-r1-format.yml
+          git config user.name "swift-sim-format-bot"
+          git config user.email "swift-sim-format-bot@users.noreply.github.com"
+          git add mac-helper/src/commands/phase4OperatorDiagnostics.js .github/workflows/tmp-p4-r1-format.yml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Format and prove Phase 4 integration corrections"
+          git push origin HEAD:agent/arch-ws-P4-INTEGRATION-CORRECTIONS-R1-operator-diagnostics
