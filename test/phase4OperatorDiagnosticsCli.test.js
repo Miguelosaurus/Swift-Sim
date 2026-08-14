@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync as readBytes, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -121,7 +121,7 @@ test("human doctor output includes the read-only Phase-4 health and recovery sum
     assert.match(result.stdout, /Phase-4 support: healthy/);
     assert.match(result.stdout, /recovery=none/);
     assert.match(result.stdout, /Evidence is read-only, redacted, and mutation-disabled/);
-    assert.equal(readFileSync(sentinelPath, "utf8"), "preserve-authority\n");
+    assert.equal(readBytes(sentinelPath, "utf8"), "preserve-authority\n");
   });
 });
 
@@ -131,8 +131,8 @@ function withDoctorFixture(fixture, assertion) {
   const sentinelPath = join(directory, "authority-sentinel.txt");
   writeFileSync(fixturePath, JSON.stringify(fixture));
   writeFileSync(sentinelPath, "preserve-authority\n");
-  const before = readFileSync(sentinelPath);
-  const fixtureBefore = readFileSync(fixturePath);
+  const before = readBytes(sentinelPath);
+  const fixtureBefore = readBytes(fixturePath);
   try {
     const result = spawnSync(process.execPath, [cli.pathname, "doctor", "--json"], {
       encoding: "utf8",
@@ -141,8 +141,8 @@ function withDoctorFixture(fixture, assertion) {
     assert.equal(result.status, 0, result.stderr);
     const raw = result.stdout;
     const report = JSON.parse(raw);
-    const after = readFileSync(sentinelPath);
-    const fixtureAfter = readFileSync(fixturePath);
+    const after = readBytes(sentinelPath);
+    const fixtureAfter = readBytes(fixturePath);
     assertion({ report, raw, before, after, fixtureBefore, fixtureAfter, directory, fixturePath, sentinelPath });
   } finally {
     rmSync(directory, { recursive: true, force: true });
