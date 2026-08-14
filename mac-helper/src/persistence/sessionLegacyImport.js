@@ -73,9 +73,7 @@ export class SessionLegacyImportCoordinator {
 
   /** @returns {SessionLegacyImportResult} */
   run() {
-    return this.#snapshotReader.withLockedSnapshot((snapshot) =>
-      this.#applier.apply(snapshot),
-    );
+    return this.#snapshotReader.withLockedSnapshot((snapshot) => this.#applier.apply(snapshot));
   }
 }
 
@@ -136,10 +134,7 @@ export class SessionLegacyImportApplier {
       source: this.#checkpointSource,
       sourceRevision: locked.sourceRevision,
       projectionHash: locked.projectionHash,
-      importedAt: requireTimestamp(
-        this.#clock.now().toISOString(),
-        "Session legacy importedAt",
-      ),
+      importedAt: requireTimestamp(this.#clock.now().toISOString(), "Session legacy importedAt"),
       recordCount: locked.recordCount,
     };
 
@@ -226,10 +221,10 @@ function importResult(status, locked) {
 function checkpointMatches(actual, expected) {
   return Boolean(
     actual &&
-      actual.source === expected.source &&
-      actual.sourceRevision === expected.sourceRevision &&
-      actual.projectionHash === expected.projectionHash &&
-      actual.recordCount === expected.recordCount,
+    actual.source === expected.source &&
+    actual.sourceRevision === expected.sourceRevision &&
+    actual.projectionHash === expected.projectionHash &&
+    actual.recordCount === expected.recordCount,
   );
 }
 
