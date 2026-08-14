@@ -1,9 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync as readBytes, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync as readBytes,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { collectPhase4OperatorDiagnostics } from "../mac-helper/src/commands/phase4OperatorDiagnostics.js";
+import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
+import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
 const cli = new URL("../mac-helper/bin/swift-sim.js", import.meta.url);
 
@@ -125,6 +137,52 @@ test("human doctor output includes the read-only Phase-4 health and recovery sum
   });
 });
 
+test("real v8 operator diagnostics preserve authoritative SQLite bytes and keep WAL coordination private", () => {
+  withRealPhase4Database(({ stateRoot, databasePath }) => {
+    const before = readBytes(databasePath);
+    assert.equal(existsSync(`${databasePath}-wal`), false);
+    assert.equal(existsSync(`${databasePath}-shm`), false);
+
+    const report = collectWithoutFixture({
+      stateRoot,
+      artifactAudit: structuredClone(healthyFixture.artifactStorage.value),
+    });
+
+    assert.equal(report.readOnly, true);
+    assert.equal(report.mutationAllowed, false);
+    assert.equal(report.database.status, "healthy");
+    assert.deepEqual(readBytes(databasePath), before);
+
+    const walPath = `${databasePath}-wal`;
+    const shmPath = `${databasePath}-shm`;
+    if (existsSync(walPath)) {
+      assert.equal(statSync(walPath).size, 0, "read-only diagnostics must not append WAL records");
+      assert.equal(statSync(walPath).mode & 0o077, 0, "diagnostic WAL must remain private");
+    }
+    if (existsSync(shmPath)) {
+      assert.equal(statSync(shmPath).mode & 0o077, 0, "diagnostic SHM must remain private");
+    }
+  });
+});
+
+test("real operator diagnostics reject a non-private SQLite database before opening it", () => {
+  withRealPhase4Database(({ stateRoot, databasePath }) => {
+    chmodSync(databasePath, 0o644);
+    const before = readBytes(databasePath);
+
+    const report = collectWithoutFixture({
+      stateRoot,
+      artifactAudit: structuredClone(healthyFixture.artifactStorage.value),
+    });
+
+    assert.equal(report.database.available, false);
+    assert.equal(report.database.failureCategory, "permission-denied");
+    assert.deepEqual(readBytes(databasePath), before);
+    assert.equal(existsSync(`${databasePath}-wal`), false);
+    assert.equal(existsSync(`${databasePath}-shm`), false);
+  });
+});
+
 function withDoctorFixture(fixture, assertion) {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-phase4-doctor-"));
   const fixturePath = join(directory, "phase4-fixture.json");
@@ -146,6 +204,46 @@ function withDoctorFixture(fixture, assertion) {
     assertion({ report, raw, before, after, fixtureBefore, fixtureAfter, directory, fixturePath, sentinelPath });
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function withRealPhase4Database(assertion) {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-phase4-real-diagnostics-"));
+  const stateRoot = join(directory, ".swift-sim");
+  const databasePath = join(stateRoot, "state.sqlite");
+  mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
+  chmodSync(stateRoot, 0o700);
+  let database;
+  const previousUmask = process.umask(0o077);
+  try {
+    database = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+      now: () => "2026-08-14T00:00:00.000Z",
+    });
+  } finally {
+    process.umask(previousUmask);
+  }
+  database.close();
+  chmodSync(databasePath, 0o600);
+  try {
+    assertion({ directory, stateRoot, databasePath });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function collectWithoutFixture(options) {
+  const previousFixture = process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+  try {
+    delete process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+    return collectPhase4OperatorDiagnostics(options);
+  } finally {
+    if (previousFixture === undefined) {
+      delete process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+    } else {
+      process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE = previousFixture;
+    }
   }
 }
 
