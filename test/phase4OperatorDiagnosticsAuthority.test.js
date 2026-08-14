@@ -4,7 +4,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
+  readFileSync as readBytes,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -49,8 +49,8 @@ test("operator diagnostics mark malformed existing legacy authority incompatible
   chmodSync(databasePath, 0o600);
   writeFileSync(legacyPath, "{malformed-json\n", { mode: 0o600 });
 
-  const databaseBefore = readFileSync(databasePath);
-  const legacyBefore = readFileSync(legacyPath);
+  const databaseBefore = readBytes(databasePath);
+  const legacyBefore = readBytes(legacyPath);
   const umaskBefore = process.umask();
   const fixtureBefore = process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
   try {
@@ -65,8 +65,8 @@ test("operator diagnostics mark malformed existing legacy authority incompatible
     assert.ok(
       report.recovery.actionCodes.includes("preserve-compatibility-paths-and-review-cutover-state"),
     );
-    assert.deepEqual(readFileSync(databasePath), databaseBefore);
-    assert.deepEqual(readFileSync(legacyPath), legacyBefore);
+    assert.deepEqual(readBytes(databasePath), databaseBefore);
+    assert.deepEqual(readBytes(legacyPath), legacyBefore);
     assert.equal(process.umask(), umaskBefore);
   } finally {
     if (fixtureBefore === undefined) {
