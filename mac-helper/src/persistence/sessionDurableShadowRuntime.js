@@ -1,7 +1,10 @@
 // @ts-check
 
 import { dirname } from "node:path";
-import { ensureDirectoryModeSync, NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
+import {
+  ensureDirectoryModeSync,
+  NodeAtomicFileStore,
+} from "../infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../infrastructure/nodeLockManager.js";
 import { createSessionLegacyProcessIdentity } from "../infrastructure/sessionLegacyProcessIdentity.js";
 import { SystemClock } from "../infrastructure/systemClock.js";
@@ -61,11 +64,14 @@ export function observeSessionDurableShadowSnapshot(options) {
   /** @type {SwiftSimSqliteDatabase | undefined} */
   let database;
   try {
-    const openedDatabase = withPrivateFileCreationMask(() => new SwiftSimSqliteDatabase({
-      path: databasePath,
-      migrations: PHASE4_SQLITE_MIGRATIONS,
-      now: () => clock.now().toISOString(),
-    }));
+    const openedDatabase = withPrivateFileCreationMask(
+      () =>
+        new SwiftSimSqliteDatabase({
+          path: databasePath,
+          migrations: PHASE4_SQLITE_MIGRATIONS,
+          now: () => clock.now().toISOString(),
+        }),
+    );
     database = openedDatabase;
     const sessionRepository = new SqliteDurableSessionRepository(openedDatabase);
     const checkpointRepository = new SqliteLegacyImportCheckpointRepository(openedDatabase);
