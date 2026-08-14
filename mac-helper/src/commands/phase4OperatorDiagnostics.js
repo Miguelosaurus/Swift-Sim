@@ -32,11 +32,13 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
   let database = null;
   /** @type {Record<string, unknown> | null} */
   let databaseSnapshot = null;
+  const previousUmask = process.umask(0o077);
 
   const openDatabase = () => {
     if (database) return database;
     assertPrivateStorageReadable(stateRoot, databasePath);
     database = new DatabaseSync(databasePath, { readOnly: true });
+    database.exec("PRAGMA query_only = ON");
     database.exec("PRAGMA foreign_keys = ON");
     return database;
   };
@@ -151,6 +153,7 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
     });
   } finally {
     closeDatabaseHandle(database);
+    process.umask(previousUmask);
   }
 }
 
@@ -170,8 +173,9 @@ function assertPrivateStorageReadable(stateRoot, databasePath) {
   }
   accessSync(databasePath, constants.R_OK);
   const rootMode = statSync(stateRoot).mode & 0o777;
-  if ((rootMode & 0o077) !== 0) {
-    const error = new Error("permission denied: state root is not private");
+  const databaseMode = statSync(databasePath).mode & 0o777;
+  if ((rootMode & 0o077) !== 0 || (databaseMode & 0o077) !== 0) {
+    const error = new Error("permission denied: Phase-4 state storage is not private");
     // @ts-expect-error Node-style support classification code.
     error.code = "EACCES";
     throw error;
