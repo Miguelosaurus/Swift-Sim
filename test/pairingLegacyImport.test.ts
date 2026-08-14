@@ -16,6 +16,7 @@ import { PAIRING_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/pairing
 import { SqliteLegacyImportCheckpointRepository } from "../mac-helper/src/persistence/sqliteLegacyImportCheckpointRepository.js";
 import { SqlitePairingStateRepository } from "../mac-helper/src/persistence/sqlitePairingStateRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
+import { v061PairingFixture } from "./fixtures/upgrade-evidence/v0.6.1/fixtures.js";
 
 const IMPORTED_AT = "2026-08-05T18:00:00.000Z";
 const CREDENTIAL = Object.freeze({
@@ -323,6 +324,27 @@ test("invalid aggregate pairing state is backed up but never published", async (
     credential: null,
     invitations: [],
   });
+});
+
+test("published v0.6.1 pairing fixture imports through the compiled legacy path", async (t) => {
+  const harness = await createHarness(t);
+  const credential = {
+    ...v061PairingFixture,
+    token: "synthetic-fixture-only",
+  };
+  await writeFile(harness.credentialPath, JSON.stringify(credential));
+
+  const first = harness.coordinator().run();
+
+  assert.equal(first.status, "applied");
+  assert.equal(first.recordCount, 1);
+  assert.equal(harness.pairingRepository.read().credential?.installationID, "installation-v061");
+  assert.equal(
+    harness.checkpointRepository.get("pairing-state-v1")?.projectionHash,
+    first.projectionHash,
+  );
+  assert.equal(harness.coordinator().run().status, "already-current");
+  assert.equal((await readdir(harness.backupDirectory)).length, 1);
 });
 
 function lockRequest(path: string): LockRequest {

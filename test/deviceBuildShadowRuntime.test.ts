@@ -68,8 +68,8 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   assert.equal(statSync(databasePath).mode & 0o777, 0o600);
   const health = runtime.health();
   assert.equal(health.ok, true);
-  assert.equal(health.schemaVersion, 7);
-  assert.equal(health.latestSchemaVersion, 7);
+  assert.equal(health.schemaVersion, 8);
+  assert.equal(health.latestSchemaVersion, 8);
 
   const first = runtime.importLegacy();
   assert.equal(first.status, "checkpointed");
