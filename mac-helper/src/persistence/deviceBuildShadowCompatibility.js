@@ -28,7 +28,7 @@ import { dirname, join } from "node:path";
  *     backupDirectory: string,
  *     source: unknown,
  *   },
- *   observeSessionShadow?: (options: unknown) => unknown,
+ *   observeSessionShadow?: Function,
  *   sessionShadowPaths?: (legacyPath: string) => {
  *     databasePath: string,
  *     backupDirectory: string,
