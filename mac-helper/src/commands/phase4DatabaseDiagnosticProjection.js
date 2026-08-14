@@ -29,11 +29,13 @@ export function projectPhase4DatabaseHealth(observation) {
   }
 
   const integrity = value.integrity === "ok" ? "ok" : "failed";
+  const incompleteCurrentSchema =
+    value.missingTables.length > 0 && schemaVersion >= latestSchemaVersion;
   const severe =
     integrity !== "ok" ||
     !value.foreignKeys ||
     foreignKeyViolationCount > 0 ||
-    value.missingTables.length > 0 ||
+    incompleteCurrentSchema ||
     schemaVersion > latestSchemaVersion;
   return Object.freeze({
     available: true,
