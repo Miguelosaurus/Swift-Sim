@@ -4,9 +4,14 @@ import { accessSync, constants, existsSync, readFileSync, statSync } from "node:
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { PHASE4_SQLITE_MIGRATIONS } from "../persistence/phase4SqliteSchema.js";
 import { collectPhase4SupportDiagnostics } from "./phase4SupportDiagnostics.js";
 
-const LATEST_SCHEMA_VERSION = 8;
+const LATEST_SCHEMA_VERSION = PHASE4_SQLITE_MIGRATIONS.at(-1)?.version || 0;
+const REQUIRED_TABLES = Object.freeze([
+  "schema_migrations",
+  ...new Set(PHASE4_SQLITE_MIGRATIONS.flatMap((migration) => migration.requiredTables)),
+]);
 
 /**
  * Build the accepted Phase-4 support report from read-only operator probes.
@@ -32,49 +37,55 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
     if (database) return database;
     assertPrivateStorageReadable(stateRoot, databasePath);
     database = new DatabaseSync(databasePath, { readOnly: true });
+    database.exec("PRAGMA foreign_keys = ON");
     return database;
   };
 
   const repositoryHealth = () => {
     if (databaseSnapshot) return databaseSnapshot;
     const db = openDatabase();
-    const schemaVersion = pragmaInteger(db, "user_version");
-    if (schemaVersion > LATEST_SCHEMA_VERSION) {
+    const tables = new Set(
+      db
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+        .all()
+        .map((row) => String(row.name || "")),
+    );
+    const missingTables = REQUIRED_TABLES.filter((name) => !tables.has(name));
+    const schemaVersion = tables.has("schema_migrations")
+      ? integerColumn(
+          db.prepare("SELECT COALESCE(MAX(version), 0) AS value FROM schema_migrations").get(),
+          "value",
+        )
+      : 0;
+    const migrationsApplied = tables.has("schema_migrations")
+      ? integerColumn(db.prepare("SELECT COUNT(*) AS value FROM schema_migrations").get(), "value")
+      : 0;
+    if (schemaVersion > LATEST_SCHEMA_VERSION || migrationsApplied > LATEST_SCHEMA_VERSION) {
       throw new Error(
         `schema version ${schemaVersion} is newer than supported ${LATEST_SCHEMA_VERSION}`,
       );
     }
-    const integrity = String(db.prepare("PRAGMA integrity_check").get()?.integrity_check || "unknown");
-    const journalMode = String(db.prepare("PRAGMA journal_mode").get()?.journal_mode || "unknown");
+    const integrity = firstValue(db.prepare("PRAGMA integrity_check").get());
+    const journalMode = firstValue(db.prepare("PRAGMA journal_mode").get());
+    const foreignKeys = Number(firstValue(db.prepare("PRAGMA foreign_keys").get())) === 1;
     const foreignKeyViolations = db.prepare("PRAGMA foreign_key_check").all().length;
-    const tables = new Set(
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-        .all()
-        .map((row) => String(row.name || "")),
-    );
-    const requiredTables = [
-      "schema_migrations",
-      "legacy_import_checkpoints",
-      "pairing_records",
-      "device_build_records",
-      "session_records",
-    ];
-    const missingTables = requiredTables.filter((name) => !tables.has(name));
     databaseSnapshot = {
       ok:
         integrity === "ok" &&
+        journalMode === "wal" &&
+        foreignKeys &&
         foreignKeyViolations === 0 &&
         missingTables.length === 0 &&
-        schemaVersion === LATEST_SCHEMA_VERSION,
+        schemaVersion === LATEST_SCHEMA_VERSION &&
+        migrationsApplied === LATEST_SCHEMA_VERSION,
       integrity,
       journalMode,
-      foreignKeys: true,
+      foreignKeys,
       foreignKeyViolations,
       missingTables,
       schemaVersion,
       latestSchemaVersion: LATEST_SCHEMA_VERSION,
-      migrationsApplied: schemaVersion,
+      migrationsApplied,
     };
     return databaseSnapshot;
   };
@@ -83,7 +94,10 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
     const health = repositoryHealth();
     return {
       status:
-        health.schemaVersion === LATEST_SCHEMA_VERSION ? "already-current" : "checkpointed",
+        health.schemaVersion === LATEST_SCHEMA_VERSION &&
+        health.migrationsApplied === LATEST_SCHEMA_VERSION
+          ? "already-current"
+          : "checkpointed",
       recordCount: countRowsIfPresent(openDatabase(), "legacy_import_checkpoints"),
     };
   };
@@ -92,7 +106,7 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
     const db = openDatabase();
     const mismatchTables = db
       .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%shadow%mismatch%'",
+        "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE '%shadow%mismatch%'",
       )
       .all()
       .map((row) => String(row.name || ""))
@@ -112,7 +126,10 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
     const health = repositoryHealth();
     return {
       state:
-        health.schemaVersion === LATEST_SCHEMA_VERSION ? "compatible" : "transitioning",
+        health.schemaVersion === LATEST_SCHEMA_VERSION &&
+        health.migrationsApplied === LATEST_SCHEMA_VERSION
+          ? "compatible"
+          : "transitioning",
       legacyReadable: canReadStateRoot(stateRoot),
       sqliteReadable: true,
       rollbackReadable: canReadStateRoot(stateRoot),
@@ -166,16 +183,24 @@ function canReadStateRoot(stateRoot) {
   }
 }
 
-/** @param {DatabaseSync} db @param {string} name */
-function pragmaInteger(db, name) {
-  const value = db.prepare(`PRAGMA ${name}`).get()?.[name];
-  return Number.isSafeInteger(Number(value)) ? Number(value) : 0;
+/** @param {unknown} row @param {string} key */
+function integerColumn(row, key) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return 0;
+  const value = /** @type {Record<string, unknown>} */ (row)[key];
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+/** @param {unknown} row */
+function firstValue(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return "";
+  const values = Object.values(/** @type {Record<string, unknown>} */ (row));
+  return values[0] ?? "";
 }
 
 /** @param {DatabaseSync} db @param {string} table */
 function countRowsIfPresent(db, table) {
   const present = db
-    .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .prepare("SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = ?")
     .get(table);
   if (!present) return 0;
   return Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count || 0);
