@@ -43,6 +43,8 @@ Use ordinary merge/cherry-pick commits; do not rewrite validated feeder history.
 
 This workstream owns the global SQLite migration ordering needed to consume accepted fragments.
 
+The current Phase 4 schema is a prefix chain: `SWIFT_SIM_SQLITE_MIGRATIONS` owns v1, `PAIRING_SQLITE_MIGRATIONS` extends it through v5, and `DEVICE_BUILD_SQLITE_MIGRATIONS` extends it through v7. `SwiftSimSqliteDatabase` intentionally rejects applied versions absent from the migration list supplied by an opener. Therefore the session migration must become the next globally ordered migration (normally v8 unless inspection proves a newer accepted migration already exists), and **every production opener of the shared `state.sqlite` must be moved to the same complete Phase 4 migration history**. It is invalid to create a v8 database and leave a pairing/runtime opener using only the v1–5 prefix, because that opener would reject the newer schema. Preserve prefix exports only where useful for isolated historical tests; shared production composition must use one complete ordered list.
+
 For sessions, use exactly `SESSION_DURABLE_SQLITE_SCHEMA_STATEMENTS` and `SESSION_DURABLE_SQLITE_REQUIRED_TABLES`. The resulting `session_records` durable table must contain only:
 
 - `id`
@@ -55,6 +57,8 @@ For sessions, use exactly `SESSION_DURABLE_SQLITE_SCHEMA_STATEMENTS` and `SESSIO
 Do not add `record_json`, revision/updated timestamps, stream/build/log/runtime/process fields, PID, port, URL, worker/engine state, or any runtime claim.
 
 Reuse existing global checkpoint infrastructure where compatible rather than creating a parallel checkpoint truth.
+
+Add migration compatibility tests that open an existing schema-v7 database with the complete integration migration list, upgrade it to the new session schema, close/reopen it, and prove all production shared-state openers accept the resulting latest schema rather than reporting it as "newer than this Swift Sim build."
 
 ## Session composition
 
@@ -108,6 +112,7 @@ Run after each meaningful red-zone composition cluster where practical, and alwa
 - previous-release upgrade evidence;
 - diagnostics/redaction tests;
 - artifact maintenance freshness/containment tests;
+- shared SQLite v7 -> latest migration and reopen/older-opener compatibility tests;
 - architecture check;
 - strict types;
 - lint/format;
@@ -125,6 +130,7 @@ Return:
 - exact feeder SHAs actually integrated;
 - conflict-resolution ledger;
 - final global schema migration/version change;
+- list of every shared `state.sqlite` production opener and the complete migration list it now uses;
 - exact runtime composition added, with authority state stated explicitly;
 - proof that PR #143 package ownership was re-homed;
 - six-field session mismatch-sensitivity characterization;
