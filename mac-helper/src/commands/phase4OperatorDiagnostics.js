@@ -152,8 +152,11 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
       artifactStorage,
     });
   } finally {
-    closeDatabaseHandle(database);
-    process.umask(previousUmask);
+    try {
+      closeDatabaseHandle(database);
+    } finally {
+      process.umask(previousUmask);
+    }
   }
 }
 
