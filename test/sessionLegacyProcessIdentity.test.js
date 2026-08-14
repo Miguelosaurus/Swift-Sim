@@ -27,7 +27,7 @@ test("session legacy identity reuses exact Darwin lstart representation", () => 
 test("same PID requires matching start identity and rejects PID reuse", () => {
   const owner = {
     pid: process.pid,
-    startedAt: START_TOKEN,
+    startToken: START_TOKEN,
     nonce: "session-lock-owner",
     createdAt: "2026-08-13T18:00:01.000Z",
   };
