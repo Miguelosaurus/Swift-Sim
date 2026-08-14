@@ -8,7 +8,7 @@ import {
 } from "../infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../infrastructure/nodeLockManager.js";
 import { SystemClock } from "../infrastructure/systemClock.js";
-import { DEVICE_BUILD_SQLITE_MIGRATIONS } from "./deviceBuildSqliteSchema.js";
+import { PHASE4_SQLITE_MIGRATIONS } from "./phase4SqliteSchema.js";
 import { DeviceBuildLegacyImportCoordinator } from "./deviceBuildLegacyImport.js";
 import { DeviceBuildRevisionFencedShadowObserver } from "./deviceBuildRevisionFencedShadowObserver.js";
 import { DeviceBuildShadowComparator } from "./deviceBuildShadowComparison.js";
@@ -57,13 +57,17 @@ import { SwiftSimSqliteDatabase } from "./swiftSimSqliteDatabase.js";
 
 /**
  * Assemble the already-validated Phase 4 device-build migration/shadow pieces
- * without wiring them into helper startup or changing JSON authority.
+ * without changing JSON authority.
  *
  * The caller owns path selection and the legacy source-lock request. In
  * particular, `source.lockRequest.path` must identify the exact lock used by
  * the legacy DeviceBuildStore. The injected spawnSync is adapted to the exact
  * Darwin `ps -o lstart=` identity required to interoperate with `startedAt`
  * owners; this module imports no child-process API itself.
+ *
+ * All production openers of the shared state.sqlite use the complete Phase-4
+ * migration history so a session observer can advance the shared database to
+ * v8 without making this device observer reject it as a newer build.
  *
  * SQLite creation, WAL setup, and migrations are synchronous. Temporarily
  * tightening the process umask to 077 across that bounded constructor window
@@ -113,7 +117,7 @@ export function createDeviceBuildShadowRuntime(options) {
       () =>
         new SwiftSimSqliteDatabase({
           path: databasePath,
-          migrations: DEVICE_BUILD_SQLITE_MIGRATIONS,
+          migrations: PHASE4_SQLITE_MIGRATIONS,
           now: () => clock.now().toISOString(),
         }),
     );

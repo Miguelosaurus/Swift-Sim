@@ -1,5 +1,7 @@
 // @ts-check
 
+import { dirname, join } from "node:path";
+
 /**
  * @typedef {{ observe(input: unknown): unknown }} ShadowObserver
  * @typedef {{
@@ -26,12 +28,25 @@
  *     backupDirectory: string,
  *     source: unknown,
  *   },
+ *   observeSessionShadow?: (options: unknown) => unknown,
+ *   sessionShadowPaths?: (legacyPath: string) => {
+ *     databasePath: string,
+ *     backupDirectory: string,
+ *     source: unknown,
+ *   },
  * }} DeviceBuildShadowCompatibilityComponents
  */
 
 /**
- * Prepare the optional device-build SQLite shadow from the existing legacy
- * store while preserving JSON-only startup on every shadow-specific failure.
+ * Prepare the optional Phase-4 SQLite observers from existing legacy stores
+ * while preserving JSON-only startup on every shadow-specific failure.
+ *
+ * The durable-session observer is a bounded staged import/comparison only. It
+ * derives the authoritative sessions.json path from the same private legacy
+ * state root, uses the shared state.sqlite migration history, closes its
+ * connection before device startup, and never becomes a product read/write
+ * authority. The device-build observer remains long-lived for its established
+ * shadow hooks.
  *
  * The concrete persistence graph is dynamically imported. That makes module
  * loading itself part of the fail-open boundary rather than a prerequisite for
@@ -82,6 +97,25 @@ export async function prepareDeviceBuildShadowCompatibility({
     return disabledStartup();
   }
 
+  if (
+    typeof components.observeSessionShadow === "function" &&
+    typeof components.sessionShadowPaths === "function"
+  ) {
+    try {
+      const sessionPath = join(dirname(deviceBuildStore.path), "sessions.json");
+      components.observeSessionShadow({
+        ...components.sessionShadowPaths(sessionPath),
+        spawnSync,
+        clock,
+      });
+    } catch {
+      reportGeneric(
+        reportError,
+        "Session durable SQLite shadow initialization failed; sessions remain JSON-only.",
+      );
+    }
+  }
+
   return components.prepareStartup({
     createRuntime() {
       const paths = components.shadowPaths(deviceBuildStore.path);
@@ -105,15 +139,21 @@ async function loadDefaultComponents() {
     { createDeviceBuildShadowRuntime },
     { prepareDeviceBuildShadowStartup },
     { deviceBuildShadowPaths },
+    { observeSessionDurableShadowSnapshot },
+    { sessionDurableShadowPaths },
   ] = await Promise.all([
     import("./deviceBuildShadowRuntime.js"),
     import("./deviceBuildShadowStartup.js"),
     import("./deviceBuildShadowPaths.js"),
+    import("./sessionDurableShadowRuntime.js"),
+    import("./sessionDurableShadowPaths.js"),
   ]);
   return {
     createRuntime: createDeviceBuildShadowRuntime,
     prepareStartup: prepareDeviceBuildShadowStartup,
     shadowPaths: deviceBuildShadowPaths,
+    observeSessionShadow: observeSessionDurableShadowSnapshot,
+    sessionShadowPaths: sessionDurableShadowPaths,
   };
 }
 
