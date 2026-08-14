@@ -150,8 +150,13 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
       artifactStorage,
     });
   } finally {
-    database?.close();
+    closeDatabaseHandle(database);
   }
+}
+
+/** @param {DatabaseSync | null} database */
+function closeDatabaseHandle(database) {
+  if (database) database.close();
 }
 
 /** @param {string} stateRoot @param {string} databasePath */
