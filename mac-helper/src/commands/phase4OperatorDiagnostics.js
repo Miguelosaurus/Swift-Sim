@@ -115,7 +115,9 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
       .filter(isSafeIdentifier);
     let mismatchCount = 0;
     for (const table of mismatchTables) {
-      mismatchCount += Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count || 0);
+      mismatchCount += Number(
+        db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count || 0,
+      );
     }
     return {
       enabled: true,
