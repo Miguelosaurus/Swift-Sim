@@ -56,7 +56,8 @@ function measured(build: Build, derivedDataKiB = 40): Inventory {
   return {
     buildID: build.id,
     root: build.artifacts.root,
-    totalKiB: derivedDataKiB + archiveKiB + resultBundleKiB + exportPayloadKiB + scratchKiB + otherKiB,
+    totalKiB:
+      derivedDataKiB + archiveKiB + resultBundleKiB + exportPayloadKiB + scratchKiB + otherKiB,
     derivedDataKiB,
     archiveKiB,
     resultBundleKiB,
@@ -87,7 +88,9 @@ function harness() {
     artifactDirectory: () => ARTIFACT_DIRECTORY,
     usage: {
       measure: async ({ builds }) => ({
-        inventory: applyMeasurement ? [structuredClone(applyMeasurement)] : [measured(builds[0] as Build)],
+        inventory: applyMeasurement
+          ? [structuredClone(applyMeasurement)]
+          : [measured(builds[0] as Build)],
         orphanRoots: [],
         issues: nextIssues,
       }),
@@ -163,14 +166,16 @@ test("apply refuses DerivedData when current policy becomes live-ready", async (
 test("apply refuses authoritative artifact-root drift", async () => {
   const value = harness();
   const plan = await derivedDataPlan(value);
-  value.setCurrent(makeBuild({
-    artifacts: {
-      root: `${ARTIFACT_DIRECTORY}/different-root`,
-      archivePath: `${ARTIFACT_DIRECTORY}/different-root/App.xcarchive`,
-      resultBundlePath: `${ARTIFACT_DIRECTORY}/different-root/App.xcresult`,
-      exportPath: `${ARTIFACT_DIRECTORY}/different-root/export/App.ipa`,
-    },
-  }));
+  value.setCurrent(
+    makeBuild({
+      artifacts: {
+        root: `${ARTIFACT_DIRECTORY}/different-root`,
+        archivePath: `${ARTIFACT_DIRECTORY}/different-root/App.xcarchive`,
+        resultBundlePath: `${ARTIFACT_DIRECTORY}/different-root/App.xcresult`,
+        exportPath: `${ARTIFACT_DIRECTORY}/different-root/export/App.ipa`,
+      },
+    }),
+  );
   value.resetReads();
 
   const result = await value.service.apply(plan);
