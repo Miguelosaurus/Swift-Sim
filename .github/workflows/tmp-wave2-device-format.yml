@@ -1,0 +1,38 @@
+name: Temporary Wave 2 device format
+on:
+  push:
+    branches:
+      - agent/arch-ws-phase4-device-foundation-fix
+    paths:
+      - .github/workflows/tmp-wave2-device-format.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/arch-ws-phase4-device-foundation-fix
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Format exact files
+        run: npx prettier --write mac-helper/src/persistence/deviceBuildCutoverCompatibility.js mac-helper/src/persistence/deviceBuildMigrationState.js
+      - name: Focused proof
+        run: |
+          npm run check:types
+          npm run check:architecture
+          npx prettier --check mac-helper/src/persistence/deviceBuildCutoverCompatibility.js mac-helper/src/persistence/deviceBuildMigrationState.js
+          git diff --check
+      - name: Publish and self-remove
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mac-helper/src/persistence/deviceBuildCutoverCompatibility.js mac-helper/src/persistence/deviceBuildMigrationState.js
+          git rm .github/workflows/tmp-wave2-device-format.yml
+          git commit -m "style: format device cutover foundation"
+          git push origin HEAD:agent/arch-ws-phase4-device-foundation-fix
