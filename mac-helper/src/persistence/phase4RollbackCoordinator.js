@@ -91,22 +91,17 @@ export class Phase4RollbackCoordinator {
       });
     }
 
-    // The durable rollback-preparing mode remains SQLite-authoritative. A crash
-    // after any export but before the selector commit therefore exposes no
-    // partially republished legacy authority. Retry uses the current revision
-    // and republishes/verifies current SQLite state idempotently.
     const pairing = this.#exportPairing();
     const deviceBuild = this.#exportDeviceBuild();
     const sessions = this.#exportSessions();
 
-    // Re-read the wall clock immediately before the selector commit so a long
-    // export cannot cross the half-open expiry boundary and still commit.
     const commitAt = input.now ? startedAt : new Date().toISOString();
     if (!state.rollbackExpiresAt || Date.parse(commitAt) >= Date.parse(state.rollbackExpiresAt)) {
       throw new Error("Phase-4 rollback window expired during current-state export.");
     }
     const localPairing = this.#pairingBridge.current();
-    if (localPairing.mode !== "sqlite-rollback" || !localPairing.sourceRevision) {
+    const sourceRevision = localPairing.sourceRevision;
+    if (localPairing.mode !== "sqlite-rollback" || !sourceRevision) {
       throw new Error("Pairing local rollback fence is not active for the global epoch.");
     }
     const authority = this.#authority.rollbackToLegacy({
@@ -115,7 +110,7 @@ export class Phase4RollbackCoordinator {
       now: commitAt,
       beforeSelectorCommit: () => {
         this.#pairingBridge.rollbackInsideGlobalCommit({
-          sourceRevision: localPairing.sourceRevision,
+          sourceRevision,
           rolledBackAt: commitAt,
         });
       },
