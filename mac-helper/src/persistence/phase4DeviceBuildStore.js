@@ -187,8 +187,6 @@ export function createSqliteDeviceBuildStore({ database, legacyPath, maintenance
   }
   const repository = new SqliteDeviceBuildMutationRepository(database);
   const store = /** @type {DeviceBuildStore} */ (Object.create(DeviceBuildStore.prototype));
-  // The legacy path is retained only as an artifact-layout identity. Durable
-  // JSON reads/writes are replaced below and never use this path.
   store.path = legacyPath;
   store.lockPath = `${legacyPath}.lock`;
   store.builds = new Map();
@@ -291,6 +289,7 @@ function recoverStaleRenewals(builds) {
   return changed;
 }
 
+/** @param {unknown} capabilities @param {number} [now] */
 function normalizeCapabilities(capabilities, now = Date.now()) {
   const byToken = new Map();
   for (const capability of Array.isArray(capabilities) ? capabilities : []) {
@@ -310,6 +309,7 @@ function normalizeCapabilities(capabilities, now = Date.now()) {
     .sort((left, right) => Date.parse(left.expiresAt) - Date.parse(right.expiresAt));
 }
 
+/** @param {any} build */
 function touchBuild(build) {
   build.revision = Number(build.revision || 0) + 1;
   build.updatedAt = new Date().toISOString();
