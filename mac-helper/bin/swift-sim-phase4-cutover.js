@@ -109,6 +109,7 @@ async function main() {
   }
 }
 
+/** @param {string} stateRoot */
 function openDatabase(stateRoot) {
   return new SwiftSimSqliteDatabase({
     path: join(stateRoot, "state.sqlite"),
@@ -198,7 +199,7 @@ function readOnlyStatus(stateRoot) {
       preparedAt: row?.prepared_at || null,
       cutoverAt: row?.cutover_at || null,
       rollbackAvailable:
-        ["sqlite-rollback", "rollback-preparing"].includes(mode) &&
+        (mode === "sqlite-rollback" || mode === "rollback-preparing") &&
         Boolean(rollbackExpiresAt) &&
         Date.now() < Date.parse(rollbackExpiresAt || ""),
       rollbackExpiresAt,
@@ -211,6 +212,7 @@ function readOnlyStatus(stateRoot) {
   }
 }
 
+/** @param {string | undefined} path */
 function readEvidence(path) {
   const source = requireOption(path, "--evidence-file");
   const parsed = JSON.parse(readFileSync(resolve(source), "utf8"));
@@ -220,6 +222,7 @@ function readEvidence(path) {
   return parsed;
 }
 
+/** @param {string | undefined} value */
 function requireStateRoot(value) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error("--state-root is required; cutover never assumes a live root implicitly.");
@@ -227,11 +230,13 @@ function requireStateRoot(value) {
   return resolve(value);
 }
 
+/** @param {string | undefined} value @param {string} label */
 function requireOption(value, label) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required.`);
   return value;
 }
 
+/** @param {string | undefined} value @param {string} label */
 function nonNegativeInteger(value, label) {
   const number = Number(requireOption(value, label));
   if (!Number.isSafeInteger(number) || number < 0) {
@@ -240,6 +245,7 @@ function nonNegativeInteger(value, label) {
   return number;
 }
 
+/** @param {string | undefined} value @param {string} label */
 function positiveInteger(value, label) {
   const number = nonNegativeInteger(value, label);
   if (number === 0) throw new Error(`${label} must be greater than zero.`);
