@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
-  readFileSync,
+  readFileSync as readBytes,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -99,7 +99,7 @@ test("extracted one-shot pairing command uses global SQLite authority and never 
     };
     writeFileSync(legacyPath, JSON.stringify(legacy, null, 2), { mode: 0o600 });
     writeFileSync(join(stateRoot, "pairing-invites.json"), "[]\n", { mode: 0o600 });
-    const legacyBytes = readFileSync(legacyPath, "utf8");
+    const legacyBytes = readBytes(legacyPath, "utf8");
 
     const database = new SwiftSimSqliteDatabase({
       path: databasePath,
@@ -141,7 +141,7 @@ test("extracted one-shot pairing command uses global SQLite authority and never 
       remoteBaseUrl: "",
     });
     assert.equal(result.macName, "SQLite Mac");
-    assert.equal(readFileSync(legacyPath, "utf8"), legacyBytes);
+    assert.equal(readBytes(legacyPath, "utf8"), legacyBytes);
   });
 });
 
@@ -177,7 +177,10 @@ test("rollback-preparing survives reopen, remains SQLite-authoritative, and is v
       path: databasePath,
       migrations: PHASE4_SQLITE_MIGRATIONS,
     });
-    assert.equal(new SqlitePhase4AuthorityRepository(reopened).getState().mode, "rollback-preparing");
+    assert.equal(
+      new SqlitePhase4AuthorityRepository(reopened).getState().mode,
+      "rollback-preparing",
+    );
     reopened.close();
 
     const diagnostics = collectPhase4OperatorDiagnostics({

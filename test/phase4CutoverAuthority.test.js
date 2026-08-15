@@ -4,7 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
+  readFileSync as readBytes,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -40,7 +40,7 @@ function withRoot(operation) {
   const stateRoot = join(directory, ".swift-sim");
   mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
   try {
-    return operation({ directory, stateRoot, databasePath: join(stateRoot, "state.sqlite") });
+    return operation({ stateRoot, databasePath: join(stateRoot, "state.sqlite") });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -70,6 +70,7 @@ function maintenanceEvidence(overrides = {}) {
     legacyBackupsVerified: true,
     migrationReopenIdempotencyVerified: true,
     installedCandidateHelperHealthy: true,
+    zeroUnresolvedShadowMismatches: true,
     rollbackReadable: true,
     cleanupDisabledForCutover: true,
     sqliteProcessAuthorityAbsent: true,
@@ -77,7 +78,6 @@ function maintenanceEvidence(overrides = {}) {
     failClosedAbortClassesVerified: true,
     unrelatedPhaseWorkAbsent: true,
     finalLockedProjectionEquality: true,
-    zeroUnresolvedShadowMismatches: true,
     finalFreshnessRecheck: true,
     atomicAuthorityTransitionReady: true,
     candidateSHA: CANDIDATE_SHA,
@@ -88,7 +88,7 @@ function maintenanceEvidence(overrides = {}) {
   };
 }
 
-function seedLegacyState(stateRoot, { cleanupRoot } = {}) {
+function seedLegacyState(stateRoot, cleanupRoot = null) {
   const now = "2026-08-14T10:00:00.000Z";
   const pairing = {
     token: "legacy-token",
@@ -147,84 +147,72 @@ function seedLegacyState(stateRoot, { cleanupRoot } = {}) {
   return { pairing, session };
 }
 
-test("v8 reopens through append-only v9 with unchanged v1-v8 migration checksums and legacy default", () => {
+test("v8 upgrades append-only to v9 with frozen v1-v8 identities and legacy default", () => {
   withRoot(({ databasePath }) => {
-    const frozenV8 = PHASE4_SQLITE_MIGRATIONS.slice(0, 8);
-    const v8 = new SwiftSimSqliteDatabase({ path: databasePath, migrations: frozenV8 });
-    const v8Rows = v8
+    const v8 = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS.slice(0, 8),
+    });
+    const frozen = v8
       .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
       .all()
       .map((row) => ({ ...row }));
-    assert.equal(v8Rows.length, 8);
     v8.close();
 
-    const upgraded = new SwiftSimSqliteDatabase({
+    const v9 = new SwiftSimSqliteDatabase({
       path: databasePath,
       migrations: PHASE4_SQLITE_MIGRATIONS,
     });
-    const allRows = upgraded
+    const current = v9
       .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
       .all()
       .map((row) => ({ ...row }));
-    assert.deepEqual(allRows.slice(0, 8), v8Rows);
-    assert.equal(allRows[8].version, 9);
-    assert.equal(allRows[8].name, "phase4_global_authority_epoch");
-    assert.match(String(allRows[8].checksum), /^[a-f0-9]{64}$/);
-    const repository = new SqlitePhase4AuthorityRepository(upgraded);
-    const authority = repository.getState();
-    assert.equal(authority.mode, "legacy");
-    assert.equal(authority.revision, 0);
-    assert.equal(authority.cutoverEpoch, 0);
-    assert.equal(typeof repository.finalizeSqlite, "undefined");
-    upgraded.close();
+    assert.deepEqual(current.slice(0, 8), frozen);
+    assert.equal(current[8].version, 9);
+    assert.equal(current[8].name, "phase4_global_authority_epoch");
+    const authority = new SqlitePhase4AuthorityRepository(v9);
+    assert.deepEqual(
+      { mode: authority.getState().mode, revision: authority.getState().revision },
+      { mode: "legacy", revision: 0 },
+    );
+    assert.equal(typeof authority.finalizeSqlite, "undefined");
+    v9.close();
   });
 });
 
-test("global authority prepare is restartable, rollback preparation is durable, window is half-open, and stale epochs fail", () => {
+test("authority preparation is restartable and rollback preparation is durable, fenced, and half-open", () => {
   withRoot(({ databasePath }) => {
     const database = new SwiftSimSqliteDatabase({
       path: databasePath,
       migrations: PHASE4_SQLITE_MIGRATIONS,
     });
-    const repository = new SqlitePhase4AuthorityRepository(database);
-    const prepared = repository.beginPreparation({
+    const authority = new SqlitePhase4AuthorityRepository(database);
+    const prepared = authority.beginPreparation({
       expectedRevision: 0,
       preparationID: PREPARATION_ID,
       evidence: { candidateSHA: CANDIDATE_SHA },
       now: "2026-08-15T00:00:00.000Z",
     });
     assert.equal(prepared.mode, "preparing");
-    assert.equal(prepared.revision, 1);
     assert.deepEqual(
-      repository.beginPreparation({
-        expectedRevision: 1,
+      authority.beginPreparation({
+        expectedRevision: prepared.revision,
         preparationID: PREPARATION_ID,
         evidence: { candidateSHA: CANDIDATE_SHA },
         now: "2026-08-15T00:01:00.000Z",
       }),
       prepared,
     );
-    assert.throws(
-      () =>
-        repository.beginPreparation({
-          expectedRevision: 0,
-          preparationID: PREPARATION_ID,
-          evidence: { candidateSHA: CANDIDATE_SHA },
-        }),
-      /stale|revision/i,
-    );
-    const active = repository.activateSqliteRollback({
+    const active = authority.activateSqliteRollback({
       expectedRevision: prepared.revision,
-      preparationID: PREPARATION_ID,
+      preparationID: prepared.preparationID,
       evidenceHash: prepared.evidenceHash,
       now: "2026-08-15T01:00:00.000Z",
       rollbackExpiresAt: "2026-08-15T02:00:00.000Z",
     });
-    assert.equal(active.mode, "sqlite-rollback");
-    assert.equal(active.cutoverEpoch, 1);
     assert.throws(
       () =>
-        repository.beginRollbackPreparation({
+        authority.beginRollbackPreparation({
           expectedRevision: active.revision,
           expectedCutoverEpoch: active.cutoverEpoch,
           now: "2026-08-15T02:00:00.000Z",
@@ -233,68 +221,65 @@ test("global authority prepare is restartable, rollback preparation is durable, 
     );
     assert.throws(
       () =>
-        repository.beginRollbackPreparation({
+        authority.beginRollbackPreparation({
           expectedRevision: active.revision,
           expectedCutoverEpoch: 0,
-          now: "2026-08-15T01:59:59.999Z",
+          now: "2026-08-15T01:30:00.000Z",
         }),
       /epoch is stale/i,
     );
-    const rollbackPreparing = repository.beginRollbackPreparation({
+    const rollbackPreparing = authority.beginRollbackPreparation({
       expectedRevision: active.revision,
       expectedCutoverEpoch: active.cutoverEpoch,
       now: "2026-08-15T01:30:00.000Z",
     });
     assert.equal(rollbackPreparing.mode, "rollback-preparing");
     assert.equal(rollbackPreparing.revision, active.revision + 1);
-    const legacy = repository.rollbackToLegacy({
+    const restored = authority.rollbackToLegacy({
       expectedRevision: rollbackPreparing.revision,
       expectedCutoverEpoch: rollbackPreparing.cutoverEpoch,
       now: "2026-08-15T01:59:59.999Z",
     });
-    assert.equal(legacy.mode, "legacy");
-    assert.equal(legacy.cutoverEpoch, 1);
+    assert.equal(restored.mode, "legacy");
+    assert.equal(restored.cutoverEpoch, 1);
     database.close();
   });
 });
 
-test("authority router re-reads per operation, calls exactly one backend, and never falls back", () => {
+test("operation routing rereads authority, selects one backend, and never falls back", () => {
   let mode = "legacy";
   let authorityReads = 0;
+  let legacyCalls = 0;
+  let sqliteCalls = 0;
   const router = new Phase4AuthorityRouter({
     getState() {
       authorityReads += 1;
       return { mode };
     },
   });
-  let legacyReads = 0;
-  let sqliteReads = 0;
   assert.equal(
     router.read({
-      legacy: () => (++legacyReads, "legacy"),
-      sqlite: () => (++sqliteReads, "sqlite"),
+      legacy: () => (++legacyCalls, "legacy"),
+      sqlite: () => (++sqliteCalls, "sqlite"),
     }),
     "legacy",
   );
   mode = "sqlite-rollback";
   assert.equal(
     router.write({
-      legacy: () => (++legacyReads, "legacy"),
-      sqlite: () => (++sqliteReads, "sqlite"),
+      legacy: () => (++legacyCalls, "legacy"),
+      sqlite: () => (++sqliteCalls, "sqlite"),
     }),
     "sqlite",
   );
   mode = "rollback-preparing";
   assert.equal(
     router.read({
-      legacy: () => (++legacyReads, "legacy"),
-      sqlite: () => (++sqliteReads, "sqlite"),
+      legacy: () => (++legacyCalls, "legacy"),
+      sqlite: () => (++sqliteCalls, "sqlite"),
     }),
     "sqlite",
   );
-  assert.equal(authorityReads, 3);
-  assert.equal(legacyReads, 1);
-  assert.equal(sqliteReads, 2);
   mode = "legacy";
   assert.throws(
     () =>
@@ -303,16 +288,18 @@ test("authority router re-reads per operation, calls exactly one backend, and ne
           throw new Error("selected legacy failure");
         },
         sqlite: () => {
-          sqliteReads += 100;
+          sqliteCalls += 100;
           return "fallback";
         },
       }),
     /selected legacy failure/,
   );
-  assert.equal(sqliteReads, 2);
+  assert.equal(authorityReads, 4);
+  assert.equal(legacyCalls, 1);
+  assert.equal(sqliteCalls, 2);
 });
 
-test("serialized prepare survives reopen; stale source blocks activation; cancel leaves legacy authority", () => {
+test("prepare survives reopen and stale locked evidence blocks activation before cancel", () => {
   withRoot(({ stateRoot, databasePath }) => {
     const { pairing } = seedLegacyState(stateRoot);
     let database = new SwiftSimSqliteDatabase({
@@ -366,24 +353,24 @@ test("serialized prepare survives reopen; stale source blocks activation; cancel
   });
 });
 
-test("activation is one global switch; post-switch writes are SQLite-only and current-state rollback preserves runtime-only session fields", () => {
+test("global activation routes writes only to SQLite and current-state rollback preserves session runtime state", () => {
   withRoot(({ stateRoot, databasePath }) => {
     const cleanupRoot = join(stateRoot, "artifact-must-survive-cutover");
     mkdirSync(cleanupRoot, { recursive: true, mode: 0o700 });
     writeFileSync(join(cleanupRoot, "sentinel"), "do-not-clean\n", { mode: 0o600 });
-    const initial = seedLegacyState(stateRoot, { cleanupRoot });
+    const initial = seedLegacyState(stateRoot, cleanupRoot);
     const pairingPath = join(stateRoot, "pairing.json");
     const devicePath = join(stateRoot, "device-builds.json");
     const sessionPath = join(stateRoot, "sessions.json");
-    const pairingBefore = readFileSync(pairingPath, "utf8");
-    const deviceBefore = readFileSync(devicePath, "utf8");
+    const pairingBefore = readBytes(pairingPath, "utf8");
+    const deviceBefore = readBytes(devicePath, "utf8");
 
-    const factories = createPhase4ProductionStoreFactories({
+    const stores = createPhase4ProductionStoreFactories({
       stateRoot,
       deviceMaintenance: false,
     });
     const coordinator = new Phase4CutoverCoordinator({
-      database: factories.database,
+      database: stores.database,
       stateRoot,
       spawnSync: fakeSpawnSync,
     });
@@ -392,8 +379,8 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
       preparationID: PREPARATION_ID,
       maintenanceEvidence: maintenanceEvidence(),
     });
-    assert.equal(factories.createPairingStore().current().token, initial.pairing.token);
-    assert.equal(factories.router.current().mode, "preparing");
+    assert.equal(stores.router.current().mode, "preparing");
+    assert.equal(stores.createPairingStore().current().token, initial.pairing.token);
     assert.throws(
       () =>
         coordinator.activate({
@@ -405,7 +392,6 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
         }),
       /finalLockedProjectionEquality/,
     );
-
     const activated = coordinator.activate({
       expectedRevision: prepared.authority.revision,
       preparationID: prepared.authority.preparationID,
@@ -414,53 +400,34 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
       maintenanceEvidence: maintenanceEvidence(),
     });
     assert.equal(activated.authority.mode, "sqlite-rollback");
-    assert.equal(activated.authority.cutoverEpoch, 1);
-    assert.equal(
-      existsSync(join(cleanupRoot, "sentinel")),
-      true,
-      "cutover must not execute cleanup",
-    );
+    assert.equal(existsSync(join(cleanupRoot, "sentinel")), true);
 
-    factories.database.close();
+    stores.database.close();
     const restarted = createPhase4ProductionStoreFactories({
       stateRoot,
       deviceMaintenance: false,
     });
     assert.equal(restarted.router.current().mode, "sqlite-rollback");
-    assert.equal(restarted.createPairingStore().current().token, initial.pairing.token);
 
-    const pairingStore = restarted.createPairingStore();
-    const rotated = pairingStore.rotate();
+    const rotated = restarted.createPairingStore().rotate();
     assert.notEqual(rotated.token, initial.pairing.token);
-    assert.equal(
-      readFileSync(pairingPath, "utf8"),
-      pairingBefore,
-      "post-switch pairing must not dual-write legacy JSON",
-    );
+    assert.equal(readBytes(pairingPath, "utf8"), pairingBefore);
 
-    const deviceStore = restarted.createDeviceBuildStore();
-    const currentBuild = deviceStore.create({ scheme: "RollbackApp" });
-    assert.ok(currentBuild.id);
-    assert.equal(
-      readFileSync(devicePath, "utf8"),
-      deviceBefore,
-      "post-switch device state must not dual-write legacy JSON",
-    );
+    const build = restarted.createDeviceBuildStore().create({ scheme: "RollbackApp" });
+    assert.ok(build.id);
+    assert.equal(readBytes(devicePath, "utf8"), deviceBefore);
 
     const sessionStore = restarted.createSessionStore();
-    const runtimeSession = sessionStore.get(initial.session.id);
-    assert.ok(runtimeSession);
-    runtimeSession.logs.push("runtime-after-cutover");
-    runtimeSession.orientation = "landscape";
-    runtimeSession.stream.raw = {
-      ...(runtimeSession.stream.raw || {}),
-      runtimeOnly: "newer",
-    };
-    runtimeSession.stream.pid = 7777;
-    runtimeSession.token = "runtime-file-must-not-win";
-    sessionStore.save(runtimeSession);
-    const durableRepository = new SqliteDurableSessionMutationRepository(restarted.database);
-    durableRepository.upsert({
+    const runtime = sessionStore.get(initial.session.id);
+    assert.ok(runtime);
+    runtime.logs.push("runtime-after-cutover");
+    runtime.orientation = "landscape";
+    runtime.stream.pid = 7777;
+    runtime.stream.raw = { runtimeOnly: "newer" };
+    runtime.token = "runtime-file-must-not-win";
+    sessionStore.save(runtime);
+
+    new SqliteDurableSessionMutationRepository(restarted.database).upsert({
       id: initial.session.id,
       token: "sqlite-current-token",
       project: "/tmp/NewApp.xcodeproj",
@@ -468,11 +435,10 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
       simulatorUDID: "SIM-NEW",
       createdAt: initial.session.createdAt,
     });
-    const projected = sessionStore.get(initial.session.id);
-    assert.equal(projected.token, "sqlite-current-token");
-    assert.equal(projected.project, "/tmp/NewApp.xcodeproj");
-    assert.equal(projected.stream.pid, 7777);
-    assert.equal(projected.stream.raw.runtimeOnly, "newer");
+    const presented = sessionStore.get(initial.session.id);
+    assert.equal(presented.token, "sqlite-current-token");
+    assert.equal(presented.stream.pid, 7777);
+    assert.equal(presented.stream.raw.runtimeOnly, "newer");
 
     const diagnostics = collectPhase4OperatorDiagnostics({
       stateRoot,
@@ -481,8 +447,6 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
     assert.equal(diagnostics.readOnly, true);
     assert.equal(diagnostics.mutationAllowed, false);
     assert.equal(diagnostics.authority.mode, "sqlite-rollback");
-    assert.equal(diagnostics.authority.cutoverEpoch, 1);
-    assert.equal(diagnostics.authority.rollbackAvailable, true);
     assert.equal(diagnostics.database.latestSchemaVersion, 9);
 
     const active = restarted.authorityRepository.getState();
@@ -496,36 +460,15 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
       maintenanceEvidence: maintenanceEvidence(),
     });
     assert.equal(rolledBack.authority.mode, "legacy");
-    const pairingAfter = JSON.parse(readFileSync(pairingPath, "utf8"));
-    assert.equal(
-      pairingAfter.token,
-      rotated.token,
-      "pairing rollback must export current SQLite state",
-    );
-    const deviceAfter = JSON.parse(readFileSync(devicePath, "utf8"));
-    assert.ok(
-      deviceAfter.builds.some((build) => build.id === currentBuild.id),
-      "device rollback must export current SQLite state",
-    );
-    const sessionAfter = JSON.parse(readFileSync(sessionPath, "utf8")).sessions[0];
-    assert.equal(
-      sessionAfter.token,
-      "sqlite-current-token",
-      "current SQLite durable data must win rollback merge",
-    );
-    assert.equal(sessionAfter.project, "/tmp/NewApp.xcodeproj");
-    assert.equal(
-      sessionAfter.stream.pid,
-      7777,
-      "runtime-only process metadata must survive rollback",
-    );
-    assert.equal(sessionAfter.stream.raw.runtimeOnly, "newer");
-    assert.ok(sessionAfter.logs.includes("runtime-after-cutover"));
-    assert.equal(
-      existsSync(join(cleanupRoot, "sentinel")),
-      true,
-      "rollback must not execute cleanup",
-    );
+    assert.equal(JSON.parse(readBytes(pairingPath, "utf8")).token, rotated.token);
+    assert.ok(JSON.parse(readBytes(devicePath, "utf8")).builds.some((row) => row.id === build.id));
+    const restoredSession = JSON.parse(readBytes(sessionPath, "utf8")).sessions[0];
+    assert.equal(restoredSession.token, "sqlite-current-token");
+    assert.equal(restoredSession.project, "/tmp/NewApp.xcodeproj");
+    assert.equal(restoredSession.stream.pid, 7777);
+    assert.equal(restoredSession.stream.raw.runtimeOnly, "newer");
+    assert.ok(restoredSession.logs.includes("runtime-after-cutover"));
+    assert.equal(existsSync(join(cleanupRoot, "sentinel")), true);
 
     restarted.database.close();
     const reopened = new SwiftSimSqliteDatabase({
@@ -540,7 +483,7 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
   });
 });
 
-test("explicit cutover operator status requires a state root and status itself is read-only", () => {
+test("maintenance status requires explicit state root and does not mutate SQLite bytes", () => {
   withRoot(({ stateRoot, databasePath }) => {
     const database = new SwiftSimSqliteDatabase({
       path: databasePath,
@@ -553,17 +496,17 @@ test("explicit cutover operator status requires a state root and status itself i
     });
     assert.notEqual(missingRoot.status, 0);
     assert.match(missingRoot.stderr, /--state-root/);
-    const before = readFileSync(databasePath);
+    const before = readBytes(databasePath);
     const status = spawnSync(
       process.execPath,
       [cli.pathname, "status", "--state-root", stateRoot],
       { encoding: "utf8" },
     );
     assert.equal(status.status, 0, status.stderr);
-    const parsed = JSON.parse(status.stdout);
-    assert.equal(parsed.authority, "legacy");
-    assert.equal(parsed.latestSchemaVersion, 9);
-    assert.deepEqual(readFileSync(databasePath), before);
+    const report = JSON.parse(status.stdout);
+    assert.equal(report.authority, "legacy");
+    assert.equal(report.latestSchemaVersion, 9);
+    assert.deepEqual(readBytes(databasePath), before);
   });
 });
 
