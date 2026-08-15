@@ -148,13 +148,17 @@ export class Phase4CutoverCoordinator {
     if (authority.mode !== "preparing") {
       throw new Error(`Phase-4 activation requires preparing state, found ${authority.mode}.`);
     }
+    const expectedPreparationID = requireHash(input.preparationID, "Phase-4 preparationID");
+    const expectedEvidenceHash = requireHash(input.evidenceHash, "Phase-4 evidenceHash");
     if (
       authority.revision !== requireRevision(input.expectedRevision, "Phase-4 expected revision") ||
-      authority.preparationID !== requireHash(input.preparationID, "Phase-4 preparationID") ||
-      authority.evidenceHash !== requireHash(input.evidenceHash, "Phase-4 evidenceHash")
+      authority.preparationID !== expectedPreparationID ||
+      authority.evidenceHash !== expectedEvidenceHash
     ) {
       throw new Error("Phase-4 activation does not match the prepared revision/evidence epoch.");
     }
+    const preparationID = requireHash(authority.preparationID, "Phase-4 prepared preparationID");
+    const evidenceHash = requireHash(authority.evidenceHash, "Phase-4 prepared evidenceHash");
     const prepared = requirePreparedEvidence(authority.evidence);
     if (
       prepared.candidateSHA !== maintenance.candidateSHA ||
@@ -178,8 +182,6 @@ export class Phase4CutoverCoordinator {
         this.#sessionRepository,
       );
 
-      // Immediate freshness reread is deliberately the last filesystem action
-      // before the selector transaction. Any source change aborts closed.
       const fresh = this.#readAllLockedSnapshots(prepared.domains);
       requirePreparedDomainsMatch(prepared.domains, fresh, "final freshness");
       requireSnapshotsMatch(current, fresh);
@@ -191,13 +193,13 @@ export class Phase4CutoverCoordinator {
       const pairing = fresh.pairing;
       const activated = this.#authority.activateSqliteRollback({
         expectedRevision: authority.revision,
-        preparationID: authority.preparationID,
-        evidenceHash: authority.evidenceHash,
+        preparationID,
+        evidenceHash,
         now: cutoverAt,
         rollbackExpiresAt,
         beforeSelectorCommit: ({ cutoverAt: committedAt, rollbackExpiresAt: committedExpiry }) => {
           this.#pairingBridge.activateInsideGlobalCommit({
-            preparationID: authority.preparationID,
+            preparationID,
             sourceRevision: pairing.sourceRevision,
             projectionHash: pairing.projectionHash,
             cutoverAt: committedAt,
@@ -335,6 +337,7 @@ export class Phase4CutoverCoordinator {
 
 /** @param {string} stateRoot */
 export function phase4LegacySources(stateRoot) {
+  /** @param {string} name @param {string} fileName */
   const source = (name, fileName) => {
     const path = join(stateRoot, fileName);
     return Object.freeze({
