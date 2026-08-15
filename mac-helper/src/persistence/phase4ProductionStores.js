@@ -57,6 +57,7 @@ export function createPhase4ProductionStoreFactories(options = {}) {
   let sqliteDeviceBuilds;
   let legacySessions;
   let sqliteSessions;
+  /** @type {ReturnType<typeof setInterval> | undefined} */
   let deviceMaintenanceTimer;
 
   const pairingStore = createAuthorityRoutedFacade({
