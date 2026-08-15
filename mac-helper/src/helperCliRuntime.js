@@ -4,13 +4,12 @@ import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "./deviceDelivery.js";
 import { DeviceInventoryAdapter } from "./deviceInventory.js";
 import { publicDeviceApp, publicDeviceBuild } from "./deviceBuilder.js";
-import { PairingStore } from "./pairingStore.js";
-import { PairingInviteStore } from "./pairingInviteStore.js";
 import { buildPairingLinks } from "./links.js";
 import { ServeSimAdapter } from "./serveSimAdapter.js";
 import { printQRCode } from "./terminalQRCode.js";
 import { dispatchHelperCliCommand, helperCliCommandIsExtracted } from "./helperCliDispatcher.js";
 import { DeliveryMaintenanceCoordinator } from "./http/deliveryMaintenanceCoordinator.js";
+import { createPhase4ProductionStoreFactories } from "./persistence/phase4ProductionStores.js";
 
 /**
  * @typedef {{ token: string, installationID: string, macName: string }} PairingState
@@ -61,31 +60,50 @@ import { DeliveryMaintenanceCoordinator } from "./http/deliveryMaintenanceCoordi
  * @typedef {{ inspectServeSim(): Promise<unknown> }} ServeSimServices
  */
 
-const DEFAULT_FACTORIES = Object.freeze({
-  createStateRootStore: () => new PairingStore(),
-  createPairingInviteStore: () => new PairingInviteStore(),
-  createDeviceBuildStore: () => new DeviceBuildStore(),
-  createDeviceInventory: () => new DeviceInventoryAdapter(),
-  createDeviceDelivery: () => new DeviceDeliveryAdapter(),
-  createServeSim: () => new ServeSimAdapter(),
-});
+/**
+ * Production one-shot storage commands share the same global Phase-4 selector
+ * as the long-running helper. Device maintenance is disabled because a
+ * one-shot command must not start a background cleanup timer. `serve-sim-info`
+ * has no durable-state dependency and therefore does not open state.sqlite.
+ *
+ * @param {string} command
+ * @param {string | undefined} stateRoot
+ */
+function defaultFactories(command, stateRoot) {
+  if (command === "serve-sim-info") {
+    return Object.freeze({ createServeSim: () => new ServeSimAdapter() });
+  }
+  const phase4 = createPhase4ProductionStoreFactories({
+    ...(stateRoot ? { stateRoot } : {}),
+    deviceMaintenance: false,
+  });
+  return Object.freeze({
+    createStateRootStore: phase4.createPairingStore,
+    createPairingInviteStore: phase4.createPairingInviteStore,
+    createDeviceBuildStore: phase4.createDeviceBuildStore,
+    createDeviceInventory: () => new DeviceInventoryAdapter(),
+    createDeviceDelivery: () => new DeviceDeliveryAdapter(),
+    createServeSim: () => new ServeSimAdapter(),
+  });
+}
 
 /**
  * Compose only the services required by the selected one-shot command.
  *
- * Current filesystem repositories assume the shared private root already
- * exists. PairingStore remains the explicit compatibility owner of that root
- * until Phase 4 replaces the legacy repositories.
+ * Product storage commands use the same authority-aware Phase-4 store bundle
+ * as the helper service. Tests may pass an explicit stateRoot so production
+ * routing can be exercised without touching the user's real state root.
  *
  * @param {string} command
  * @param {{
  *   factories?: Record<string, unknown>,
  *   printQRCode?: (value: string) => void,
+ *   stateRoot?: string,
  * }} [options]
  * @returns {Record<string, unknown>}
  */
 export function createExtractedHelperServices(command, options = {}) {
-  const factories = options.factories || DEFAULT_FACTORIES;
+  const factories = options.factories || defaultFactories(command, options.stateRoot);
   const qrPrinter = options.printQRCode || printQRCode;
   if (typeof qrPrinter !== "function") {
     throw new TypeError("Extracted helper services require a QR printer.");
@@ -125,6 +143,7 @@ export function createExtractedHelperServices(command, options = {}) {
  *   writeLine?: (line: string) => void,
  *   printQRCode?: (value: string) => void,
  *   factories?: Record<string, unknown>,
+ *   stateRoot?: string,
  * }} [options]
  */
 export async function runExtractedHelperCommand(argv, options = {}) {

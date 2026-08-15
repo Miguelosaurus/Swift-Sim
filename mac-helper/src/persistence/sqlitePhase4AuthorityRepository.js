@@ -8,6 +8,7 @@ export const PHASE4_AUTHORITY_MODES = Object.freeze({
   legacy: "legacy",
   preparing: "preparing",
   sqliteRollback: "sqlite-rollback",
+  rollbackPreparing: "rollback-preparing",
   sqliteFinal: "sqlite-final",
 });
 
@@ -18,6 +19,7 @@ export class SqlitePhase4AuthorityRepository {
   #prepareStatement;
   #cancelStatement;
   #activateStatement;
+  #beginRollbackStatement;
   #rollbackStatement;
 
   /** @param {SwiftSimSqliteDatabase} database */
@@ -60,6 +62,11 @@ export class SqlitePhase4AuthorityRepository {
       rollback_expires_at = ?,
       updated_at = ?
     WHERE singleton = 1 AND mode = 'preparing' AND revision = ? AND preparation_id = ? AND evidence_hash = ?`);
+    this.#beginRollbackStatement = database.prepare(`UPDATE phase4_authority_state SET
+      mode = 'rollback-preparing',
+      revision = ?,
+      updated_at = ?
+    WHERE singleton = 1 AND mode = 'sqlite-rollback' AND revision = ? AND cutover_epoch = ?`);
     this.#rollbackStatement = database.prepare(`UPDATE phase4_authority_state SET
       mode = 'legacy',
       revision = ?,
@@ -71,7 +78,7 @@ export class SqlitePhase4AuthorityRepository {
       rollback_expires_at = NULL,
       finalized_at = NULL,
       updated_at = ?
-    WHERE singleton = 1 AND mode = 'sqlite-rollback' AND revision = ? AND cutover_epoch = ?`);
+    WHERE singleton = 1 AND mode = 'rollback-preparing' AND revision = ? AND cutover_epoch = ?`);
   }
 
   getState() {
@@ -205,6 +212,51 @@ export class SqlitePhase4AuthorityRepository {
   }
 
   /**
+   * Persist the start of current-state rollback before any legacy export. The
+   * product remains SQLite-authoritative in this mode. A crash can therefore
+   * resume the same export without exposing partially republished legacy files.
+   *
+   * @param {{ expectedRevision: number, expectedCutoverEpoch: number, now?: string }} input
+   */
+  beginRollbackPreparation(input) {
+    const expectedRevision = revision(input.expectedRevision, "Phase-4 expected revision");
+    const expectedCutoverEpoch = revision(input.expectedCutoverEpoch, "Phase-4 cutover epoch");
+    const now = timestamp(input.now ?? new Date().toISOString(), "Phase-4 rollback preparation time");
+    return this.#database.transaction(() => {
+      const state = this.getState();
+      if (state.cutoverEpoch !== expectedCutoverEpoch) {
+        throw new Error(
+          `Phase-4 rollback epoch is stale: expected ${expectedCutoverEpoch}, found ${state.cutoverEpoch}.`,
+        );
+      }
+      if (state.mode === PHASE4_AUTHORITY_MODES.rollbackPreparing) {
+        if (state.revision !== expectedRevision) staleRevision(expectedRevision, state.revision);
+        if (!state.rollbackExpiresAt || Date.parse(now) >= Date.parse(state.rollbackExpiresAt)) {
+          throw new Error("Phase-4 rollback window has expired.");
+        }
+        return state;
+      }
+      if (state.mode !== PHASE4_AUTHORITY_MODES.sqliteRollback) {
+        throw new Error(`Phase-4 rollback preparation requires sqlite-rollback authority, found ${state.mode}.`);
+      }
+      if (state.revision !== expectedRevision) staleRevision(expectedRevision, state.revision);
+      if (!state.rollbackExpiresAt || Date.parse(now) >= Date.parse(state.rollbackExpiresAt)) {
+        throw new Error("Phase-4 rollback window has expired.");
+      }
+      const result = this.#beginRollbackStatement.run(
+        state.revision + 1,
+        now,
+        state.revision,
+        state.cutoverEpoch,
+      );
+      if (Number(result.changes) !== 1) {
+        throw new Error("Phase-4 rollback preparation lost its revision/epoch fence.");
+      }
+      return this.getState();
+    });
+  }
+
+  /**
    * The half-open rollback window is [cutoverAt, rollbackExpiresAt). Current
    * SQLite data must already have been exported and verified before this call.
    *
@@ -222,8 +274,8 @@ export class SqlitePhase4AuthorityRepository {
 
     return this.#database.transaction(() => {
       const state = this.getState();
-      if (state.mode !== PHASE4_AUTHORITY_MODES.sqliteRollback) {
-        throw new Error(`Phase-4 rollback requires sqlite-rollback authority, found ${state.mode}.`);
+      if (state.mode !== PHASE4_AUTHORITY_MODES.rollbackPreparing) {
+        throw new Error(`Phase-4 rollback commit requires rollback-preparing authority, found ${state.mode}.`);
       }
       if (state.revision !== expectedRevision) staleRevision(expectedRevision, state.revision);
       if (state.cutoverEpoch !== expectedCutoverEpoch) {
@@ -261,7 +313,11 @@ function parseAuthorityRow(row) {
   const evidenceJSON = nullableString(value.evidence_json);
   let evidence = null;
   if (evidenceJSON !== null) {
-    try { evidence = JSON.parse(evidenceJSON); } catch { throw new Error("Phase-4 preparation evidence is malformed."); }
+    try {
+      evidence = JSON.parse(evidenceJSON);
+    } catch {
+      throw new Error("Phase-4 preparation evidence is malformed.");
+    }
   }
   return Object.freeze({
     storageVersion: revision(value.storage_version, "Phase-4 storage version"),

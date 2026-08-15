@@ -44,7 +44,13 @@ export function phase4SupportRecoveryActions(sections) {
   if (authority?.mode === "preparing") {
     actions.add("keep-legacy-authority-and-resume-or-cancel-cutover-preparation");
   }
-  if (authority?.mode === "sqlite-rollback" && authority.rollbackAvailable === true) {
+  if (authority?.mode === "rollback-preparing") {
+    actions.add("keep-sqlite-authority-and-resume-current-state-rollback-export");
+  }
+  if (
+    ["sqlite-rollback", "rollback-preparing"].includes(String(authority?.mode || "")) &&
+    authority?.rollbackAvailable === true
+  ) {
     actions.add("preserve-rollback-material-until-separate-finalization-decision");
   }
   if (authority && needsGuidance(authority)) {

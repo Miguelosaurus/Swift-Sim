@@ -16,6 +16,7 @@ const PREPARE_TRUE_FIELDS = Object.freeze([
   "legacyBackupsVerified",
   "migrationReopenIdempotencyVerified",
   "installedCandidateHelperHealthy",
+  "zeroUnresolvedShadowMismatches",
   "rollbackReadable",
   "cleanupDisabledForCutover",
   "sqliteProcessAuthorityAbsent",
@@ -27,7 +28,6 @@ const PREPARE_TRUE_FIELDS = Object.freeze([
 const ACTIVATE_TRUE_FIELDS = Object.freeze([
   ...PREPARE_TRUE_FIELDS,
   "finalLockedProjectionEquality",
-  "zeroUnresolvedShadowMismatches",
   "finalFreshnessRecheck",
   "atomicAuthorityTransitionReady",
 ]);
@@ -61,14 +61,16 @@ export function validatePhase4MaintenanceEvidence(evidence, stage) {
     "Phase-4 process start identity",
   );
   if (pid <= 1 || !startedAt) {
-    throw new Error("Phase-4 process identity requires PID plus process start identity; PID alone is forbidden.");
+    throw new Error(
+      "Phase-4 process identity requires PID plus process start identity; PID alone is forbidden.",
+    );
   }
   const shadowMismatchCount = requireNonNegativeInteger(
     values.shadowMismatchCount,
     "Phase-4 shadow mismatch count",
   );
-  if (stage === "activate" && shadowMismatchCount !== 0) {
-    throw new Error("Phase-4 activation requires zero unresolved shadow mismatches.");
+  if ((stage === "prepare" || stage === "activate") && shadowMismatchCount !== 0) {
+    throw new Error(`Phase-4 ${stage} requires zero unresolved shadow mismatches.`);
   }
   return Object.freeze({
     ...structuredClone(values),

@@ -14,7 +14,7 @@ export function projectPhase4AuthorityHealth(observation) {
   }
   const record = /** @type {Record<string, unknown>} */ (values);
   const mode = String(record.mode || "");
-  if (!["legacy", "preparing", "sqlite-rollback", "sqlite-final"].includes(mode)) {
+  if (!["legacy", "preparing", "sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(mode)) {
     return Object.freeze({
       available: true,
       status: "blocked",
@@ -24,6 +24,8 @@ export function projectPhase4AuthorityHealth(observation) {
       rollbackAvailable: false,
       rollbackExpiresAt: null,
       preparationActive: false,
+      rollbackPreparationActive: false,
+      preparationEvidenceFresh: null,
       blocker: "invalid-authority-state",
       failureCategory: "invalid-observation",
     });
@@ -31,9 +33,10 @@ export function projectPhase4AuthorityHealth(observation) {
   const revision = safeInteger(record.revision);
   const cutoverEpoch = safeInteger(record.cutoverEpoch);
   if (revision === null || cutoverEpoch === null) return unavailable("invalid-observation");
+  const transitionActive = mode === "preparing" || mode === "rollback-preparing";
   return Object.freeze({
     available: true,
-    status: mode === "preparing" ? "attention" : "healthy",
+    status: transitionActive ? "attention" : "healthy",
     mode,
     revision,
     cutoverEpoch,
@@ -41,7 +44,17 @@ export function projectPhase4AuthorityHealth(observation) {
     rollbackExpiresAt:
       typeof record.rollbackExpiresAt === "string" ? record.rollbackExpiresAt : null,
     preparationActive: mode === "preparing",
-    blocker: mode === "preparing" ? "transition-in-progress" : null,
+    rollbackPreparationActive: mode === "rollback-preparing",
+    preparationEvidenceFresh:
+      mode === "preparing" && typeof record.preparationEvidenceFresh === "boolean"
+        ? record.preparationEvidenceFresh
+        : null,
+    blocker:
+      mode === "preparing"
+        ? "activation-requires-final-locked-freshness-recheck"
+        : mode === "rollback-preparing"
+          ? "rollback-export-in-progress"
+          : null,
     failureCategory: null,
   });
 }
@@ -60,6 +73,8 @@ function unavailable(failureCategory = "unavailable") {
     rollbackAvailable: false,
     rollbackExpiresAt: null,
     preparationActive: false,
+    rollbackPreparationActive: false,
+    preparationEvidenceFresh: null,
     blocker: null,
     failureCategory,
   });

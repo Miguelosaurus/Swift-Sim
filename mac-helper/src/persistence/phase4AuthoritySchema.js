@@ -10,7 +10,7 @@ export const PHASE4_AUTHORITY_SQLITE_SCHEMA_STATEMENTS = Object.freeze([
   `CREATE TABLE phase4_authority_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     storage_version INTEGER NOT NULL CHECK (storage_version = 1),
-    mode TEXT NOT NULL CHECK (mode IN ('legacy', 'preparing', 'sqlite-rollback', 'sqlite-final')),
+    mode TEXT NOT NULL CHECK (mode IN ('legacy', 'preparing', 'sqlite-rollback', 'rollback-preparing', 'sqlite-final')),
     revision INTEGER NOT NULL CHECK (revision >= 0 AND revision <= 9007199254740991),
     cutover_epoch INTEGER NOT NULL CHECK (cutover_epoch >= 0 AND cutover_epoch <= 9007199254740991),
     preparation_id TEXT CHECK (
@@ -36,7 +36,8 @@ export const PHASE4_AUTHORITY_SQLITE_SCHEMA_STATEMENTS = Object.freeze([
       (mode = 'preparing' AND preparation_id IS NOT NULL AND evidence_hash IS NOT NULL AND evidence_json IS NOT NULL
         AND prepared_at IS NOT NULL AND cutover_at IS NULL AND rollback_expires_at IS NULL AND finalized_at IS NULL)
       OR
-      (mode = 'sqlite-rollback' AND preparation_id IS NOT NULL AND evidence_hash IS NOT NULL AND evidence_json IS NOT NULL
+      (mode IN ('sqlite-rollback', 'rollback-preparing') AND preparation_id IS NOT NULL
+        AND evidence_hash IS NOT NULL AND evidence_json IS NOT NULL
         AND prepared_at IS NOT NULL AND cutover_at IS NOT NULL AND rollback_expires_at IS NOT NULL
         AND rollback_expires_at > cutover_at AND finalized_at IS NULL)
       OR

@@ -151,9 +151,10 @@ test("v8 reopens through append-only v9 with unchanged v1-v8 migration checksums
   withRoot(({ databasePath }) => {
     const frozenV8 = PHASE4_SQLITE_MIGRATIONS.slice(0, 8);
     const v8 = new SwiftSimSqliteDatabase({ path: databasePath, migrations: frozenV8 });
-    const v8Rows = v8.prepare(
-      "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
-    ).all().map((row) => ({ ...row }));
+    const v8Rows = v8
+      .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
+      .all()
+      .map((row) => ({ ...row }));
     assert.equal(v8Rows.length, 8);
     v8.close();
 
@@ -161,9 +162,10 @@ test("v8 reopens through append-only v9 with unchanged v1-v8 migration checksums
       path: databasePath,
       migrations: PHASE4_SQLITE_MIGRATIONS,
     });
-    const allRows = upgraded.prepare(
-      "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
-    ).all().map((row) => ({ ...row }));
+    const allRows = upgraded
+      .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
+      .all()
+      .map((row) => ({ ...row }));
     assert.deepEqual(allRows.slice(0, 8), v8Rows);
     assert.equal(allRows[8].version, 9);
     assert.equal(allRows[8].name, "phase4_global_authority_epoch");
@@ -178,9 +180,12 @@ test("v8 reopens through append-only v9 with unchanged v1-v8 migration checksums
   });
 });
 
-test("global authority prepare is restartable, fenced, rollback is half-open, and stale epochs fail", () => {
+test("global authority prepare is restartable, rollback preparation is durable, window is half-open, and stale epochs fail", () => {
   withRoot(({ databasePath }) => {
-    const database = new SwiftSimSqliteDatabase({ path: databasePath, migrations: PHASE4_SQLITE_MIGRATIONS });
+    const database = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+    });
     const repository = new SqlitePhase4AuthorityRepository(database);
     const prepared = repository.beginPreparation({
       expectedRevision: 0,
@@ -200,11 +205,12 @@ test("global authority prepare is restartable, fenced, rollback is half-open, an
       prepared,
     );
     assert.throws(
-      () => repository.beginPreparation({
-        expectedRevision: 0,
-        preparationID: PREPARATION_ID,
-        evidence: { candidateSHA: CANDIDATE_SHA },
-      }),
+      () =>
+        repository.beginPreparation({
+          expectedRevision: 0,
+          preparationID: PREPARATION_ID,
+          evidence: { candidateSHA: CANDIDATE_SHA },
+        }),
       /stale|revision/i,
     );
     const active = repository.activateSqliteRollback({
@@ -217,24 +223,33 @@ test("global authority prepare is restartable, fenced, rollback is half-open, an
     assert.equal(active.mode, "sqlite-rollback");
     assert.equal(active.cutoverEpoch, 1);
     assert.throws(
-      () => repository.rollbackToLegacy({
-        expectedRevision: active.revision,
-        expectedCutoverEpoch: active.cutoverEpoch,
-        now: "2026-08-15T02:00:00.000Z",
-      }),
+      () =>
+        repository.beginRollbackPreparation({
+          expectedRevision: active.revision,
+          expectedCutoverEpoch: active.cutoverEpoch,
+          now: "2026-08-15T02:00:00.000Z",
+        }),
       /expired/i,
     );
     assert.throws(
-      () => repository.rollbackToLegacy({
-        expectedRevision: active.revision,
-        expectedCutoverEpoch: 0,
-        now: "2026-08-15T01:59:59.999Z",
-      }),
+      () =>
+        repository.beginRollbackPreparation({
+          expectedRevision: active.revision,
+          expectedCutoverEpoch: 0,
+          now: "2026-08-15T01:59:59.999Z",
+        }),
       /epoch is stale/i,
     );
-    const legacy = repository.rollbackToLegacy({
+    const rollbackPreparing = repository.beginRollbackPreparation({
       expectedRevision: active.revision,
       expectedCutoverEpoch: active.cutoverEpoch,
+      now: "2026-08-15T01:30:00.000Z",
+    });
+    assert.equal(rollbackPreparing.mode, "rollback-preparing");
+    assert.equal(rollbackPreparing.revision, active.revision + 1);
+    const legacy = repository.rollbackToLegacy({
+      expectedRevision: rollbackPreparing.revision,
+      expectedCutoverEpoch: rollbackPreparing.cutoverEpoch,
       now: "2026-08-15T01:59:59.999Z",
     });
     assert.equal(legacy.mode, "legacy");
@@ -254,33 +269,61 @@ test("authority router re-reads per operation, calls exactly one backend, and ne
   });
   let legacyReads = 0;
   let sqliteReads = 0;
-  assert.equal(router.read({
-    legacy: () => (++legacyReads, "legacy"),
-    sqlite: () => (++sqliteReads, "sqlite"),
-  }), "legacy");
-  mode = "sqlite-rollback";
-  assert.equal(router.write({
-    legacy: () => (++legacyReads, "legacy"),
-    sqlite: () => (++sqliteReads, "sqlite"),
-  }), "sqlite");
-  assert.equal(authorityReads, 2);
-  assert.equal(legacyReads, 1);
-  assert.equal(sqliteReads, 1);
-  assert.throws(
-    () => router.read({
-      legacy: () => { throw new Error("selected legacy failure"); },
-      sqlite: () => { sqliteReads += 100; return "fallback"; },
+  assert.equal(
+    router.read({
+      legacy: () => (++legacyReads, "legacy"),
+      sqlite: () => (++sqliteReads, "sqlite"),
     }),
+    "legacy",
+  );
+  mode = "sqlite-rollback";
+  assert.equal(
+    router.write({
+      legacy: () => (++legacyReads, "legacy"),
+      sqlite: () => (++sqliteReads, "sqlite"),
+    }),
+    "sqlite",
+  );
+  mode = "rollback-preparing";
+  assert.equal(
+    router.read({
+      legacy: () => (++legacyReads, "legacy"),
+      sqlite: () => (++sqliteReads, "sqlite"),
+    }),
+    "sqlite",
+  );
+  assert.equal(authorityReads, 3);
+  assert.equal(legacyReads, 1);
+  assert.equal(sqliteReads, 2);
+  mode = "legacy";
+  assert.throws(
+    () =>
+      router.read({
+        legacy: () => {
+          throw new Error("selected legacy failure");
+        },
+        sqlite: () => {
+          sqliteReads += 100;
+          return "fallback";
+        },
+      }),
     /selected legacy failure/,
   );
-  assert.equal(sqliteReads, 1);
+  assert.equal(sqliteReads, 2);
 });
 
 test("serialized prepare survives reopen; stale source blocks activation; cancel leaves legacy authority", () => {
   withRoot(({ stateRoot, databasePath }) => {
     const { pairing } = seedLegacyState(stateRoot);
-    let database = new SwiftSimSqliteDatabase({ path: databasePath, migrations: PHASE4_SQLITE_MIGRATIONS });
-    let coordinator = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync: fakeSpawnSync });
+    let database = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+    });
+    let coordinator = new Phase4CutoverCoordinator({
+      database,
+      stateRoot,
+      spawnSync: fakeSpawnSync,
+    });
     const prepared = coordinator.prepare({
       expectedRevision: 0,
       preparationID: PREPARATION_ID,
@@ -289,18 +332,29 @@ test("serialized prepare survives reopen; stale source blocks activation; cancel
     assert.equal(prepared.authority.mode, "preparing");
     database.close();
 
-    database = new SwiftSimSqliteDatabase({ path: databasePath, migrations: PHASE4_SQLITE_MIGRATIONS });
-    coordinator = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync: fakeSpawnSync });
+    database = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+    });
+    coordinator = new Phase4CutoverCoordinator({
+      database,
+      stateRoot,
+      spawnSync: fakeSpawnSync,
+    });
     assert.equal(coordinator.status().authority.mode, "preparing");
-    writeJSON(join(stateRoot, "pairing.json"), { ...pairing, token: "changed-after-prepare" });
+    writeJSON(join(stateRoot, "pairing.json"), {
+      ...pairing,
+      token: "changed-after-prepare",
+    });
     assert.throws(
-      () => coordinator.activate({
-        expectedRevision: prepared.authority.revision,
-        preparationID: prepared.authority.preparationID,
-        evidenceHash: prepared.authority.evidenceHash,
-        rollbackWindowMs: 60 * 60 * 1000,
-        maintenanceEvidence: maintenanceEvidence(),
-      }),
+      () =>
+        coordinator.activate({
+          expectedRevision: prepared.authority.revision,
+          preparationID: prepared.authority.preparationID,
+          evidenceHash: prepared.authority.evidenceHash,
+          rollbackWindowMs: 60 * 60 * 1000,
+          maintenanceEvidence: maintenanceEvidence(),
+        }),
       /stale pairing source|stale pairing source\/projection/i,
     );
     const cancelled = coordinator.cancelPreparation({
@@ -324,8 +378,15 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
     const pairingBefore = readFileSync(pairingPath, "utf8");
     const deviceBefore = readFileSync(devicePath, "utf8");
 
-    const factories = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
-    const coordinator = new Phase4CutoverCoordinator({ database: factories.database, stateRoot, spawnSync: fakeSpawnSync });
+    const factories = createPhase4ProductionStoreFactories({
+      stateRoot,
+      deviceMaintenance: false,
+    });
+    const coordinator = new Phase4CutoverCoordinator({
+      database: factories.database,
+      stateRoot,
+      spawnSync: fakeSpawnSync,
+    });
     const prepared = coordinator.prepare({
       expectedRevision: 0,
       preparationID: PREPARATION_ID,
@@ -334,13 +395,14 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
     assert.equal(factories.createPairingStore().current().token, initial.pairing.token);
     assert.equal(factories.router.current().mode, "preparing");
     assert.throws(
-      () => coordinator.activate({
-        expectedRevision: prepared.authority.revision,
-        preparationID: prepared.authority.preparationID,
-        evidenceHash: prepared.authority.evidenceHash,
-        rollbackWindowMs: 60 * 60 * 1000,
-        maintenanceEvidence: maintenanceEvidence({ finalLockedProjectionEquality: false }),
-      }),
+      () =>
+        coordinator.activate({
+          expectedRevision: prepared.authority.revision,
+          preparationID: prepared.authority.preparationID,
+          evidenceHash: prepared.authority.evidenceHash,
+          rollbackWindowMs: 60 * 60 * 1000,
+          maintenanceEvidence: maintenanceEvidence({ finalLockedProjectionEquality: false }),
+        }),
       /finalLockedProjectionEquality/,
     );
 
@@ -353,29 +415,47 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
     });
     assert.equal(activated.authority.mode, "sqlite-rollback");
     assert.equal(activated.authority.cutoverEpoch, 1);
-    assert.equal(existsSync(join(cleanupRoot, "sentinel")), true, "cutover must not execute cleanup");
+    assert.equal(
+      existsSync(join(cleanupRoot, "sentinel")),
+      true,
+      "cutover must not execute cleanup",
+    );
 
     factories.database.close();
-    const restarted = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
+    const restarted = createPhase4ProductionStoreFactories({
+      stateRoot,
+      deviceMaintenance: false,
+    });
     assert.equal(restarted.router.current().mode, "sqlite-rollback");
     assert.equal(restarted.createPairingStore().current().token, initial.pairing.token);
 
     const pairingStore = restarted.createPairingStore();
     const rotated = pairingStore.rotate();
     assert.notEqual(rotated.token, initial.pairing.token);
-    assert.equal(readFileSync(pairingPath, "utf8"), pairingBefore, "post-switch pairing must not dual-write legacy JSON");
+    assert.equal(
+      readFileSync(pairingPath, "utf8"),
+      pairingBefore,
+      "post-switch pairing must not dual-write legacy JSON",
+    );
 
     const deviceStore = restarted.createDeviceBuildStore();
     const currentBuild = deviceStore.create({ scheme: "RollbackApp" });
     assert.ok(currentBuild.id);
-    assert.equal(readFileSync(devicePath, "utf8"), deviceBefore, "post-switch device state must not dual-write legacy JSON");
+    assert.equal(
+      readFileSync(devicePath, "utf8"),
+      deviceBefore,
+      "post-switch device state must not dual-write legacy JSON",
+    );
 
     const sessionStore = restarted.createSessionStore();
     const runtimeSession = sessionStore.get(initial.session.id);
     assert.ok(runtimeSession);
     runtimeSession.logs.push("runtime-after-cutover");
     runtimeSession.orientation = "landscape";
-    runtimeSession.stream.raw = { ...(runtimeSession.stream.raw || {}), runtimeOnly: "newer" };
+    runtimeSession.stream.raw = {
+      ...(runtimeSession.stream.raw || {}),
+      runtimeOnly: "newer",
+    };
     runtimeSession.stream.pid = 7777;
     runtimeSession.token = "runtime-file-must-not-win";
     sessionStore.save(runtimeSession);
@@ -394,7 +474,10 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
     assert.equal(projected.stream.pid, 7777);
     assert.equal(projected.stream.raw.runtimeOnly, "newer");
 
-    const diagnostics = collectPhase4OperatorDiagnostics({ stateRoot, artifactAudit: ARTIFACT_AUDIT });
+    const diagnostics = collectPhase4OperatorDiagnostics({
+      stateRoot,
+      artifactAudit: ARTIFACT_AUDIT,
+    });
     assert.equal(diagnostics.readOnly, true);
     assert.equal(diagnostics.mutationAllowed, false);
     assert.equal(diagnostics.authority.mode, "sqlite-rollback");
@@ -414,19 +497,41 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
     });
     assert.equal(rolledBack.authority.mode, "legacy");
     const pairingAfter = JSON.parse(readFileSync(pairingPath, "utf8"));
-    assert.equal(pairingAfter.token, rotated.token, "pairing rollback must export current SQLite state");
+    assert.equal(
+      pairingAfter.token,
+      rotated.token,
+      "pairing rollback must export current SQLite state",
+    );
     const deviceAfter = JSON.parse(readFileSync(devicePath, "utf8"));
-    assert.ok(deviceAfter.builds.some((build) => build.id === currentBuild.id), "device rollback must export current SQLite state");
+    assert.ok(
+      deviceAfter.builds.some((build) => build.id === currentBuild.id),
+      "device rollback must export current SQLite state",
+    );
     const sessionAfter = JSON.parse(readFileSync(sessionPath, "utf8")).sessions[0];
-    assert.equal(sessionAfter.token, "sqlite-current-token", "current SQLite durable data must win rollback merge");
+    assert.equal(
+      sessionAfter.token,
+      "sqlite-current-token",
+      "current SQLite durable data must win rollback merge",
+    );
     assert.equal(sessionAfter.project, "/tmp/NewApp.xcodeproj");
-    assert.equal(sessionAfter.stream.pid, 7777, "runtime-only process metadata must survive rollback");
+    assert.equal(
+      sessionAfter.stream.pid,
+      7777,
+      "runtime-only process metadata must survive rollback",
+    );
     assert.equal(sessionAfter.stream.raw.runtimeOnly, "newer");
     assert.ok(sessionAfter.logs.includes("runtime-after-cutover"));
-    assert.equal(existsSync(join(cleanupRoot, "sentinel")), true, "rollback must not execute cleanup");
+    assert.equal(
+      existsSync(join(cleanupRoot, "sentinel")),
+      true,
+      "rollback must not execute cleanup",
+    );
 
     restarted.database.close();
-    const reopened = new SwiftSimSqliteDatabase({ path: databasePath, migrations: PHASE4_SQLITE_MIGRATIONS });
+    const reopened = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+    });
     const reopenedAuthority = new SqlitePhase4AuthorityRepository(reopened).getState();
     assert.equal(reopenedAuthority.mode, "legacy");
     assert.equal(reopenedAuthority.cutoverEpoch, 1);
@@ -437,10 +542,15 @@ test("activation is one global switch; post-switch writes are SQLite-only and cu
 
 test("explicit cutover operator status requires a state root and status itself is read-only", () => {
   withRoot(({ stateRoot, databasePath }) => {
-    const database = new SwiftSimSqliteDatabase({ path: databasePath, migrations: PHASE4_SQLITE_MIGRATIONS });
+    const database = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+    });
     database.close();
     const cli = new URL("../mac-helper/bin/swift-sim-phase4-cutover.js", import.meta.url);
-    const missingRoot = spawnSync(process.execPath, [cli.pathname, "status"], { encoding: "utf8" });
+    const missingRoot = spawnSync(process.execPath, [cli.pathname, "status"], {
+      encoding: "utf8",
+    });
     assert.notEqual(missingRoot.status, 0);
     assert.match(missingRoot.stderr, /--state-root/);
     const before = readFileSync(databasePath);

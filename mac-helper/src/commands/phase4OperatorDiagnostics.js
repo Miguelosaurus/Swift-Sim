@@ -141,21 +141,27 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
         cutoverEpoch: 0,
         rollbackAvailable: false,
         rollbackExpiresAt: null,
+        preparationEvidenceFresh: null,
       };
     }
     const row = db.prepare(`SELECT mode, revision, cutover_epoch, rollback_expires_at
       FROM phase4_authority_state WHERE singleton = 1`).get();
+    const mode = String(row?.mode || "legacy");
     const rollbackExpiresAt =
       typeof row?.rollback_expires_at === "string" ? row.rollback_expires_at : null;
     return {
-      mode: String(row?.mode || "legacy"),
+      mode,
       revision: Number(row?.revision || 0),
       cutoverEpoch: Number(row?.cutover_epoch || 0),
       rollbackAvailable:
-        row?.mode === "sqlite-rollback" &&
+        ["sqlite-rollback", "rollback-preparing"].includes(mode) &&
         Boolean(rollbackExpiresAt) &&
         Date.now() < Date.parse(rollbackExpiresAt || ""),
       rollbackExpiresAt,
+      // Read-only diagnostics cannot acquire the exact mutation locks required
+      // to prove final source freshness. `null` means activation must perform
+      // the mandatory final locked freshness recheck rather than trusting doctor.
+      preparationEvidenceFresh: null,
     };
   };
 
@@ -163,11 +169,16 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
     const health = repositoryHealth();
     const legacyReadable = canReadLegacyAuthority(stateRoot);
     const currentAuthority = authority();
+    const sqliteAuthoritative = [
+      "sqlite-rollback",
+      "rollback-preparing",
+      "sqlite-final",
+    ].includes(String(currentAuthority.mode || ""));
     return {
       state:
         health.schemaVersion === LATEST_SCHEMA_VERSION &&
         health.migrationsApplied === LATEST_SCHEMA_VERSION &&
-        (currentAuthority.mode.startsWith("sqlite") || legacyReadable)
+        (sqliteAuthoritative || legacyReadable)
           ? "compatible"
           : legacyReadable
             ? "transitioning"

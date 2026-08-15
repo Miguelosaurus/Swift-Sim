@@ -22,7 +22,9 @@ main().catch((error) => {
 async function main() {
   const [action = "status", ...args] = process.argv.slice(2);
   if (!["status", "prepare", "activate", "cancel", "rollback"].includes(action)) {
-    throw new Error("Usage: swift-sim-phase4-cutover status|prepare|activate|cancel|rollback --state-root <path> ...");
+    throw new Error(
+      "Usage: swift-sim-phase4-cutover status|prepare|activate|cancel|rollback --state-root <path> ...",
+    );
   }
   const { values } = parseArgs({
     args,
@@ -101,7 +103,9 @@ async function main() {
     const reopened = postSwitchHealth(stateRoot, "legacy");
     console.log(JSON.stringify({ ...result, postSwitchHealth: reopened }, null, 2));
   } finally {
-    try { database.close(); } catch {}
+    try {
+      database.close();
+    } catch {}
   }
 }
 
@@ -135,7 +139,9 @@ function postSwitchHealth(stateRoot, expectedMode) {
       database: health,
       pairingRecordCount: pairingCount,
       deviceBuildRecordCount:
-        device.builds.length + device.apps.length + device.artifactCleanupJobs.length +
+        device.builds.length +
+        device.apps.length +
+        device.artifactCleanupJobs.length +
         device.deliveryReferenceCleanupJobs.length,
       durableSessionRecordCount: sessionCount,
     });
@@ -155,9 +161,11 @@ function readOnlyStatus(stateRoot) {
       database.prepare("SELECT COALESCE(MAX(version), 0) AS value FROM schema_migrations").get()?.value || 0,
     );
     const hasAuthority = Boolean(
-      database.prepare(
-        "SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = 'phase4_authority_state'",
-      ).get(),
+      database
+        .prepare(
+          "SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = 'phase4_authority_state'",
+        )
+        .get(),
     );
     if (!hasAuthority) {
       return Object.freeze({
@@ -171,15 +179,18 @@ function readOnlyStatus(stateRoot) {
         latestSchemaVersion,
       });
     }
-    const row = database.prepare(`SELECT mode, revision, cutover_epoch, preparation_id,
+    const row = database
+      .prepare(`SELECT mode, revision, cutover_epoch, preparation_id,
       evidence_hash, prepared_at, cutover_at, rollback_expires_at, finalized_at
-      FROM phase4_authority_state WHERE singleton = 1`).get();
+      FROM phase4_authority_state WHERE singleton = 1`)
+      .get();
+    const mode = String(row?.mode || "legacy");
     const rollbackExpiresAt = row?.rollback_expires_at ? String(row.rollback_expires_at) : null;
     return Object.freeze({
       readOnly: true,
       mutationAllowed: false,
-      authority: String(row?.mode || "legacy"),
-      transitionState: String(row?.mode || "legacy"),
+      authority: mode,
+      transitionState: mode,
       revision: Number(row?.revision || 0),
       cutoverEpoch: Number(row?.cutover_epoch || 0),
       preparationID: row?.preparation_id || null,
@@ -187,7 +198,9 @@ function readOnlyStatus(stateRoot) {
       preparedAt: row?.prepared_at || null,
       cutoverAt: row?.cutover_at || null,
       rollbackAvailable:
-        row?.mode === "sqlite-rollback" && Boolean(rollbackExpiresAt) && Date.now() < Date.parse(rollbackExpiresAt || ""),
+        ["sqlite-rollback", "rollback-preparing"].includes(mode) &&
+        Boolean(rollbackExpiresAt) &&
+        Date.now() < Date.parse(rollbackExpiresAt || ""),
       rollbackExpiresAt,
       finalizedAt: row?.finalized_at || null,
       schemaVersion,
@@ -221,7 +234,9 @@ function requireOption(value, label) {
 
 function nonNegativeInteger(value, label) {
   const number = Number(requireOption(value, label));
-  if (!Number.isSafeInteger(number) || number < 0) throw new Error(`${label} must be a non-negative integer.`);
+  if (!Number.isSafeInteger(number) || number < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
   return number;
 }
 

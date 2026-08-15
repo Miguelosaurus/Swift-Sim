@@ -8,10 +8,16 @@ import { createSessionLegacyProcessIdentity } from "../infrastructure/sessionLeg
 import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../infrastructure/nodeLockManager.js";
 import { SystemClock } from "../infrastructure/systemClock.js";
-import { deviceBuildProjectionHash, parseDeviceBuildLegacySnapshot } from "./deviceBuildLockedLegacySnapshot.js";
+import {
+  deviceBuildProjectionHash,
+  parseDeviceBuildLegacySnapshot,
+} from "./deviceBuildLockedLegacySnapshot.js";
 import { PairingLockedLegacyWriter } from "./pairingRollbackExport.js";
 import { Phase4PairingAuthorityBridge } from "./phase4PairingAuthorityBridge.js";
-import { SessionCurrentStateRollbackExport, SqliteDurableSessionMutationRepository } from "./phase4SessionStore.js";
+import {
+  SessionCurrentStateRollbackExport,
+  SqliteDurableSessionMutationRepository,
+} from "./phase4SessionStore.js";
 import { SqliteDeviceBuildStateRepository } from "./sqliteDeviceBuildStateRepository.js";
 import { SqlitePairingStateRepository } from "./sqlitePairingStateRepository.js";
 import { SqlitePhase4AuthorityRepository } from "./sqlitePhase4AuthorityRepository.js";
@@ -58,25 +64,47 @@ export class Phase4RollbackCoordinator {
    */
   run(input) {
     validatePhase4MaintenanceEvidence(input.maintenanceEvidence, "rollback");
-    const state = this.#authority.getState();
-    if (state.mode !== "sqlite-rollback") {
-      throw new Error(`Phase-4 rollback requires sqlite-rollback authority, found ${state.mode}.`);
+    const expectedRevision = requireRevision(input.expectedRevision, "Phase-4 rollback revision");
+    const expectedCutoverEpoch = requireRevision(
+      input.expectedCutoverEpoch,
+      "Phase-4 rollback cutover epoch",
+    );
+    const startedAt = canonicalTimestamp(input.now || new Date().toISOString());
+    let state = this.#authority.getState();
+    if (!["sqlite-rollback", "rollback-preparing"].includes(state.mode)) {
+      throw new Error(
+        `Phase-4 rollback requires sqlite-rollback or rollback-preparing authority, found ${state.mode}.`,
+      );
     }
-    if (state.revision !== input.expectedRevision || state.cutoverEpoch !== input.expectedCutoverEpoch) {
+    if (state.revision !== expectedRevision || state.cutoverEpoch !== expectedCutoverEpoch) {
       throw new Error("Phase-4 rollback revision/epoch fence is stale.");
     }
-    const rolledBackAt = input.now || new Date().toISOString();
-    if (!state.rollbackExpiresAt || Date.parse(rolledBackAt) >= Date.parse(state.rollbackExpiresAt)) {
+    if (!state.rollbackExpiresAt || Date.parse(startedAt) >= Date.parse(state.rollbackExpiresAt)) {
       throw new Error("Phase-4 rollback window has expired.");
     }
 
-    // Export CURRENT SQLite state. A crash after any export but before the
-    // selector commit is safe: product routing is still SQLite and retry simply
-    // republishes the same/current rollback material.
+    if (state.mode === "sqlite-rollback") {
+      state = this.#authority.beginRollbackPreparation({
+        expectedRevision: state.revision,
+        expectedCutoverEpoch: state.cutoverEpoch,
+        now: startedAt,
+      });
+    }
+
+    // The durable rollback-preparing mode remains SQLite-authoritative. A crash
+    // after any export but before the selector commit therefore exposes no
+    // partially republished legacy authority. Retry uses the current revision
+    // and republishes/verifies current SQLite state idempotently.
     const pairing = this.#exportPairing();
     const deviceBuild = this.#exportDeviceBuild();
     const sessions = this.#exportSessions();
 
+    // Re-read the wall clock immediately before the selector commit so a long
+    // export cannot cross the half-open expiry boundary and still commit.
+    const commitAt = input.now ? startedAt : new Date().toISOString();
+    if (!state.rollbackExpiresAt || Date.parse(commitAt) >= Date.parse(state.rollbackExpiresAt)) {
+      throw new Error("Phase-4 rollback window expired during current-state export.");
+    }
     const localPairing = this.#pairingBridge.current();
     if (localPairing.mode !== "sqlite-rollback" || !localPairing.sourceRevision) {
       throw new Error("Pairing local rollback fence is not active for the global epoch.");
@@ -84,11 +112,11 @@ export class Phase4RollbackCoordinator {
     const authority = this.#authority.rollbackToLegacy({
       expectedRevision: state.revision,
       expectedCutoverEpoch: state.cutoverEpoch,
-      now: rolledBackAt,
+      now: commitAt,
       beforeSelectorCommit: () => {
         this.#pairingBridge.rollbackInsideGlobalCommit({
           sourceRevision: localPairing.sourceRevision,
-          rolledBackAt,
+          rolledBackAt: commitAt,
         });
       },
     });
@@ -127,18 +155,27 @@ export class Phase4RollbackCoordinator {
     const source = this.#sources.deviceBuilds;
     return this.#lockManager.withLockSync(source.lockRequest, () => {
       const snapshot = this.#deviceRepository.read();
-      const raw = JSON.stringify({
-        version: BUILD_STATE_VERSION,
-        apps: Object.fromEntries(snapshot.apps.map((record) => [record.id, record])),
-        artifactCleanupJobs: Object.fromEntries(
-          snapshot.artifactCleanupJobs.map((record) => [record.id, record]),
-        ),
-        deliveryReferenceCleanupJobs: Object.fromEntries(
-          snapshot.deliveryReferenceCleanupJobs.map((record) => [record.id, record]),
-        ),
-        builds: snapshot.builds,
-      }, null, 2);
-      backupCurrentFile(this.#fileStore, source.path, this.#backupDirectory, "device-builds");
+      const raw = JSON.stringify(
+        {
+          version: BUILD_STATE_VERSION,
+          apps: Object.fromEntries(snapshot.apps.map((record) => [record.id, record])),
+          artifactCleanupJobs: Object.fromEntries(
+            snapshot.artifactCleanupJobs.map((record) => [record.id, record]),
+          ),
+          deliveryReferenceCleanupJobs: Object.fromEntries(
+            snapshot.deliveryReferenceCleanupJobs.map((record) => [record.id, record]),
+          ),
+          builds: snapshot.builds,
+        },
+        null,
+        2,
+      );
+      const backupPath = backupCurrentFile(
+        this.#fileStore,
+        source.path,
+        this.#backupDirectory,
+        "device-builds",
+      );
       this.#fileStore.writeTextSync(source.path, raw, {
         mode: 0o600,
         createParentMode: 0o700,
@@ -152,9 +189,12 @@ export class Phase4RollbackCoordinator {
       }
       return Object.freeze({
         recordCount:
-          snapshot.builds.length + snapshot.apps.length +
-          snapshot.artifactCleanupJobs.length + snapshot.deliveryReferenceCleanupJobs.length,
+          snapshot.builds.length +
+          snapshot.apps.length +
+          snapshot.artifactCleanupJobs.length +
+          snapshot.deliveryReferenceCleanupJobs.length,
         projectionHash: deviceBuildProjectionHash(snapshot),
+        backupPath,
       });
     });
   }
@@ -180,7 +220,9 @@ function backupCurrentFile(fileStore, path, backupDirectory, label) {
   try {
     raw = fileStore.readTextSync(path);
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
     throw error;
   }
   const digest = createHash("sha256").update(raw).digest("hex");
@@ -193,10 +235,32 @@ function backupCurrentFile(fileStore, path, backupDirectory, label) {
       syncDirectory: true,
     });
   } catch (error) {
-    if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error;
+    if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) {
+      throw error;
+    }
   }
   if (fileStore.readTextSync(backupPath) !== raw) {
     throw new Error(`${label} rollback backup did not verify.`);
   }
   return backupPath;
+}
+
+/** @param {unknown} value @param {string} label */
+function requireRevision(value, label) {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error(`${label} must be a non-negative safe integer.`);
+  }
+  return Number(value);
+}
+
+/** @param {string} value */
+function canonicalTimestamp(value) {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+    throw new Error("Phase-4 rollback time must be a valid timestamp.");
+  }
+  const canonical = new Date(value).toISOString();
+  if (canonical !== value) {
+    throw new Error("Phase-4 rollback time must be a canonical UTC timestamp.");
+  }
+  return canonical;
 }

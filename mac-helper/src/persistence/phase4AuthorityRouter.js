@@ -41,7 +41,13 @@ export class Phase4AuthorityRouter {
     if ([PHASE4_AUTHORITY_MODES.legacy, PHASE4_AUTHORITY_MODES.preparing].includes(state.mode)) {
       return backends.legacy();
     }
-    if ([PHASE4_AUTHORITY_MODES.sqliteRollback, PHASE4_AUTHORITY_MODES.sqliteFinal].includes(state.mode)) {
+    if (
+      [
+        PHASE4_AUTHORITY_MODES.sqliteRollback,
+        PHASE4_AUTHORITY_MODES.rollbackPreparing,
+        PHASE4_AUTHORITY_MODES.sqliteFinal,
+      ].includes(state.mode)
+    ) {
       return backends.sqlite();
     }
     throw new Error(`Unsupported Phase-4 authority mode ${state.mode}.`);
