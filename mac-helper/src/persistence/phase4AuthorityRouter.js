@@ -38,15 +38,16 @@ export class Phase4AuthorityRouter {
       throw new TypeError("Phase-4 authority routing requires legacy and SQLite backends.");
     }
     const state = this.#authorityRepository.getState();
-    if ([PHASE4_AUTHORITY_MODES.legacy, PHASE4_AUTHORITY_MODES.preparing].includes(state.mode)) {
+    if (
+      state.mode === PHASE4_AUTHORITY_MODES.legacy ||
+      state.mode === PHASE4_AUTHORITY_MODES.preparing
+    ) {
       return backends.legacy();
     }
     if (
-      [
-        PHASE4_AUTHORITY_MODES.sqliteRollback,
-        PHASE4_AUTHORITY_MODES.rollbackPreparing,
-        PHASE4_AUTHORITY_MODES.sqliteFinal,
-      ].includes(state.mode)
+      state.mode === PHASE4_AUTHORITY_MODES.sqliteRollback ||
+      state.mode === PHASE4_AUTHORITY_MODES.rollbackPreparing ||
+      state.mode === PHASE4_AUTHORITY_MODES.sqliteFinal
     ) {
       return backends.sqlite();
     }
@@ -66,7 +67,9 @@ export class Phase4AuthorityRouter {
  * }} input
  */
 export function createAuthorityRoutedFacade({ router, legacy, sqlite }) {
+  /** @type {Record<string, unknown> | undefined} */
   let legacyInstance;
+  /** @type {Record<string, unknown> | undefined} */
   let sqliteInstance;
   const loadLegacy = () => (legacyInstance ??= legacy());
   const loadSqlite = () => (sqliteInstance ??= sqlite());
@@ -76,11 +79,13 @@ export function createAuthorityRoutedFacade({ router, legacy, sqlite }) {
       get(_target, property) {
         if (property === "phase4AuthorityState") return () => router.current();
         if (property === Symbol.toStringTag) return "Phase4AuthorityRoutedFacade";
-        return (...args) =>
+        /** @param {...unknown} args */
+        const routed = (...args) =>
           router.read({
             legacy: () => callMethod(loadLegacy(), property, args),
             sqlite: () => callMethod(loadSqlite(), property, args),
           });
+        return routed;
       },
     },
   );
