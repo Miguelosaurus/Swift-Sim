@@ -7,7 +7,10 @@ import {
   SqlitePairingStateRepository,
 } from "./sqlitePairingStateRepository.js";
 
+/** @typedef {import("../contracts/pairing.js").PairingCredentialRecord} PairingCredentialRecord */
+/** @typedef {import("../contracts/pairing.js").PairingInvitationRecord} PairingInvitationRecord */
 /** @typedef {import("./swiftSimSqliteDatabase.js").SwiftSimSqliteDatabase} SwiftSimSqliteDatabase */
+/** @typedef {{ credential: PairingCredentialRecord | null, invitations: PairingInvitationRecord[] }} PairingMutableSnapshot */
 
 export class SqlitePairingMutationRepository {
   #database;
@@ -36,13 +39,15 @@ export class SqlitePairingMutationRepository {
     return this.#reader.read();
   }
 
-  /** @template T @param {(snapshot: ReturnType<SqlitePairingStateRepository["read"]>) => T} operation */
+  /** @template T @param {(snapshot: PairingMutableSnapshot) => T} operation @returns {T} */
   mutate(operation) {
     if (typeof operation !== "function") throw new TypeError("Pairing mutation operation is required.");
     return this.#database.transaction(() => {
-      const snapshot = structuredClone(this.#reader.read());
+      const snapshot = /** @type {PairingMutableSnapshot} */ (
+        structuredClone(this.#reader.read())
+      );
       const result = operation(snapshot);
-      if (result && typeof result === "object" && typeof result.then === "function") {
+      if (isThenable(result)) {
         throw new Error("Pairing SQLite mutations must be synchronous.");
       }
       const normalized = normalizePairingStateSnapshot(snapshot);
@@ -110,6 +115,7 @@ export class SqlitePairingStore {
     });
   }
 
+  /** @param {string | undefined} macName */
   updateMacName(macName) {
     const nextName = String(macName || "").trim();
     return this.#repository.mutate((snapshot) => {
@@ -132,6 +138,7 @@ export class SqlitePairingStore {
     };
   }
 
+  /** @param {string | undefined | null} token */
   tokenMatches(token) {
     const expected = this.current().token;
     if (!expected || !token) return false;
@@ -156,7 +163,8 @@ export class SqlitePairingInviteStore {
     this.#now = now;
   }
 
-  create({ pairing, ttlMs = this.#ttlMs } = {}) {
+  /** @param {{ pairing: PairingCredentialRecord, ttlMs?: number }} input */
+  create({ pairing, ttlMs = this.#ttlMs }) {
     if (!pairing?.token || !pairing.installationID) throw new Error("Pairing state is unavailable.");
     const lifetime = normalizeTTL(ttlMs);
     const invite = randomBytes(32).toString("base64url");
@@ -165,6 +173,7 @@ export class SqlitePairingInviteStore {
       assertCredential(snapshot, pairing.installationID);
       const now = this.#now();
       snapshot.invitations = snapshot.invitations.filter((item) => Date.parse(item.expiresAt) > now);
+      /** @type {PairingInvitationRecord} */
       const record = {
         id: randomUUID(),
         inviteHash,
@@ -180,6 +189,7 @@ export class SqlitePairingInviteStore {
     return { invite, expiresAt: result.expiresAt };
   }
 
+  /** @param {string} invite @param {string} clientNonce @param {PairingCredentialRecord} pairing */
   claim(invite, clientNonce, pairing) {
     const normalizedInvite = String(invite || "");
     const normalizedNonce = String(clientNonce || "");
@@ -191,7 +201,7 @@ export class SqlitePairingInviteStore {
       const now = this.#now();
       const inviteHash = digest(normalizedInvite);
       const record = snapshot.invitations.find((item) => equalDigest(item.inviteHash, inviteHash));
-      if (!record || record.installationID !== pairing?.installationID) {
+      if (!record || record.installationID !== pairing.installationID) {
         return { ok: false, code: "expired" };
       }
       if (Date.parse(record.expiresAt) <= now) {
@@ -211,6 +221,7 @@ export class SqlitePairingInviteStore {
     });
   }
 
+  /** @param {string} invite @param {PairingCredentialRecord | undefined} [pairing] */
   inspect(invite, pairing = undefined) {
     const normalizedInvite = String(invite || "");
     if (!/^[A-Za-z0-9_-]{32,}$/.test(normalizedInvite)) return null;
@@ -238,12 +249,14 @@ export class SqlitePairingInviteStore {
   }
 }
 
+/** @param {PairingMutableSnapshot} snapshot @param {string} installationID */
 function assertCredential(snapshot, installationID) {
   if (!snapshot.credential || snapshot.credential.installationID !== installationID) {
     throw new Error("Pairing invitation does not match the SQLite pairing credential.");
   }
 }
 
+/** @param {unknown} value */
 function normalizeTTL(value) {
   const ttlMs = Number(value);
   if (!Number.isFinite(ttlMs) || ttlMs < 1 || ttlMs > MAX_TTL_MS) {
@@ -252,12 +265,23 @@ function normalizeTTL(value) {
   return ttlMs;
 }
 
+/** @param {string} value */
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/** @param {string} a @param {string} b */
 function equalDigest(a, b) {
   const left = Buffer.from(String(a || ""));
   const right = Buffer.from(String(b || ""));
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/** @param {unknown} value */
+function isThenable(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof /** @type {{ then?: unknown }} */ (value).then === "function"
+  );
 }
