@@ -9,10 +9,11 @@
  *   shadow: Record<string, unknown>,
  *   compatibility: Record<string, unknown>,
  *   artifactStorage: Record<string, unknown>,
+ *   authority?: Record<string, unknown>,
  * }} sections
  */
 export function phase4SupportRecoveryActions(sections) {
-  const { database, migration, shadow, compatibility, artifactStorage } = sections;
+  const { database, migration, shadow, compatibility, artifactStorage, authority } = sections;
   const actions = new Set();
   const failure = database.failureCategory;
 
@@ -39,6 +40,15 @@ export function phase4SupportRecoveryActions(sections) {
   }
   if (needsGuidance(compatibility)) {
     actions.add("preserve-compatibility-paths-and-review-cutover-state");
+  }
+  if (authority?.mode === "preparing") {
+    actions.add("keep-legacy-authority-and-resume-or-cancel-cutover-preparation");
+  }
+  if (authority?.mode === "sqlite-rollback" && authority.rollbackAvailable === true) {
+    actions.add("preserve-rollback-material-until-separate-finalization-decision");
+  }
+  if (authority && needsGuidance(authority)) {
+    actions.add("keep-authority-unchanged-and-review-cutover-state");
   }
   if (needsGuidance(artifactStorage)) {
     actions.add("review-artifact-measurement-without-cleanup");

@@ -47,6 +47,7 @@ test("operator diagnostics mark malformed existing legacy authority incompatible
     const report = collectPhase4OperatorDiagnostics({ stateRoot, artifactAudit });
     assert.equal(report.readOnly, true);
     assert.equal(report.mutationAllowed, false);
+    assert.equal(report.authority.mode, "legacy");
     assert.equal(report.compatibility.status, "blocked");
     assert.equal(report.compatibility.state, "incompatible");
     assert.equal(report.compatibility.legacyReadable, false);
@@ -78,10 +79,12 @@ test("operator diagnostics report a valid v7 database as migration attention rat
     const report = collectPhase4OperatorDiagnostics({ stateRoot, artifactAudit });
     assert.equal(report.database.status, "attention");
     assert.equal(report.database.schemaVersion, 7);
-    assert.equal(report.database.latestSchemaVersion, 8);
-    assert.equal(report.database.missingTableCount, 1);
+    assert.equal(report.database.latestSchemaVersion, 9);
+    assert.equal(report.database.missingTableCount, 2);
     assert.equal(report.migration.status, "healthy");
     assert.equal(report.migration.outcome, "checkpointed");
+    assert.equal(report.authority.mode, "legacy");
+    assert.equal(report.authority.revision, 0);
     assert.equal(report.compatibility.state, "transitioning");
     assert.ok(
       report.recovery.actionCodes.includes("keep-authority-unchanged-and-resume-supported-migration"),

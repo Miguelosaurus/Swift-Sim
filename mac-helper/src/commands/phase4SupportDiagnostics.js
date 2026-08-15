@@ -2,6 +2,7 @@
 
 import { observePhase4DiagnosticProbe } from "./phase4DiagnosticFailure.js";
 import { projectPhase4ArtifactHealth } from "./phase4ArtifactDiagnosticProjection.js";
+import { projectPhase4AuthorityHealth } from "./phase4AuthorityDiagnosticProjection.js";
 import { projectPhase4CompatibilityHealth } from "./phase4CompatibilityDiagnosticProjection.js";
 import { projectPhase4DatabaseHealth } from "./phase4DatabaseDiagnosticProjection.js";
 import { projectPhase4MigrationHealth } from "./phase4MigrationDiagnosticProjection.js";
@@ -18,6 +19,7 @@ import { phase4SupportRecoveryActions } from "./phase4SupportRecovery.js";
  *   shadow?: () => unknown,
  *   compatibility?: () => unknown,
  *   artifactStorage?: () => unknown,
+ *   authority?: () => unknown,
  * }} [probes]
  */
 export function collectPhase4SupportDiagnostics(probes = {}) {
@@ -32,12 +34,14 @@ export function collectPhase4SupportDiagnostics(probes = {}) {
   const artifactStorage = projectPhase4ArtifactHealth(
     observePhase4DiagnosticProbe(probes.artifactStorage),
   );
+  const authority = projectPhase4AuthorityHealth(observePhase4DiagnosticProbe(probes.authority));
   const sections = {
     database,
     migration,
     shadow,
     compatibility,
     artifactStorage,
+    authority,
   };
   const sectionList = Object.values(sections);
   const actionCodes = phase4SupportRecoveryActions(sections);
@@ -56,11 +60,7 @@ export function collectPhase4SupportDiagnostics(probes = {}) {
   });
 }
 
-/**
- * Serialize only freshly collected, allowlisted support evidence.
- *
- * @param {Parameters<typeof collectPhase4SupportDiagnostics>[0]} [probes]
- */
+/** @param {Parameters<typeof collectPhase4SupportDiagnostics>[0]} [probes] */
 export function serializePhase4SupportEvidence(probes = {}) {
   const report = collectPhase4SupportDiagnostics(probes);
   return `${JSON.stringify(report, null, 2)}\n`;
@@ -70,14 +70,12 @@ export function serializePhase4SupportEvidence(probes = {}) {
 function overallStatus(sections) {
   const blocked = sections.some((section) => section.status === "blocked");
   if (blocked) return "blocked";
-
   const availableCount = sections.filter((section) => section.available).length;
   if (availableCount === 0) {
     const attempted = sections.some(hasAttemptedObservation);
     if (attempted) return "attention";
     return "unavailable";
   }
-
   const degraded = sections.some((section) => section.status !== "healthy");
   if (availableCount !== sections.length || degraded) return "attention";
   return "healthy";

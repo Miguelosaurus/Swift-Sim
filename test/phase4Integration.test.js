@@ -58,8 +58,8 @@ function fakeSpawnSync(calls = []) {
   };
 }
 
-test("Phase-4 global SQLite history appends durable sessions as v8 without changing v1-v7", () => {
-  assert.equal(PHASE4_SQLITE_MIGRATIONS.length, 8);
+test("Phase-4 global SQLite history appends global authority as v9 without changing v1-v8", () => {
+  assert.equal(PHASE4_SQLITE_MIGRATIONS.length, 9);
   for (let index = 0; index < DEVICE_BUILD_SQLITE_MIGRATIONS.length; index += 1) {
     assert.strictEqual(PHASE4_SQLITE_MIGRATIONS[index], DEVICE_BUILD_SQLITE_MIGRATIONS[index]);
   }
@@ -74,11 +74,12 @@ test("Phase-4 global SQLite history appends durable sessions as v8 without chang
       { version: 6, name: "device_build_domain_state" },
       { version: 7, name: "device_build_shadow_mismatch_evidence" },
       { version: 8, name: "durable_session_domain_state" },
+      { version: 9, name: "phase4_global_authority_epoch" },
     ],
   );
 });
 
-test("schema v7 upgrades to v8, creates only the frozen session columns, and reopens", () => {
+test("schema v7 upgrades through frozen v8 to v9, preserves six session columns, and reopens", () => {
   withTempDirectory((root) => {
     const databasePath = join(root, "state.sqlite");
     const v7 = new SwiftSimSqliteDatabase({
@@ -92,12 +93,12 @@ test("schema v7 upgrades to v8, creates only the frozen session columns, and reo
       path: databasePath,
       migrations: PHASE4_SQLITE_MIGRATIONS,
     });
-    assert.equal(upgraded.health().schemaVersion, 8);
-    const columns = upgraded
+    assert.equal(upgraded.health().schemaVersion, 9);
+    const sessionColumns = upgraded
       .prepare("PRAGMA table_info(session_records)")
       .all()
       .map((row) => String(row.name));
-    assert.deepEqual(columns, [
+    assert.deepEqual(sessionColumns, [
       "id",
       "token",
       "project",
@@ -105,6 +106,29 @@ test("schema v7 upgrades to v8, creates only the frozen session columns, and reo
       "simulator_udid",
       "created_at",
     ]);
+    const authorityColumns = upgraded
+      .prepare("PRAGMA table_info(phase4_authority_state)")
+      .all()
+      .map((row) => String(row.name));
+    assert.deepEqual(authorityColumns, [
+      "singleton",
+      "storage_version",
+      "mode",
+      "revision",
+      "cutover_epoch",
+      "preparation_id",
+      "evidence_hash",
+      "evidence_json",
+      "prepared_at",
+      "cutover_at",
+      "rollback_expires_at",
+      "finalized_at",
+      "updated_at",
+    ]);
+    assert.equal(
+      upgraded.prepare("SELECT mode FROM phase4_authority_state WHERE singleton = 1").get().mode,
+      "legacy",
+    );
     upgraded.close();
 
     const reopened = new SwiftSimSqliteDatabase({
@@ -112,12 +136,12 @@ test("schema v7 upgrades to v8, creates only the frozen session columns, and reo
       migrations: PHASE4_SQLITE_MIGRATIONS,
     });
     assert.equal(reopened.health().ok, true);
-    assert.equal(reopened.health().schemaVersion, 8);
+    assert.equal(reopened.health().schemaVersion, 9);
     reopened.close();
   });
 });
 
-test("every production shared-state opener accepts an already-latest v8 database", () => {
+test("every production shared-state opener accepts an already-latest v9 database", () => {
   withTempDirectory((root) => {
     const databasePath = join(root, "state.sqlite");
     const latest = new SwiftSimSqliteDatabase({
@@ -142,7 +166,7 @@ test("every production shared-state opener accepts an already-latest v8 database
       },
       spawnSync: fakeSpawnSync(),
     });
-    assert.equal(deviceRuntime.health().schemaVersion, 8);
+    assert.equal(deviceRuntime.health().schemaVersion, 9);
     deviceRuntime.importLegacy();
     deviceRuntime.close();
 
@@ -152,7 +176,7 @@ test("every production shared-state opener accepts an already-latest v8 database
       spawnSync: fakeSpawnSync(),
     });
     assert.equal(sessionObservation.health.ok, true);
-    assert.equal(sessionObservation.health.schemaVersion, 8);
+    assert.equal(sessionObservation.health.schemaVersion, 9);
     assert.equal(sessionObservation.authority, "legacy-json");
     assert.equal(sessionObservation.postImportMismatchCount, 0);
   });

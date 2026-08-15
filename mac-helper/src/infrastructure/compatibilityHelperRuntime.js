@@ -1,25 +1,22 @@
 // @ts-check
 
-import { DeviceBuildStore } from "../deviceBuildStore.js";
 import { DeviceDeliveryAdapter } from "../deviceDelivery.js";
 import { DeviceInventoryAdapter } from "../deviceInventory.js";
-import { PairingInviteStore } from "../pairingInviteStore.js";
-import { PairingStore } from "../pairingStore.js";
 import { ServeSimAdapter } from "../serveSimAdapter.js";
-import { SessionStore } from "../sessionStore.js";
 import { SimulatorProfileResolver } from "../simulatorProfile.js";
 import { NativeCompanionTransport } from "../transports/nativeCompanionTransport.js";
 import { SystemIdGenerator } from "./systemIdGenerator.js";
 import { SystemClock } from "./systemClock.js";
 import { ServeSimTransport } from "../transports/serveSimTransport.js";
+import { createPhase4ProductionStoreFactories } from "../persistence/phase4ProductionStores.js";
 
 /**
  * @typedef {{
- *   createSessionStore(): SessionStore,
- *   createDeviceBuildStore(): DeviceBuildStore,
+ *   createSessionStore(): import("../sessionStore.js").SessionStore,
+ *   createDeviceBuildStore(): import("../deviceBuildStore.js").DeviceBuildStore,
  *   createDeviceDelivery(): DeviceDeliveryAdapter,
- *   createPairingStore(): PairingStore,
- *   createPairingInviteStore(): PairingInviteStore,
+ *   createPairingStore(): import("../pairingStore.js").PairingStore,
+ *   createPairingInviteStore(): import("../pairingInviteStore.js").PairingInviteStore,
  *   createSimulatorProfiles(): SimulatorProfileResolver,
  *   createDeviceInventory(): DeviceInventoryAdapter,
  *   createServeSimAdapter(): ServeSimAdapter,
@@ -29,11 +26,11 @@ import { ServeSimTransport } from "../transports/serveSimTransport.js";
  *   createClock(): SystemClock,
  * }} CompatibilityHelperFactories
  * @typedef {{
- *   store: SessionStore,
- *   deviceBuildStore: DeviceBuildStore,
+ *   store: import("../sessionStore.js").SessionStore,
+ *   deviceBuildStore: import("../deviceBuildStore.js").DeviceBuildStore,
  *   deviceDelivery: DeviceDeliveryAdapter,
- *   pairingStore: PairingStore,
- *   pairingInviteStore: PairingInviteStore,
+ *   pairingStore: import("../pairingStore.js").PairingStore,
+ *   pairingInviteStore: import("../pairingInviteStore.js").PairingInviteStore,
  *   simulatorProfiles: SimulatorProfileResolver,
  *   deviceInventory: DeviceInventoryAdapter,
  *   adapter: ServeSimAdapter,
@@ -48,12 +45,13 @@ import { ServeSimTransport } from "../transports/serveSimTransport.js";
 
 /** @returns {CompatibilityHelperFactories} */
 function defaultFactories() {
+  const phase4 = createPhase4ProductionStoreFactories();
   return {
-    createSessionStore: () => new SessionStore(),
-    createDeviceBuildStore: () => new DeviceBuildStore(),
+    createSessionStore: phase4.createSessionStore,
+    createDeviceBuildStore: phase4.createDeviceBuildStore,
     createDeviceDelivery: () => new DeviceDeliveryAdapter(),
-    createPairingStore: () => new PairingStore(),
-    createPairingInviteStore: () => new PairingInviteStore(),
+    createPairingStore: phase4.createPairingStore,
+    createPairingInviteStore: phase4.createPairingInviteStore,
     createSimulatorProfiles: () => new SimulatorProfileResolver(),
     createDeviceInventory: () => new DeviceInventoryAdapter(),
     createServeSimAdapter: () => new ServeSimAdapter(),
@@ -70,8 +68,6 @@ function defaultFactories() {
  */
 export function createCompatibilityHelperRuntime({ factories = defaultFactories() } = {}) {
   const resolved = requireFactories(factories);
-  // PairingStore is the compatibility owner of the shared private state root.
-  // Construct it before repositories that acquire files/locks beneath that root.
   const pairingStore = resolved.createPairingStore();
   const adapter = resolved.createServeSimAdapter();
   const idGenerator = resolved.createIdGenerator();

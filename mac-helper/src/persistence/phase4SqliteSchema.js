@@ -5,14 +5,18 @@ import {
   SESSION_DURABLE_SQLITE_REQUIRED_TABLES,
   SESSION_DURABLE_SQLITE_SCHEMA_STATEMENTS,
 } from "./sessionDurableSqliteSchema.js";
+import {
+  PHASE4_AUTHORITY_SQLITE_REQUIRED_TABLES,
+  PHASE4_AUTHORITY_SQLITE_SCHEMA_STATEMENTS,
+} from "./phase4AuthoritySchema.js";
 
 /** @typedef {import("../contracts/repository.js").SchemaMigration} SchemaMigration */
 
 /**
  * Complete Phase-4 migration history for the shared ~/.swift-sim/state.sqlite.
- * Prefix exports remain available to isolated historical tests, but production
- * openers must use this complete list so a database upgraded by one observer is
- * never rejected as newer by another observer in the same build.
+ * Migrations v1-v8 are frozen and unchanged. v9 adds only the single global
+ * durable authority selector needed to coordinate pairing, device-build, and
+ * durable-session activation; it adds no domain data and defaults to legacy.
  *
  * @type {readonly SchemaMigration[]}
  */
@@ -23,5 +27,11 @@ export const PHASE4_SQLITE_MIGRATIONS = Object.freeze([
     name: "durable_session_domain_state",
     statements: SESSION_DURABLE_SQLITE_SCHEMA_STATEMENTS,
     requiredTables: SESSION_DURABLE_SQLITE_REQUIRED_TABLES,
+  }),
+  Object.freeze({
+    version: 9,
+    name: "phase4_global_authority_epoch",
+    statements: PHASE4_AUTHORITY_SQLITE_SCHEMA_STATEMENTS,
+    requiredTables: PHASE4_AUTHORITY_SQLITE_REQUIRED_TABLES,
   }),
 ]);
