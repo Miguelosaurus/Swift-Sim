@@ -307,7 +307,13 @@ function parseAuthorityRow(row) {
   }
   const value = /** @type {Record<string, unknown>} */ (row);
   const mode = String(value.mode || "");
-  if (!Object.values(PHASE4_AUTHORITY_MODES).includes(mode)) {
+  if (
+    mode !== PHASE4_AUTHORITY_MODES.legacy &&
+    mode !== PHASE4_AUTHORITY_MODES.preparing &&
+    mode !== PHASE4_AUTHORITY_MODES.sqliteRollback &&
+    mode !== PHASE4_AUTHORITY_MODES.rollbackPreparing &&
+    mode !== PHASE4_AUTHORITY_MODES.sqliteFinal
+  ) {
     throw new Error(`Phase-4 authority state has invalid mode ${mode || "<empty>"}.`);
   }
   const evidenceJSON = nullableString(value.evidence_json);
@@ -394,6 +400,7 @@ function nullableString(value) {
   return value;
 }
 
+/** @param {number} expected @param {number} actual */
 function staleRevision(expected, actual) {
   throw new Error(`Phase-4 authority revision is stale: expected ${expected}, found ${actual}.`);
 }
