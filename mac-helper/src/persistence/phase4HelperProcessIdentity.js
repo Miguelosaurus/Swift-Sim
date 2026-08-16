@@ -10,7 +10,10 @@ import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
 
 const JOURNAL_VERSION = 1;
 const JOURNAL_ROLE = "swift-sim-helper";
-const JOURNAL_RELATIVE_PATH = Object.freeze(["runtime", "helper-process-identity.json"]);
+const JOURNAL_RELATIVE_PATH = Object.freeze([
+  "runtime",
+  "helper-process-identity.json",
+]);
 const JOURNAL_WRITE_OPTIONS = Object.freeze({
   mode: 0o600,
   createParentMode: 0o700,
@@ -39,10 +42,14 @@ export function publishPhase4HelperProcessIdentity({
   spawnSync,
   fileStore = new NodeAtomicFileStore(),
 }) {
-  const identify = createSessionLegacyProcessIdentity({ spawnSync: /** @type {any} */ (spawnSync) });
+  const identify = createSessionLegacyProcessIdentity({
+    spawnSync: /** @type {any} */ (spawnSync),
+  });
   const identity = identify(process.pid);
   if (!identity?.startToken) {
-    throw new Error("Swift Sim helper could not establish its exact Darwin process-start identity.");
+    throw new Error(
+      "Swift Sim helper could not establish its exact Darwin process-start identity.",
+    );
   }
   const record = Object.freeze({
     version: JOURNAL_VERSION,
@@ -50,7 +57,11 @@ export function publishPhase4HelperProcessIdentity({
     pid: process.pid,
     startedAt: identity.startToken,
   });
-  fileStore.writeJSONSync(phase4HelperProcessIdentityPath(stateRoot), record, JOURNAL_WRITE_OPTIONS);
+  fileStore.writeJSONSync(
+    phase4HelperProcessIdentityPath(stateRoot),
+    record,
+    JOURNAL_WRITE_OPTIONS,
+  );
   return record;
 }
 
@@ -67,7 +78,11 @@ export function publishPhase4HelperProcessIdentity({
  *   expectedIdentity: { pid: number, startedAt: string },
  * }} options
  */
-export function inspectPhase4HelperProcessIdentity({ stateRoot, spawnSync, expectedIdentity }) {
+export function inspectPhase4HelperProcessIdentity({
+  stateRoot,
+  spawnSync,
+  expectedIdentity,
+}) {
   const expected = normalizeExpectedIdentity(expectedIdentity);
   const path = phase4HelperProcessIdentityPath(stateRoot);
   let parsed;
@@ -86,7 +101,9 @@ export function inspectPhase4HelperProcessIdentity({ stateRoot, spawnSync, expec
         observedStartedAt: null,
       });
     }
-    throw new Error("Phase-4 helper process identity journal is unreadable.", { cause: error });
+    throw new Error("Phase-4 helper process identity journal is unreadable.", {
+      cause: error,
+    });
   }
   const journal = normalizeJournal(parsed);
   const journalMatchesExpected =
@@ -104,7 +121,9 @@ export function inspectPhase4HelperProcessIdentity({ stateRoot, spawnSync, expec
     });
   }
 
-  const identify = createSessionLegacyProcessIdentity({ spawnSync: /** @type {any} */ (spawnSync) });
+  const identify = createSessionLegacyProcessIdentity({
+    spawnSync: /** @type {any} */ (spawnSync),
+  });
   const observed = identify(journal.pid);
   if (observed === null) {
     return frozenResult({
