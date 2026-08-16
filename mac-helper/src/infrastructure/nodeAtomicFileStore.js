@@ -102,6 +102,19 @@ export function ensureDirectoryModeSync(path, mode) {
   chmodSync(path, normalizedMode);
 }
 
+/** @param {string} path @param {number} mode */
+export function ensureFileModeSync(path, mode) {
+  if (typeof path !== "string" || path.length === 0) {
+    throw new TypeError("File path must be a non-empty string.");
+  }
+  const normalizedMode = normalizeMode(mode, "file");
+  const current = lstatSync(path);
+  if (current.isSymbolicLink() || !current.isFile()) {
+    throw new Error("File path must resolve to a regular file.");
+  }
+  chmodSync(path, normalizedMode);
+}
+
 /**
  * @param {string} path
  * @param {string} value

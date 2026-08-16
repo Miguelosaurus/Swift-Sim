@@ -19,6 +19,7 @@ const required = [
   "dist/mac-helper/bin/swift-sim-entry.js",
   "dist/mac-helper/bin/swift-sim-helper-entry.js",
   "dist/mac-helper/bin/swift-sim-phase4-cutover.js",
+  "dist/mac-helper/build-provenance.json",
   "dist/mac-helper/bin/swift-sim-entry.js.map",
   "dist/package.json",
   "package.json",
@@ -36,6 +37,10 @@ for (const path of files) {
   if (prohibited.test(path) || path.includes("/fixtures/") || path.includes("/results/")) {
     throw new Error(`Unexpected package path: ${path}`);
   }
+}
+const provenance = JSON.parse(readFileSync(`${process.env.ROOT}/dist/mac-helper/build-provenance.json`, "utf8"));
+if (provenance?.version !== 1 || !/^[0-9a-f]{40}$/.test(String(provenance?.gitSHA || ""))) {
+  throw new Error("Packaged Phase-4 candidate provenance is invalid");
 }
 console.log(`Verified ${files.length} intended package paths`);
 NODE
