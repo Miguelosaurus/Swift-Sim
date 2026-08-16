@@ -33,6 +33,7 @@ const CANDIDATE_SHA = "a".repeat(40);
 const OTHER_SHA = "b".repeat(40);
 const HELPER_PID = 900_000_001;
 const HELPER_STARTED_AT = "Mon Aug 17 00:00:00 2026";
+const LOCK_OWNER_STARTED_AT = "Mon Aug 17 00:05:00 2026";
 const PREPARATION_ID = "c".repeat(64);
 
 function evidence(overrides = {}) {
@@ -143,8 +144,15 @@ function writeJSON(path, value) {
 
 function absentHelperSpawn(command, args, options) {
   assert.equal(command, "/bin/ps");
-  assert.deepEqual(args, ["-p", String(HELPER_PID), "-o", "lstart="]);
+  assert.equal(args[0], "-p");
+  assert.equal(args[2], "-o");
+  assert.equal(args[3], "lstart=");
   assert.equal(options.encoding, "utf8");
+  const pid = Number(args[1]);
+  if (pid === HELPER_PID) return { status: 1, stdout: "", stderr: "" };
+  if (pid === process.pid) {
+    return { status: 0, stdout: `${LOCK_OWNER_STARTED_AT}\n`, stderr: "" };
+  }
   return { status: 1, stdout: "", stderr: "" };
 }
 
@@ -173,9 +181,40 @@ function schemaVersion(databasePath) {
   }
 }
 
+function databaseSignature(databasePath) {
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    database.exec("PRAGMA query_only = ON");
+    const schema = database
+      .prepare(
+        `SELECT type, name, tbl_name, sql
+         FROM sqlite_schema
+         WHERE name NOT LIKE 'sqlite_%'
+         ORDER BY type, name`,
+      )
+      .all();
+    const hasMigrations = schema.some(
+      (entry) => entry.type === "table" && entry.name === "schema_migrations",
+    );
+    const migrations = hasMigrations
+      ? database
+          .prepare(
+            `SELECT version, name, checksum, applied_at
+             FROM schema_migrations
+             ORDER BY version`,
+          )
+          .all()
+      : [];
+    return JSON.stringify({ schema, migrations });
+  } finally {
+    database.close();
+  }
+}
+
 async function assertBlockedBeforeMigration(version, mutate, expected = /Phase-4/i) {
   await withFixture(version, async ({ stateRoot, databasePath, provenancePath }) => {
     await mutate({ stateRoot, databasePath, provenancePath });
+    const before = databaseSignature(databasePath);
     let opens = 0;
     await assert.rejects(
       withPhase4MaintenanceDatabase(
@@ -198,7 +237,11 @@ async function assertBlockedBeforeMigration(version, mutate, expected = /Phase-4
       expected,
     );
     assert.equal(opens, 0, "migration-capable owner must not be constructed");
-    assert.equal(schemaVersion(databasePath), version, "v9 must not be written before preflight");
+    assert.equal(
+      databaseSignature(databasePath),
+      before,
+      "preflight failure must not add or rewrite database schema/migration state",
+    );
   });
 }
 
@@ -307,7 +350,7 @@ test("empty permissionsMissing is success, while a private-permission defect fai
           spawnSync: absentHelperSpawn,
           provenancePath,
         }),
-      /privatePermissionsVerified|pre-migration maintenance condition/i,
+      /private regular file|privatePermissionsVerified|pre-migration maintenance condition/i,
     );
   });
 });
