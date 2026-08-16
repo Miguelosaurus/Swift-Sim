@@ -186,6 +186,7 @@ function processStartToken(pid, spawnSync) {
 
 /** @param {string} stateRoot @param {boolean} databasePresent */
 function privatePermissions(stateRoot, databasePresent) {
+  /** @type {Array<[string, string, boolean, "directory" | "file"]>} */
   const checks = [
     ["stateRoot", stateRoot, true, "directory"],
     ["database", join(stateRoot, "state.sqlite"), databasePresent, "file"],
@@ -195,7 +196,9 @@ function privatePermissions(stateRoot, databasePresent) {
     ["sessions", join(stateRoot, "sessions.json"), false, "file"],
     ["helperIdentity", join(stateRoot, "runtime", "helper-process-identity.json"), false, "file"],
   ];
+  /** @type {string[]} */
   const missing = [];
+  /** @type {Record<string, { present: boolean, private: boolean }>} */
   const entries = {};
   for (const [label, path, required, type] of checks) {
     if (!exists(path)) {
@@ -229,6 +232,7 @@ function readSnapshotFacts(stateRoot) {
 
 /** @param {string} stateRoot */
 function legacySourceHashes(stateRoot) {
+  /** @param {string} fileName */
   const source = (fileName) => {
     const path = join(stateRoot, fileName);
     if (!exists(path)) return Object.freeze({ present: false, sha256: null, byteLength: 0 });
