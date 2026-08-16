@@ -58,37 +58,38 @@ export class Phase4AuthorityRouter {
 /**
  * Small method-level facade used by product stores. Methods are resolved lazily
  * so constructing an authority-routed facade never initializes or mutates the
- * inactive backend.
+ * inactive backend. Optional fixed properties are only for backend-identical,
+ * non-durable layout metadata such as the legacy artifact/store path.
  *
  * @param {{
  *  router: Phase4AuthorityRouter,
  *  legacy: () => Record<string, unknown>,
  *  sqlite: () => Record<string, unknown>,
+ *  properties?: Record<string, unknown>,
  * }} input
  */
-export function createAuthorityRoutedFacade({ router, legacy, sqlite }) {
+export function createAuthorityRoutedFacade({ router, legacy, sqlite, properties = {} }) {
   /** @type {Record<string, unknown> | undefined} */
   let legacyInstance;
   /** @type {Record<string, unknown> | undefined} */
   let sqliteInstance;
   const loadLegacy = () => (legacyInstance ??= legacy());
   const loadSqlite = () => (sqliteInstance ??= sqlite());
-  return new Proxy(
-    {},
-    {
-      get(_target, property) {
-        if (property === "phase4AuthorityState") return () => router.current();
-        if (property === Symbol.toStringTag) return "Phase4AuthorityRoutedFacade";
-        /** @param {...unknown} args */
-        const routed = (...args) =>
-          router.read({
-            legacy: () => callMethod(loadLegacy(), property, args),
-            sqlite: () => callMethod(loadSqlite(), property, args),
-          });
-        return routed;
-      },
+  const target = Object.freeze({ ...properties });
+  return new Proxy(target, {
+    get(fixed, property) {
+      if (Object.prototype.hasOwnProperty.call(fixed, property)) return Reflect.get(fixed, property);
+      if (property === "phase4AuthorityState") return () => router.current();
+      if (property === Symbol.toStringTag) return "Phase4AuthorityRoutedFacade";
+      /** @param {...unknown} args */
+      const routed = (...args) =>
+        router.read({
+          legacy: () => callMethod(loadLegacy(), property, args),
+          sqlite: () => callMethod(loadSqlite(), property, args),
+        });
+      return routed;
     },
-  );
+  });
 }
 
 /** @param {Record<string, unknown>} backend @param {string | symbol} property @param {unknown[]} args */
