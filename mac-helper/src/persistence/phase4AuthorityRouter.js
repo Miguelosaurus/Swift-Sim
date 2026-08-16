@@ -78,7 +78,9 @@ export function createAuthorityRoutedFacade({ router, legacy, sqlite, properties
   const target = Object.freeze({ ...properties });
   return new Proxy(target, {
     get(fixed, property) {
-      if (Object.prototype.hasOwnProperty.call(fixed, property)) return Reflect.get(fixed, property);
+      if (Object.prototype.hasOwnProperty.call(fixed, property)) {
+        return Reflect.get(fixed, property);
+      }
       if (property === "phase4AuthorityState") return () => router.current();
       if (property === Symbol.toStringTag) return "Phase4AuthorityRoutedFacade";
       /** @param {...unknown} args */
