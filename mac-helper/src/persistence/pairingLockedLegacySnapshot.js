@@ -2,7 +2,6 @@
 
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { parsePairingCredential, parsePairingInvitation } from "../contracts/pairing.js";
 import { normalizePairingStateSnapshot } from "./sqlitePairingStateRepository.js";
 
 /** @typedef {import("../contracts/repository.js").PairingStateSnapshot} PairingStateSnapshot */
@@ -199,9 +198,7 @@ function parseLegacySnapshot(credentialSource, invitationSource) {
   if (credentialSource.raw === null) {
     throw new Error("Required pairing credential source was not loaded.");
   }
-  const credential = parsePairingCredential(
-    parseJSON(credentialSource.raw, credentialSource.source),
-  );
+  const credential = parseJSON(credentialSource.raw, credentialSource.source);
   const rawInvitations =
     invitationSource.raw === null ? [] : parseJSON(invitationSource.raw, invitationSource.source);
   if (!Array.isArray(rawInvitations)) {
@@ -209,8 +206,7 @@ function parseLegacySnapshot(credentialSource, invitationSource) {
       `Pairing legacy invitation source must contain an array: ${invitationSource.source.path}.`,
     );
   }
-  const invitations = rawInvitations.map((value) => parsePairingInvitation(value));
-  return normalizePairingStateSnapshot({ credential, invitations });
+  return normalizePairingStateSnapshot({ credential, invitations: rawInvitations });
 }
 
 /** @param {PairingStateSnapshot} snapshot */
