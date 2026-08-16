@@ -28,9 +28,9 @@ const healthyFixture = Object.freeze({
       foreignKeys: true,
       foreignKeyViolations: 0,
       missingTables: [],
-      schemaVersion: 8,
-      latestSchemaVersion: 8,
-      migrationsApplied: 8,
+      schemaVersion: 9,
+      latestSchemaVersion: 9,
+      migrationsApplied: 9,
     },
   },
   migration: { value: { status: "already-current", recordCount: 4 } },
@@ -56,6 +56,15 @@ const healthyFixture = Object.freeze({
       measurementIssueCount: 0,
     },
   },
+  authority: {
+    value: {
+      mode: "legacy",
+      revision: 0,
+      cutoverEpoch: 0,
+      rollbackAvailable: false,
+      rollbackExpiresAt: null,
+    },
+  },
 });
 
 test("doctor --json exposes healthy accepted Phase-4 support diagnostics without mutation", () => {
@@ -71,6 +80,9 @@ test("doctor --json exposes healthy accepted Phase-4 support diagnostics without
     assert.equal(phase4.shadow.status, "healthy");
     assert.equal(phase4.compatibility.status, "healthy");
     assert.equal(phase4.artifactStorage.status, "healthy");
+    assert.equal(phase4.authority.status, "healthy");
+    assert.equal(phase4.authority.mode, "legacy");
+    assert.equal(phase4.authority.rollbackAvailable, false);
     assert.deepEqual(before, after);
     assert.deepEqual(fixtureBefore, fixtureAfter);
   });
@@ -79,7 +91,7 @@ test("doctor --json exposes healthy accepted Phase-4 support diagnostics without
 test("doctor classifies corrupt, incompatible, permission, busy, and unavailable database failures with recovery guidance", () => {
   const cases = [
     ["corrupt", { message: "/Users/private/state.sqlite is malformed: not a database" }],
-    ["incompatible", { message: "SQLite schema version 9 is newer than this Swift Sim build" }],
+    ["incompatible", { message: "SQLite schema version 10 is newer than this Swift Sim build" }],
     ["permission-denied", { code: "EACCES", message: "permission denied /Users/private/state.sqlite" }],
     ["busy", { code: "SQLITE_BUSY", message: "database is locked /Users/private/state.sqlite" }],
     ["unavailable", { code: "ENOENT", message: "database unavailable /Users/private/state.sqlite" }],
@@ -123,7 +135,7 @@ test("doctor reports artifact orphan/manual-review evidence without enabling cle
   });
 });
 
-test("human doctor output includes the read-only Phase-4 health and recovery summary", () => {
+test("human doctor output includes read-only authority, rollback, health, and recovery summary", () => {
   withDoctorFixture(structuredClone(healthyFixture), ({ directory, fixturePath, sentinelPath }) => {
     const result = spawnSync(process.execPath, [cli.pathname, "doctor"], {
       encoding: "utf8",
@@ -131,13 +143,16 @@ test("human doctor output includes the read-only Phase-4 health and recovery sum
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Phase-4 support: healthy/);
+    assert.match(result.stdout, /authority=legacy/);
+    assert.match(result.stdout, /transition=idle/);
+    assert.match(result.stdout, /rollback=unavailable/);
     assert.match(result.stdout, /recovery=none/);
     assert.match(result.stdout, /Evidence is read-only, redacted, and mutation-disabled/);
     assert.equal(readBytes(sentinelPath, "utf8"), "preserve-authority\n");
   });
 });
 
-test("real v8 operator diagnostics preserve authoritative SQLite bytes and keep WAL coordination private", () => {
+test("real v9 operator diagnostics preserve authoritative SQLite bytes and keep WAL coordination private", () => {
   withRealPhase4Database(({ stateRoot, databasePath }) => {
     const before = readBytes(databasePath);
     assert.equal(existsSync(`${databasePath}-wal`), false);
@@ -151,6 +166,8 @@ test("real v8 operator diagnostics preserve authoritative SQLite bytes and keep 
     assert.equal(report.readOnly, true);
     assert.equal(report.mutationAllowed, false);
     assert.equal(report.database.status, "healthy");
+    assert.equal(report.authority.mode, "legacy");
+    assert.equal(report.authority.rollbackAvailable, false);
     assert.deepEqual(readBytes(databasePath), before);
 
     const walPath = `${databasePath}-wal`;

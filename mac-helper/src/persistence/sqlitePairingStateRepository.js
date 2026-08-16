@@ -1,7 +1,5 @@
 // @ts-check
 
-import { parsePairingCredential, parsePairingInvitation } from "../contracts/pairing.js";
-
 /** @typedef {import("../contracts/pairing.js").PairingCredentialRecord} PairingCredentialRecord */
 /** @typedef {import("../contracts/pairing.js").PairingInvitationRecord} PairingInvitationRecord */
 /** @typedef {import("../contracts/repository.js").PairingStateSnapshot} PairingStateSnapshot */
@@ -162,16 +160,17 @@ export class SqlitePairingStateRepository {
   }
 }
 
-/** @param {PairingStateSnapshot} value @returns {PairingStateSnapshot} */
+/** @param {unknown} value @returns {PairingStateSnapshot} */
 export function normalizePairingStateSnapshot(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Pairing state snapshot must be an object.");
   }
-  const credential = value.credential === null ? null : normalizeCredential(value.credential);
-  if (!Array.isArray(value.invitations)) {
+  const snapshot = /** @type {Record<string, unknown>} */ (value);
+  const credential = snapshot.credential === null ? null : normalizeCredential(snapshot.credential);
+  if (!Array.isArray(snapshot.invitations)) {
     throw new Error("Pairing state invitations must be an array.");
   }
-  const invitations = value.invitations.map(normalizeInvitation).sort(compareInvitationIDs);
+  const invitations = snapshot.invitations.map(normalizeInvitation).sort(compareInvitationIDs);
   assertUnique(invitations, (record) => record.id, "id");
   assertUnique(invitations, (record) => record.inviteHash, "inviteHash");
   if (!credential && invitations.length > 0) {
@@ -188,7 +187,7 @@ export function normalizePairingStateSnapshot(value) {
 
 /** @param {unknown} value @returns {PairingCredentialRecord} */
 function normalizeCredential(value) {
-  const credential = parsePairingCredential(value);
+  const credential = recordValues(value, "Pairing credential");
   const createdAt = requireTimestamp(credential.createdAt, "Pairing credential createdAt");
   const updatedAt = requireTimestamp(credential.updatedAt, "Pairing credential updatedAt");
   if (updatedAt.time < createdAt.time) {
@@ -208,7 +207,10 @@ function normalizeCredential(value) {
 
 /** @param {unknown} value @returns {PairingInvitationRecord} */
 function normalizeInvitation(value) {
-  const invitation = parsePairingInvitation(value);
+  const invitation = recordValues(value, "Pairing invitation");
+  if (typeof invitation.claimed !== "boolean") {
+    throw new Error("Pairing invitation claimed must be a boolean.");
+  }
   const createdAt = requireTimestamp(invitation.createdAt, "Pairing invitation createdAt");
   const expiresAt = requireTimestamp(invitation.expiresAt, "Pairing invitation expiresAt");
   if (expiresAt.time <= createdAt.time) {
@@ -317,6 +319,14 @@ function rowValues(row, label) {
     throw new Error(`SQLite returned an invalid ${label} row.`);
   }
   return /** @type {Record<string, unknown>} */ (row);
+}
+
+/** @param {unknown} value @param {string} label */
+function recordValues(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return /** @type {Record<string, unknown>} */ (value);
 }
 
 /** @param {unknown} value */

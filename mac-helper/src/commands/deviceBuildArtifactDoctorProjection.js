@@ -79,16 +79,30 @@ function phase4Summary(report) {
   const migration = record(report.migration);
   const shadow = record(report.shadow);
   const compatibility = record(report.compatibility);
+  const authority = record(report.authority);
   const recovery = record(report.recovery);
   const actionCodes = Array.isArray(recovery.actionCodes) ? recovery.actionCodes : [];
   const actions = actionCodes.length > 0 ? actionCodes.join(", ") : "none";
+  const rollback =
+    authority.rollbackAvailable === true
+      ? `available-until-${String(authority.rollbackExpiresAt || "unknown")}`
+      : "unavailable";
+  const transition =
+    authority.rollbackPreparationActive === true
+      ? "rollback-preparing"
+      : authority.preparationActive === true
+        ? "preparing"
+        : "idle";
   return (
     `Phase-4 support: ${String(report.overall || "unavailable")}; ` +
     `database=${String(database.status || "unavailable")}; ` +
     `migration=${String(migration.status || "unavailable")}; ` +
     `shadow=${String(shadow.status || "unavailable")}; ` +
     `compatibility=${String(compatibility.status || "unavailable")}; ` +
-    `recovery=${actions}. Evidence is read-only, redacted, and mutation-disabled.`
+    `authority=${String(authority.mode || "unknown")}; ` +
+    `transition=${transition}; ` +
+    `rollback=${rollback}; recovery=${actions}. ` +
+    "Evidence is read-only, redacted, and mutation-disabled."
   );
 }
 

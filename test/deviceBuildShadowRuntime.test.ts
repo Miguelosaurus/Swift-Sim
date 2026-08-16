@@ -6,8 +6,10 @@ import test from "node:test";
 import { BUILD_STATE_VERSION } from "../mac-helper/src/deviceBuildStoreCore.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { createDeviceBuildShadowRuntime } from "../mac-helper/src/persistence/deviceBuildShadowRuntime.js";
+import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
 
 const CURRENT_START = "Mon Aug 11 12:34:56 2026";
+const LATEST_PHASE4_SCHEMA_VERSION = PHASE4_SQLITE_MIGRATIONS.at(-1)?.version ?? 0;
 const WRITE_OPTIONS = {
   mode: 0o600,
   createParentMode: 0o700,
@@ -68,8 +70,8 @@ test("device-build shadow runtime composes resumable import, health, observer, a
   assert.equal(statSync(databasePath).mode & 0o777, 0o600);
   const health = runtime.health();
   assert.equal(health.ok, true);
-  assert.equal(health.schemaVersion, 8);
-  assert.equal(health.latestSchemaVersion, 8);
+  assert.equal(health.schemaVersion, LATEST_PHASE4_SCHEMA_VERSION);
+  assert.equal(health.latestSchemaVersion, LATEST_PHASE4_SCHEMA_VERSION);
 
   const first = runtime.importLegacy();
   assert.equal(first.status, "checkpointed");
@@ -121,15 +123,15 @@ test("device-build shadow runtime validates non-I/O dependencies before opening 
         databasePath: "/path/that/must/not/be/opened/state.sqlite",
         source: {
           name: "device-builds.json",
-          path: "/path/that/must/not-be-read/device-builds.json",
+          path: "/path/that/must-not-be-read/device-builds.json",
           lockRequest: {
-            path: "/path/that/must/not-be-opened/device-builds.lock",
+            path: "/path/that/must-not-be-opened/device-builds.lock",
             waitMs: 5_000,
             staleAfterMs: 250,
             ownerMode: 0o600,
           },
         },
-        backupDirectory: "/path/that/must/not/be-written/backups",
+        backupDirectory: "/path/that/must-not-be-written/backups",
         spawnSync: null as unknown as Parameters<
           typeof createDeviceBuildShadowRuntime
         >[0]["spawnSync"],

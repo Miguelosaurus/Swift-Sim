@@ -124,21 +124,63 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
         db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count || 0,
       );
     }
+    return { enabled: true, mismatchCount, observationCount: null };
+  };
+
+  const authority = () => {
+    const db = openDatabase();
+    const present = db
+      .prepare(
+        "SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = 'phase4_authority_state'",
+      )
+      .get();
+    if (!present) {
+      return {
+        mode: "legacy",
+        revision: 0,
+        cutoverEpoch: 0,
+        rollbackAvailable: false,
+        rollbackExpiresAt: null,
+        preparationEvidenceFresh: null,
+      };
+    }
+    const row = db
+      .prepare(
+        `SELECT mode, revision, cutover_epoch, rollback_expires_at
+      FROM phase4_authority_state WHERE singleton = 1`,
+      )
+      .get();
+    const mode = String(row?.mode || "legacy");
+    const rollbackExpiresAt =
+      typeof row?.rollback_expires_at === "string" ? row.rollback_expires_at : null;
     return {
-      enabled: true,
-      mismatchCount,
-      observationCount: null,
+      mode,
+      revision: Number(row?.revision || 0),
+      cutoverEpoch: Number(row?.cutover_epoch || 0),
+      rollbackAvailable:
+        ["sqlite-rollback", "rollback-preparing"].includes(mode) &&
+        Boolean(rollbackExpiresAt) &&
+        Date.now() < Date.parse(rollbackExpiresAt || ""),
+      rollbackExpiresAt,
+      // Read-only diagnostics cannot acquire the exact mutation locks required
+      // to prove final source freshness. `null` means activation must perform
+      // the mandatory final locked freshness recheck rather than trusting doctor.
+      preparationEvidenceFresh: null,
     };
   };
 
   const compatibility = () => {
     const health = repositoryHealth();
     const legacyReadable = canReadLegacyAuthority(stateRoot);
+    const currentAuthority = authority();
+    const sqliteAuthoritative = ["sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(
+      String(currentAuthority.mode || ""),
+    );
     return {
       state:
         health.schemaVersion === LATEST_SCHEMA_VERSION &&
         health.migrationsApplied === LATEST_SCHEMA_VERSION &&
-        legacyReadable
+        (sqliteAuthoritative || legacyReadable)
           ? "compatible"
           : legacyReadable
             ? "transitioning"
@@ -146,6 +188,7 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
       legacyReadable,
       sqliteReadable: true,
       rollbackReadable: legacyReadable,
+      authority: currentAuthority.mode,
     };
   };
 
@@ -161,6 +204,7 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
       shadow,
       compatibility,
       artifactStorage,
+      authority,
     });
   } finally {
     try {
@@ -253,6 +297,7 @@ function testFixtureProbes() {
     "shadow",
     "compatibility",
     "artifactStorage",
+    "authority",
   ]) {
     const entry = fixture[key];
     probes[key] = () => {

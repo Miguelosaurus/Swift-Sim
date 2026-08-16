@@ -65,9 +65,9 @@ import { SwiftSimSqliteDatabase } from "./swiftSimSqliteDatabase.js";
  * Darwin `ps -o lstart=` identity required to interoperate with `startedAt`
  * owners; this module imports no child-process API itself.
  *
- * All production openers of the shared state.sqlite use the complete Phase-4
- * migration history so a session observer can advance the shared database to
- * v8 without making this device observer reject it as a newer build.
+ * All production openers of the shared state.sqlite use the complete current
+ * Phase-4 migration history so any other domain observer can advance the shared
+ * database without making this device observer reject it as a newer build.
  *
  * SQLite creation, WAL setup, and migrations are synchronous. Temporarily
  * tightening the process umask to 077 across that bounded constructor window
