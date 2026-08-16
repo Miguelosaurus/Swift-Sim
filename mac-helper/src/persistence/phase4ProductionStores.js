@@ -41,10 +41,7 @@ export function createPhase4ProductionStoreFactories(options = {}) {
     deviceBuilds: join(stateRoot, "device-builds.json"),
     sessions: join(stateRoot, "sessions.json"),
   });
-  const database = new SwiftSimSqliteDatabase({
-    path: paths.database,
-    migrations: PHASE4_SQLITE_MIGRATIONS,
-  });
+  const database = openPrivatePhase4Database(paths.database);
   const authorityRepository = new SqlitePhase4AuthorityRepository(database);
   const router = new Phase4AuthorityRouter(authorityRepository);
   const pairingMutationRepository = new SqlitePairingMutationRepository(database);
@@ -150,6 +147,23 @@ export function createPhase4ProductionStoreFactories(options = {}) {
       return /** @type {DeviceBuildStore} */ (/** @type {unknown} */ (deviceBuildStore));
     },
   });
+}
+
+/** @param {string} path */
+function openPrivatePhase4Database(path) {
+  // SQLite creates the database, WAL, and shared-memory files synchronously
+  // during construction. A temporary private umask guarantees fresh product
+  // state is private without silently repairing an already-broad database;
+  // diagnostics/preflight still fail closed for such existing permission drift.
+  const previousUmask = process.umask(0o077);
+  try {
+    return new SwiftSimSqliteDatabase({
+      path,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+    });
+  } finally {
+    process.umask(previousUmask);
+  }
 }
 
 /** @param {DeviceBuildStore} store */
