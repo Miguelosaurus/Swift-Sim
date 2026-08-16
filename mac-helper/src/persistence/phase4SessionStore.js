@@ -19,6 +19,10 @@ export class SqliteDurableSessionMutationRepository {
   /** @type {SqliteDurableSessionRepository} */
   #reader;
   #upsert;
+  #createIntentInsert;
+  #createIntentDelete;
+  #createIntentGet;
+  #createIntentList;
 
   /** @param {SwiftSimSqliteDatabase} database */
   constructor(database) {
@@ -33,6 +37,26 @@ export class SqliteDurableSessionMutationRepository {
       scheme = excluded.scheme,
       simulator_udid = excluded.simulator_udid,
       created_at = excluded.created_at`);
+    this.#createIntentInsert = database.prepare(`INSERT INTO session_create_intents(
+      session_id, token, project, scheme, simulator_udid, created_at,
+      intent_version, created_intent_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      token = excluded.token,
+      project = excluded.project,
+      scheme = excluded.scheme,
+      simulator_udid = excluded.simulator_udid,
+      created_at = excluded.created_at,
+      created_intent_at = excluded.created_intent_at`);
+    this.#createIntentDelete = database.prepare(
+      "DELETE FROM session_create_intents WHERE session_id = ?",
+    );
+    this.#createIntentGet = database.prepare(
+      "SELECT session_id, token, project, scheme, simulator_udid, created_at, intent_version, created_intent_at FROM session_create_intents WHERE session_id = ?",
+    );
+    this.#createIntentList = database.prepare(
+      "SELECT session_id FROM session_create_intents ORDER BY session_id",
+    );
   }
 
   /** @returns {DurableSessionRecord[]} */
@@ -64,6 +88,96 @@ export class SqliteDurableSessionMutationRepository {
       return persisted;
     });
   }
+
+  /**
+   * Stage a create before the durable row is committed. The intent is the
+   * session id plus the accepted durable projection; it is never exposed as a
+   * session, never listed, and never authoritative. It exists so a failed
+   * runtime publication can deterministically identify and compensate an
+   * unowned durable row on retry/reopen.
+   *
+   * @param {DurableSessionRecord} value
+   * @returns {void}
+   */
+  stageCreateIntent(value) {
+    const durable = parseDurableSession(value);
+    this.#database.transaction(() => {
+      this.#createIntentInsert.run(
+        durable.id,
+        durable.token,
+        durable.project,
+        durable.scheme,
+        durable.simulatorUDID,
+        durable.createdAt,
+        new Date().toISOString(),
+      );
+    });
+  }
+
+  /** @param {string} sessionID @returns {boolean} */
+  hasCreateIntent(sessionID) {
+    return Boolean(this.#createIntentGet.get(requireSessionID(sessionID)));
+  }
+
+  /**
+   * Remove only an unowned durable row plus its create intent. This is the
+   * bounded compensation for a failed runtime publication; it never touches a
+   * row the runtime confirms it owns.
+   *
+   * @param {string} sessionID
+   * @returns {boolean}
+   */
+  compensateUnpublishedCreate(sessionID) {
+    const normalized = requireSessionID(sessionID);
+    return this.#database.transaction(() => {
+      const intent = this.#createIntentGet.get(normalized);
+      if (!intent) return false;
+      this.#reader.deleteByID(normalized);
+      this.#createIntentDelete.run(normalized);
+      return true;
+    });
+  }
+
+  /**
+   * Resolve leftover create intents against the runtime file on reopen.
+   *
+   * - intent without a durable row: stale marker, drop the intent only;
+   * - intent whose durable row has no runtime record: an unpublished create
+   *   that crashed before runtime publication, compensate row + intent;
+   * - intent whose durable row has a runtime record: the create completed,
+   *   drop the now-unneeded intent marker only.
+   *
+   * @param {ReadonlySet<string>} runtimeIDs
+   */
+  reconcileCreateIntents(runtimeIDs) {
+    if (!(runtimeIDs instanceof Set)) {
+      throw new TypeError("Runtime session ids must be a Set.");
+    }
+    this.#database.transaction(() => {
+      const intents = this.#createIntentList.all();
+      for (const intent of intents) {
+        const value = /** @type {Record<string, unknown>} */ (intent);
+        const sessionID = requireSessionID(String(value.session_id || ""));
+        const durableRow = this.#reader.get(sessionID);
+        if (!durableRow) {
+          this.#createIntentDelete.run(sessionID);
+        } else if (!runtimeIDs.has(sessionID)) {
+          this.#reader.deleteByID(sessionID);
+          this.#createIntentDelete.run(sessionID);
+        } else {
+          this.#createIntentDelete.run(sessionID);
+        }
+      }
+    });
+  }
+}
+
+/** @param {string} value */
+function requireSessionID(value) {
+  if (typeof value !== "string" || !value) {
+    throw new TypeError("Session id must be a non-empty string.");
+  }
+  return value;
 }
 
 /**
@@ -81,14 +195,18 @@ export function createSqliteDurableSessionStore({ database, legacyPath }) {
     throw new TypeError("SQLite durable-session store requires the runtime session path.");
   }
   const durableRepository = new SqliteDurableSessionMutationRepository(database);
-  const store = /** @type {SessionStore & { _phase4AllowDurableInsert?: boolean }} */ (
-    Object.create(SessionStore.prototype)
-  );
+  const store = /** @type {SessionStore & {
+    _phase4AllowDurableInsert?: boolean,
+    _phase4CreateIntentID?: string | null,
+    _phase4PublicationFailure?: unknown,
+  }} */ (Object.create(SessionStore.prototype));
   store.path = legacyPath;
   store.lockPath = `${legacyPath}.lock`;
   store.sessions = new Map();
   store.stateError = null;
   store._phase4AllowDurableInsert = false;
+  store._phase4CreateIntentID = null;
+  store._phase4PublicationFailure = null;
 
   store.readStateUnlocked = () =>
     reconstructSessionState(readRawRuntimeState(store), durableRepository.list());
@@ -98,33 +216,77 @@ export function createSqliteDurableSessionStore({ database, legacyPath }) {
     const durableByID = new Map(durableRepository.list().map((record) => [record.id, record]));
     if (store._phase4AllowDurableInsert) {
       for (const session of sessions.values()) {
-        if (durableByID.has(session.id)) continue;
-        const durable = durableRepository.upsert(projectDurableSession(session));
-        durableByID.set(durable.id, durable);
+        const durableCandidate = projectDurableSession(session);
+        if (durableByID.has(durableCandidate.id)) continue;
+        store._phase4CreateIntentID = durableCandidate.id;
+        durableRepository.stageCreateIntent(durableCandidate);
+        const durablePersisted = durableRepository.upsert(durableCandidate);
+        durableByID.set(durablePersisted.id, durablePersisted);
       }
     }
 
-    const runtime = new Map();
-    for (const [id, durable] of durableByID) {
-      const candidate = sessions.get(id) || {};
-      runtime.set(id, structuredClone(joinSessionForPresentation(durable, candidate)));
+    try {
+      publishRuntimeUnlocked(store, durableRepository, durableByID, sessions);
+      store._phase4PublicationFailure = null;
+      store._phase4CreateIntentID = null;
+    } catch (error) {
+      store._phase4PublicationFailure = error;
+      throw error;
     }
-    BaseSessionStore.prototype.writeStateUnlocked.call(store, runtime);
   };
 
   const inheritedCreate = SessionStore.prototype.create;
   store.create = (input) => {
-    store._phase4AllowDurableInsert = true;
+    store._phase4CreateIntentID = null;
     try {
+      store._phase4AllowDurableInsert = true;
       return inheritedCreate.call(store, input);
+    } catch (error) {
+      const pendingID = store._phase4CreateIntentID;
+      if (
+        store._phase4PublicationFailure &&
+        pendingID &&
+        durableRepository.hasCreateIntent(pendingID)
+      ) {
+        durableRepository.compensateUnpublishedCreate(pendingID);
+      }
+      store._phase4CreateIntentID = null;
+      store._phase4PublicationFailure = null;
+      throw error;
     } finally {
       store._phase4AllowDurableInsert = false;
     }
   };
 
+  const inheritedLoad = store.load.bind(store);
+  store.load = () => {
+    const runtimeIDs = new Set(
+      [...readRawRuntimeState(store).values()].map((session) => String(session.id || "")),
+    );
+    durableRepository.reconcileCreateIntents(runtimeIDs);
+    store._phase4CreateIntentID = null;
+    store._phase4PublicationFailure = null;
+    return inheritedLoad();
+  };
+
   store.load();
   store.publishLifecycleRegistry();
   return store;
+}
+
+/**
+ * @param {SessionStore & { _phase4AllowDurableInsert?: boolean, _phase4CreateIntentID?: string | null, _phase4PublicationFailure?: unknown }} store
+ * @param {SqliteDurableSessionMutationRepository} durableRepository
+ * @param {Map<string, DurableSessionRecord>} durableByID
+ * @param {Map<string, SessionRecord>} sessions
+ */
+function publishRuntimeUnlocked(store, durableRepository, durableByID, sessions) {
+  const runtime = new Map();
+  for (const [id, durable] of durableByID) {
+    const candidate = sessions.get(id) || {};
+    runtime.set(id, structuredClone(joinSessionForPresentation(durable, candidate)));
+  }
+  BaseSessionStore.prototype.writeStateUnlocked.call(store, runtime);
 }
 
 /**

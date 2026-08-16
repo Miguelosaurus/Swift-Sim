@@ -12,7 +12,13 @@ export const PHASE4_AUTHORITY_SQLITE_SCHEMA_STATEMENTS = Object.freeze([
     storage_version INTEGER NOT NULL CHECK (storage_version = 1),
     mode TEXT NOT NULL CHECK (mode IN ('legacy', 'preparing', 'sqlite-rollback', 'rollback-preparing', 'sqlite-final')),
     revision INTEGER NOT NULL CHECK (revision >= 0 AND revision <= 9007199254740991),
-    cutover_epoch INTEGER NOT NULL CHECK (cutover_epoch >= 0 AND cutover_epoch <= 9007199254740991),
+    cutover_epoch INTEGER NOT NULL CHECK (
+      cutover_epoch >= 0 AND cutover_epoch <= 9007199254740991 AND
+      (
+        (mode IN ('legacy', 'preparing') AND cutover_epoch = 0) OR
+        (mode IN ('sqlite-rollback', 'rollback-preparing', 'sqlite-final') AND cutover_epoch > 0)
+      )
+    ),
     preparation_id TEXT CHECK (
       preparation_id IS NULL OR (
         length(preparation_id) = 64 AND preparation_id NOT GLOB '*[^0-9a-f]*'
@@ -44,6 +50,10 @@ export const PHASE4_AUTHORITY_SQLITE_SCHEMA_STATEMENTS = Object.freeze([
       (mode = 'sqlite-final' AND preparation_id IS NOT NULL AND evidence_hash IS NOT NULL AND evidence_json IS NOT NULL
         AND prepared_at IS NOT NULL AND cutover_at IS NOT NULL AND rollback_expires_at IS NOT NULL
         AND rollback_expires_at > cutover_at AND finalized_at IS NOT NULL AND finalized_at >= rollback_expires_at)
+    ),
+    CHECK (
+    (mode IN ('legacy', 'preparing') AND cutover_epoch = 0) OR
+    (mode IN ('sqlite-rollback', 'rollback-preparing', 'sqlite-final') AND cutover_epoch > 0)
     )
   ) STRICT`,
   `INSERT INTO phase4_authority_state(

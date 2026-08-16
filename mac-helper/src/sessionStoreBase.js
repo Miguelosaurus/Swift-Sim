@@ -48,8 +48,8 @@ export class SessionStore {
     this.assertReadableState();
     return this.withLock(() => {
       const sessions = this.readStateUnlocked();
-      const conflicting = [...sessions.values()].find((candidate) =>
-        sameSessionTarget(candidate, input) && sessionStartIsActive(candidate)
+      const conflicting = [...sessions.values()].find(
+        (candidate) => sameSessionTarget(candidate, input) && sessionStartIsActive(candidate),
       );
       if (conflicting) {
         const error = new Error("A Swift Sim session is already starting for this Simulator.");
@@ -101,10 +101,8 @@ export class SessionStore {
       const incoming = normalizeSession(session);
       const existing = sessions.get(incoming.id);
       const saved = mergeSession(existing, incoming, baseline);
-      saved.revision = Math.max(
-        Number(existing?.revision || 0),
-        Number(incoming.revision || 0),
-      ) + 1;
+      saved.revision =
+        Math.max(Number(existing?.revision || 0), Number(incoming.revision || 0)) + 1;
       saved.updatedAt = new Date().toISOString();
       sessions.set(saved.id, saved);
       this.writeStateUnlocked(sessions);
@@ -132,24 +130,27 @@ export class SessionStore {
 
   findReusable({ project, scheme, simulatorUDID, transport = "" }) {
     this.assertReadableState();
-    const preference = transport
-      || currentSessionTransportPreference()
-      || sessionTransportFromProcess();
+    const preference =
+      transport || currentSessionTransportPreference() || sessionTransportFromProcess();
     const requestedTransports = sessionTransportCandidates(preference);
-    const candidates = [...this.readCurrentState().values()].filter((candidate) => (
-      candidate.simulatorUDID === simulatorUDID
-      && candidate.project === project
-      && candidate.scheme === scheme
-      && candidate.stream.state === "running"
-      && simulatorSessionIsReusable(candidate)
-    ));
-    const exactSession = requestedTransports.length === 0
-      ? candidates[0]
-      : requestedTransports
-          .map((requestedTransport) => candidates.find((candidate) =>
-            (candidate.stream.transport || "serve-sim") === requestedTransport
-          ))
-          .find(Boolean);
+    const candidates = [...this.readCurrentState().values()].filter(
+      (candidate) =>
+        candidate.simulatorUDID === simulatorUDID &&
+        candidate.project === project &&
+        candidate.scheme === scheme &&
+        candidate.stream.state === "running" &&
+        simulatorSessionIsReusable(candidate),
+    );
+    const exactSession =
+      requestedTransports.length === 0
+        ? candidates[0]
+        : requestedTransports
+            .map((requestedTransport) =>
+              candidates.find(
+                (candidate) => (candidate.stream.transport || "serve-sim") === requestedTransport,
+              ),
+            )
+            .find(Boolean);
     const session = exactSession || candidates[0];
     return session ? sessionCopy(session) : undefined;
   }
@@ -173,10 +174,8 @@ export class SessionStore {
         const incoming = normalizeSession(candidate);
         const existing = sessions.get(incoming.id);
         const saved = mergeSession(existing, incoming);
-        saved.revision = Math.max(
-          Number(existing?.revision || 0),
-          Number(incoming.revision || 0),
-        ) + 1;
+        saved.revision =
+          Math.max(Number(existing?.revision || 0), Number(incoming.revision || 0)) + 1;
         saved.updatedAt = new Date().toISOString();
         sessions.set(saved.id, saved);
       }
@@ -217,7 +216,10 @@ export class SessionStore {
       }
       const session = normalizeSession(candidate);
       if (sessions.has(session.id)) {
-        throw sessionStateError(this.path, new Error("the stored session record contains a duplicate id"));
+        throw sessionStateError(
+          this.path,
+          new Error("the stored session record contains a duplicate id"),
+        );
       }
       sessions.set(session.id, session);
     }
@@ -245,14 +247,15 @@ export class SessionStore {
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
     try {
-      writeFileSync(
-        temporaryPath,
-        JSON.stringify({ sessions: [...sessions.values()] }, null, 2),
-        { mode: 0o600, flag: "wx" },
-      );
+      writeFileSync(temporaryPath, JSON.stringify({ sessions: [...sessions.values()] }, null, 2), {
+        mode: 0o600,
+        flag: "wx",
+      });
       renameSync(temporaryPath, this.path);
     } catch (error) {
-      try { rmSync(temporaryPath, { force: true }); } catch {}
+      try {
+        rmSync(temporaryPath, { force: true });
+      } catch {}
       throw error;
     }
   }
@@ -282,9 +285,13 @@ export class SessionStore {
         }
         if (error?.code !== "EEXIST") throw error;
         let existingOwner;
-        try { existingOwner = JSON.parse(readFileSync(ownerPath, "utf8")); } catch {}
-        if ((existingOwner && !lockOwnerIsAlive(existingOwner))
-            || (!existingOwner && ownerlessLockIsStale(this.lockPath))) {
+        try {
+          existingOwner = JSON.parse(readFileSync(ownerPath, "utf8"));
+        } catch {}
+        if (
+          (existingOwner && !lockOwnerIsAlive(existingOwner)) ||
+          (!existingOwner && ownerlessLockIsStale(this.lockPath))
+        ) {
           rmSync(this.lockPath, { recursive: true, force: true });
           continue;
         }
@@ -309,9 +316,11 @@ export class SessionStore {
 }
 
 function sameSessionTarget(session, input) {
-  return session?.project === (input.project || "")
-    && session?.scheme === (input.scheme || "")
-    && session?.simulatorUDID === input.simulatorUDID;
+  return (
+    session?.project === (input.project || "") &&
+    session?.scheme === (input.scheme || "") &&
+    session?.simulatorUDID === input.simulatorUDID
+  );
 }
 
 function sessionStartIsActive(session) {
@@ -351,15 +360,15 @@ function validateStoredSession(value) {
   ]) {
     requireStoredString(value, field, { optional: true });
   }
-  if (value.revision !== undefined
-      && (!Number.isFinite(value.revision) || value.revision < 0)) {
+  if (value.revision !== undefined && (!Number.isFinite(value.revision) || value.revision < 0)) {
     throw new Error("a stored session has an invalid revision");
   }
   if (!Array.isArray(value.logs) || !value.logs.every((line) => typeof line === "string")) {
     throw new Error("a stored session has invalid logs");
   }
   if (!isPlainObject(value.build)) throw new Error("a stored session has an invalid build record");
-  if (!isPlainObject(value.stream)) throw new Error("a stored session has an invalid stream record");
+  if (!isPlainObject(value.stream))
+    throw new Error("a stored session has an invalid stream record");
   for (const field of ["state", "transport", "quality", "localUrl", "previewUrl", "wsUrl"]) {
     requireStoredString(value.stream, field, { optional: true });
   }
@@ -372,9 +381,11 @@ function validateStoredSession(value) {
   if (value.stream.raw !== undefined && !isPlainObject(value.stream.raw)) {
     throw new Error("a stored session stream has invalid raw metadata");
   }
-  if (value.stream.limitations !== undefined
-      && (!Array.isArray(value.stream.limitations)
-        || !value.stream.limitations.every((item) => typeof item === "string"))) {
+  if (
+    value.stream.limitations !== undefined &&
+    (!Array.isArray(value.stream.limitations) ||
+      !value.stream.limitations.every((item) => typeof item === "string"))
+  ) {
     throw new Error("a stored session stream has invalid limitations");
   }
 }
@@ -388,20 +399,25 @@ function requireStoredString(value, field, { optional = false, nonempty = false 
 }
 
 function normalizeSession(value) {
-  const session = value && typeof value === "object" && !Array.isArray(value)
-    ? structuredClone(value)
-    : {};
+  const session =
+    value && typeof value === "object" && !Array.isArray(value) ? structuredClone(value) : {};
   session.id = typeof session.id === "string" ? session.id : "";
-  session.revision = Math.max(0, Number.isFinite(Number(session.revision)) ? Number(session.revision) : 0);
-  session.logs = Array.isArray(session.logs)
-    ? session.logs.map((line) => String(line))
-    : [];
-  session.build = session.build && typeof session.build === "object" && !Array.isArray(session.build)
-    ? session.build
-    : { state: "external-or-not-run" };
-  session.stream = session.stream && typeof session.stream === "object" && !Array.isArray(session.stream)
-    ? session.stream
-    : { state: "stopped", transport: "serve-sim", raw: {}, limitations: [] };
+  session.revision = Math.max(
+    0,
+    Number.isFinite(Number(session.revision)) ? Number(session.revision) : 0,
+  );
+  session.logs = Array.isArray(session.logs) ? session.logs.map((line) => String(line)) : [];
+  session.build =
+    session.build && typeof session.build === "object" && !Array.isArray(session.build)
+      ? session.build
+      : { state: "external-or-not-run" };
+  session.stream =
+    session.stream && typeof session.stream === "object" && !Array.isArray(session.stream)
+      ? session.stream
+      : { state: "stopped", transport: "serve-sim", raw: {}, limitations: [] };
+  for (const key of Object.keys(session)) {
+    if (session[key] === undefined) delete session[key];
+  }
   return session;
 }
 
@@ -457,18 +473,21 @@ function mergeChangedObject(existing, incoming, baseline) {
 }
 
 function isPlainObject(value) {
-  return Boolean(value)
-    && typeof value === "object"
-    && !Array.isArray(value)
-    && Object.getPrototypeOf(value) === Object.prototype;
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
 }
 
 function mergeAppendedLogs(existing, incoming, baseline) {
   const current = Array.isArray(existing) ? existing.map(String) : [];
   const candidate = Array.isArray(incoming) ? incoming.map(String) : [];
   const original = Array.isArray(baseline) ? baseline.map(String) : [];
-  const unchangedPrefix = original.length <= candidate.length
-    && original.every((line, index) => candidate[index] === line);
+  const unchangedPrefix =
+    original.length <= candidate.length &&
+    original.every((line, index) => candidate[index] === line);
   const additions = unchangedPrefix
     ? candidate.slice(original.length)
     : candidate.slice(commonPrefixLength(original, candidate));
@@ -483,9 +502,7 @@ function mergeLegacyLogs(existing, incoming) {
 
 function commonPrefixLength(first, second) {
   let length = 0;
-  while (length < first.length
-      && length < second.length
-      && first[length] === second[length]) {
+  while (length < first.length && length < second.length && first[length] === second[length]) {
     length += 1;
   }
   return length;
@@ -533,7 +550,9 @@ function requiredProcessStartedAt(pid) {
     if (startedAt) return startedAt;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
-  throw new Error("Unable to establish a process start identity for the Swift Sim session-state lock.");
+  throw new Error(
+    "Unable to establish a process start identity for the Swift Sim session-state lock.",
+  );
 }
 
 function processStartedAt(pid) {

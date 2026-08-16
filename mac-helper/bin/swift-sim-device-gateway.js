@@ -6,7 +6,6 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { URL } from "node:url";
 import { parseArgs } from "node:util";
-import { DeviceBuildStore } from "../src/deviceBuildStore.js";
 import { DeviceInventoryAdapter } from "../src/deviceInventory.js";
 import {
   buildManifest,
@@ -15,6 +14,10 @@ import {
 } from "../src/deviceBuilder.js";
 import { serveFile } from "../src/fileServer.js";
 import { badRequest, json, notFound, text, unauthorized } from "../src/http.js";
+import {
+  createBoundaryProductionStoreFactory,
+  defaultBoundaryStateRoot,
+} from "../src/http/phase4BoundaryStoreFactory.js";
 import { sanitizePublicBuildLogs } from "../src/publicBuildLogs.js";
 
 const { values } = parseArgs({
@@ -25,7 +28,24 @@ const { values } = parseArgs({
 });
 const host = values.host || "127.0.0.1";
 const port = Number(values.port || 47218);
-const store = new DeviceBuildStore({ maintenance: false });
+let routedBuildStore;
+const store = {
+  get(id) {
+    return buildStore().get(id);
+  },
+  markInstallRequested(buildID) {
+    return buildStore().markInstallRequested(buildID);
+  },
+  saveVerification(buildID, verification) {
+    return buildStore().saveVerification(buildID, verification);
+  },
+};
+function buildStore() {
+  routedBuildStore ??= createBoundaryProductionStoreFactory({
+    stateRoot: defaultBoundaryStateRoot(),
+  }).createDeviceBuildStore();
+  return routedBuildStore;
+}
 const inventory = new DeviceInventoryAdapter();
 const server = createServer(async (req, res) => {
   try {

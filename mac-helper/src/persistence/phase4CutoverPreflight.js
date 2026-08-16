@@ -32,6 +32,9 @@ const ACTIVATE_TRUE_FIELDS = Object.freeze([
   "atomicAuthorityTransitionReady",
 ]);
 
+export const PHASE4_PREPARE_EVIDENCE_FIELDS = PREPARE_TRUE_FIELDS;
+export const PHASE4_ACTIVATE_EVIDENCE_FIELDS = ACTIVATE_TRUE_FIELDS;
+
 /**
  * The operator evidence is intentionally explicit. Repository code validates
  * every PR #151 stop-condition class that can be known before the selector

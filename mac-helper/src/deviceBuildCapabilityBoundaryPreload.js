@@ -4,6 +4,10 @@ import { PairingStore } from "./pairingStore.js";
 import { DeviceBuildStore } from "./deviceBuildStore.js";
 import { DeviceInventoryAdapter } from "./deviceInventory.js";
 import {
+  createBoundaryProductionStoreFactory,
+  defaultBoundaryStateRoot,
+} from "./http/phase4BoundaryStoreFactory.js";
+import {
   capabilityForTokens,
   deviceBuildCapabilityExpired,
   publicCapabilityDeviceBuild,
@@ -17,7 +21,30 @@ const originalCreateServer = http.createServer;
 let defaultPairingStore;
 let defaultDeviceBuildStore;
 let defaultDeviceInventory;
+let productionStoreFactory;
 let installed = false;
+
+/**
+ * Route this preload's durable stores through the one product-global Phase-4
+ * selector. The factory is resolved at first request, never at import time.
+ * Tests may inject an explicit factory or a disposable state root so
+ * post-switch HTTP reads/writes can be proven without touching a live root.
+ */
+export function setDeviceBuildCapabilityBoundaryFactories({ factory, stateRoot } = {}) {
+  if (factory) {
+    if (typeof factory !== "function") {
+      throw new TypeError("Device-build boundary factory must be a function.");
+    }
+    productionStoreFactory = factory;
+  } else if (stateRoot) {
+    productionStoreFactory = () =>
+      createBoundaryProductionStoreFactory({ stateRoot: String(stateRoot) });
+  } else {
+    productionStoreFactory = () => createBoundaryProductionStoreFactory();
+  }
+  defaultPairingStore = undefined;
+  defaultDeviceBuildStore = undefined;
+}
 
 export function installDeviceBuildCapabilityBoundary() {
   if (installed) return;
@@ -29,21 +56,22 @@ export function installDeviceBuildCapabilityBoundary() {
       resolvedListener = options;
       resolvedOptions = undefined;
     }
-    const guardedListener = typeof resolvedListener === "function"
-      ? async (req, res) => {
-          try {
-            if (await handlePublicDeviceBuildCapability(req, res)) return;
-            return await resolvedListener(req, res);
-          } catch (error) {
-            console.error(error instanceof Error ? error.message : String(error));
-            if (!res.headersSent) {
-              writeJson(res, 503, { error: "Swift Sim is temporarily unavailable." });
-            } else {
-              res.destroy(error instanceof Error ? error : undefined);
+    const guardedListener =
+      typeof resolvedListener === "function"
+        ? async (req, res) => {
+            try {
+              if (await handlePublicDeviceBuildCapability(req, res)) return;
+              return await resolvedListener(req, res);
+            } catch (error) {
+              console.error(error instanceof Error ? error.message : String(error));
+              if (!res.headersSent) {
+                writeJson(res, 503, { error: "Swift Sim is temporarily unavailable." });
+              } else {
+                res.destroy(error instanceof Error ? error : undefined);
+              }
             }
           }
-        }
-      : resolvedListener;
+        : resolvedListener;
     return resolvedOptions === undefined
       ? originalCreateServer.call(this, guardedListener)
       : originalCreateServer.call(this, resolvedOptions, guardedListener);
@@ -51,13 +79,19 @@ export function installDeviceBuildCapabilityBoundary() {
   syncBuiltinESMExports();
 }
 
-export async function handlePublicDeviceBuildCapability(req, res, {
-  pairingStore: pairings = pairingStore(),
-  deviceBuildStore: builds = buildStore(),
-  deviceInventory: inventory = inventoryStore(),
-  claimVerification = claimDeviceVerification,
-  now = Date.now(),
-} = {}) {
+export async function handlePublicDeviceBuildCapability(
+  req,
+  res,
+  {
+    pairingStore: suppliedPairings,
+    deviceBuildStore: suppliedBuilds,
+    deviceInventory: suppliedInventory,
+    claimVerification = claimDeviceVerification,
+    now = Date.now(),
+  } = {},
+) {
+  const pairings = suppliedPairings ?? pairingStore();
+  const builds = suppliedBuilds ?? buildStore();
   const route = parseBuildRoute(req);
   if (!route) return false;
   const tokens = requestTokens(req, route.url);
@@ -117,6 +151,7 @@ export async function handlePublicDeviceBuildCapability(req, res, {
 
     let verified = builds.get(build.id);
     if (claimVerification(build, { now })) {
+      const inventory = suppliedInventory ?? inventoryStore();
       const verification = await inventory.verifyApp(build.app?.bundleIdentifier || "", {
         version: build.app?.version || "",
         build: build.app?.build || "",
@@ -146,7 +181,9 @@ function parseBuildRoute(req) {
   if (match) return { url, buildID: match[1], kind: "page" };
   match = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/);
   if (match) return { url, buildID: match[1], kind: "artifact" };
-  match = url.pathname.match(/^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/);
+  match = url.pathname.match(
+    /^\/api\/device-builds\/([^/]+)(?:\/(logs|links|install-request|verify))?$/,
+  );
   if (!match || match[1] === "start") return null;
   return {
     url,
@@ -169,18 +206,24 @@ function normalizeDownstreamToken(req, url, token) {
 }
 
 function pairingStore() {
-  defaultPairingStore ||= new PairingStore();
+  defaultPairingStore ||= resolvedBoundaryFactory().createPairingStore();
   return defaultPairingStore;
 }
 
 function buildStore() {
-  defaultDeviceBuildStore ||= new DeviceBuildStore({ maintenance: false });
+  defaultDeviceBuildStore ||= resolvedBoundaryFactory().createDeviceBuildStore();
   return defaultDeviceBuildStore;
 }
 
 function inventoryStore() {
   defaultDeviceInventory ||= new DeviceInventoryAdapter();
   return defaultDeviceInventory;
+}
+
+function resolvedBoundaryFactory() {
+  productionStoreFactory ||= () =>
+    createBoundaryProductionStoreFactory({ stateRoot: defaultBoundaryStateRoot() });
+  return productionStoreFactory();
 }
 
 function writeJson(res, status, body) {

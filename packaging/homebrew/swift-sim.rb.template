@@ -18,6 +18,7 @@ class SwiftSim < Formula
 
     write_launcher "swift-sim", "dist/mac-helper/bin/swift-sim-entry.js"
     write_launcher "swift-sim-helper", "dist/mac-helper/bin/swift-sim-helper-entry.js"
+    write_launcher "swift-sim-phase4-cutover", "dist/mac-helper/bin/swift-sim-phase4-cutover.js"
   end
 
   service do

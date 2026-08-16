@@ -241,7 +241,8 @@ test("authority preparation is restartable and rollback preparation is durable, 
       now: "2026-08-15T01:59:59.999Z",
     });
     assert.equal(restored.mode, "legacy");
-    assert.equal(restored.cutoverEpoch, 1);
+    assert.equal(restored.cutoverEpoch, 0);
+    assert.equal(restored.revision, rollbackPreparing.revision + 1);
     database.close();
   });
 });
@@ -477,7 +478,7 @@ test("global activation routes writes only to SQLite and current-state rollback 
     });
     const reopenedAuthority = new SqlitePhase4AuthorityRepository(reopened).getState();
     assert.equal(reopenedAuthority.mode, "legacy");
-    assert.equal(reopenedAuthority.cutoverEpoch, 1);
+    assert.equal(reopenedAuthority.cutoverEpoch, 0);
     assert.equal(reopened.health().ok, true);
     reopened.close();
   });

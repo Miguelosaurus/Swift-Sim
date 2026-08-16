@@ -50,7 +50,7 @@ import { writeHelperHtml, writeHelperJson } from "./helperHttpResponses.js";
  * @param {HelperRequestLike} request
  * @param {HelperResponseLike} response
  * @param {PairingStorePort} pairingStore
- * @param {PairingInviteStorePort} pairingInvites
+ * @param {PairingInviteStorePort | undefined} pairingInvites
  * @param {RequestOriginPolicyPort} originPolicy
  * @param {PairingShadowObserverPort} [shadowObserver]
  */
@@ -69,6 +69,10 @@ export function handlePairingFallbackRequest(
   const pairing = pairingStore.current();
   const invite = context.url.searchParams.get("invite") || "";
   if (invite) {
+    if (!pairingInvites) {
+      writeHelperJson(response, 410, { error: "Pairing invitation expired or already used." });
+      return true;
+    }
     const invitation = pairingInvites.inspect(invite, pairing);
     if (!invitation || invitation.claimed) {
       writeHelperJson(response, 410, { error: "Pairing invitation expired or already used." });

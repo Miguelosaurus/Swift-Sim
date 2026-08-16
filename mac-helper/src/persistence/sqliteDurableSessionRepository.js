@@ -11,6 +11,7 @@ export class SqliteDurableSessionRepository {
   #listStatement;
   #getStatement;
   #deleteStatement;
+  #deleteByIDStatement;
   #insertStatement;
 
   /** @param {SwiftSimSqliteDatabase} database */
@@ -30,9 +31,15 @@ export class SqliteDurableSessionRepository {
       id, token, project, scheme, simulator_udid, created_at
       FROM session_records WHERE id = ?`);
     this.#deleteStatement = database.prepare("DELETE FROM session_records");
+    this.#deleteByIDStatement = database.prepare("DELETE FROM session_records WHERE id = ?");
     this.#insertStatement = database.prepare(`INSERT INTO session_records(
       id, token, project, scheme, simulator_udid, created_at
     ) VALUES (?, ?, ?, ?, ?, ?)`);
+  }
+
+  /** @param {string} id */
+  deleteByID(id) {
+    this.#deleteByIDStatement.run(requireNonEmptyString(id, "Durable session id"));
   }
 
   /** @returns {DurableSessionRecord[]} */

@@ -116,9 +116,9 @@
       "test/liveSessionDescriptor.test.js": 1,
       "test/lockOwnershipPreload.test.js": 1,
       "test/mainPostMergeIntegration.test.js": 1,
-      "test/ownedWorkerHandshake.test.js": 1,
-      "test/pairingStore.test.js": 1,
-      "test/releaseRuntimeSource.test.js": 1,
+    "test/ownedWorkerHandshake.test.js": 1,
+    "test/pairingStore.test.js": 1,
+    "test/releaseRuntimeSource.test.js": 1,
       "test/renewalShutdownPreload.test.js": 1,
       "test/sessionStore.test.js": 1
     },
@@ -295,7 +295,58 @@
         "expiresOn": "2027-08-04"
       }
     ],
-    "sourceTextImplementationTests": [],
+ "sourceTextImplementationTests": [
+  {
+   "id": "phase-4-cleanup-inert-regression",
+   "path": "test/phase4CleanupInert.test.js",
+   "max": 1,
+   "adr": "docs/internal/adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md",
+   "reason": "P4-CUTOVER-CORRECTIONS-R1 regression proof that startup/reopen/doctor/status/prepare/activate/rollback never drain artifact cleanup; reads production sources to assert the sentinels.",
+   "owner": "Architecture consolidation Phase 4",
+   "removalPhase": "Phase 5 removes obsolete direct-store cleanup compatibility paths; the regression remains while the Phase-4 authority boundary exists.",
+   "expiresOn": "2027-08-16"
+  },
+  {
+   "id": "phase-4-http-boundary-regression",
+   "path": "test/phase4CorrectionsHttpBoundary.test.js",
+   "max": 1,
+   "adr": "docs/internal/adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md",
+   "reason": "P4-CUTOVER-CORRECTIONS-R1 behavior-level proof that helper HTTP pairing/invitation/device-build boundaries route through the one global authority selector; reads production boundary sources.",
+   "owner": "Architecture consolidation Phase 4",
+   "removalPhase": "Phase 5 removes the compatibility HTTP boundaries; the regression remains while any reachable helper HTTP surface exists.",
+   "expiresOn": "2027-08-16"
+  },
+  {
+   "id": "phase-4-hybrid-session-create-regression",
+   "path": "test/phase4HybridSessionCreate.test.js",
+   "max": 1,
+   "adr": "docs/internal/adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md",
+   "reason": "P4-CUTOVER-CORRECTIONS-R1 fault-injection/reopen/retry matrix for the bounded hybrid session create protocol; reads production session sources.",
+   "owner": "Architecture consolidation Phase 4",
+   "removalPhase": "Phase 5 removes hybrid session compatibility paths; the regression remains while durable session creation crosses SQLite and runtime files.",
+   "expiresOn": "2027-08-16"
+  },
+  {
+   "id": "phase-4-maintenance-evidence-regression",
+   "path": "test/phase4MaintenanceEvidence.test.js",
+   "max": 1,
+   "adr": "docs/internal/adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md",
+   "reason": "P4-CUTOVER-CORRECTIONS-R1 falsification proof that hand-authored true values cannot override measurable maintenance facts; reads the binder/preflight sources.",
+   "owner": "Architecture consolidation Phase 4",
+   "removalPhase": "Phase 5 removes the maintenance executor; the falsification regression remains while maintenance evidence binding exists.",
+   "expiresOn": "2027-08-16"
+  },
+  {
+   "id": "phase-4-maintenance-executor-regression",
+   "path": "test/phase4MaintenanceExecutor.test.js",
+   "max": 1,
+   "adr": "docs/internal/adr/ADR-0003-sqlite-domain-state-filesystem-runtime.md",
+   "reason": "P4-CUTOVER-CORRECTIONS-R1 staged-executor proof that no migration-capable open precedes the pre-migration gates; reads the installed entrypoint sources.",
+   "owner": "Architecture consolidation Phase 4",
+   "removalPhase": "Phase 5 removes the maintenance executor; the staged-gate regression remains while the executor exists.",
+   "expiresOn": "2027-08-16"
+  }
+ ],
     "oversizedProductionFiles": []
   }
 }

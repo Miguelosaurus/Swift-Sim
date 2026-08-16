@@ -18,6 +18,7 @@ const files = report[0]?.files?.map((entry) => entry.path.replace(/^package\//, 
 const required = [
   "dist/mac-helper/bin/swift-sim-entry.js",
   "dist/mac-helper/bin/swift-sim-helper-entry.js",
+  "dist/mac-helper/bin/swift-sim-phase4-cutover.js",
   "dist/mac-helper/bin/swift-sim-entry.js.map",
   "dist/package.json",
   "package.json",
