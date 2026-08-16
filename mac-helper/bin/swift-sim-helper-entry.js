@@ -13,10 +13,13 @@ import { runHelperBootstrap } from "../src/helperEntrypoint.js";
 import { installArtifactCleanupBoundary } from "../src/artifactCleanupBoundaryPreload.js";
 import { installLiveEngineOwnershipBoundary } from "../src/liveEngineOwnershipPreload.js";
 import { installSwiftSimChildRuntimeBoundary } from "../src/swiftSimChildRuntimeBoundary.js";
+import { publishPhase4HelperProcessIdentity } from "../src/persistence/phase4HelperProcessIdentity.js";
 
 installHelperHttpBoundary();
 
 if (helperRunsAsService()) {
+  const { spawnSync } = await import("node:child_process");
+  publishPhase4HelperProcessIdentity({ spawnSync });
   await import("../src/helperShutdownDeadlinePreload.js");
   const { installRenewalShutdownGuard } = await import("../src/renewalShutdownPreload.js");
   installRenewalShutdownGuard();
