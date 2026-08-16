@@ -1,0 +1,48 @@
+name: Agent 24 Prettier Probe
+
+on:
+  pull_request:
+    branches:
+      - agent/arch-ws-P4-CUTOVER-CORRECTIONS-R1
+
+permissions:
+  contents: read
+
+jobs:
+  prettier-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Print exact Prettier diff
+        run: |
+          npx prettier --write \
+            mac-helper/src/persistence/phase4CutoverPreflightInspector.js \
+            mac-helper/src/persistence/phase4HelperProcessIdentity.js \
+            mac-helper/src/persistence/phase4MaintenanceEvidence.js \
+            mac-helper/src/persistence/phase4MaintenanceObservations.js \
+            mac-helper/src/persistence/phase4MaintenanceSnapshot.js \
+            mac-helper/src/persistence/phase4MigrationIdentity.js \
+            mac-helper/src/persistence/phase4PreparationBackupProof.js
+          git diff -- \
+            mac-helper/src/persistence/phase4CutoverPreflightInspector.js \
+            mac-helper/src/persistence/phase4HelperProcessIdentity.js \
+            mac-helper/src/persistence/phase4MaintenanceEvidence.js \
+            mac-helper/src/persistence/phase4MaintenanceObservations.js \
+            mac-helper/src/persistence/phase4MaintenanceSnapshot.js \
+            mac-helper/src/persistence/phase4MigrationIdentity.js \
+            mac-helper/src/persistence/phase4PreparationBackupProof.js
+          test -z "$(git status --short -- \
+            mac-helper/src/persistence/phase4CutoverPreflightInspector.js \
+            mac-helper/src/persistence/phase4HelperProcessIdentity.js \
+            mac-helper/src/persistence/phase4MaintenanceEvidence.js \
+            mac-helper/src/persistence/phase4MaintenanceObservations.js \
+            mac-helper/src/persistence/phase4MaintenanceSnapshot.js \
+            mac-helper/src/persistence/phase4MigrationIdentity.js \
+            mac-helper/src/persistence/phase4PreparationBackupProof.js)"
