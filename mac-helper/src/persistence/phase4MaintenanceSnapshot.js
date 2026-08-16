@@ -1,9 +1,13 @@
 // @ts-check
 
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
+import {
+  ensureDirectoryModeSync,
+  ensureFileModeSync,
+} from "../infrastructure/nodeAtomicFileStore.js";
 import { inspectPhase4MigrationIdentity } from "./phase4MigrationIdentity.js";
 
 /**
@@ -27,8 +31,7 @@ export async function createVerifiedPhase4PreMigrationSnapshot({
     throw new Error("Phase-4 snapshot requires a previously verified migration prefix.");
   }
   const directory = join(stateRoot, "migration-backups", "phase4-cutover", "database");
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  chmodSync(directory, 0o700);
+  ensureDirectoryModeSync(directory, 0o700);
   assertPrivatePath(directory, "Phase-4 snapshot directory", true);
 
   const snapshotPath = join(
@@ -55,7 +58,7 @@ export async function createVerifiedPhase4PreMigrationSnapshot({
     source.close();
   }
 
-  chmodSync(snapshotPath, 0o600);
+  ensureFileModeSync(snapshotPath, 0o600);
   return verifyPhase4PreMigrationSnapshot({ snapshotPath, expectedMigration });
 }
 
