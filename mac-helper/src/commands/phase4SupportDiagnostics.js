@@ -68,16 +68,19 @@ export function serializePhase4SupportEvidence(probes = {}) {
 
 /** @param {readonly { available: boolean, status: string, failureCategory?: unknown }[]} sections */
 function overallStatus(sections) {
-  const blocked = sections.some((section) => section.status === "blocked");
+  // `authority` was appended to the accepted v1 support schema. Older callers
+  // that omit this optional probe must keep their prior aggregate semantics;
+  // a genuinely attempted-but-unavailable authority probe still degrades.
+  const observed = sections.filter(hasAttemptedObservation);
+  const blocked = observed.some((section) => section.status === "blocked");
   if (blocked) return "blocked";
-  const availableCount = sections.filter((section) => section.available).length;
+  const availableCount = observed.filter((section) => section.available).length;
   if (availableCount === 0) {
-    const attempted = sections.some(hasAttemptedObservation);
-    if (attempted) return "attention";
+    if (observed.length > 0) return "attention";
     return "unavailable";
   }
-  const degraded = sections.some((section) => section.status !== "healthy");
-  if (availableCount !== sections.length || degraded) return "attention";
+  const degraded = observed.some((section) => section.status !== "healthy");
+  if (availableCount !== observed.length || degraded) return "attention";
   return "healthy";
 }
 
