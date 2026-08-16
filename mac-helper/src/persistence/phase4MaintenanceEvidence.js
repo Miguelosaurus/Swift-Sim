@@ -12,6 +12,7 @@ import {
 } from "./phase4MigrationIdentity.js";
 
 /** @typedef {(command: string, args: string[], options: { encoding: string }) => unknown} SpawnSyncLike */
+/** @typedef {"prepare" | "cancel" | "activate" | "rollback"} MaintenanceStage */
 
 const HUMAN_ONLY_FIELDS = Object.freeze([
   "maintenanceAuthorized",
@@ -36,7 +37,6 @@ const MEASURED_BOOLEAN_FIELDS = Object.freeze([
   "schemaMigrationsCoherent",
   "databaseIntegrityWalForeignKeysVerified",
   "zeroUnresolvedShadowMismatches",
-  "failClosedAbortClassesVerified",
 ]);
 
 const DEFERRED_FIELDS = Object.freeze([
@@ -62,7 +62,7 @@ export const ACTIVATE_EVIDENCE_FIELDS = Object.freeze([
  * and therefore cannot migrate the database.
  *
  * @param {unknown} evidence
- * @param {"prepare" | "activate" | "rollback"} stage
+ * @param {MaintenanceStage} stage
  * @param {{
  *   stateRoot: string,
  *   spawnSync: SpawnSyncLike,
@@ -80,7 +80,7 @@ export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
   rejectSubmittedMeasurementContradictions(validated, measured);
   assertStagePreMigrationFacts(stage, measured);
 
-  const sanitized = structuredClone(validated);
+  const sanitized = /** @type {Record<string, unknown>} */ (structuredClone(validated));
   for (const field of [...MEASURED_BOOLEAN_FIELDS, ...DEFERRED_FIELDS]) delete sanitized[field];
   delete sanitized.shadowMismatchCount;
 
@@ -168,14 +168,14 @@ export function bindPhase4PostMigrationEvidence(boundEvidence, options) {
 }
 
 /**
- * Assert the bound facts needed before the coordinator is allowed to perform
- * preparation/import work. Legacy backups are intentionally not required here:
- * they are created and byte-verified by the locked snapshot readers during the
- * preparation stage, then become mandatory durable preparation evidence before
- * activation.
+ * Assert the bound facts needed before a stage is allowed to construct its
+ * migration-capable database owner. Preparation additionally requires the
+ * verified snapshot and exact v9 close/reopen/idempotency proof. Backups cannot
+ * exist until locked preparation readers run, so activation verifies those
+ * exact returned backup paths separately before switching authority.
  *
  * @param {unknown} evidence
- * @param {"prepare" | "activate" | "rollback"} stage
+ * @param {MaintenanceStage} stage
  */
 export function assertPhase4BoundMaintenanceEvidence(evidence, stage) {
   const bound = requireBoundEvidence(evidence, stage, stage === "prepare");
@@ -190,7 +190,6 @@ export function assertPhase4BoundMaintenanceEvidence(evidence, stage) {
     "schemaMigrationsCoherent",
     "databaseIntegrityWalForeignKeysVerified",
     "zeroUnresolvedShadowMismatches",
-    "failClosedAbortClassesVerified",
   ]) {
     if (measured[field] !== true) {
       throw new Error(`Phase-4 bound maintenance condition is not satisfied: ${field}.`);
@@ -208,6 +207,9 @@ export function assertPhase4BoundMaintenanceEvidence(evidence, stage) {
       throw new Error("Phase-4 preparation requires verified snapshot and exact v9 reopen/idempotency.");
     }
   }
+  if (stage === "rollback" && measured.rollbackReadable !== true) {
+    throw new Error("Phase-4 rollback requires readable, private rollback material.");
+  }
   return bound;
 }
 
@@ -221,7 +223,7 @@ export function assertPhase4BoundMaintenanceEvidence(evidence, stage) {
  *   stateRoot: string,
  *   spawnSync: SpawnSyncLike,
  *   provenancePath: string,
- *   stage?: "prepare" | "activate" | "rollback",
+ *   stage?: MaintenanceStage,
  *   expectedCandidateSHA: string,
  *   expectedProcessIdentity: { pid: number, startedAt: string },
  *   allowedSchemaVersions?: readonly number[],
@@ -247,8 +249,8 @@ export function measurePhase4MaintenanceFacts(options) {
   const locks = measureExactDomainLocks(stateRoot, options.spawnSync);
   const permissions = readPrivatePermissions(stateRoot);
   const sourceHashes = readSourceHashes(stateRoot);
-  const shadow = readShadowMismatchFacts(databasePath);
-  const authority = readAuthorityFacts(databasePath, migration.schemaVersion);
+  const shadow = observePhase4ShadowMismatches(databasePath);
+  const authority = observePhase4AuthorityState(databasePath, migration.schemaVersion);
 
   const zeroUnresolvedShadowMismatches = shadow.total === 0;
   const privatePermissionsVerified = permissions.missing.length === 0;
@@ -275,7 +277,6 @@ export function measurePhase4MaintenanceFacts(options) {
       migration.foreignKeys === true &&
       migration.foreignKeyViolations === 0,
     zeroUnresolvedShadowMismatches,
-    failClosedAbortClassesVerified: true,
     schemaVersion: migration.schemaVersion,
     latestSchemaVersion: migration.latestSchemaVersion,
     migration,
@@ -326,12 +327,15 @@ export function verifyPhase4PreparationBackups({ stateRoot, domains, sourceHashe
     if (!expected?.present || typeof expected.sha256 !== "string") {
       throw new Error(`Phase-4 ${plan.key} preflight source identity is missing.`);
     }
+    if (typeof plan.backup !== "string" || !plan.backup) {
+      throw new Error(`Phase-4 ${plan.key} backup path is missing.`);
+    }
     const sourceBytes = readFileSync(join(stateRoot, plan.sourceName));
     const backupBytes = readFileSync(plan.backup);
     assertPrivateFile(plan.backup, `Phase-4 ${plan.key} backup`);
     const sourceDigest = sha256(sourceBytes);
     const backupDigest = sha256(backupBytes);
-    if (sourceDigest !== expected.sha256) {
+    if (sourceDigest !== expected.sha256 || sourceBytes.length !== expected.byteLength) {
       throw new Error(`Phase-4 ${plan.key} source changed after preflight.`);
     }
     if (!sourceBytes.equals(backupBytes) || backupDigest !== sourceDigest) {
@@ -349,219 +353,14 @@ export function verifyPhase4PreparationBackups({ stateRoot, domains, sourceHashe
   return Object.freeze({ verified: true, count: proofs.length, proofs: Object.freeze(proofs) });
 }
 
-/** @param {Record<string, unknown>} submitted @param {Record<string, any>} measured */
-function rejectSubmittedMeasurementContradictions(submitted, measured) {
-  for (const field of MEASURED_BOOLEAN_FIELDS) {
-    if (!(field in submitted)) continue;
-    if (typeof submitted[field] !== "boolean" || submitted[field] !== measured[field]) {
-      throw new Error(`Phase-4 maintenance condition contradicts measured environment: ${field}.`);
-    }
-  }
-  if (
-    "shadowMismatchCount" in submitted &&
-    submitted.shadowMismatchCount !== measured.shadow.total
-  ) {
-    throw new Error("Phase-4 maintenance shadow mismatch count contradicts measured environment.");
-  }
-}
-
-/** @param {"prepare" | "activate" | "rollback"} stage @param {Record<string, any>} measured */
-function assertStagePreMigrationFacts(stage, measured) {
-  for (const field of [
-    "installedProvenanceVerified",
-    "exactProcessIdentityVerified",
-    "helperQuiesced",
-    "exactDomainLocksAvailable",
-    "privatePermissionsVerified",
-    "liveSourceHashesCaptured",
-    "schemaMigrationsCoherent",
-    "databaseIntegrityWalForeignKeysVerified",
-    "zeroUnresolvedShadowMismatches",
-  ]) {
-    if (measured[field] !== true) {
-      throw new Error(`Phase-4 pre-migration maintenance condition failed: ${field}.`);
-    }
-  }
-  const mode = measured.authority.mode;
-  if (stage === "prepare" && !["legacy", "preparing"].includes(mode)) {
-    throw new Error(`Phase-4 preparation cannot begin from authority mode ${mode}.`);
-  }
-  if (stage === "activate" && mode !== "preparing") {
-    throw new Error(`Phase-4 activation requires preparing authority, found ${mode}.`);
-  }
-  if (stage === "rollback" && !["sqlite-rollback", "rollback-preparing"].includes(mode)) {
-    throw new Error(`Phase-4 rollback requires SQLite rollback authority, found ${mode}.`);
-  }
-}
-
-/** @param {unknown} value @param {"prepare" | "activate" | "rollback"} stage @param {boolean} requirePostMigration */
-function requireBoundEvidence(value, stage, requirePostMigration) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Phase-4 bound maintenance evidence must be an object.");
-  }
-  const bound = /** @type {any} */ (value);
-  if (bound.binding?.version !== 2 || bound.binding?.preMigrationComplete !== true) {
-    throw new Error("Phase-4 maintenance evidence is not bound to a completed pre-migration inspection.");
-  }
-  if (bound.binding.stage !== stage) {
-    throw new Error(`Phase-4 maintenance evidence was bound for ${bound.binding.stage}, not ${stage}.`);
-  }
-  if (requirePostMigration && bound.binding.postMigrationComplete !== true) {
-    throw new Error("Phase-4 maintenance evidence is missing post-migration binding.");
-  }
-  return bound;
-}
-
-/** @param {ReturnType<typeof inspectPhase4MigrationIdentity>} facts @param {string} label */
-function requireFullPostMigration(facts, label) {
-  if (!facts?.coherent || !facts.full || facts.schemaVersion !== expectedPhase4MigrationIdentities().length) {
-    throw new Error(`Phase-4 ${label} did not prove exact full v1-v9 migration identity.`);
-  }
-}
-
-/** @param {Record<string, unknown>} snapshot @param {any} bound */
-function requireVerifiedSnapshot(snapshot, bound) {
-  if (
-    !snapshot ||
-    snapshot.verified !== true ||
-    snapshot.schemaVersion !== bound.binding.preMigrationSchemaVersion ||
-    snapshot.migrationHistoryDigest !== bound.binding.preMigrationHistoryDigest ||
-    typeof snapshot.sha256 !== "string" ||
-    !/^[a-f0-9]{64}$/.test(snapshot.sha256)
-  ) {
-    throw new Error("Phase-4 pre-migration snapshot is not bound to the verified pre-migration database.");
-  }
-  return structuredClone(snapshot);
-}
-
-/** @param {string} provenancePath */
-function readCandidateProvenance(provenancePath) {
-  if (typeof provenancePath !== "string" || !provenancePath) {
-    throw new Error("Phase-4 maintenance requires an installed candidate provenance path.");
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync(provenancePath, "utf8"));
-  } catch (error) {
-    throw new Error("Phase-4 installed candidate provenance is unreadable.", { cause: error });
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Phase-4 installed candidate provenance must be an object.");
-  }
-  const value = /** @type {Record<string, unknown>} */ (parsed);
-  if (value.version !== 1 || typeof value.gitSHA !== "string" || !/^[a-f0-9]{40}$/.test(value.gitSHA)) {
-    throw new Error("Phase-4 installed candidate provenance is invalid.");
-  }
-  return Object.freeze({ source: "installed-build-manifest", gitSHA: value.gitSHA });
-}
-
-/** @param {string} stateRoot */
-function readSourceHashes(stateRoot) {
-  const readSource = (fileName) => {
-    const path = join(stateRoot, fileName);
-    const bytes = readFileSync(path);
-    assertPrivateFile(path, `Phase-4 legacy source ${fileName}`);
-    return Object.freeze({
-      present: true,
-      fileName,
-      byteLength: bytes.length,
-      sha256: sha256(bytes),
-    });
-  };
-  return Object.freeze({
-    credential: readSource("pairing.json"),
-    invitations: readSource("pairing-invites.json"),
-    deviceBuilds: readSource("device-builds.json"),
-    sessions: readSource("sessions.json"),
-  });
-}
-
-/** @param {string} stateRoot */
-function readPrivatePermissions(stateRoot) {
-  const checks = [
-    ["stateRoot", stateRoot, "directory"],
-    ["database", join(stateRoot, "state.sqlite"), "file"],
-    ["helperIdentity", join(stateRoot, "runtime", "helper-process-identity.json"), "file"],
-    ["pairing", join(stateRoot, "pairing.json"), "file"],
-    ["pairingInvitations", join(stateRoot, "pairing-invites.json"), "file"],
-    ["deviceBuilds", join(stateRoot, "device-builds.json"), "file"],
-    ["sessions", join(stateRoot, "sessions.json"), "file"],
-  ];
-  const missing = [];
-  const entries = {};
-  for (const [label, path, kind] of checks) {
-    try {
-      const entry = lstatSync(path);
-      const validType = kind === "directory" ? entry.isDirectory() : entry.isFile();
-      const privateMode = !entry.isSymbolicLink() && validType && (statSync(path).mode & 0o077) === 0;
-      entries[label] = Object.freeze({ present: true, private: privateMode });
-      if (!privateMode) missing.push(label);
-    } catch (error) {
-      if (hasCode(error, "ENOENT")) {
-        entries[label] = Object.freeze({ present: false, private: false });
-        missing.push(label);
-        continue;
-      }
-      throw error;
-    }
-  }
-  return Object.freeze({ entries: Object.freeze(entries), missing: Object.freeze(missing) });
-}
-
-/** @param {string} stateRoot @param {SpawnSyncLike} spawnSync */
-function measureExactDomainLocks(stateRoot, spawnSync) {
-  const identify = (pid) => processStartToken(pid, spawnSync);
-  const locks = ["pairing.json.lock", "pairing-invites.json.lock", "device-builds.json.lock", "sessions.json.lock"].map(
-    (name) => {
-      const path = join(stateRoot, name);
-      let owner;
-      try {
-        owner = JSON.parse(readFileSync(join(path, "owner.json"), "utf8"));
-      } catch (error) {
-        if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) {
-          return Object.freeze({ name, available: true, state: "unowned" });
-        }
-        throw new Error(`Phase-4 lock owner is unreadable: ${name}.`, { cause: error });
-      }
-      if (
-        !owner ||
-        typeof owner !== "object" ||
-        !Number.isSafeInteger(owner.pid) ||
-        Number(owner.pid) <= 1 ||
-        typeof owner.startToken !== "string" ||
-        !owner.startToken
-      ) {
-        throw new Error(`Phase-4 lock owner identity is invalid: ${name}.`);
-      }
-      const observed = identify(Number(owner.pid));
-      const live = observed !== null && observed === owner.startToken;
-      return Object.freeze({
-        name,
-        available: !live,
-        state: live ? "owned-live" : observed === null ? "owner-absent" : "owner-pid-reused",
-      });
-    },
-  );
-  return Object.freeze({ available: locks.every((lock) => lock.available), locks: Object.freeze(locks) });
-}
-
-/** @param {number} pid @param {SpawnSyncLike} spawnSync */
-function processStartToken(pid, spawnSync) {
-  let result;
-  try {
-    result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
-  } catch {
-    return null;
-  }
-  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
-  const values = /** @type {Record<string, unknown>} */ (result);
-  if (values.status !== 0) return null;
-  const token = String(values.stdout || "").trim();
-  return token || null;
-}
-
-/** @param {string} databasePath */
-function readShadowMismatchFacts(databasePath) {
+/**
+ * Query unresolved shadow mismatch state. Any prepare/query/read error is
+ * intentionally allowed to escape: an observation failure is never equivalent
+ * to zero mismatches.
+ *
+ * @param {string} databasePath
+ */
+export function observePhase4ShadowMismatches(databasePath) {
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
     database.exec("PRAGMA query_only = ON");
@@ -579,8 +378,15 @@ function readShadowMismatchFacts(databasePath) {
   }
 }
 
-/** @param {string} databasePath @param {number} schemaVersion */
-function readAuthorityFacts(databasePath, schemaVersion) {
+/**
+ * Query the global authority state. Pre-v9 databases legitimately have no
+ * Phase-4 authority table and therefore imply legacy authority; once v9 exists,
+ * absence/query failure/invalid rows all block.
+ *
+ * @param {string} databasePath
+ * @param {number} schemaVersion
+ */
+export function observePhase4AuthorityState(databasePath, schemaVersion) {
   if (schemaVersion < 9) {
     return Object.freeze({ mode: "legacy", source: "pre-v9-implicit", revision: 0, cutoverEpoch: 0 });
   }
@@ -616,6 +422,244 @@ function readAuthorityFacts(databasePath, schemaVersion) {
   }
 }
 
+/** @param {Record<string, unknown>} submitted @param {Record<string, any>} measured */
+function rejectSubmittedMeasurementContradictions(submitted, measured) {
+  for (const field of MEASURED_BOOLEAN_FIELDS) {
+    if (!(field in submitted)) continue;
+    if (typeof submitted[field] !== "boolean" || submitted[field] !== measured[field]) {
+      throw new Error(`Phase-4 maintenance condition contradicts measured environment: ${field}.`);
+    }
+  }
+  if (
+    "shadowMismatchCount" in submitted &&
+    submitted.shadowMismatchCount !== measured.shadow.total
+  ) {
+    throw new Error("Phase-4 maintenance shadow mismatch count contradicts measured environment.");
+  }
+}
+
+/** @param {MaintenanceStage} stage @param {Record<string, any>} measured */
+function assertStagePreMigrationFacts(stage, measured) {
+  for (const field of [
+    "installedProvenanceVerified",
+    "exactProcessIdentityVerified",
+    "helperQuiesced",
+    "exactDomainLocksAvailable",
+    "privatePermissionsVerified",
+    "liveSourceHashesCaptured",
+    "schemaMigrationsCoherent",
+    "databaseIntegrityWalForeignKeysVerified",
+    "zeroUnresolvedShadowMismatches",
+  ]) {
+    if (measured[field] !== true) {
+      throw new Error(`Phase-4 pre-migration maintenance condition failed: ${field}.`);
+    }
+  }
+  const mode = measured.authority.mode;
+  if (stage === "prepare" && !["legacy", "preparing"].includes(mode)) {
+    throw new Error(`Phase-4 preparation cannot begin from authority mode ${mode}.`);
+  }
+  if (stage === "cancel" && !["legacy", "preparing"].includes(mode)) {
+    throw new Error(`Phase-4 preparation cannot be cancelled from authority mode ${mode}.`);
+  }
+  if (stage === "activate" && mode !== "preparing") {
+    throw new Error(`Phase-4 activation requires preparing authority, found ${mode}.`);
+  }
+  if (stage === "rollback" && !["sqlite-rollback", "rollback-preparing"].includes(mode)) {
+    throw new Error(`Phase-4 rollback requires SQLite rollback authority, found ${mode}.`);
+  }
+}
+
+/** @param {unknown} value @param {MaintenanceStage} stage @param {boolean} requirePostMigration */
+function requireBoundEvidence(value, stage, requirePostMigration) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Phase-4 bound maintenance evidence must be an object.");
+  }
+  const bound = /** @type {any} */ (value);
+  if (bound.binding?.version !== 2 || bound.binding?.preMigrationComplete !== true) {
+    throw new Error("Phase-4 maintenance evidence is not bound to a completed pre-migration inspection.");
+  }
+  if (bound.binding.stage !== stage) {
+    throw new Error(`Phase-4 maintenance evidence was bound for ${bound.binding.stage}, not ${stage}.`);
+  }
+  if (requirePostMigration && bound.binding.postMigrationComplete !== true) {
+    throw new Error("Phase-4 maintenance evidence is missing post-migration binding.");
+  }
+  return bound;
+}
+
+/** @param {ReturnType<typeof inspectPhase4MigrationIdentity>} facts @param {string} label */
+function requireFullPostMigration(facts, label) {
+  if (
+    !facts?.coherent ||
+    !facts.full ||
+    facts.schemaVersion !== expectedPhase4MigrationIdentities().length
+  ) {
+    throw new Error(`Phase-4 ${label} did not prove exact full v1-v9 migration identity.`);
+  }
+}
+
+/** @param {Record<string, unknown>} snapshot @param {any} bound */
+function requireVerifiedSnapshot(snapshot, bound) {
+  if (
+    !snapshot ||
+    snapshot.verified !== true ||
+    snapshot.schemaVersion !== bound.binding.preMigrationSchemaVersion ||
+    snapshot.migrationHistoryDigest !== bound.binding.preMigrationHistoryDigest ||
+    typeof snapshot.sha256 !== "string" ||
+    !/^[a-f0-9]{64}$/.test(snapshot.sha256)
+  ) {
+    throw new Error("Phase-4 pre-migration snapshot is not bound to the verified pre-migration database.");
+  }
+  return structuredClone(snapshot);
+}
+
+/** @param {string} provenancePath */
+function readCandidateProvenance(provenancePath) {
+  if (typeof provenancePath !== "string" || !provenancePath) {
+    throw new Error("Phase-4 maintenance requires an installed candidate provenance path.");
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(provenancePath, "utf8"));
+  } catch (error) {
+    throw new Error("Phase-4 installed candidate provenance is unreadable.", { cause: error });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Phase-4 installed candidate provenance must be an object.");
+  }
+  const value = /** @type {Record<string, unknown>} */ (parsed);
+  if (
+    value.version !== 1 ||
+    typeof value.gitSHA !== "string" ||
+    !/^[a-f0-9]{40}$/.test(value.gitSHA)
+  ) {
+    throw new Error("Phase-4 installed candidate provenance is invalid.");
+  }
+  return Object.freeze({ source: "installed-build-manifest", gitSHA: value.gitSHA });
+}
+
+/** @param {string} stateRoot */
+function readSourceHashes(stateRoot) {
+  /** @param {string} fileName */
+  const readSource = (fileName) => {
+    const path = join(stateRoot, fileName);
+    const bytes = readFileSync(path);
+    assertPrivateFile(path, `Phase-4 legacy source ${fileName}`);
+    return Object.freeze({
+      present: true,
+      fileName,
+      byteLength: bytes.length,
+      sha256: sha256(bytes),
+    });
+  };
+  return Object.freeze({
+    credential: readSource("pairing.json"),
+    invitations: readSource("pairing-invites.json"),
+    deviceBuilds: readSource("device-builds.json"),
+    sessions: readSource("sessions.json"),
+  });
+}
+
+/** @param {string} stateRoot */
+function readPrivatePermissions(stateRoot) {
+  /** @type {Array<{ label: string, path: string, kind: "directory" | "file" }>} */
+  const checks = [
+    { label: "stateRoot", path: stateRoot, kind: "directory" },
+    { label: "database", path: join(stateRoot, "state.sqlite"), kind: "file" },
+    {
+      label: "helperIdentity",
+      path: join(stateRoot, "runtime", "helper-process-identity.json"),
+      kind: "file",
+    },
+    { label: "pairing", path: join(stateRoot, "pairing.json"), kind: "file" },
+    {
+      label: "pairingInvitations",
+      path: join(stateRoot, "pairing-invites.json"),
+      kind: "file",
+    },
+    { label: "deviceBuilds", path: join(stateRoot, "device-builds.json"), kind: "file" },
+    { label: "sessions", path: join(stateRoot, "sessions.json"), kind: "file" },
+  ];
+  /** @type {string[]} */
+  const missing = [];
+  /** @type {Record<string, { present: boolean, private: boolean }>} */
+  const entries = {};
+  for (const check of checks) {
+    try {
+      const entry = lstatSync(check.path);
+      const validType = check.kind === "directory" ? entry.isDirectory() : entry.isFile();
+      const privateMode =
+        !entry.isSymbolicLink() && validType && (statSync(check.path).mode & 0o077) === 0;
+      entries[check.label] = Object.freeze({ present: true, private: privateMode });
+      if (!privateMode) missing.push(check.label);
+    } catch (error) {
+      if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) {
+        entries[check.label] = Object.freeze({ present: false, private: false });
+        missing.push(check.label);
+        continue;
+      }
+      throw error;
+    }
+  }
+  return Object.freeze({ entries: Object.freeze(entries), missing: Object.freeze(missing) });
+}
+
+/** @param {string} stateRoot @param {SpawnSyncLike} spawnSync */
+function measureExactDomainLocks(stateRoot, spawnSync) {
+  /** @param {number} pid */
+  const identify = (pid) => processStartToken(pid, spawnSync);
+  const locks = [
+    "pairing.json.lock",
+    "pairing-invites.json.lock",
+    "device-builds.json.lock",
+    "sessions.json.lock",
+  ].map((name) => {
+    const path = join(stateRoot, name);
+    let owner;
+    try {
+      owner = JSON.parse(readFileSync(join(path, "owner.json"), "utf8"));
+    } catch (error) {
+      if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) {
+        return Object.freeze({ name, available: true, state: "unowned" });
+      }
+      throw new Error(`Phase-4 lock owner is unreadable: ${name}.`, { cause: error });
+    }
+    if (!owner || typeof owner !== "object" || Array.isArray(owner)) {
+      throw new Error(`Phase-4 lock owner identity is invalid: ${name}.`);
+    }
+    const record = /** @type {Record<string, unknown>} */ (owner);
+    if (!Number.isSafeInteger(record.pid) || Number(record.pid) <= 1) {
+      throw new Error(`Phase-4 lock owner identity is invalid: ${name}.`);
+    }
+    const startToken = String(record.startToken || record.startedAt || "").trim();
+    if (!startToken) throw new Error(`Phase-4 lock owner identity is invalid: ${name}.`);
+    const observed = identify(Number(record.pid));
+    const live = observed !== null && observed === startToken;
+    return Object.freeze({
+      name,
+      available: !live,
+      state: live ? "owned-live" : observed === null ? "owner-absent" : "owner-pid-reused",
+    });
+  });
+  return Object.freeze({ available: locks.every((lock) => lock.available), locks: Object.freeze(locks) });
+}
+
+/** @param {number} pid @param {SpawnSyncLike} spawnSync */
+function processStartToken(pid, spawnSync) {
+  let result;
+  try {
+    result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+  } catch {
+    return null;
+  }
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  const values = /** @type {Record<string, unknown>} */ (result);
+  if (values.status !== 0) return null;
+  const token = String(values.stdout || "").trim();
+  return token || null;
+}
+
 /** @param {string} stateRoot @param {Record<string, any>} authority */
 function readRollbackMaterial(stateRoot, authority) {
   if (!["sqlite-rollback", "rollback-preparing"].includes(authority.mode)) return false;
@@ -630,7 +674,9 @@ function readRollbackMaterial(stateRoot, authority) {
 
 /** @param {unknown} row @param {string} label */
 function requireCount(row, label) {
-  if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error(`${label} returned no row.`);
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error(`${label} returned no row.`);
+  }
   const count = /** @type {Record<string, unknown>} */ (row).count;
   if (!Number.isSafeInteger(count) || Number(count) < 0) throw new Error(`${label} is invalid.`);
   return Number(count);
@@ -641,14 +687,16 @@ function requireBackupArray(value, label) {
   if (!Array.isArray(value) || !value.every((path) => typeof path === "string" && path)) {
     throw new Error(`Phase-4 ${label} backup paths are invalid.`);
   }
-  return [...value];
+  return /** @type {string[]} */ ([...value]);
 }
 
 /** @param {string[]} paths @param {string} prefix */
 function requireBackupRole(paths, prefix) {
   const matches = paths.filter((path) => basename(path).startsWith(prefix));
   if (matches.length !== 1) throw new Error(`Phase-4 backup role ${prefix} is missing or ambiguous.`);
-  return matches[0];
+  const match = matches[0];
+  if (!match) throw new Error(`Phase-4 backup role ${prefix} is missing.`);
+  return match;
 }
 
 /** @param {string} path @param {string} label */
