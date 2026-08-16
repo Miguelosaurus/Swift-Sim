@@ -1,21 +1,27 @@
 #!/usr/bin/env node
 // @ts-check
 
-import { readFileSync } from "node:fs";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { resolve, join } from "node:path";
 import { parseArgs } from "node:util";
 import { DatabaseSync } from "node:sqlite";
-import { bindPhase4MaintenanceEvidence } from "../src/persistence/phase4MaintenanceEvidence.js";
 import { Phase4CutoverCoordinator } from "../src/persistence/phase4CutoverCoordinator.js";
-import { Phase4CutoverPreflightInspector } from "../src/persistence/phase4CutoverPreflightInspector.js";
 import { Phase4RollbackCoordinator } from "../src/persistence/phase4RollbackCoordinator.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../src/persistence/phase4SqliteSchema.js";
+import {
+  verifyPhase4PreparationBackups,
+} from "../src/persistence/phase4MaintenanceEvidence.js";
+import { withPhase4MaintenanceDatabase } from "../src/persistence/phase4MaintenanceExecutor.js";
 import { SqliteDeviceBuildStateRepository } from "../src/persistence/sqliteDeviceBuildStateRepository.js";
 import { SqliteDurableSessionRepository } from "../src/persistence/sqliteDurableSessionRepository.js";
 import { SqlitePairingStateRepository } from "../src/persistence/sqlitePairingStateRepository.js";
 import { SqlitePhase4AuthorityRepository } from "../src/persistence/sqlitePhase4AuthorityRepository.js";
 import { SwiftSimSqliteDatabase } from "../src/persistence/swiftSimSqliteDatabase.js";
+
+const INSTALLED_PROVENANCE_PATH = fileURLToPath(
+  new URL("../build-provenance.json", import.meta.url),
+);
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -51,139 +57,94 @@ async function main() {
 
   const maintenanceEvidence = readEvidence(values["evidence-file"]);
   const { spawnSync } = await import("node:child_process");
-  const evidenceStage = action === "cancel" ? "prepare" : action;
   const expectedRevision = nonNegativeInteger(values["expected-revision"], "--expected-revision");
-  const candidateSHA = maintenanceEvidence.candidateSHA;
-  const boundEvidence = bindPhase4MaintenanceEvidence(
-    maintenanceEvidence,
-    /** @type {"prepare" | "activate" | "rollback"} */ (evidenceStage),
+  const stage = /** @type {any} */ (action === "cancel" ? "cancel" : action);
+
+  const result = await withPhase4MaintenanceDatabase(
     {
       stateRoot,
+      evidence: maintenanceEvidence,
+      stage,
       spawnSync,
-      candidateSHA,
-      expectedSchemaVersion: PHASE4_SQLITE_MIGRATIONS.at(-1)?.version || 0,
+      provenancePath: INSTALLED_PROVENANCE_PATH,
+    },
+    (database, boundEvidence) => {
+      if (action === "prepare") {
+        const prepared = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync }).prepare({
+          expectedRevision,
+          maintenanceEvidence: boundEvidence,
+          ...(values["preparation-id"] ? { preparationID: values["preparation-id"] } : {}),
+        });
+        const backupProof = verifyPhase4PreparationBackups({
+          stateRoot,
+          domains: prepared.domains,
+          sourceHashes: boundEvidence.measured.sourceHashes,
+        });
+        return Object.freeze({ ...prepared, backupProof });
+      }
+
+      if (action === "cancel") {
+        return new Phase4CutoverCoordinator({ database, stateRoot, spawnSync }).cancelPreparation({
+          expectedRevision,
+          preparationID: requireOption(values["preparation-id"], "--preparation-id"),
+        });
+      }
+
+      if (action === "activate") {
+        const minutes = positiveInteger(
+          values["rollback-window-minutes"],
+          "--rollback-window-minutes",
+        );
+        if (minutes > 7 * 24 * 60) {
+          throw new Error("--rollback-window-minutes may not exceed seven days.");
+        }
+
+        // Backups are created by the exact locked readers during preparation,
+        // so they cannot be required before that stage. They become mandatory
+        // here, before the authority selector can switch.
+        const preparedAuthority = new SqlitePhase4AuthorityRepository(database).getState();
+        if (preparedAuthority.mode !== "preparing") {
+          throw new Error(
+            `Phase-4 activation requires preparing authority, found ${preparedAuthority.mode}.`,
+          );
+        }
+        const backupProof = verifyPhase4PreparationBackups({
+          stateRoot,
+          domains: preparedAuthority.evidence?.domains,
+          sourceHashes: boundEvidence.measured.sourceHashes,
+        });
+        const activated = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync }).activate({
+          expectedRevision,
+          preparationID: requireOption(values["preparation-id"], "--preparation-id"),
+          evidenceHash: requireOption(values["evidence-hash"], "--evidence-hash"),
+          rollbackWindowMs: minutes * 60_000,
+          maintenanceEvidence: boundEvidence,
+        });
+        return Object.freeze({ ...activated, backupProof });
+      }
+
+      return new Phase4RollbackCoordinator({ database, stateRoot, spawnSync }).run({
+        expectedRevision,
+        expectedCutoverEpoch: nonNegativeInteger(
+          values["expected-cutover-epoch"],
+          "--expected-cutover-epoch",
+        ),
+        maintenanceEvidence: boundEvidence,
+      });
     },
   );
 
-  // Stage 1-4: read-only pre-migration inspection, authorization/provenance
-  // binding, process/quiescence/private-permission checking, and the verified
-  // SQLite-consistent pre-migration snapshot must all pass before a
-  // migration-capable open is allowed.
-  const preflight = new Phase4CutoverPreflightInspector({ stateRoot, spawnSync }).inspect();
-  assertPreflightStops(preflight, boundEvidence);
-
-  const database = openDatabase(stateRoot);
-  try {
-    assertPostOpenStage(database);
-    if (action === "prepare") {
-      const result = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync }).prepare({
-        expectedRevision,
-        maintenanceEvidence: boundEvidence,
-        ...(values["preparation-id"] ? { preparationID: values["preparation-id"] } : {}),
-      });
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-    if (action === "cancel") {
-      const result = new Phase4CutoverCoordinator({
-        database,
-        stateRoot,
-        spawnSync,
-      }).cancelPreparation({
-        expectedRevision,
-        preparationID: requireOption(values["preparation-id"], "--preparation-id"),
-      });
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-    if (action === "activate") {
-      const minutes = positiveInteger(
-        values["rollback-window-minutes"],
-        "--rollback-window-minutes",
-      );
-      if (minutes > 7 * 24 * 60) {
-        throw new Error("--rollback-window-minutes may not exceed seven days.");
-      }
-      const result = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync }).activate({
-        expectedRevision,
-        preparationID: requireOption(values["preparation-id"], "--preparation-id"),
-        evidenceHash: requireOption(values["evidence-hash"], "--evidence-hash"),
-        rollbackWindowMs: minutes * 60_000,
-        maintenanceEvidence: boundEvidence,
-      });
-      database.close();
-      const reopened = postSwitchHealth(stateRoot, "sqlite-rollback");
-      console.log(JSON.stringify({ ...result, postSwitchHealth: reopened }, null, 2));
-      return;
-    }
-    const result = new Phase4RollbackCoordinator({ database, stateRoot, spawnSync }).run({
-      expectedRevision,
-      expectedCutoverEpoch: nonNegativeInteger(
-        values["expected-cutover-epoch"],
-        "--expected-cutover-epoch",
-      ),
-      maintenanceEvidence: boundEvidence,
-    });
-    database.close();
+  if (action === "activate") {
+    const reopened = postSwitchHealth(stateRoot, "sqlite-rollback");
+    console.log(JSON.stringify({ ...result, postSwitchHealth: reopened }, null, 2));
+    return;
+  }
+  if (action === "rollback") {
     const reopened = postSwitchHealth(stateRoot, "legacy");
     console.log(JSON.stringify({ ...result, postSwitchHealth: reopened }, null, 2));
-  } finally {
-    try {
-      database.close();
-    } catch {}
+    return;
   }
-}
-
-/** @param {SwiftSimSqliteDatabase} database */
-function assertPostOpenStage(database) {
-  const health = database.health();
-  if (!health.ok || health.schemaVersion !== health.latestSchemaVersion) {
-    throw new Error("Phase-4 post-migration reopen/idempotency health check failed.");
-  }
-  const authority = new SqlitePhase4AuthorityRepository(database).getState();
-  if (!["legacy", "preparing", "sqlite-rollback", "rollback-preparing"].includes(authority.mode)) {
-    throw new Error(`Phase-4 post-open authority mode is invalid: ${authority.mode}.`);
-  }
-}
-
-/** @param {unknown} preflight @param {unknown} evidence */
-function assertPreflightStops(preflight, evidence) {
-  if (!preflight || typeof preflight !== "object" || Array.isArray(preflight)) {
-    throw new Error("Phase-4 pre-migration inspection is unavailable.");
-  }
-  const values = /** @type {Record<string, unknown>} */ (preflight);
-  if (values.includesMigrationCapableOpen !== false) {
-    throw new Error("Phase-4 pre-migration inspection must reject migration-capable opens.");
-  }
-  if (values.permissionsMissing) {
-    throw new Error("Phase-4 pre-migration private-permission inspection failed.");
-  }
-  const evidenceValue = /** @type {Record<string, unknown> | null} */ (
-    evidence && typeof evidence === "object" ? evidence : null
-  );
-  const measured = /** @type {Record<string, unknown> | null} */ (
-    evidenceValue?.measured && typeof evidenceValue.measured === "object"
-      ? evidenceValue.measured
-      : null
-  );
-  if (measured?.schemaMigrationsCoherent === false) {
-    throw new Error("Phase-4 pre-migration schema/migration identity is not coherent.");
-  }
-  if (measured?.databaseIntegrityWalForeignKeysVerified === false) {
-    throw new Error("Phase-4 pre-migration database integrity/WAL/FK inspection failed.");
-  }
-  if (measured?.preMigrationDatabaseSnapshotVerified !== true) {
-    throw new Error("Phase-4 verified pre-migration database snapshot is not present.");
-  }
-  if (measured?.legacyBackupsVerified === false) {
-    throw new Error("Phase-4 legacy backups did not verify.");
-  }
-  if (measured?.zeroUnresolvedShadowMismatches === false) {
-    throw new Error("Phase-4 pre-migration shadow mismatches are unresolved.");
-  }
-  if (measured?.rollbackReadable === false) {
-    throw new Error("Phase-4 pre-migration rollback material is not readable.");
-  }
+  console.log(JSON.stringify(result, null, 2));
 }
 
 /** @param {string} stateRoot */
