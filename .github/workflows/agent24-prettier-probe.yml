@@ -6,21 +6,22 @@ on:
       - agent/arch-ws-P4-CUTOVER-CORRECTIONS-R1
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  prettier-diff:
+  prettier-apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Print exact Prettier diff
+      - name: Apply exact Prettier output and remove probe
         run: |
           npx prettier --write \
             mac-helper/src/persistence/phase4CutoverPreflightInspector.js \
@@ -30,7 +31,11 @@ jobs:
             mac-helper/src/persistence/phase4MaintenanceSnapshot.js \
             mac-helper/src/persistence/phase4MigrationIdentity.js \
             mac-helper/src/persistence/phase4PreparationBackupProof.js
-          git diff -- \
+          rm .github/workflows/agent24-prettier-probe.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            .github/workflows/agent24-prettier-probe.yml \
             mac-helper/src/persistence/phase4CutoverPreflightInspector.js \
             mac-helper/src/persistence/phase4HelperProcessIdentity.js \
             mac-helper/src/persistence/phase4MaintenanceEvidence.js \
@@ -38,11 +43,5 @@ jobs:
             mac-helper/src/persistence/phase4MaintenanceSnapshot.js \
             mac-helper/src/persistence/phase4MigrationIdentity.js \
             mac-helper/src/persistence/phase4PreparationBackupProof.js
-          test -z "$(git status --short -- \
-            mac-helper/src/persistence/phase4CutoverPreflightInspector.js \
-            mac-helper/src/persistence/phase4HelperProcessIdentity.js \
-            mac-helper/src/persistence/phase4MaintenanceEvidence.js \
-            mac-helper/src/persistence/phase4MaintenanceObservations.js \
-            mac-helper/src/persistence/phase4MaintenanceSnapshot.js \
-            mac-helper/src/persistence/phase4MigrationIdentity.js \
-            mac-helper/src/persistence/phase4PreparationBackupProof.js)"
+          git commit -m "style: apply hosted Prettier output"
+          git push origin HEAD:agent/arch-ws-P4-CUTOVER-CORRECTIONS-R2
