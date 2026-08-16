@@ -108,7 +108,7 @@ export class SqliteDeviceBuildMutationRepository {
       const state = snapshotToMutableState(normalizeDeviceBuildStateSnapshot(this.#readUnlocked()));
       recoverStaleRenewals(state.builds);
       const result = operation(state);
-      if (result && typeof /** @type {any} */ (result).then === "function") {
+      if (result && typeof (/** @type {any} */ (result).then) === "function") {
         throw new Error("Device-build SQLite mutation must complete synchronously.");
       }
       const snapshot = mutableStateToSnapshot(state);
@@ -305,8 +305,9 @@ function normalizeCapabilities(capabilities, now = Date.now()) {
     if (!normalized.token || !Number.isFinite(expiresAt) || expiresAt <= now) continue;
     byToken.set(normalized.token, normalized);
   }
-  return [...byToken.values()]
-    .sort((left, right) => Date.parse(left.expiresAt) - Date.parse(right.expiresAt));
+  return [...byToken.values()].sort(
+    (left, right) => Date.parse(left.expiresAt) - Date.parse(right.expiresAt),
+  );
 }
 
 /** @param {any} build */

@@ -7,15 +7,24 @@ import { createSessionLegacyProcessIdentity } from "../infrastructure/sessionLeg
 import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../infrastructure/nodeLockManager.js";
 import { SystemClock } from "../infrastructure/systemClock.js";
-import { DeviceBuildLegacyImportCoordinator, DeviceBuildLegacyImportApplier } from "./deviceBuildLegacyImport.js";
+import {
+  DeviceBuildLegacyImportCoordinator,
+  DeviceBuildLegacyImportApplier,
+} from "./deviceBuildLegacyImport.js";
 import {
   deviceBuildProjectionHash,
   parseDeviceBuildLegacySnapshot,
 } from "./deviceBuildLockedLegacySnapshot.js";
-import { PairingLegacyImportCoordinator, PairingLegacyImportApplier } from "./pairingLegacyImport.js";
+import {
+  PairingLegacyImportCoordinator,
+  PairingLegacyImportApplier,
+} from "./pairingLegacyImport.js";
 import { pairingProjectionHash } from "./pairingLockedLegacySnapshot.js";
 import { Phase4PairingAuthorityBridge } from "./phase4PairingAuthorityBridge.js";
-import { SessionLegacyImportCoordinator, SessionLegacyImportApplier } from "./sessionLegacyImport.js";
+import {
+  SessionLegacyImportCoordinator,
+  SessionLegacyImportApplier,
+} from "./sessionLegacyImport.js";
 import {
   durableSessionProjectionHash,
   parseLegacyDurableSessions,
@@ -187,9 +196,7 @@ export class Phase4CutoverCoordinator {
       requireSnapshotsMatch(current, fresh);
 
       const cutoverAt = new Date().toISOString();
-      const rollbackExpiresAt = new Date(
-        Date.parse(cutoverAt) + rollbackWindowMs,
-      ).toISOString();
+      const rollbackExpiresAt = new Date(Date.parse(cutoverAt) + rollbackWindowMs).toISOString();
       const pairing = fresh.pairing;
       const activated = this.#authority.activateSqliteRollback({
         expectedRevision: authority.revision,
@@ -218,7 +225,8 @@ export class Phase4CutoverCoordinator {
   /** @param {{ expectedRevision: number, preparationID: string }} input */
   cancelPreparation(input) {
     const current = this.#authority.getState();
-    if (current.mode === "legacy") return Object.freeze({ status: "already-legacy", authority: current });
+    if (current.mode === "legacy")
+      return Object.freeze({ status: "already-legacy", authority: current });
     if (current.mode !== "preparing") {
       throw new Error(`Phase-4 preparation cannot be cancelled from ${current.mode}.`);
     }
@@ -422,15 +430,17 @@ function readDeviceSnapshot(fileStore, source, backups) {
   }
   const parsed = parseDeviceBuildLegacySnapshot(raw, source.path);
   const snapshot = parsed.snapshot;
-  const sourceRevision = sha256(JSON.stringify({
-    version: 1,
-    source: {
-      name: source.name,
-      present: raw !== null,
-      digest: raw === null ? null : sha256(raw),
-      stateVersion: parsed.sourceVersion,
-    },
-  }));
+  const sourceRevision = sha256(
+    JSON.stringify({
+      version: 1,
+      source: {
+        name: source.name,
+        present: raw !== null,
+        digest: raw === null ? null : sha256(raw),
+        stateVersion: parsed.sourceVersion,
+      },
+    }),
+  );
   return deepFreeze({
     snapshot,
     sourceRevision,
@@ -544,14 +554,16 @@ function requireSqliteProjectionEquality(snapshots, pairing, device, sessions) {
 function withLocksSync(lockManager, requests, operation, index = 0) {
   const request = requests[index];
   if (!request) return operation();
-  return lockManager.withLockSync(request, () => withLocksSync(lockManager, requests, operation, index + 1));
+  return lockManager.withLockSync(request, () =>
+    withLocksSync(lockManager, requests, operation, index + 1),
+  );
 }
 
 /** @param {unknown} requested @param {unknown} globalPrepared @param {unknown} pairingPrepared */
 function resolvePreparationID(requested, globalPrepared, pairingPrepared) {
-  const candidates = [requested, globalPrepared, pairingPrepared].filter(Boolean).map((value) =>
-    requireHash(value, "Phase-4 preparationID"),
-  );
+  const candidates = [requested, globalPrepared, pairingPrepared]
+    .filter(Boolean)
+    .map((value) => requireHash(value, "Phase-4 preparationID"));
   if (new Set(candidates).size > 1) {
     throw new Error("Phase-4 preparation identifiers disagree across resumable state.");
   }
@@ -602,7 +614,8 @@ function hasCode(error, code) {
 /** @template T @param {T} value @returns {T} */
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(/** @type {Record<string, unknown>} */ (value))) deepFreeze(nested);
+  for (const nested of Object.values(/** @type {Record<string, unknown>} */ (value)))
+    deepFreeze(nested);
   Object.freeze(/** @type {object} */ (value));
   return value;
 }

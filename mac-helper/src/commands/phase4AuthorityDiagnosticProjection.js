@@ -14,7 +14,9 @@ export function projectPhase4AuthorityHealth(observation) {
   }
   const record = /** @type {Record<string, unknown>} */ (values);
   const mode = String(record.mode || "");
-  if (!["legacy", "preparing", "sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(mode)) {
+  if (
+    !["legacy", "preparing", "sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(mode)
+  ) {
     return Object.freeze({
       available: true,
       status: "blocked",

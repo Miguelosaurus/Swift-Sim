@@ -144,8 +144,12 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
         preparationEvidenceFresh: null,
       };
     }
-    const row = db.prepare(`SELECT mode, revision, cutover_epoch, rollback_expires_at
-      FROM phase4_authority_state WHERE singleton = 1`).get();
+    const row = db
+      .prepare(
+        `SELECT mode, revision, cutover_epoch, rollback_expires_at
+      FROM phase4_authority_state WHERE singleton = 1`,
+      )
+      .get();
     const mode = String(row?.mode || "legacy");
     const rollbackExpiresAt =
       typeof row?.rollback_expires_at === "string" ? row.rollback_expires_at : null;
@@ -169,11 +173,9 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
     const health = repositoryHealth();
     const legacyReadable = canReadLegacyAuthority(stateRoot);
     const currentAuthority = authority();
-    const sqliteAuthoritative = [
-      "sqlite-rollback",
-      "rollback-preparing",
-      "sqlite-final",
-    ].includes(String(currentAuthority.mode || ""));
+    const sqliteAuthoritative = ["sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(
+      String(currentAuthority.mode || ""),
+    );
     return {
       state:
         health.schemaVersion === LATEST_SCHEMA_VERSION &&

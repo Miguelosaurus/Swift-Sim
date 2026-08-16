@@ -187,10 +187,7 @@ function reconstructSessionState(runtime, durableRecords) {
   for (const durableValue of durableRecords) {
     const durable = parseDurableSession(durableValue);
     const runtimeValue = runtime.get(durable.id) || {};
-    result.set(
-      durable.id,
-      structuredClone(joinSessionForPresentation(durable, runtimeValue)),
-    );
+    result.set(durable.id, structuredClone(joinSessionForPresentation(durable, runtimeValue)));
   }
   return result;
 }

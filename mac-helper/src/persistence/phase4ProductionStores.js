@@ -68,8 +68,7 @@ export function createPhase4ProductionStoreFactories(options = {}) {
   });
   const pairingInviteStore = createAuthorityRoutedFacade({
     router,
-    legacy: () =>
-      (legacyPairingInvites ??= new PairingInviteStore({ path: paths.pairingInvites })),
+    legacy: () => (legacyPairingInvites ??= new PairingInviteStore({ path: paths.pairingInvites })),
     sqlite: () =>
       (sqlitePairingInvites ??= new SqlitePairingInviteStore({
         repository: pairingMutationRepository,
@@ -105,15 +104,21 @@ export function createPhase4ProductionStoreFactories(options = {}) {
     if (options.deviceMaintenance === false || deviceMaintenanceTimer) return;
     const run = () =>
       router.write({
-        legacy: () => runDeviceMaintenance(legacyDeviceBuilds ??= new DeviceBuildStore({
-          path: paths.deviceBuilds,
-          maintenance: false,
-        })),
-        sqlite: () => runDeviceMaintenance(sqliteDeviceBuilds ??= createSqliteDeviceBuildStore({
-          database,
-          legacyPath: paths.deviceBuilds,
-          maintenance: false,
-        })),
+        legacy: () =>
+          runDeviceMaintenance(
+            (legacyDeviceBuilds ??= new DeviceBuildStore({
+              path: paths.deviceBuilds,
+              maintenance: false,
+            })),
+          ),
+        sqlite: () =>
+          runDeviceMaintenance(
+            (sqliteDeviceBuilds ??= createSqliteDeviceBuildStore({
+              database,
+              legacyPath: paths.deviceBuilds,
+              maintenance: false,
+            })),
+          ),
       });
     try {
       run();

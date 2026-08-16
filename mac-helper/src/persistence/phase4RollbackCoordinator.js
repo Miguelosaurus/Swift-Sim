@@ -196,7 +196,9 @@ export class Phase4RollbackCoordinator {
 
   #exportSessions() {
     const source = this.#sources.sessions;
-    const runtimeStore = /** @type {BaseSessionStore} */ (Object.create(BaseSessionStore.prototype));
+    const runtimeStore = /** @type {BaseSessionStore} */ (
+      Object.create(BaseSessionStore.prototype)
+    );
     runtimeStore.path = source.path;
     runtimeStore.lockPath = source.lockRequest.path;
     runtimeStore.sessions = new Map();

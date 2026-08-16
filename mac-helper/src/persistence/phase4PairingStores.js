@@ -41,11 +41,10 @@ export class SqlitePairingMutationRepository {
 
   /** @template T @param {(snapshot: PairingMutableSnapshot) => T} operation @returns {T} */
   mutate(operation) {
-    if (typeof operation !== "function") throw new TypeError("Pairing mutation operation is required.");
+    if (typeof operation !== "function")
+      throw new TypeError("Pairing mutation operation is required.");
     return this.#database.transaction(() => {
-      const snapshot = /** @type {PairingMutableSnapshot} */ (
-        structuredClone(this.#reader.read())
-      );
+      const snapshot = /** @type {PairingMutableSnapshot} */ (structuredClone(this.#reader.read()));
       const result = operation(snapshot);
       if (isThenable(result)) {
         throw new Error("Pairing SQLite mutations must be synchronous.");
@@ -102,7 +101,8 @@ export class SqlitePairingStore {
   rotate() {
     return this.#repository.mutate((snapshot) => {
       const existing = snapshot.credential;
-      if (!existing) throw new Error("SQLite pairing authority cannot rotate a missing credential.");
+      if (!existing)
+        throw new Error("SQLite pairing authority cannot rotate a missing credential.");
       const now = new Date().toISOString();
       snapshot.credential = {
         token: randomBytes(32).toString("base64url"),
@@ -120,7 +120,8 @@ export class SqlitePairingStore {
     const nextName = String(macName || "").trim();
     return this.#repository.mutate((snapshot) => {
       const existing = snapshot.credential;
-      if (!existing) throw new Error("SQLite pairing authority is active but no pairing credential exists.");
+      if (!existing)
+        throw new Error("SQLite pairing authority is active but no pairing credential exists.");
       if (!nextName || nextName === existing.macName) return existing;
       snapshot.credential = { ...existing, macName: nextName, updatedAt: new Date().toISOString() };
       return snapshot.credential;
@@ -165,14 +166,17 @@ export class SqlitePairingInviteStore {
 
   /** @param {{ pairing: PairingCredentialRecord, ttlMs?: number }} input */
   create({ pairing, ttlMs = this.#ttlMs }) {
-    if (!pairing?.token || !pairing.installationID) throw new Error("Pairing state is unavailable.");
+    if (!pairing?.token || !pairing.installationID)
+      throw new Error("Pairing state is unavailable.");
     const lifetime = normalizeTTL(ttlMs);
     const invite = randomBytes(32).toString("base64url");
     const inviteHash = digest(invite);
     const result = this.#repository.mutate((snapshot) => {
       assertCredential(snapshot, pairing.installationID);
       const now = this.#now();
-      snapshot.invitations = snapshot.invitations.filter((item) => Date.parse(item.expiresAt) > now);
+      snapshot.invitations = snapshot.invitations.filter(
+        (item) => Date.parse(item.expiresAt) > now,
+      );
       /** @type {PairingInvitationRecord} */
       const record = {
         id: randomUUID(),
@@ -193,8 +197,10 @@ export class SqlitePairingInviteStore {
   claim(invite, clientNonce, pairing) {
     const normalizedInvite = String(invite || "");
     const normalizedNonce = String(clientNonce || "");
-    if (!/^[A-Za-z0-9_-]{32,}$/.test(normalizedInvite)
-        || !/^[A-Za-z0-9_-]{8,128}$/.test(normalizedNonce)) {
+    if (
+      !/^[A-Za-z0-9_-]{32,}$/.test(normalizedInvite) ||
+      !/^[A-Za-z0-9_-]{8,128}$/.test(normalizedNonce)
+    ) {
       return { ok: false, code: "malformed" };
     }
     return this.#repository.mutate((snapshot) => {
@@ -205,7 +211,9 @@ export class SqlitePairingInviteStore {
         return { ok: false, code: "expired" };
       }
       if (Date.parse(record.expiresAt) <= now) {
-        snapshot.invitations = snapshot.invitations.filter((item) => Date.parse(item.expiresAt) > now);
+        snapshot.invitations = snapshot.invitations.filter(
+          (item) => Date.parse(item.expiresAt) > now,
+        );
         return { ok: false, code: "expired" };
       }
       if (record.claimed) {
@@ -229,9 +237,14 @@ export class SqlitePairingInviteStore {
       const now = this.#now();
       const inviteHash = digest(normalizedInvite);
       const record = snapshot.invitations.find((item) => equalDigest(item.inviteHash, inviteHash));
-      if (!record || (pairing !== undefined && record.installationID !== pairing.installationID)
-          || Date.parse(record.expiresAt) <= now) {
-        snapshot.invitations = snapshot.invitations.filter((item) => Date.parse(item.expiresAt) > now);
+      if (
+        !record ||
+        (pairing !== undefined && record.installationID !== pairing.installationID) ||
+        Date.parse(record.expiresAt) <= now
+      ) {
+        snapshot.invitations = snapshot.invitations.filter(
+          (item) => Date.parse(item.expiresAt) > now,
+        );
         return null;
       }
       return { expiresAt: record.expiresAt, claimed: Boolean(record.claimed) };
@@ -282,6 +295,6 @@ function isThenable(value) {
   return Boolean(
     value &&
     typeof value === "object" &&
-    typeof /** @type {{ then?: unknown }} */ (value).then === "function"
+    typeof (/** @type {{ then?: unknown }} */ (value).then) === "function",
   );
 }

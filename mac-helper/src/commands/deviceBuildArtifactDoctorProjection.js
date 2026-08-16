@@ -87,11 +87,12 @@ function phase4Summary(report) {
     authority.rollbackAvailable === true
       ? `available-until-${String(authority.rollbackExpiresAt || "unknown")}`
       : "unavailable";
-  const transition = authority.rollbackPreparationActive === true
-    ? "rollback-preparing"
-    : authority.preparationActive === true
-      ? "preparing"
-      : "idle";
+  const transition =
+    authority.rollbackPreparationActive === true
+      ? "rollback-preparing"
+      : authority.preparationActive === true
+        ? "preparing"
+        : "idle";
   return (
     `Phase-4 support: ${String(report.overall || "unavailable")}; ` +
     `database=${String(database.status || "unavailable")}; ` +

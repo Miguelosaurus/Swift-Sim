@@ -105,7 +105,9 @@ export class SqlitePhase4AuthorityRepository {
       if (state.mode === PHASE4_AUTHORITY_MODES.preparing) {
         if (state.revision !== expectedRevision) staleRevision(expectedRevision, state.revision);
         if (state.evidenceHash !== evidenceHash || state.preparationID !== preparationID) {
-          throw new Error("Phase-4 preparation already exists with different evidence or identity.");
+          throw new Error(
+            "Phase-4 preparation already exists with different evidence or identity.",
+          );
         }
         return state;
       }
@@ -123,7 +125,8 @@ export class SqlitePhase4AuthorityRepository {
         now,
         state.revision,
       );
-      if (Number(result.changes) !== 1) throw new Error("Phase-4 preparation lost its revision fence.");
+      if (Number(result.changes) !== 1)
+        throw new Error("Phase-4 preparation lost its revision fence.");
       return this.getState();
     });
   }
@@ -206,7 +209,8 @@ export class SqlitePhase4AuthorityRepository {
         preparationID,
         evidenceHash,
       );
-      if (Number(result.changes) !== 1) throw new Error("Phase-4 activation lost its revision fence.");
+      if (Number(result.changes) !== 1)
+        throw new Error("Phase-4 activation lost its revision fence.");
       return this.getState();
     });
   }
@@ -221,7 +225,10 @@ export class SqlitePhase4AuthorityRepository {
   beginRollbackPreparation(input) {
     const expectedRevision = revision(input.expectedRevision, "Phase-4 expected revision");
     const expectedCutoverEpoch = revision(input.expectedCutoverEpoch, "Phase-4 cutover epoch");
-    const now = timestamp(input.now ?? new Date().toISOString(), "Phase-4 rollback preparation time");
+    const now = timestamp(
+      input.now ?? new Date().toISOString(),
+      "Phase-4 rollback preparation time",
+    );
     return this.#database.transaction(() => {
       const state = this.getState();
       if (state.cutoverEpoch !== expectedCutoverEpoch) {
@@ -237,7 +244,9 @@ export class SqlitePhase4AuthorityRepository {
         return state;
       }
       if (state.mode !== PHASE4_AUTHORITY_MODES.sqliteRollback) {
-        throw new Error(`Phase-4 rollback preparation requires sqlite-rollback authority, found ${state.mode}.`);
+        throw new Error(
+          `Phase-4 rollback preparation requires sqlite-rollback authority, found ${state.mode}.`,
+        );
       }
       if (state.revision !== expectedRevision) staleRevision(expectedRevision, state.revision);
       if (!state.rollbackExpiresAt || Date.parse(now) >= Date.parse(state.rollbackExpiresAt)) {
@@ -275,7 +284,9 @@ export class SqlitePhase4AuthorityRepository {
     return this.#database.transaction(() => {
       const state = this.getState();
       if (state.mode !== PHASE4_AUTHORITY_MODES.rollbackPreparing) {
-        throw new Error(`Phase-4 rollback commit requires rollback-preparing authority, found ${state.mode}.`);
+        throw new Error(
+          `Phase-4 rollback commit requires rollback-preparing authority, found ${state.mode}.`,
+        );
       }
       if (state.revision !== expectedRevision) staleRevision(expectedRevision, state.revision);
       if (state.cutoverEpoch !== expectedCutoverEpoch) {
@@ -294,7 +305,8 @@ export class SqlitePhase4AuthorityRepository {
         state.revision,
         state.cutoverEpoch,
       );
-      if (Number(result.changes) !== 1) throw new Error("Phase-4 rollback lost its revision fence.");
+      if (Number(result.changes) !== 1)
+        throw new Error("Phase-4 rollback lost its revision fence.");
       return this.getState();
     });
   }

@@ -57,6 +57,4 @@ export const PHASE4_AUTHORITY_SQLITE_SCHEMA_STATEMENTS = Object.freeze([
   )`,
 ]);
 
-export const PHASE4_AUTHORITY_SQLITE_REQUIRED_TABLES = Object.freeze([
-  "phase4_authority_state",
-]);
+export const PHASE4_AUTHORITY_SQLITE_REQUIRED_TABLES = Object.freeze(["phase4_authority_state"]);
