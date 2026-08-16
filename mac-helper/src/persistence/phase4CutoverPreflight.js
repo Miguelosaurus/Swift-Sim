@@ -6,7 +6,7 @@
  * may assert them, but it cannot use them to override a contradictory local
  * measurement.
  */
-const PREPARE_TRUE_FIELDS = Object.freeze([
+const COMMON_TRUE_FIELDS = Object.freeze([
   "exactCandidateSHA",
   "hostedVerifyGreen",
   "maintenanceAuthorized",
@@ -16,22 +16,15 @@ const PREPARE_TRUE_FIELDS = Object.freeze([
   "unrelatedPhaseWorkAbsent",
 ]);
 
+const PREPARE_TRUE_FIELDS = COMMON_TRUE_FIELDS;
+const CANCEL_TRUE_FIELDS = COMMON_TRUE_FIELDS;
 const ACTIVATE_TRUE_FIELDS = Object.freeze([
-  ...PREPARE_TRUE_FIELDS,
+  ...COMMON_TRUE_FIELDS,
   // Package/service rollback material is an external maintenance-window fact.
   // SQLite/legacy readability itself is measured at the activation stage.
   "rollbackExecutable",
 ]);
-
-const ROLLBACK_TRUE_FIELDS = Object.freeze([
-  "exactCandidateSHA",
-  "hostedVerifyGreen",
-  "maintenanceAuthorized",
-  "writersQuiesced",
-  "cleanupDisabledForCutover",
-  "sqliteProcessAuthorityAbsent",
-  "unrelatedPhaseWorkAbsent",
-]);
+const ROLLBACK_TRUE_FIELDS = COMMON_TRUE_FIELDS;
 
 export const PHASE4_PREPARE_EVIDENCE_FIELDS = PREPARE_TRUE_FIELDS;
 export const PHASE4_ACTIVATE_EVIDENCE_FIELDS = ACTIVATE_TRUE_FIELDS;
@@ -44,13 +37,13 @@ export const PHASE4_ACTIVATE_EVIDENCE_FIELDS = ACTIVATE_TRUE_FIELDS;
  * binder/executor measures them at the stage where they can exist.
  *
  * @param {unknown} evidence
- * @param {"prepare" | "activate" | "rollback"} stage
+ * @param {"prepare" | "cancel" | "activate" | "rollback"} stage
  */
 export function validatePhase4MaintenanceEvidence(evidence, stage) {
   if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
     throw new Error("Phase-4 maintenance evidence must be an object.");
   }
-  if (!["prepare", "activate", "rollback"].includes(stage)) {
+  if (!["prepare", "cancel", "activate", "rollback"].includes(stage)) {
     throw new Error(`Unsupported Phase-4 maintenance evidence stage: ${stage}.`);
   }
   const values = /** @type {Record<string, unknown>} */ (evidence);
@@ -59,7 +52,9 @@ export function validatePhase4MaintenanceEvidence(evidence, stage) {
       ? ACTIVATE_TRUE_FIELDS
       : stage === "rollback"
         ? ROLLBACK_TRUE_FIELDS
-        : PREPARE_TRUE_FIELDS;
+        : stage === "cancel"
+          ? CANCEL_TRUE_FIELDS
+          : PREPARE_TRUE_FIELDS;
   for (const field of required) {
     if (values[field] !== true) {
       throw new Error(`Phase-4 maintenance stop condition is not satisfied: ${field}.`);
