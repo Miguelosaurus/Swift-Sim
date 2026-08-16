@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync as readBytes,
@@ -182,6 +183,7 @@ test("rollback-preparing survives reopen, remains SQLite-authoritative, and is v
       "rollback-preparing",
     );
     reopened.close();
+    chmodSync(databasePath, 0o600);
 
     const diagnostics = collectPhase4OperatorDiagnostics({
       stateRoot,
