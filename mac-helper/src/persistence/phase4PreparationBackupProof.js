@@ -12,31 +12,12 @@ import { basename, join } from "node:path";
  *
  * @param {{ stateRoot: string, domains: any, sourceHashes: Record<string, any> }} options
  */
-export function verifyPhase4PreparationBackups({
-  stateRoot,
-  domains,
-  sourceHashes,
-}) {
-  const pairingBackups = requireBackupArray(
-    domains?.pairing?.backups,
-    "pairing",
-  );
-  const deviceBackups = requireBackupArray(
-    domains?.deviceBuild?.backups,
-    "device-build",
-  );
-  const sessionBackups = requireBackupArray(
-    domains?.sessions?.backups,
-    "sessions",
-  );
-  if (
-    pairingBackups.length !== 2 ||
-    deviceBackups.length !== 1 ||
-    sessionBackups.length !== 1
-  ) {
-    throw new Error(
-      "Phase-4 preparation requires exactly four legacy backup files.",
-    );
+export function verifyPhase4PreparationBackups({ stateRoot, domains, sourceHashes }) {
+  const pairingBackups = requireBackupArray(domains?.pairing?.backups, "pairing");
+  const deviceBackups = requireBackupArray(domains?.deviceBuild?.backups, "device-build");
+  const sessionBackups = requireBackupArray(domains?.sessions?.backups, "sessions");
+  if (pairingBackups.length !== 2 || deviceBackups.length !== 1 || sessionBackups.length !== 1) {
+    throw new Error("Phase-4 preparation requires exactly four legacy backup files.");
   }
 
   const plans = [
@@ -65,9 +46,7 @@ export function verifyPhase4PreparationBackups({
   const proofs = plans.map((plan) => {
     const expected = sourceHashes?.[plan.key];
     if (!expected?.present || typeof expected.sha256 !== "string") {
-      throw new Error(
-        `Phase-4 ${plan.key} preflight source identity is missing.`,
-      );
+      throw new Error(`Phase-4 ${plan.key} preflight source identity is missing.`);
     }
     if (typeof plan.backup !== "string" || !plan.backup) {
       throw new Error(`Phase-4 ${plan.key} backup path is missing.`);
@@ -77,16 +56,11 @@ export function verifyPhase4PreparationBackups({
     assertPrivateFile(plan.backup, `Phase-4 ${plan.key} backup`);
     const sourceDigest = sha256(sourceBytes);
     const backupDigest = sha256(backupBytes);
-    if (
-      sourceDigest !== expected.sha256 ||
-      sourceBytes.length !== expected.byteLength
-    ) {
+    if (sourceDigest !== expected.sha256 || sourceBytes.length !== expected.byteLength) {
       throw new Error(`Phase-4 ${plan.key} source changed after preflight.`);
     }
     if (!sourceBytes.equals(backupBytes) || backupDigest !== sourceDigest) {
-      throw new Error(
-        `Phase-4 ${plan.key} backup bytes do not match the exact source bytes.`,
-      );
+      throw new Error(`Phase-4 ${plan.key} backup bytes do not match the exact source bytes.`);
     }
     return Object.freeze({
       role: plan.key,
@@ -106,10 +80,7 @@ export function verifyPhase4PreparationBackups({
 
 /** @param {unknown} value @param {string} label */
 function requireBackupArray(value, label) {
-  if (
-    !Array.isArray(value) ||
-    !value.every((path) => typeof path === "string" && path)
-  ) {
+  if (!Array.isArray(value) || !value.every((path) => typeof path === "string" && path)) {
     throw new Error(`Phase-4 ${label} backup paths are invalid.`);
   }
   return /** @type {string[]} */ ([...value]);
@@ -129,11 +100,7 @@ function requireBackupRole(paths, prefix) {
 /** @param {string} path @param {string} label */
 function assertPrivateFile(path, label) {
   const entry = lstatSync(path);
-  if (
-    entry.isSymbolicLink() ||
-    !entry.isFile() ||
-    (statSync(path).mode & 0o077) !== 0
-  ) {
+  if (entry.isSymbolicLink() || !entry.isFile() || (statSync(path).mode & 0o077) !== 0) {
     throw new Error(`${label} is not a private regular file.`);
   }
 }

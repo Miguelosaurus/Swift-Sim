@@ -32,14 +32,12 @@ export function measurePhase4MaintenanceFacts(options) {
   const databasePath = join(stateRoot, "state.sqlite");
   const stage = options.stage || "prepare";
   const migration = inspectPhase4MigrationIdentity(databasePath, {
-    allowedVersions:
-      options.allowedSchemaVersions || (stage === "prepare" ? [7, 8, 9] : [9]),
+    allowedVersions: options.allowedSchemaVersions || (stage === "prepare" ? [7, 8, 9] : [9]),
     requireFull: Boolean(options.requireFullSchema || stage !== "prepare"),
     requireWal: true,
   });
   const provenance = readCandidateProvenance(options.provenancePath);
-  const installedProvenanceVerified =
-    provenance.gitSHA === options.expectedCandidateSHA;
+  const installedProvenanceVerified = provenance.gitSHA === options.expectedCandidateSHA;
   const helper = inspectPhase4HelperProcessIdentity({
     stateRoot,
     spawnSync: options.spawnSync,
@@ -49,10 +47,7 @@ export function measurePhase4MaintenanceFacts(options) {
   const permissions = readPrivatePermissions(stateRoot);
   const sourceHashes = readSourceHashes(stateRoot);
   const shadow = observePhase4ShadowMismatches(databasePath);
-  const authority = observePhase4AuthorityState(
-    databasePath,
-    migration.schemaVersion,
-  );
+  const authority = observePhase4AuthorityState(databasePath, migration.schemaVersion);
 
   const zeroUnresolvedShadowMismatches = shadow.total === 0;
   const privatePermissionsVerified = permissions.missing.length === 0;
@@ -89,8 +84,7 @@ export function measurePhase4MaintenanceFacts(options) {
     locks,
     permissions,
     provenance,
-    rollbackReadable:
-      stage === "rollback" ? readRollbackMaterial(stateRoot, authority) : undefined,
+    rollbackReadable: stage === "rollback" ? readRollbackMaterial(stateRoot, authority) : undefined,
   });
 }
 
@@ -106,15 +100,11 @@ export function observePhase4ShadowMismatches(databasePath) {
   try {
     database.exec("PRAGMA query_only = ON");
     const pairing = requireCount(
-      database
-        .prepare("SELECT COUNT(*) AS count FROM pairing_shadow_mismatches")
-        .get(),
+      database.prepare("SELECT COUNT(*) AS count FROM pairing_shadow_mismatches").get(),
       "pairing shadow mismatch count",
     );
     const deviceBuild = requireCount(
-      database
-        .prepare("SELECT COUNT(*) AS count FROM device_build_shadow_mismatches")
-        .get(),
+      database.prepare("SELECT COUNT(*) AS count FROM device_build_shadow_mismatches").get(),
       "device-build shadow mismatch count",
     );
     return Object.freeze({ pairing, deviceBuild, total: pairing + deviceBuild });
@@ -150,41 +140,26 @@ export function observePhase4AuthorityState(databasePath, schemaVersion) {
       )
       .get();
     if (!row || typeof row !== "object" || Array.isArray(row)) {
-      throw new Error(
-        "Phase-4 global authority observation returned no singleton row.",
-      );
+      throw new Error("Phase-4 global authority observation returned no singleton row.");
     }
     const value = /** @type {Record<string, unknown>} */ (row);
     const mode = String(value.mode || "");
     if (
-      ![
-        "legacy",
-        "preparing",
-        "sqlite-rollback",
-        "rollback-preparing",
-        "sqlite-final",
-      ].includes(mode)
+      !["legacy", "preparing", "sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(
+        mode,
+      )
     ) {
-      throw new Error(
-        `Phase-4 global authority mode is invalid: ${mode || "empty"}.`,
-      );
+      throw new Error(`Phase-4 global authority mode is invalid: ${mode || "empty"}.`);
     }
-    if (
-      !Number.isSafeInteger(value.revision) ||
-      !Number.isSafeInteger(value.cutover_epoch)
-    ) {
-      throw new Error(
-        "Phase-4 global authority revision/epoch observation is invalid.",
-      );
+    if (!Number.isSafeInteger(value.revision) || !Number.isSafeInteger(value.cutover_epoch)) {
+      throw new Error("Phase-4 global authority revision/epoch observation is invalid.");
     }
     return Object.freeze({
       mode,
       source: "phase4_authority_state",
       revision: Number(value.revision),
       cutoverEpoch: Number(value.cutover_epoch),
-      rollbackExpiresAt: value.rollback_expires_at
-        ? String(value.rollback_expires_at)
-        : null,
+      rollbackExpiresAt: value.rollback_expires_at ? String(value.rollback_expires_at) : null,
     });
   } finally {
     database.close();
@@ -194,9 +169,7 @@ export function observePhase4AuthorityState(databasePath, schemaVersion) {
 /** @param {string} provenancePath */
 function readCandidateProvenance(provenancePath) {
   if (typeof provenancePath !== "string" || !provenancePath) {
-    throw new Error(
-      "Phase-4 maintenance requires an installed candidate provenance path.",
-    );
+    throw new Error("Phase-4 maintenance requires an installed candidate provenance path.");
   }
   let parsed;
   try {
@@ -207,9 +180,7 @@ function readCandidateProvenance(provenancePath) {
     });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
-      "Phase-4 installed candidate provenance must be an object.",
-    );
+    throw new Error("Phase-4 installed candidate provenance must be an object.");
   }
   const value = /** @type {Record<string, unknown>} */ (parsed);
   if (
@@ -286,12 +257,9 @@ function readPrivatePermissions(stateRoot) {
   for (const check of checks) {
     try {
       const entry = lstatSync(check.path);
-      const validType =
-        check.kind === "directory" ? entry.isDirectory() : entry.isFile();
+      const validType = check.kind === "directory" ? entry.isDirectory() : entry.isFile();
       const privateMode =
-        !entry.isSymbolicLink() &&
-        validType &&
-        (statSync(check.path).mode & 0o077) === 0;
+        !entry.isSymbolicLink() && validType && (statSync(check.path).mode & 0o077) === 0;
       entries[check.label] = Object.freeze({
         present: true,
         private: privateMode,
@@ -350,11 +318,7 @@ function measureExactDomainLocks(stateRoot, spawnSync) {
     return Object.freeze({
       name,
       available: !live,
-      state: live
-        ? "owned-live"
-        : observed === null
-          ? "owner-absent"
-          : "owner-pid-reused",
+      state: live ? "owned-live" : observed === null ? "owner-absent" : "owner-pid-reused",
     });
   });
   return Object.freeze({
@@ -388,11 +352,7 @@ function readRollbackMaterial(stateRoot, authority) {
   const directory = join(stateRoot, "migration-backups", "phase4-cutover");
   try {
     const entry = lstatSync(directory);
-    return (
-      entry.isDirectory() &&
-      !entry.isSymbolicLink() &&
-      (entry.mode & 0o077) === 0
-    );
+    return entry.isDirectory() && !entry.isSymbolicLink() && (entry.mode & 0o077) === 0;
   } catch {
     return false;
   }
@@ -413,11 +373,7 @@ function requireCount(row, label) {
 /** @param {string} path @param {string} label */
 function assertPrivateFile(path, label) {
   const entry = lstatSync(path);
-  if (
-    entry.isSymbolicLink() ||
-    !entry.isFile() ||
-    (statSync(path).mode & 0o077) !== 0
-  ) {
+  if (entry.isSymbolicLink() || !entry.isFile() || (statSync(path).mode & 0o077) !== 0) {
     throw new Error(`${label} is not a private regular file.`);
   }
 }
@@ -437,17 +393,13 @@ function sha256(value) {
 
 /** @param {unknown} error @param {string} code */
 function hasCode(error, code) {
-  return Boolean(
-    error && typeof error === "object" && "code" in error && error.code === code,
-  );
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === code);
 }
 
 /** @template T @param {T} value @returns {T} */
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(
-    /** @type {Record<string, unknown>} */ (value),
-  )) {
+  for (const nested of Object.values(/** @type {Record<string, unknown>} */ (value))) {
     deepFreeze(nested);
   }
   Object.freeze(/** @type {object} */ (value));

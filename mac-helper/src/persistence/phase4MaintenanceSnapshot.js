@@ -30,12 +30,7 @@ export async function createVerifiedPhase4PreMigrationSnapshot({
   if (!expectedMigration?.coherent) {
     throw new Error("Phase-4 snapshot requires a previously verified migration prefix.");
   }
-  const directory = join(
-    stateRoot,
-    "migration-backups",
-    "phase4-cutover",
-    "database",
-  );
+  const directory = join(stateRoot, "migration-backups", "phase4-cutover", "database");
   ensureDirectoryModeSync(directory, 0o700);
   assertPrivatePath(directory, "Phase-4 snapshot directory", true);
 
@@ -77,10 +72,7 @@ export async function createVerifiedPhase4PreMigrationSnapshot({
  *   expectedMigration: ReturnType<typeof inspectPhase4MigrationIdentity>,
  * }} options
  */
-export function verifyPhase4PreMigrationSnapshot({
-  snapshotPath,
-  expectedMigration,
-}) {
+export function verifyPhase4PreMigrationSnapshot({ snapshotPath, expectedMigration }) {
   assertPrivatePath(snapshotPath, "Phase-4 pre-migration snapshot", false);
   const observed = inspectPhase4MigrationIdentity(snapshotPath, {
     allowedVersions: [expectedMigration.schemaVersion],

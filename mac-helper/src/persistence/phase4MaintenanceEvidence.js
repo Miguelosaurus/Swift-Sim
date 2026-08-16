@@ -82,9 +82,7 @@ export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
   rejectSubmittedMeasurementContradictions(validated, measured);
   assertStagePreMigrationFacts(stage, measured);
 
-  const sanitized = /** @type {Record<string, unknown>} */ (
-    structuredClone(validated)
-  );
+  const sanitized = /** @type {Record<string, unknown>} */ (structuredClone(validated));
   for (const field of [...MEASURED_BOOLEAN_FIELDS, ...DEFERRED_FIELDS]) {
     delete sanitized[field];
   }
@@ -130,23 +128,14 @@ export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
  */
 export function bindPhase4PostMigrationEvidence(boundEvidence, options) {
   const bound = requireBoundEvidence(boundEvidence, "prepare", false);
-  requireFullPostMigration(
-    options.firstPostMigration,
-    "first post-migration close",
-  );
-  requireFullPostMigration(
-    options.reopenPostMigration,
-    "post-migration reopen",
-  );
+  requireFullPostMigration(options.firstPostMigration, "first post-migration close");
+  requireFullPostMigration(options.reopenPostMigration, "post-migration reopen");
   if (
-    options.firstPostMigration.historyDigest !==
-      options.reopenPostMigration.historyDigest ||
+    options.firstPostMigration.historyDigest !== options.reopenPostMigration.historyDigest ||
     JSON.stringify(options.firstPostMigration.migrationIdentities) !==
       JSON.stringify(options.reopenPostMigration.migrationIdentities)
   ) {
-    throw new Error(
-      "Phase-4 migration identity changed across close/reopen; idempotency failed.",
-    );
+    throw new Error("Phase-4 migration identity changed across close/reopen; idempotency failed.");
   }
 
   const current = measurePhase4MaintenanceFacts({
@@ -207,16 +196,12 @@ export function assertPhase4BoundMaintenanceEvidence(evidence, stage) {
     "zeroUnresolvedShadowMismatches",
   ]) {
     if (measured[field] !== true) {
-      throw new Error(
-        `Phase-4 bound maintenance condition is not satisfied: ${field}.`,
-      );
+      throw new Error(`Phase-4 bound maintenance condition is not satisfied: ${field}.`);
     }
   }
   if (stage === "prepare") {
     if (bound.binding.postMigrationComplete !== true) {
-      throw new Error(
-        "Phase-4 preparation requires completed post-migration evidence.",
-      );
+      throw new Error("Phase-4 preparation requires completed post-migration evidence.");
     }
     if (
       measured.preMigrationDatabaseSnapshotVerified !== true ||
@@ -229,9 +214,7 @@ export function assertPhase4BoundMaintenanceEvidence(evidence, stage) {
     }
   }
   if (stage === "rollback" && measured.rollbackReadable !== true) {
-    throw new Error(
-      "Phase-4 rollback requires readable, private rollback material.",
-    );
+    throw new Error("Phase-4 rollback requires readable, private rollback material.");
   }
   return bound;
 }
@@ -240,22 +223,15 @@ export function assertPhase4BoundMaintenanceEvidence(evidence, stage) {
 function rejectSubmittedMeasurementContradictions(submitted, measured) {
   for (const field of MEASURED_BOOLEAN_FIELDS) {
     if (!(field in submitted)) continue;
-    if (
-      typeof submitted[field] !== "boolean" ||
-      submitted[field] !== measured[field]
-    ) {
-      throw new Error(
-        `Phase-4 maintenance condition contradicts measured environment: ${field}.`,
-      );
+    if (typeof submitted[field] !== "boolean" || submitted[field] !== measured[field]) {
+      throw new Error(`Phase-4 maintenance condition contradicts measured environment: ${field}.`);
     }
   }
   if (
     "shadowMismatchCount" in submitted &&
     submitted.shadowMismatchCount !== measured.shadow.total
   ) {
-    throw new Error(
-      "Phase-4 maintenance shadow mismatch count contradicts measured environment.",
-    );
+    throw new Error("Phase-4 maintenance shadow mismatch count contradicts measured environment.");
   }
 }
 
@@ -273,34 +249,21 @@ function assertStagePreMigrationFacts(stage, measured) {
     "zeroUnresolvedShadowMismatches",
   ]) {
     if (measured[field] !== true) {
-      throw new Error(
-        `Phase-4 pre-migration maintenance condition failed: ${field}.`,
-      );
+      throw new Error(`Phase-4 pre-migration maintenance condition failed: ${field}.`);
     }
   }
   const mode = measured.authority.mode;
   if (stage === "prepare" && !["legacy", "preparing"].includes(mode)) {
-    throw new Error(
-      `Phase-4 preparation cannot begin from authority mode ${mode}.`,
-    );
+    throw new Error(`Phase-4 preparation cannot begin from authority mode ${mode}.`);
   }
   if (stage === "cancel" && !["legacy", "preparing"].includes(mode)) {
-    throw new Error(
-      `Phase-4 preparation cannot be cancelled from authority mode ${mode}.`,
-    );
+    throw new Error(`Phase-4 preparation cannot be cancelled from authority mode ${mode}.`);
   }
   if (stage === "activate" && mode !== "preparing") {
-    throw new Error(
-      `Phase-4 activation requires preparing authority, found ${mode}.`,
-    );
+    throw new Error(`Phase-4 activation requires preparing authority, found ${mode}.`);
   }
-  if (
-    stage === "rollback" &&
-    !["sqlite-rollback", "rollback-preparing"].includes(mode)
-  ) {
-    throw new Error(
-      `Phase-4 rollback requires SQLite rollback authority, found ${mode}.`,
-    );
+  if (stage === "rollback" && !["sqlite-rollback", "rollback-preparing"].includes(mode)) {
+    throw new Error(`Phase-4 rollback requires SQLite rollback authority, found ${mode}.`);
   }
 }
 
@@ -310,10 +273,7 @@ function requireBoundEvidence(value, stage, requirePostMigration) {
     throw new Error("Phase-4 bound maintenance evidence must be an object.");
   }
   const bound = /** @type {any} */ (value);
-  if (
-    bound.binding?.version !== 2 ||
-    bound.binding?.preMigrationComplete !== true
-  ) {
+  if (bound.binding?.version !== 2 || bound.binding?.preMigrationComplete !== true) {
     throw new Error(
       "Phase-4 maintenance evidence is not bound to a completed pre-migration inspection.",
     );
@@ -324,9 +284,7 @@ function requireBoundEvidence(value, stage, requirePostMigration) {
     );
   }
   if (requirePostMigration && bound.binding.postMigrationComplete !== true) {
-    throw new Error(
-      "Phase-4 maintenance evidence is missing post-migration binding.",
-    );
+    throw new Error("Phase-4 maintenance evidence is missing post-migration binding.");
   }
   return bound;
 }
@@ -338,9 +296,7 @@ function requireFullPostMigration(facts, label) {
     !facts.full ||
     facts.schemaVersion !== expectedPhase4MigrationIdentities().length
   ) {
-    throw new Error(
-      `Phase-4 ${label} did not prove exact full v1-v9 migration identity.`,
-    );
+    throw new Error(`Phase-4 ${label} did not prove exact full v1-v9 migration identity.`);
   }
 }
 
@@ -375,9 +331,7 @@ function sourceHashesEqual(left, right) {
 /** @template T @param {T} value @returns {T} */
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(
-    /** @type {Record<string, unknown>} */ (value),
-  )) {
+  for (const nested of Object.values(/** @type {Record<string, unknown>} */ (value))) {
     deepFreeze(nested);
   }
   Object.freeze(/** @type {object} */ (value));

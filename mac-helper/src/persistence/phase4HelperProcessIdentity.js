@@ -10,10 +10,7 @@ import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
 
 const JOURNAL_VERSION = 1;
 const JOURNAL_ROLE = "swift-sim-helper";
-const JOURNAL_RELATIVE_PATH = Object.freeze([
-  "runtime",
-  "helper-process-identity.json",
-]);
+const JOURNAL_RELATIVE_PATH = Object.freeze(["runtime", "helper-process-identity.json"]);
 const JOURNAL_WRITE_OPTIONS = Object.freeze({
   mode: 0o600,
   createParentMode: 0o700,
@@ -78,11 +75,7 @@ export function publishPhase4HelperProcessIdentity({
  *   expectedIdentity: { pid: number, startedAt: string },
  * }} options
  */
-export function inspectPhase4HelperProcessIdentity({
-  stateRoot,
-  spawnSync,
-  expectedIdentity,
-}) {
+export function inspectPhase4HelperProcessIdentity({ stateRoot, spawnSync, expectedIdentity }) {
   const expected = normalizeExpectedIdentity(expectedIdentity);
   const path = phase4HelperProcessIdentityPath(stateRoot);
   let parsed;

@@ -45,9 +45,7 @@ export class Phase4CutoverPreflightInspector {
           requireWal: true,
         })
       : null;
-    const shadows = databasePresent
-      ? readShadowCounts(databasePath)
-      : zeroShadows();
+    const shadows = databasePresent ? readShadowCounts(databasePath) : zeroShadows();
     const locks = readLockOwnerIdentity(stateRoot, this.#spawnSync);
     const permissions = privatePermissions(stateRoot, databasePresent);
     const authority = readAuthority(databasePath, migration?.schemaVersion || 0);
@@ -93,15 +91,11 @@ function readShadowCounts(databasePath) {
   try {
     database.exec("PRAGMA query_only = ON");
     const pairing = requireCount(
-      database
-        .prepare("SELECT COUNT(*) AS count FROM pairing_shadow_mismatches")
-        .get(),
+      database.prepare("SELECT COUNT(*) AS count FROM pairing_shadow_mismatches").get(),
       "pairing shadow mismatch count",
     );
     const deviceBuild = requireCount(
-      database
-        .prepare("SELECT COUNT(*) AS count FROM device_build_shadow_mismatches")
-        .get(),
+      database.prepare("SELECT COUNT(*) AS count FROM device_build_shadow_mismatches").get(),
       "device-build shadow mismatch count",
     );
     return Object.freeze({ pairing, deviceBuild, total: pairing + deviceBuild });
@@ -133,29 +127,17 @@ function readAuthority(path, schemaVersion) {
     const value = /** @type {Record<string, unknown>} */ (row);
     const mode = String(value.mode || "");
     if (
-      ![
-        "legacy",
-        "preparing",
-        "sqlite-rollback",
-        "rollback-preparing",
-        "sqlite-final",
-      ].includes(mode)
+      !["legacy", "preparing", "sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(
+        mode,
+      )
     ) {
-      throw new Error(
-        `Phase-4 authority observation returned invalid mode ${mode || "empty"}.`,
-      );
+      throw new Error(`Phase-4 authority observation returned invalid mode ${mode || "empty"}.`);
     }
     return Object.freeze({
       mode,
       source: "phase4_authority_state",
-      revision: requireNonNegativeInteger(
-        value.revision,
-        "Phase-4 authority revision",
-      ),
-      cutoverEpoch: requireNonNegativeInteger(
-        value.cutover_epoch,
-        "Phase-4 authority epoch",
-      ),
+      revision: requireNonNegativeInteger(value.revision, "Phase-4 authority revision"),
+      cutoverEpoch: requireNonNegativeInteger(value.cutover_epoch, "Phase-4 authority epoch"),
     });
   } finally {
     database.close();
@@ -197,11 +179,7 @@ function readLockOwnerIdentity(stateRoot, spawnSync) {
     return Object.freeze({
       name,
       available: !live,
-      state: live
-        ? "owned-live"
-        : observed === null
-          ? "owner-absent"
-          : "owner-pid-reused",
+      state: live ? "owned-live" : observed === null ? "owner-absent" : "owner-pid-reused",
     });
   });
   return Object.freeze({
@@ -234,20 +212,10 @@ function privatePermissions(stateRoot, databasePresent) {
     ["stateRoot", stateRoot, true, "directory"],
     ["database", join(stateRoot, "state.sqlite"), databasePresent, "file"],
     ["pairing", join(stateRoot, "pairing.json"), false, "file"],
-    [
-      "pairingInvitations",
-      join(stateRoot, "pairing-invites.json"),
-      false,
-      "file",
-    ],
+    ["pairingInvitations", join(stateRoot, "pairing-invites.json"), false, "file"],
     ["deviceBuilds", join(stateRoot, "device-builds.json"), false, "file"],
     ["sessions", join(stateRoot, "sessions.json"), false, "file"],
-    [
-      "helperIdentity",
-      join(stateRoot, "runtime", "helper-process-identity.json"),
-      false,
-      "file",
-    ],
+    ["helperIdentity", join(stateRoot, "runtime", "helper-process-identity.json"), false, "file"],
   ];
   /** @type {string[]} */
   const missing = [];
@@ -260,12 +228,9 @@ function privatePermissions(stateRoot, databasePresent) {
       continue;
     }
     const entry = lstatSync(path);
-    const correctType =
-      type === "directory" ? entry.isDirectory() : entry.isFile();
+    const correctType = type === "directory" ? entry.isDirectory() : entry.isFile();
     const privateMode =
-      !entry.isSymbolicLink() &&
-      correctType &&
-      (statSync(path).mode & 0o077) === 0;
+      !entry.isSymbolicLink() && correctType && (statSync(path).mode & 0o077) === 0;
     entries[label] = Object.freeze({ present: true, private: privateMode });
     if (!privateMode) missing.push(label);
   }
@@ -277,12 +242,7 @@ function privatePermissions(stateRoot, databasePresent) {
 
 /** @param {string} stateRoot */
 function readSnapshotFacts(stateRoot) {
-  const directory = join(
-    stateRoot,
-    "migration-backups",
-    "phase4-cutover",
-    "database",
-  );
+  const directory = join(stateRoot, "migration-backups", "phase4-cutover", "database");
   if (!exists(directory)) return Object.freeze([]);
   const entries = readdirSync(directory)
     .filter((name) => name.endsWith(".sqlite"))
@@ -338,10 +298,7 @@ function requireCount(row, label) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
     throw new Error(`${label} returned no row.`);
   }
-  return requireNonNegativeInteger(
-    /** @type {Record<string, unknown>} */ (row).count,
-    label,
-  );
+  return requireNonNegativeInteger(/** @type {Record<string, unknown>} */ (row).count, label);
 }
 
 /** @param {unknown} value @param {string} label */
