@@ -30,7 +30,7 @@ import { createVerifiedPhase4PreMigrationSnapshot } from "./phase4MaintenanceSna
  * @param {{
  *   stateRoot: string,
  *   evidence: unknown,
- *   stage: "prepare" | "activate" | "rollback",
+ *   stage: "prepare" | "cancel" | "activate" | "rollback",
  *   spawnSync: (command: string, args: string[], options: { encoding: string }) => unknown,
  *   provenancePath: string,
  *   openDatabase?: () => DatabaseOwner,
@@ -55,11 +55,15 @@ export async function withPhase4MaintenanceDatabase(options, operation) {
   // Stage 1-3: immutable/read-only inspection and externally supplied ceremony
   // binding. Any failure here occurs before snapshot creation or a migration-
   // capable database owner is constructed.
-  const preMigration = bindPhase4MaintenanceEvidence(options.evidence, options.stage, {
-    stateRoot,
-    spawnSync: options.spawnSync,
-    provenancePath: options.provenancePath,
-  });
+  const preMigration = bindPhase4MaintenanceEvidence(
+    options.evidence,
+    /** @type {any} */ (options.stage),
+    {
+      stateRoot,
+      spawnSync: options.spawnSync,
+      provenancePath: options.provenancePath,
+    },
+  );
 
   let boundEvidence = preMigration;
   if (options.stage === "prepare") {
@@ -111,9 +115,9 @@ export async function withPhase4MaintenanceDatabase(options, operation) {
   }
 
   // Stage 8: all facts needed by the stage are now bound. Activation/rollback
-  // start from exact full v9 and therefore do not need another pre-migration
-  // snapshot; their read-only binding still precedes this owner construction.
-  assertPhase4BoundMaintenanceEvidence(boundEvidence, options.stage);
+  // and cancellation start from exact full v9 and therefore do not need another
+  // pre-migration snapshot; their read-only binding still precedes this owner.
+  assertPhase4BoundMaintenanceEvidence(boundEvidence, /** @type {any} */ (options.stage));
 
   // Stage 9 / operation: construct the owner only after all applicable gates.
   const database = openDatabase();
