@@ -2,7 +2,6 @@
 
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { parsePairingCredential, parsePairingInvitation } from "../contracts/pairing.js";
 import { normalizePairingStateSnapshot } from "./sqlitePairingStateRepository.js";
 import { normalizePairingAuthorityState } from "./pairingAuthorityReadRepository.js";
 import {
@@ -224,8 +223,8 @@ export class PairingLockedLegacyWriter {
       throw new Error("Pairing credential legacy reread is not valid JSON.", { cause: error });
     }
     const verified = normalizePairingStateSnapshot({
-      credential: parsePairingCredential(rawCredential),
-      invitations: rawInvitations.map((value) => parsePairingInvitation(value)),
+      credential: rawCredential,
+      invitations: rawInvitations,
     });
     if (pairingProjectionHash(verified) !== pairingProjectionHash(expected)) {
       throw new Error("Pairing legacy reread projection did not match the SQLite snapshot.");
