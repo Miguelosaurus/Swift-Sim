@@ -2,7 +2,6 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { parsePairingCredential, parsePairingInvitation } from "../contracts/pairing.js";
 import { createSessionLegacyProcessIdentity } from "../infrastructure/sessionLegacyProcessIdentity.js";
 import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../infrastructure/nodeLockManager.js";
@@ -394,8 +393,8 @@ function readPairingSnapshot(fileStore, sources, backups) {
     }
   }
   const snapshot = normalizePairingStateSnapshot({
-    credential: parsePairingCredential(rawCredential),
-    invitations: rawInvitations.map((value) => parsePairingInvitation(value)),
+    credential: rawCredential,
+    invitations: rawInvitations,
   });
   const sourcesEvidence = [
     {
