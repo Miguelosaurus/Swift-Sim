@@ -1,7 +1,10 @@
 // @ts-check
 
 import { validatePhase4MaintenanceEvidence } from "./phase4CutoverPreflight.js";
-import { expectedPhase4MigrationIdentities } from "./phase4MigrationIdentity.js";
+import {
+  expectedPhase4MigrationIdentities,
+  inspectPhase4MigrationIdentity,
+} from "./phase4MigrationIdentity.js";
 import { measurePhase4MaintenanceFacts } from "./phase4MaintenanceObservations.js";
 
 export {
@@ -120,8 +123,8 @@ export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
  *   spawnSync: (command: string, args: string[], options: { encoding: string }) => unknown,
  *   provenancePath: string,
  *   snapshot: Record<string, unknown>,
- *   firstPostMigration: import("./phase4MigrationIdentity.js").inspectPhase4MigrationIdentity extends (...args: any[]) => infer R ? R : never,
- *   reopenPostMigration: import("./phase4MigrationIdentity.js").inspectPhase4MigrationIdentity extends (...args: any[]) => infer R ? R : never,
+ *   firstPostMigration: ReturnType<typeof inspectPhase4MigrationIdentity>,
+ *   reopenPostMigration: ReturnType<typeof inspectPhase4MigrationIdentity>,
  * }} options
  */
 export function bindPhase4PostMigrationEvidence(boundEvidence, options) {
@@ -327,7 +330,7 @@ function requireBoundEvidence(value, stage, requirePostMigration) {
   return bound;
 }
 
-/** @param {any} facts @param {string} label */
+/** @param {ReturnType<typeof inspectPhase4MigrationIdentity>} facts @param {string} label */
 function requireFullPostMigration(facts, label) {
   if (
     !facts?.coherent ||
