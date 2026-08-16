@@ -28,7 +28,7 @@ if [[ ! -f "$CUTOVER_ENTRY" ]]; then
   echo "Installed package is missing the Phase-4 maintenance entrypoint" >&2
   exit 1
 fi
-if ! rg -q '"status", "prepare", "activate", "cancel", "rollback"' "$CUTOVER_ENTRY"; then
+if ! grep -q '"status", "prepare", "activate", "cancel", "rollback"' "$CUTOVER_ENTRY"; then
   echo "Maintenance entrypoint source marker mismatch" >&2
   exit 1
 fi
