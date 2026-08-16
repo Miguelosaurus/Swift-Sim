@@ -19,8 +19,6 @@ import { createSqliteDurableSessionStore } from "./phase4SessionStore.js";
 import { SqlitePhase4AuthorityRepository } from "./sqlitePhase4AuthorityRepository.js";
 import { SwiftSimSqliteDatabase } from "./swiftSimSqliteDatabase.js";
 
-const CLEANUP_RETRY_INTERVAL_MS = 30_000;
-
 /**
  * Create product-facing durable stores behind the one global Phase-4 selector.
  * The inactive backend is lazy and therefore cannot mutate simply because the
@@ -28,6 +26,12 @@ const CLEANUP_RETRY_INTERVAL_MS = 30_000;
  *
  * Schema migration may create/upgrade state.sqlite, but v9 initializes the
  * selector to legacy and migration itself cannot activate SQLite authority.
+ *
+ * Construction is intentionally artifact-cleanup-inert: no maintenance timer
+ * is started and nothing drains cleanup jobs. Destructive artifact cleanup
+ * remains owned by the existing explicit per-operation path and the separate
+ * maintenance entrypoint; a startup/reopen/doctor/status/prepare/activate/
+ * rollback must never delete queued artifact material.
  *
  * @param {{ stateRoot?: string, deviceMaintenance?: boolean }} [options]
  */
@@ -54,8 +58,6 @@ export function createPhase4ProductionStoreFactories(options = {}) {
   let sqliteDeviceBuilds;
   let legacySessions;
   let sqliteSessions;
-  /** @type {ReturnType<typeof setInterval> | undefined} */
-  let deviceMaintenanceTimer;
 
   const pairingStore = createAuthorityRoutedFacade({
     router,
@@ -101,37 +103,6 @@ export function createPhase4ProductionStoreFactories(options = {}) {
       })),
   });
 
-  const ensureDeviceMaintenance = () => {
-    if (options.deviceMaintenance === false || deviceMaintenanceTimer) return;
-    const run = () =>
-      router.write({
-        legacy: () =>
-          runDeviceMaintenance(
-            (legacyDeviceBuilds ??= new DeviceBuildStore({
-              path: paths.deviceBuilds,
-              maintenance: false,
-            })),
-          ),
-        sqlite: () =>
-          runDeviceMaintenance(
-            (sqliteDeviceBuilds ??= createSqliteDeviceBuildStore({
-              database,
-              legacyPath: paths.deviceBuilds,
-              maintenance: false,
-            })),
-          ),
-      });
-    try {
-      run();
-    } catch {}
-    deviceMaintenanceTimer = setInterval(() => {
-      try {
-        run();
-      } catch {}
-    }, CLEANUP_RETRY_INTERVAL_MS);
-    deviceMaintenanceTimer.unref?.();
-  };
-
   return Object.freeze({
     database,
     authorityRepository,
@@ -147,8 +118,27 @@ export function createPhase4ProductionStoreFactories(options = {}) {
       return /** @type {SessionStore} */ (/** @type {unknown} */ (sessionStore));
     },
     createDeviceBuildStore() {
-      ensureDeviceMaintenance();
       return /** @type {DeviceBuildStore} */ (/** @type {unknown} */ (deviceBuildStore));
+    },
+    /**
+     * Explicit maintenance surface. Ordinary construction/startup never calls
+     * this; only the separately authorized maintenance executor may invoke it
+     * after its staged preconditions pass.
+     */
+    runExplicitDeviceMaintenanceOnly() {
+      return router.write({
+        legacy: () =>
+          (legacyDeviceBuilds ??= new DeviceBuildStore({
+            path: paths.deviceBuilds,
+            maintenance: false,
+          })).runMaintenance(),
+        sqlite: () =>
+          (sqliteDeviceBuilds ??= createSqliteDeviceBuildStore({
+            database,
+            legacyPath: paths.deviceBuilds,
+            maintenance: false,
+          })).runMaintenance(),
+      });
     },
   });
 }
@@ -168,10 +158,4 @@ function openPrivatePhase4Database(path) {
   } finally {
     process.umask(previousUmask);
   }
-}
-
-/** @param {DeviceBuildStore} store */
-function runDeviceMaintenance(store) {
-  store.runMaintenance();
-  store.drainArtifactCleanupJobs();
 }

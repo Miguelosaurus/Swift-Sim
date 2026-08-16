@@ -15,6 +15,7 @@ printf '%s\n' "$FORMULA_TEXT" | ruby -c >/dev/null
 grep -q 'depends_on "node@24"' <<< "$FORMULA_TEXT"
 grep -q 'dist/mac-helper/bin/swift-sim-entry.js' <<< "$FORMULA_TEXT"
 grep -q 'dist/mac-helper/bin/swift-sim-helper-entry.js' <<< "$FORMULA_TEXT"
+grep -q 'dist/mac-helper/bin/swift-sim-phase4-cutover.js' <<< "$FORMULA_TEXT"
 
 echo "Verified Homebrew formula syntax and Node 24 compiled entrypoints"
 
@@ -77,7 +78,7 @@ if brew services list | awk '$1 == "swift-sim" { found = 1 } END { exit(found ? 
   echo "Refusing to touch a pre-existing swift-sim service." >&2
   exit 1
 fi
-for launcher in swift-sim swift-sim-helper; do
+for launcher in swift-sim swift-sim-helper swift-sim-phase4-cutover; do
   if [[ -e "$(brew --prefix)/bin/$launcher" || -L "$(brew --prefix)/bin/$launcher" ]]; then
     echo "Pre-existing $launcher launcher detected; it will remain untouched." >&2
   fi
@@ -116,12 +117,21 @@ FORMULA_INSTALLED=1
 
 [[ -x "$PREFIX/bin/swift-sim" ]]
 [[ -x "$PREFIX/bin/swift-sim-helper" ]]
+[[ -x "$PREFIX/bin/swift-sim-phase4-cutover" ]]
 [[ -x "$NODE24" ]]
 "$NODE24" --version | grep -q '^v24\.'
 [[ -d "$PREFIX/libexec/plugins/swift-sim-companion/skills/remote-simulator-companion" ]]
 [[ -d "$PREFIX/libexec/.agents" ]]
 grep -q 'node@24/bin/node' "$PREFIX/bin/swift-sim"
 grep -q 'dist/mac-helper/bin/swift-sim-entry.js' "$PREFIX/bin/swift-sim"
+grep -q 'dist/mac-helper/bin/swift-sim-phase4-cutover.js' "$PREFIX/bin/swift-sim-phase4-cutover"
+
+CUTOVER_ENTRY="$PREFIX/libexec/dist/mac-helper/bin/swift-sim-phase4-cutover.js"
+"$PREFIX/bin/swift-sim-phase4-cutover" status --state-root "$STATE_HOME/.swift-sim" > "$TEST_ROOT/cutover-status-launcher.json"
+"$NODE24" -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1])); if (report.mutationAllowed !== false) process.exit(1);' "$TEST_ROOT/cutover-status-launcher.json"
+[[ -f "$CUTOVER_ENTRY" ]]
+"$NODE24" "$CUTOVER_ENTRY" status --state-root "$STATE_HOME/.swift-sim" > "$TEST_ROOT/cutover-status.json"
+"$NODE24" -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1])); if (report.mutationAllowed !== false) process.exit(1);' "$TEST_ROOT/cutover-status.json"
 
 mkdir -p "$STATE_HOME/.swift-sim/engine/InjectionNext.app/Contents/MacOS"
 printf '#!/bin/sh\nexit 0\n' > "$STATE_HOME/.swift-sim/engine/InjectionNext.app/Contents/MacOS/InjectionNext"

@@ -6,7 +6,7 @@ Status: repository runbook only. This document does **not** authorize a live cut
 
 Phase 4 uses one product-global durable authority epoch in `state.sqlite` migration v9. Product routing reads that selector once per operation and selects exactly one durable backend.
 
-v9 is required because v1-v8 contain only pairing-local authority/preparation state. Device-build and durable-session state exist by v8, but there is no semantically correct durable decision that can atomically select authority for all three domains. Reusing the pairing row as a product selector would overload pairing-only source/projection evidence and permit contradictory domain interpretation. v9 therefore adds exactly one global authority/transition/fencing row; it changes no pairing, device-build, or session domain schema.
+v9 is required because v1-v8 contain only pairing-local authority/preparation state. Device-build and durable-session state exist by v8, but there is no semantically correct durable decision that can atomically select authority for all three domains. Reusing the pairing row as a product selector would overload pairing-only source/projection evidence and permit contradictory domain interpretation. v9 therefore adds exactly one global authority/transition/fencing row plus the bounded hybrid-session create-intent recovery table; it changes no pairing, device-build, or session domain columns. `session_records` columns remain exactly the frozen six.
 
 Migrations v1-v8 remain immutable in name, order, statements, and checksum. `session_records` remains exactly `id`, `token`, `project`, `scheme`, `simulator_udid`, and `created_at`. Because the accepted persistent-Mac pre-cutover evidence qualified schema v8, the new v9 maintenance target requires independent migration-target requalification before any real-root migration.
 
@@ -40,10 +40,16 @@ Pairing's pre-existing authority row is retained only as a pairing-local revisio
 The maintenance-only entrypoint is:
 
 ```text
-node <installed-libexec>/mac-helper/bin/swift-sim-phase4-cutover.js <action> --state-root <explicit-private-root> ...
+<installed-libexec>/dist/mac-helper/bin/swift-sim-phase4-cutover.js <action> --state-root <explicit-private-root> ...
 ```
 
 Actions are `status`, `prepare`, `activate`, `cancel`, and `rollback`. There is deliberately no `finalize` action.
+
+The installed npm/Homebrew candidate contains this exact compiled entrypoint at
+`libexec/dist/mac-helper/bin/swift-sim-phase4-cutover.js`, and Homebrew also
+writes a `swift-sim-phase4-cutover` launcher. Plain `swift-sim`/`swift-sim-helper`
+launchers never expose the maintenance surface; the executor must invoke this
+path explicitly and always pass an explicit private `--state-root`.
 
 `status` opens the supplied SQLite database read-only with `PRAGMA query_only = ON`. Every mutating action requires an explicit state root, expected revision, and maintenance-evidence JSON object. `activate` additionally requires the exact preparation id/evidence hash and an explicit rollback-window duration. `rollback` additionally requires the exact cutover epoch.
 
@@ -174,5 +180,25 @@ Repository implementation and tests cannot satisfy the two environment P3 items 
 
 1. live-root migration/helper staging against the real private state root, including independent v9 migration-target requalification;
 2. the real installed Homebrew v0.6.1-to-candidate upgrade/provenance/service proof.
+
+## Stage-gated execution
+
+The executor performs the following stages in order, and no migration-capable
+database open may occur before stage 5:
+
+1. read-only pre-migration inspection;
+2. authorization/provenance binding;
+3. process/quiescence/private-permission/state checks;
+4. verified SQLite-consistent pre-migration snapshot;
+5. migration-capable open v7 -> corrected v9;
+6. close/reopen;
+7. prove corrected v9 migration identity/idempotency/integrity;
+8. remaining post-migration/preparation checks;
+9. only then allow preparation.
+
+The entrypoint binds the operator evidence file to independently measured
+machine-observable facts before any migration-capable open. Hand-authored
+`true` values cannot override a contradictory measurable fact; the preflight
+inspector and the evidence binding both run read-only.
 
 Those operations were not performed by the P4-CUTOVER-IMPLEMENTATION worker.

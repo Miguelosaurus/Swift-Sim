@@ -252,14 +252,21 @@ function withRealPhase4Database(assertion) {
 
 function collectWithoutFixture(options) {
   const previousFixture = process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+  const previousNodeEnv = process.env.NODE_ENV;
   try {
     delete process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+    delete process.env.NODE_ENV;
     return collectPhase4OperatorDiagnostics(options);
   } finally {
     if (previousFixture === undefined) {
       delete process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
     } else {
       process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE = previousFixture;
+    }
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
     }
   }
 }

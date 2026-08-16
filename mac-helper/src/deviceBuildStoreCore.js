@@ -13,7 +13,11 @@ export const BUILD_STATE_VERSION = 6;
 const LOG_TRUNCATION_MARKER = "[earlier build output truncated]";
 const LOCK_WAIT_MS = 5_000;
 const OWNERLESS_LOCK_GRACE_MS = 250;
-const ACTIVE_INSTALL_OBSERVATION_STATES = new Set(["requested", "not-installed", "different-version"]);
+const ACTIVE_INSTALL_OBSERVATION_STATES = new Set([
+  "requested",
+  "not-installed",
+  "different-version",
+]);
 
 export class DeviceBuildStore {
   constructor({
@@ -28,7 +32,9 @@ export class DeviceBuildStore {
     this.artifactCleanupJobs = new Map();
     this.deliveryReferenceCleanupJobs = new Map();
     this.load();
-    this.drainArtifactCleanupJobs();
+    // Ordinary construction is intentionally artifact-cleanup-inert. Queued
+    // artifact cleanup stays queued until the separately authorized cleanup
+    // owner runs it; the legacy constructor previously drained any due jobs.
   }
 
   create(input) {
@@ -112,10 +118,12 @@ export class DeviceBuildStore {
         incoming.pendingRenewal = structuredClone(existing.pendingRenewal || null);
       } else {
         incoming.tokenExpiredAt = incoming.tokenExpiredAt || existing.tokenExpiredAt || "";
-        incoming.pendingRenewal = incoming.pendingRenewal || structuredClone(existing.pendingRenewal || null);
+        incoming.pendingRenewal =
+          incoming.pendingRenewal || structuredClone(existing.pendingRenewal || null);
       }
       finalizePendingRenewal(incoming);
-      incoming.revision = Math.max(Number(existing.revision || 0), Number(incoming.revision || 0)) + 1;
+      incoming.revision =
+        Math.max(Number(existing.revision || 0), Number(incoming.revision || 0)) + 1;
       incoming.updatedAt = new Date().toISOString();
       state.builds.set(incoming.id, incoming);
       Object.assign(build, structuredClone(incoming));
@@ -134,7 +142,9 @@ export class DeviceBuildStore {
       build.installation = normalizeInstallation(build.installation);
       build.installation.state = build.installation.state === "verified" ? "verified" : "requested";
       build.installation.requestedAt = new Date().toISOString();
-      build.installation.verificationDeadlineAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      build.installation.verificationDeadlineAt = new Date(
+        Date.now() + 15 * 60 * 1000,
+      ).toISOString();
       build.installation.updatedAt = new Date().toISOString();
       touchBuild(build);
       return build;
@@ -146,7 +156,7 @@ export class DeviceBuildStore {
       const build = state.builds.get(id);
       if (!build) return null;
       const nextExpiresAt = new Date(
-        Date.now() + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000
+        Date.now() + normalizeDeviceBuildTTLMinutes(ttlMinutes) * 60 * 1000,
       ).toISOString();
       build.pendingRenewal = {
         token: randomBytes(24).toString("base64url"),
@@ -179,16 +189,17 @@ export class DeviceBuildStore {
       if (!build) return null;
       const previous = normalizeInstallation(build.installation);
       const reportedState = verification.state || "unknown";
-      const nextState = reportedState === "unknown"
-        && ACTIVE_INSTALL_OBSERVATION_STATES.has(previous.state)
-        ? previous.state
-        : reportedState;
+      const nextState =
+        reportedState === "unknown" && ACTIVE_INSTALL_OBSERVATION_STATES.has(previous.state)
+          ? previous.state
+          : reportedState;
       build.installation = {
         ...previous,
         state: nextState,
-        verifiedAt: reportedState === "verified"
-          ? verification.verifiedAt || new Date().toISOString()
-          : previous.verifiedAt,
+        verifiedAt:
+          reportedState === "verified"
+            ? verification.verifiedAt || new Date().toISOString()
+            : previous.verifiedAt,
         updatedAt: new Date().toISOString(),
         verificationDeadlineAt: reportedState === "verified" ? "" : previous.verificationDeadlineAt,
         devices: Array.isArray(verification.devices) ? verification.devices : [],
@@ -207,7 +218,9 @@ export class DeviceBuildStore {
   }
 
   getApp(id) {
-    return this.withTransaction((state) => listAppsFromState(state, true).find((app) => app.id === id) || null);
+    return this.withTransaction(
+      (state) => listAppsFromState(state, true).find((app) => app.id === id) || null,
+    );
   }
 
   setAppArchived(id, archived) {
@@ -343,15 +356,19 @@ export class DeviceBuildStore {
       const parsed = JSON.parse(readFileSync(this.path, "utf8"));
       let needsCompaction = Number(parsed.version || 0) < BUILD_STATE_VERSION;
       return {
-        builds: new Map((parsed.builds || []).map((build) => {
-          const previousLogs = Array.isArray(build.logs) ? build.logs : [];
-          const normalized = normalizeDeviceBuildRecord(build);
-          if (!sameLogs(previousLogs, normalized.logs)) needsCompaction = true;
-          return [normalized.id, normalized];
-        })),
+        builds: new Map(
+          (parsed.builds || []).map((build) => {
+            const previousLogs = Array.isArray(build.logs) ? build.logs : [];
+            const normalized = normalizeDeviceBuildRecord(build);
+            if (!sameLogs(previousLogs, normalized.logs)) needsCompaction = true;
+            return [normalized.id, normalized];
+          }),
+        ),
         apps: new Map(Object.entries(parsed.apps || {})),
         artifactCleanupJobs: new Map(Object.entries(parsed.artifactCleanupJobs || {})),
-        deliveryReferenceCleanupJobs: new Map(Object.entries(parsed.deliveryReferenceCleanupJobs || {})),
+        deliveryReferenceCleanupJobs: new Map(
+          Object.entries(parsed.deliveryReferenceCleanupJobs || {}),
+        ),
         needsCompaction,
       };
     } catch (error) {
@@ -364,23 +381,29 @@ export class DeviceBuildStore {
           needsCompaction: false,
         };
       }
-      throw new Error(`Unable to read Swift Sim build state: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Unable to read Swift Sim build state: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
   writeState(state) {
-    this.atomicFileStore.writeJSONSync(this.path, {
-      version: BUILD_STATE_VERSION,
-      apps: Object.fromEntries(state.apps),
-      artifactCleanupJobs: Object.fromEntries(state.artifactCleanupJobs),
-      deliveryReferenceCleanupJobs: Object.fromEntries(state.deliveryReferenceCleanupJobs || []),
-      builds: [...state.builds.values()],
-    }, {
-      mode: 0o600,
-      createParentMode: 0o700,
-      replace: true,
-      syncDirectory: true,
-    });
+    this.atomicFileStore.writeJSONSync(
+      this.path,
+      {
+        version: BUILD_STATE_VERSION,
+        apps: Object.fromEntries(state.apps),
+        artifactCleanupJobs: Object.fromEntries(state.artifactCleanupJobs),
+        deliveryReferenceCleanupJobs: Object.fromEntries(state.deliveryReferenceCleanupJobs || []),
+        builds: [...state.builds.values()],
+      },
+      {
+        mode: 0o600,
+        createParentMode: 0o700,
+        replace: true,
+        syncDirectory: true,
+      },
+    );
   }
 
   applyState(state) {
@@ -392,9 +415,13 @@ export class DeviceBuildStore {
 }
 
 export function deviceAppIdentity(app = {}) {
-  const bundleIdentifier = String(app.bundleIdentifier || "").trim().toLowerCase();
+  const bundleIdentifier = String(app.bundleIdentifier || "")
+    .trim()
+    .toLowerCase();
   if (!bundleIdentifier) return "";
-  const teamID = String(app.teamID || "").trim().toUpperCase();
+  const teamID = String(app.teamID || "")
+    .trim()
+    .toUpperCase();
   return createHash("sha256")
     .update(`${teamID}\0${bundleIdentifier}`)
     .digest("base64url")
@@ -405,17 +432,20 @@ function finalizePendingRenewal(build) {
   const pending = build.pendingRenewal;
   if (!pending) return;
   const previous = pending.previous || {};
-  if (build.expiresAt === previous.expiresAt
-      && build.remoteBaseUrl === previous.remoteBaseUrl
-      && JSON.stringify(build.delivery || null) === JSON.stringify(previous.delivery || null)) {
+  if (
+    build.expiresAt === previous.expiresAt &&
+    build.remoteBaseUrl === previous.remoteBaseUrl &&
+    JSON.stringify(build.delivery || null) === JSON.stringify(previous.delivery || null)
+  ) {
     delete build.pendingRenewal;
     return;
   }
-  const customReady = build.delivery?.mode === "custom"
-    && build.delivery?.expiresAt === build.expiresAt;
-  const quickTunnelReady = build.delivery?.mode === "quick-tunnel"
-    && Boolean(build.remoteBaseUrl)
-    && Boolean(build.delivery?.expiresAt);
+  const customReady =
+    build.delivery?.mode === "custom" && build.delivery?.expiresAt === build.expiresAt;
+  const quickTunnelReady =
+    build.delivery?.mode === "quick-tunnel" &&
+    Boolean(build.remoteBaseUrl) &&
+    Boolean(build.delivery?.expiresAt);
   if (!customReady && !quickTunnelReady) return;
   build.token = pending.token;
   build.tokenExpiredAt = "";
@@ -435,7 +465,9 @@ function expireBuildTokens(builds) {
 }
 
 function sortedBuilds(builds) {
-  return [...builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return [...builds.values()].sort((a, b) =>
+    String(b.createdAt).localeCompare(String(a.createdAt)),
+  );
 }
 
 function listAppsFromState(state, includeArchived) {
@@ -457,7 +489,9 @@ function listAppsFromState(state, includeArchived) {
   }
   return [...grouped.values()]
     .filter((app) => includeArchived || !app.archivedAt)
-    .sort((a, b) => String(b.builds[0]?.createdAt || "").localeCompare(String(a.builds[0]?.createdAt || "")));
+    .sort((a, b) =>
+      String(b.builds[0]?.createdAt || "").localeCompare(String(a.builds[0]?.createdAt || "")),
+    );
 }
 
 function touchBuild(build) {
@@ -473,7 +507,7 @@ export function normalizeDeviceBuildRecord(build) {
   build.revision = Number(build.revision || 0);
   build.tokenExpiredAt = build.tokenExpiredAt || "";
   build.installTTLMinutes = normalizeDeviceBuildTTLMinutes(
-    build.installTTLMinutes ?? build.ttlMinutes
+    build.installTTLMinutes ?? build.ttlMinutes,
   );
   // Keep the pre-hardening field as a compatibility alias for existing callers
   // and persisted 0.6.0 build records. installTTLMinutes is authoritative.

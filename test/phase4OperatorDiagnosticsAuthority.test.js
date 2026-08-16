@@ -42,8 +42,10 @@ test("operator diagnostics mark malformed existing legacy authority incompatible
   const legacyBefore = readBytes(legacyPath);
   const umaskBefore = process.umask();
   const fixtureBefore = process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+  const nodeEnvBefore = process.env.NODE_ENV;
   try {
     delete process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+    delete process.env.NODE_ENV;
     const report = collectPhase4OperatorDiagnostics({ stateRoot, artifactAudit });
     assert.equal(report.readOnly, true);
     assert.equal(report.mutationAllowed, false);
@@ -60,6 +62,7 @@ test("operator diagnostics mark malformed existing legacy authority incompatible
     assert.equal(process.umask(), umaskBefore);
   } finally {
     restoreFixture(fixtureBefore);
+    restoreNodeEnv(nodeEnvBefore);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -74,20 +77,24 @@ test("operator diagnostics report a valid v7 database as migration attention rat
   createDatabase(databasePath, DEVICE_BUILD_SQLITE_MIGRATIONS);
   const databaseBefore = readBytes(databasePath);
   const fixtureBefore = process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+  const nodeEnvBefore = process.env.NODE_ENV;
   try {
     delete process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
+    delete process.env.NODE_ENV;
     const report = collectPhase4OperatorDiagnostics({ stateRoot, artifactAudit });
     assert.equal(report.database.status, "attention");
     assert.equal(report.database.schemaVersion, 7);
     assert.equal(report.database.latestSchemaVersion, 9);
-    assert.equal(report.database.missingTableCount, 2);
+    assert.equal(report.database.missingTableCount, 3);
     assert.equal(report.migration.status, "healthy");
     assert.equal(report.migration.outcome, "checkpointed");
     assert.equal(report.authority.mode, "legacy");
     assert.equal(report.authority.revision, 0);
     assert.equal(report.compatibility.state, "transitioning");
     assert.ok(
-      report.recovery.actionCodes.includes("keep-authority-unchanged-and-resume-supported-migration"),
+      report.recovery.actionCodes.includes(
+        "keep-authority-unchanged-and-resume-supported-migration",
+      ),
     );
     assert.equal(
       report.recovery.actionCodes.includes("preserve-state-and-review-database-health"),
@@ -96,6 +103,7 @@ test("operator diagnostics report a valid v7 database as migration attention rat
     assert.deepEqual(readBytes(databasePath), databaseBefore);
   } finally {
     restoreFixture(fixtureBefore);
+    restoreNodeEnv(nodeEnvBefore);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -121,5 +129,13 @@ function restoreFixture(previous) {
     delete process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE;
   } else {
     process.env.SWIFT_SIM_PHASE4_DIAGNOSTICS_FIXTURE = previous;
+  }
+}
+
+function restoreNodeEnv(previous) {
+  if (previous === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = previous;
   }
 }

@@ -16,6 +16,7 @@ export class SqlitePhase4AuthorityRepository {
   /** @type {SwiftSimSqliteDatabase} */
   #database;
   #readStatement;
+  #legacyEpochReadStatement;
   #prepareStatement;
   #cancelStatement;
   #activateStatement;
@@ -25,6 +26,9 @@ export class SqlitePhase4AuthorityRepository {
   /** @param {SwiftSimSqliteDatabase} database */
   constructor(database) {
     this.#database = database;
+    this.#legacyEpochReadStatement = database.prepare(
+      "SELECT cutover_epoch FROM phase4_authority_state WHERE singleton = 1",
+    );
     this.#readStatement = database.prepare(`SELECT
       storage_version, mode, revision, cutover_epoch, preparation_id,
       evidence_hash, evidence_json, prepared_at, cutover_at,
@@ -70,6 +74,7 @@ export class SqlitePhase4AuthorityRepository {
     this.#rollbackStatement = database.prepare(`UPDATE phase4_authority_state SET
       mode = 'legacy',
       revision = ?,
+      cutover_epoch = 0,
       preparation_id = NULL,
       evidence_hash = NULL,
       evidence_json = NULL,
@@ -83,6 +88,17 @@ export class SqlitePhase4AuthorityRepository {
 
   getState() {
     return parseAuthorityRow(this.#readStatement.get());
+  }
+
+  /**
+   * Legacy/preparing rows are epoch-0 by contract. This read is separate so a
+   * repository-level transition never depends on the stricter getState parser
+   * while still proving the durable epoch boundary before changing mode.
+   */
+  readLegacyEpoch() {
+    const row = this.#legacyEpochReadStatement.get();
+    const value = /** @type {Record<string, unknown> | undefined} */ (row);
+    return value ? Number(value.cutover_epoch || 0) : 0;
   }
 
   /**
@@ -328,7 +344,38 @@ function parseAuthorityRow(row) {
   ) {
     throw new Error(`Phase-4 authority state has invalid mode ${mode || "<empty>"}.`);
   }
+  const cutoverEpoch = revision(value.cutover_epoch, "Phase-4 cutover epoch");
+  const legacyEpochMode =
+    mode === PHASE4_AUTHORITY_MODES.legacy || mode === PHASE4_AUTHORITY_MODES.preparing;
+  const sqliteAuthoritativeMode =
+    mode === PHASE4_AUTHORITY_MODES.sqliteRollback ||
+    mode === PHASE4_AUTHORITY_MODES.rollbackPreparing ||
+    mode === PHASE4_AUTHORITY_MODES.sqliteFinal;
+  if (legacyEpochMode && cutoverEpoch !== 0) {
+    throw new Error(
+      `Phase-4 authority mode ${mode} requires a pre-cutover epoch of 0, found ${cutoverEpoch}.`,
+    );
+  }
+  if (sqliteAuthoritativeMode && cutoverEpoch === 0) {
+    throw new Error(`Phase-4 authority mode ${mode} requires a positive cutover epoch, found 0.`);
+  }
+  const preparationID = nullableString(value.preparation_id);
+  const evidenceHash = nullableString(value.evidence_hash);
   const evidenceJSON = nullableString(value.evidence_json);
+  const preparedAt = nullableString(value.prepared_at);
+  const cutoverAt = nullableString(value.cutover_at);
+  const rollbackExpiresAt = nullableString(value.rollback_expires_at);
+  const finalizedAt = nullableString(value.finalized_at);
+  requireModeLayout({
+    mode,
+    preparationID,
+    evidenceHash,
+    evidenceJSON,
+    preparedAt,
+    cutoverAt,
+    rollbackExpiresAt,
+    finalizedAt,
+  });
   let evidence = null;
   if (evidenceJSON !== null) {
     try {
@@ -341,16 +388,92 @@ function parseAuthorityRow(row) {
     storageVersion: revision(value.storage_version, "Phase-4 storage version"),
     mode,
     revision: revision(value.revision, "Phase-4 authority revision"),
-    cutoverEpoch: revision(value.cutover_epoch, "Phase-4 cutover epoch"),
-    preparationID: nullableString(value.preparation_id),
-    evidenceHash: nullableString(value.evidence_hash),
+    cutoverEpoch,
+    preparationID,
+    evidenceHash,
     evidence,
-    preparedAt: nullableString(value.prepared_at),
-    cutoverAt: nullableString(value.cutover_at),
-    rollbackExpiresAt: nullableString(value.rollback_expires_at),
-    finalizedAt: nullableString(value.finalized_at),
+    preparedAt,
+    cutoverAt,
+    rollbackExpiresAt,
+    finalizedAt,
     updatedAt: String(value.updated_at || ""),
   });
+}
+
+/**
+ * @param {{
+ *   mode: string,
+ *   preparationID: string | null,
+ *   evidenceHash: string | null,
+ *   evidenceJSON: string | null,
+ *   preparedAt: string | null,
+ *   cutoverAt: string | null,
+ *   rollbackExpiresAt: string | null,
+ *   finalizedAt: string | null,
+ * }} input
+ */
+function requireModeLayout(input) {
+  const {
+    mode,
+    preparationID,
+    evidenceHash,
+    evidenceJSON,
+    preparedAt,
+    cutoverAt,
+    rollbackExpiresAt,
+    finalizedAt,
+  } = input;
+  const preparedFields =
+    preparationID !== null && evidenceHash !== null && evidenceJSON !== null && preparedAt !== null;
+  if (mode === PHASE4_AUTHORITY_MODES.legacy) {
+    if (
+      preparedFields ||
+      cutoverAt !== null ||
+      rollbackExpiresAt !== null ||
+      finalizedAt !== null
+    ) {
+      throw new Error("Phase-4 legacy authority row contains transition evidence.");
+    }
+    return;
+  }
+  if (mode === PHASE4_AUTHORITY_MODES.preparing) {
+    if (
+      !preparedFields ||
+      cutoverAt !== null ||
+      rollbackExpiresAt !== null ||
+      finalizedAt !== null
+    ) {
+      throw new Error("Phase-4 preparing authority row has an invalid transition layout.");
+    }
+    return;
+  }
+  if (
+    mode === PHASE4_AUTHORITY_MODES.sqliteRollback ||
+    mode === PHASE4_AUTHORITY_MODES.rollbackPreparing
+  ) {
+    if (
+      !preparedFields ||
+      cutoverAt === null ||
+      rollbackExpiresAt === null ||
+      finalizedAt !== null ||
+      Date.parse(rollbackExpiresAt) <= Date.parse(cutoverAt)
+    ) {
+      throw new Error(`Phase-4 ${mode} authority row has an invalid rollback layout.`);
+    }
+    return;
+  }
+  if (mode === PHASE4_AUTHORITY_MODES.sqliteFinal) {
+    if (
+      !preparedFields ||
+      cutoverAt === null ||
+      rollbackExpiresAt === null ||
+      finalizedAt === null ||
+      Date.parse(rollbackExpiresAt) <= Date.parse(cutoverAt) ||
+      Date.parse(finalizedAt) < Date.parse(rollbackExpiresAt)
+    ) {
+      throw new Error("Phase-4 sqlite-final authority row has an invalid finalization layout.");
+    }
+  }
 }
 
 /** @param {unknown} value */

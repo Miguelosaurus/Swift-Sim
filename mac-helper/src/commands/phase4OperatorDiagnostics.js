@@ -194,7 +194,12 @@ export function collectPhase4OperatorDiagnostics(options = {}) {
 
   const artifactStorage = () => {
     if (!options.artifactAudit) throw new Error("artifact audit unavailable");
-    return options.artifactAudit;
+    return {
+      ...options.artifactAudit,
+      readOnly: true,
+      cleanupEnabled: false,
+      measurementComplete: true,
+    };
   };
 
   try {

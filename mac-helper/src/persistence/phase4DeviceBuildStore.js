@@ -4,8 +4,6 @@ import { DeviceBuildStore } from "../deviceBuildStore.js";
 import { normalizeDeviceBuildTTLMinutes } from "../deviceBuildDefaults.js";
 import { normalizeDeviceBuildStateSnapshot } from "./sqliteDeviceBuildStateRepository.js";
 
-const CLEANUP_RETRY_INTERVAL_MS = 30_000;
-
 /** @typedef {import("../contracts/deviceBuildRepository.js").DeviceBuildStateSnapshot} DeviceBuildStateSnapshot */
 /** @typedef {import("./swiftSimSqliteDatabase.js").SwiftSimSqliteDatabase} SwiftSimSqliteDatabase */
 
@@ -217,21 +215,6 @@ export function createSqliteDeviceBuildStore({ database, legacyPath, maintenance
   };
 
   store.load();
-  if (maintenance) {
-    try {
-      store.runMaintenance();
-    } catch {}
-    const timer = setInterval(() => {
-      try {
-        store.runMaintenance();
-      } catch {}
-      try {
-        store.drainArtifactCleanupJobs();
-      } catch {}
-    }, CLEANUP_RETRY_INTERVAL_MS);
-    timer.unref?.();
-    store.maintenanceTimer = timer;
-  }
   return store;
 }
 

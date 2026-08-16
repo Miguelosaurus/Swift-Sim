@@ -2,10 +2,13 @@
 // @ts-check
 
 import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { parseArgs } from "node:util";
 import { DatabaseSync } from "node:sqlite";
+import { bindPhase4MaintenanceEvidence } from "../src/persistence/phase4MaintenanceEvidence.js";
 import { Phase4CutoverCoordinator } from "../src/persistence/phase4CutoverCoordinator.js";
+import { Phase4CutoverPreflightInspector } from "../src/persistence/phase4CutoverPreflightInspector.js";
 import { Phase4RollbackCoordinator } from "../src/persistence/phase4RollbackCoordinator.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../src/persistence/phase4SqliteSchema.js";
 import { SqliteDeviceBuildStateRepository } from "../src/persistence/sqliteDeviceBuildStateRepository.js";
@@ -48,23 +51,45 @@ async function main() {
 
   const maintenanceEvidence = readEvidence(values["evidence-file"]);
   const { spawnSync } = await import("node:child_process");
-  const expectedRevision = nonNegativeInteger(
-    values["expected-revision"],
-    "--expected-revision",
+  const evidenceStage = action === "cancel" ? "prepare" : action;
+  const expectedRevision = nonNegativeInteger(values["expected-revision"], "--expected-revision");
+  const candidateSHA = maintenanceEvidence.candidateSHA;
+  const boundEvidence = bindPhase4MaintenanceEvidence(
+    maintenanceEvidence,
+    /** @type {"prepare" | "activate" | "rollback"} */ (evidenceStage),
+    {
+      stateRoot,
+      spawnSync,
+      candidateSHA,
+      expectedSchemaVersion: PHASE4_SQLITE_MIGRATIONS.at(-1)?.version || 0,
+    },
   );
+
+  // Stage 1-4: read-only pre-migration inspection, authorization/provenance
+  // binding, process/quiescence/private-permission checking, and the verified
+  // SQLite-consistent pre-migration snapshot must all pass before a
+  // migration-capable open is allowed.
+  const preflight = new Phase4CutoverPreflightInspector({ stateRoot, spawnSync }).inspect();
+  assertPreflightStops(preflight, boundEvidence);
+
   const database = openDatabase(stateRoot);
   try {
+    assertPostOpenStage(database);
     if (action === "prepare") {
       const result = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync }).prepare({
         expectedRevision,
-        maintenanceEvidence,
+        maintenanceEvidence: boundEvidence,
         ...(values["preparation-id"] ? { preparationID: values["preparation-id"] } : {}),
       });
       console.log(JSON.stringify(result, null, 2));
       return;
     }
     if (action === "cancel") {
-      const result = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync }).cancelPreparation({
+      const result = new Phase4CutoverCoordinator({
+        database,
+        stateRoot,
+        spawnSync,
+      }).cancelPreparation({
         expectedRevision,
         preparationID: requireOption(values["preparation-id"], "--preparation-id"),
       });
@@ -84,7 +109,7 @@ async function main() {
         preparationID: requireOption(values["preparation-id"], "--preparation-id"),
         evidenceHash: requireOption(values["evidence-hash"], "--evidence-hash"),
         rollbackWindowMs: minutes * 60_000,
-        maintenanceEvidence,
+        maintenanceEvidence: boundEvidence,
       });
       database.close();
       const reopened = postSwitchHealth(stateRoot, "sqlite-rollback");
@@ -97,7 +122,7 @@ async function main() {
         values["expected-cutover-epoch"],
         "--expected-cutover-epoch",
       ),
-      maintenanceEvidence,
+      maintenanceEvidence: boundEvidence,
     });
     database.close();
     const reopened = postSwitchHealth(stateRoot, "legacy");
@@ -106,6 +131,58 @@ async function main() {
     try {
       database.close();
     } catch {}
+  }
+}
+
+/** @param {SwiftSimSqliteDatabase} database */
+function assertPostOpenStage(database) {
+  const health = database.health();
+  if (!health.ok || health.schemaVersion !== health.latestSchemaVersion) {
+    throw new Error("Phase-4 post-migration reopen/idempotency health check failed.");
+  }
+  const authority = new SqlitePhase4AuthorityRepository(database).getState();
+  if (!["legacy", "preparing", "sqlite-rollback", "rollback-preparing"].includes(authority.mode)) {
+    throw new Error(`Phase-4 post-open authority mode is invalid: ${authority.mode}.`);
+  }
+}
+
+/** @param {unknown} preflight @param {unknown} evidence */
+function assertPreflightStops(preflight, evidence) {
+  if (!preflight || typeof preflight !== "object" || Array.isArray(preflight)) {
+    throw new Error("Phase-4 pre-migration inspection is unavailable.");
+  }
+  const values = /** @type {Record<string, unknown>} */ (preflight);
+  if (values.includesMigrationCapableOpen !== false) {
+    throw new Error("Phase-4 pre-migration inspection must reject migration-capable opens.");
+  }
+  if (values.permissionsMissing) {
+    throw new Error("Phase-4 pre-migration private-permission inspection failed.");
+  }
+  const evidenceValue = /** @type {Record<string, unknown> | null} */ (
+    evidence && typeof evidence === "object" ? evidence : null
+  );
+  const measured = /** @type {Record<string, unknown> | null} */ (
+    evidenceValue?.measured && typeof evidenceValue.measured === "object"
+      ? evidenceValue.measured
+      : null
+  );
+  if (measured?.schemaMigrationsCoherent === false) {
+    throw new Error("Phase-4 pre-migration schema/migration identity is not coherent.");
+  }
+  if (measured?.databaseIntegrityWalForeignKeysVerified === false) {
+    throw new Error("Phase-4 pre-migration database integrity/WAL/FK inspection failed.");
+  }
+  if (measured?.preMigrationDatabaseSnapshotVerified !== true) {
+    throw new Error("Phase-4 verified pre-migration database snapshot is not present.");
+  }
+  if (measured?.legacyBackupsVerified === false) {
+    throw new Error("Phase-4 legacy backups did not verify.");
+  }
+  if (measured?.zeroUnresolvedShadowMismatches === false) {
+    throw new Error("Phase-4 pre-migration shadow mismatches are unresolved.");
+  }
+  if (measured?.rollbackReadable === false) {
+    throw new Error("Phase-4 pre-migration rollback material is not readable.");
   }
 }
 
@@ -124,7 +201,9 @@ function postSwitchHealth(stateRoot, expectedMode) {
     const authorityRepository = new SqlitePhase4AuthorityRepository(database);
     const authority = database.transaction(() => authorityRepository.getState());
     if (authority.mode !== expectedMode) {
-      throw new Error(`Post-switch authority reopen expected ${expectedMode}, found ${authority.mode}.`);
+      throw new Error(
+        `Post-switch authority reopen expected ${expectedMode}, found ${authority.mode}.`,
+      );
     }
     const pairingCount = (() => {
       const value = new SqlitePairingStateRepository(database).read();
@@ -154,12 +233,25 @@ function postSwitchHealth(stateRoot, expectedMode) {
 /** @param {string} stateRoot */
 function readOnlyStatus(stateRoot) {
   const path = join(stateRoot, "state.sqlite");
+  if (!existsSync(path)) {
+    return Object.freeze({
+      readOnly: true,
+      mutationAllowed: false,
+      authority: "legacy",
+      transitionState: "not-migrated",
+      rollbackAvailable: false,
+      rollbackExpiresAt: null,
+      schemaVersion: 0,
+      latestSchemaVersion: PHASE4_SQLITE_MIGRATIONS.at(-1)?.version || 0,
+    });
+  }
   const database = new DatabaseSync(path, { readOnly: true });
   try {
     database.exec("PRAGMA query_only = ON");
     const latestSchemaVersion = PHASE4_SQLITE_MIGRATIONS.at(-1)?.version || 0;
     const schemaVersion = Number(
-      database.prepare("SELECT COALESCE(MAX(version), 0) AS value FROM schema_migrations").get()?.value || 0,
+      database.prepare("SELECT COALESCE(MAX(version), 0) AS value FROM schema_migrations").get()
+        ?.value || 0,
     );
     const hasAuthority = Boolean(
       database
@@ -181,9 +273,11 @@ function readOnlyStatus(stateRoot) {
       });
     }
     const row = database
-      .prepare(`SELECT mode, revision, cutover_epoch, preparation_id,
+      .prepare(
+        `SELECT mode, revision, cutover_epoch, preparation_id,
       evidence_hash, prepared_at, cutover_at, rollback_expires_at, finalized_at
-      FROM phase4_authority_state WHERE singleton = 1`)
+      FROM phase4_authority_state WHERE singleton = 1`,
+      )
       .get();
     const mode = String(row?.mode || "legacy");
     const rollbackExpiresAt = row?.rollback_expires_at ? String(row.rollback_expires_at) : null;
