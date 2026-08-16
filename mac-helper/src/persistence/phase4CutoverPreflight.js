@@ -25,6 +25,11 @@ const ACTIVATE_TRUE_FIELDS = Object.freeze([
   "rollbackExecutable",
 ]);
 const ROLLBACK_TRUE_FIELDS = COMMON_TRUE_FIELDS;
+const ACTIVATION_ASSERTIONS = Object.freeze([
+  "finalLockedProjectionEquality",
+  "finalFreshnessRecheck",
+  "atomicAuthorityTransitionReady",
+]);
 
 export const PHASE4_PREPARE_EVIDENCE_FIELDS = PREPARE_TRUE_FIELDS;
 export const PHASE4_ACTIVATE_EVIDENCE_FIELDS = ACTIVATE_TRUE_FIELDS;
@@ -35,6 +40,12 @@ export const PHASE4_ACTIVATE_EVIDENCE_FIELDS = ACTIVATE_TRUE_FIELDS;
  * counts, snapshots, backups, reopen/idempotency, and rollback readability are
  * deliberately NOT accepted here as authoritative booleans; the maintenance
  * binder/executor measures them at the stage where they can exist.
+ *
+ * Submitted assertions about an applicable measured fact are still fail-closed:
+ * a caller cannot explicitly say a pre-migration shadow gate is false, nor can
+ * activation explicitly say one of its final locked/freshness/atomicity gates
+ * is false. True values remain non-authoritative and are independently bound by
+ * the executor/coordinator at the relevant stage.
  *
  * @param {unknown} evidence
  * @param {"prepare" | "cancel" | "activate" | "rollback"} stage
@@ -61,6 +72,23 @@ export function validatePhase4MaintenanceEvidence(evidence, stage) {
     }
   }
 
+  if (
+    (stage === "prepare" || stage === "activate") &&
+    "zeroUnresolvedShadowMismatches" in values &&
+    values.zeroUnresolvedShadowMismatches !== true
+  ) {
+    throw new Error(
+      "Phase-4 maintenance stop condition is not satisfied: zeroUnresolvedShadowMismatches.",
+    );
+  }
+  if (stage === "activate") {
+    for (const field of ACTIVATION_ASSERTIONS) {
+      if (field in values && values[field] !== true) {
+        throw new Error(`Phase-4 maintenance stop condition is not satisfied: ${field}.`);
+      }
+    }
+  }
+
   const candidateSHA = requireGitSHA(values.candidateSHA, "Phase-4 candidate SHA");
   const verifyRunID = requirePositiveInteger(values.verifyRunID, "Phase-4 Verify run id");
   const processIdentity = requireRecord(values.processIdentity, "Phase-4 helper process identity");
@@ -83,6 +111,13 @@ export function validatePhase4MaintenanceEvidence(evidence, stage) {
     values.shadowMismatchCount === undefined
       ? undefined
       : requireNonNegativeInteger(values.shadowMismatchCount, "Phase-4 shadow mismatch count");
+  if (
+    (stage === "prepare" || stage === "activate") &&
+    shadowMismatchCount !== undefined &&
+    shadowMismatchCount !== 0
+  ) {
+    throw new Error(`Phase-4 ${stage} requires zero unresolved shadow mismatches.`);
+  }
 
   return Object.freeze({
     ...structuredClone(values),
@@ -119,7 +154,9 @@ function requireNonNegativeInteger(value, label) {
 
 /** @param {unknown} value @param {string} label */
 function requireNonEmptyString(value, label) {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be non-empty.`);
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${label} must be non-empty.`);
+  }
   return value.trim();
 }
 
