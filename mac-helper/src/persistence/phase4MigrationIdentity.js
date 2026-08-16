@@ -41,7 +41,9 @@ export function inspectPhase4MigrationIdentity(
     database.exec("PRAGMA query_only = ON");
 
     const rows = database
-      .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
+      .prepare(
+        "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
+      )
       .all()
       .map(parseMigrationRow);
     if (rows.length === 0) {
@@ -59,7 +61,9 @@ export function inspectPhase4MigrationIdentity(
       }
       const expected = EXPECTED_IDENTITIES[index];
       if (!expected) {
-        throw new Error(`Phase-4 schema version ${row.version} is newer than this candidate.`);
+        throw new Error(
+          `Phase-4 schema version ${row.version} is newer than this candidate.`,
+        );
       }
       if (row.name !== expected.name) {
         throw new Error(
@@ -67,7 +71,9 @@ export function inspectPhase4MigrationIdentity(
         );
       }
       if (row.checksum !== expected.checksum) {
-        throw new Error(`Phase-4 migration ${row.version} checksum does not match this candidate.`);
+        throw new Error(
+          `Phase-4 migration ${row.version} checksum does not match this candidate.`,
+        );
       }
     }
 
@@ -83,7 +89,9 @@ export function inspectPhase4MigrationIdentity(
       );
     }
     if (rows.length !== schemaVersion) {
-      throw new Error("Phase-4 migration row count does not match the exact contiguous prefix.");
+      throw new Error(
+        "Phase-4 migration row count does not match the exact contiguous prefix.",
+      );
     }
 
     const requiredTables = new Set(["schema_migrations"]);
@@ -94,32 +102,55 @@ export function inspectPhase4MigrationIdentity(
       database
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
         .all()
-        .map((row) => requireStringColumn(row, "name", "SQLite schema table name")),
+        .map((row) =>
+          requireStringColumn(row, "name", "SQLite schema table name"),
+        ),
     );
-    const missingTables = [...requiredTables].filter((table) => !existingTables.has(table));
+    const missingTables = [...requiredTables].filter(
+      (table) => !existingTables.has(table),
+    );
     if (missingTables.length > 0) {
-      throw new Error(`Phase-4 database is missing required tables: ${missingTables.join(", ")}.`);
+      throw new Error(
+        `Phase-4 database is missing required tables: ${missingTables.join(", ")}.`,
+      );
     }
 
-    const integrity = firstPragmaValue(database.prepare("PRAGMA integrity_check").get());
-    const journalMode = firstPragmaValue(database.prepare("PRAGMA journal_mode").get());
-    const foreignKeys = Number(firstPragmaValue(database.prepare("PRAGMA foreign_keys").get())) === 1;
-    const foreignKeyViolations = database.prepare("PRAGMA foreign_key_check").all().length;
+    const integrity = firstPragmaValue(
+      database.prepare("PRAGMA integrity_check").get(),
+    );
+    const journalMode = firstPragmaValue(
+      database.prepare("PRAGMA journal_mode").get(),
+    );
+    const foreignKeys =
+      Number(firstPragmaValue(database.prepare("PRAGMA foreign_keys").get())) === 1;
+    const foreignKeyViolations = database
+      .prepare("PRAGMA foreign_key_check")
+      .all().length;
     if (integrity !== "ok") {
-      throw new Error(`Phase-4 database integrity check failed: ${integrity || "unknown"}.`);
+      throw new Error(
+        `Phase-4 database integrity check failed: ${integrity || "unknown"}.`,
+      );
     }
     if (requireWal && journalMode !== "wal") {
-      throw new Error(`Phase-4 database journal mode is ${journalMode || "unknown"}, expected wal.`);
+      throw new Error(
+        `Phase-4 database journal mode is ${journalMode || "unknown"}, expected wal.`,
+      );
     }
-    if (!foreignKeys) throw new Error("Phase-4 database foreign-key enforcement is unavailable.");
+    if (!foreignKeys) {
+      throw new Error("Phase-4 database foreign-key enforcement is unavailable.");
+    }
     if (foreignKeyViolations !== 0) {
-      throw new Error(`Phase-4 database has ${foreignKeyViolations} foreign-key violations.`);
+      throw new Error(
+        `Phase-4 database has ${foreignKeyViolations} foreign-key violations.`,
+      );
     }
 
     return Object.freeze({
       schemaVersion,
       latestSchemaVersion: EXPECTED_IDENTITIES.length,
-      migrationIdentities: Object.freeze(rows.map((row) => Object.freeze({ ...row }))),
+      migrationIdentities: Object.freeze(
+        rows.map((row) => Object.freeze({ ...row })),
+      ),
       historyDigest: sha256(JSON.stringify(rows)),
       integrity,
       journalMode,
@@ -164,7 +195,9 @@ function requireStringColumn(row, key, label) {
 
 /** @param {unknown} value @param {string} label */
 function requireString(value, label) {
-  if (typeof value !== "string" || !value) throw new Error(`${label} must be non-empty.`);
+  if (typeof value !== "string" || !value) {
+    throw new Error(`${label} must be non-empty.`);
+  }
   return value;
 }
 
@@ -174,7 +207,9 @@ function firstPragmaValue(row) {
     throw new Error("Phase-4 SQLite pragma returned no row.");
   }
   const values = Object.values(row);
-  if (values.length !== 1) throw new Error("Phase-4 SQLite pragma returned an ambiguous row.");
+  if (values.length !== 1) {
+    throw new Error("Phase-4 SQLite pragma returned an ambiguous row.");
+  }
   return String(values[0] ?? "");
 }
 
