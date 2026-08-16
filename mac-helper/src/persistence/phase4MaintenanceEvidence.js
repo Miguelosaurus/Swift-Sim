@@ -72,6 +72,7 @@ export const ACTIVATE_EVIDENCE_FIELDS = Object.freeze([
  */
 export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
   const validated = validatePhase4MaintenanceEvidence(evidence, stage);
+  const externalEvidence = /** @type {Record<string, unknown>} */ (evidence);
   const measured = measurePhase4MaintenanceFacts({
     ...options,
     stage,
@@ -94,7 +95,7 @@ export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
     ceremony: {
       expectedCandidateSHA: validated.candidateSHA,
       verifyRunID: validated.verifyRunID,
-      hostedVerifyGreen: validated.hostedVerifyGreen,
+      hostedVerifyGreen: externalEvidence.hostedVerifyGreen === true,
     },
     measured,
     binding: {
