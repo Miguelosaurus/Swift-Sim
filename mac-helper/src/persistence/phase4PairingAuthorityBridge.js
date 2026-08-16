@@ -17,8 +17,14 @@ export class Phase4PairingAuthorityBridge {
   /** @param {SwiftSimSqliteDatabase} database */
   constructor(database) {
     this.#read = database.prepare(`SELECT
-      mode, preparation_id, source_revision, projection_hash,
-      cutover_at, rollback_expires_at, finalized_at, revision
+      mode,
+      preparation_id AS preparationID,
+      source_revision AS sourceRevision,
+      projection_hash AS projectionHash,
+      cutover_at AS cutoverAt,
+      rollback_expires_at AS rollbackExpiresAt,
+      finalized_at AS finalizedAt,
+      revision
     FROM pairing_authority_state WHERE singleton = 1`);
     this.#activate = database.prepare(`UPDATE pairing_authority_state SET
       mode = 'sqlite-rollback',
