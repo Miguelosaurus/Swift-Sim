@@ -50,6 +50,7 @@ export function inspectPhase4MigrationIdentity(
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
+      if (!row) throw new Error(`Phase-4 migration row ${index + 1} is missing.`);
       const expectedVersion = index + 1;
       if (row.version !== expectedVersion) {
         throw new Error(
