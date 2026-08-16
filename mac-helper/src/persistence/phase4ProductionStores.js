@@ -82,6 +82,10 @@ export function createPhase4ProductionStoreFactories(options = {}) {
   });
   const deviceBuildStore = createAuthorityRoutedFacade({
     router,
+    properties: {
+      path: paths.deviceBuilds,
+      lockPath: `${paths.deviceBuilds}.lock`,
+    },
     // Product maintenance is owned by the authority-aware timer below. Neither
     // backend may retain a timer that keeps writing after the selector changes.
     legacy: () =>
