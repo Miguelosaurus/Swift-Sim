@@ -5,13 +5,13 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { readStateBytes } from "./fixtures/state-bytes.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
@@ -54,7 +54,7 @@ test("maintenance status reports the durable authority without mutating SQLite b
     });
     database.close();
     chmodSync(databasePath, 0o600);
-    const before = readFileSync(databasePath);
+    const before = readStateBytes(databasePath);
     const result = spawnSync(
       process.execPath,
       [CLIENT.pathname, "status", "--state-root", stateRoot],
@@ -66,7 +66,7 @@ test("maintenance status reports the durable authority without mutating SQLite b
     assert.equal(report.mutationAllowed, false);
     assert.equal(report.authority, "legacy");
     assert.equal(report.schemaVersion, 9);
-    assert.deepEqual(readFileSync(databasePath), before);
+    assert.deepEqual(readStateBytes(databasePath), before);
   });
 });
 
@@ -87,11 +87,36 @@ test("maintenance executor rejects unknown actions and missing explicit state ro
   });
 });
 
-test("maintenance executor never exposes a finalize action", () => {
-  const source = readFileSync(
-    new URL("../mac-helper/bin/swift-sim-phase4-cutover.js", import.meta.url),
-    "utf8",
-  );
-  assert.doesNotMatch(source, /"finalize"/);
-  assert.doesNotMatch(source, /finalizeSqlite|finalizePreparation/);
+test("maintenance executor rejects finalization and deletion without changing durable state", () => {
+  withRoot(({ stateRoot, databasePath }) => {
+    const database = new SwiftSimSqliteDatabase({
+      path: databasePath,
+      migrations: PHASE4_SQLITE_MIGRATIONS,
+    });
+    database.close();
+    chmodSync(databasePath, 0o600);
+    const before = readStateBytes(databasePath);
+    const legacyPath = join(stateRoot, "sessions.json");
+    writeFileSync(legacyPath, '{"sessions":[]}\n', { mode: 0o600 });
+    const legacyBefore = readStateBytes(legacyPath);
+    for (const action of ["finalize", "expire", "delete-legacy"]) {
+      const result = spawnSync(
+        process.execPath,
+        [CLIENT.pathname, action, "--state-root", stateRoot],
+        { encoding: "utf8", timeout: 10_000 },
+      );
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /Usage: swift-sim-phase4-cutover/);
+      assert.equal(result.stdout, "");
+      assert.deepEqual(readStateBytes(databasePath), before);
+      assert.deepEqual(readStateBytes(legacyPath), legacyBefore);
+    }
+    const status = spawnSync(
+      process.execPath,
+      [CLIENT.pathname, "status", "--state-root", stateRoot],
+      { encoding: "utf8", timeout: 10_000 },
+    );
+    assert.equal(status.status, 0, status.stderr);
+    assert.equal(JSON.parse(status.stdout).authority, "legacy");
+  });
 });

@@ -68,6 +68,7 @@ export const ACTIVATE_EVIDENCE_FIELDS = Object.freeze([
  *   stateRoot: string,
  *   spawnSync: (command: string, args: string[], options: { encoding: string }) => unknown,
  *   provenancePath: string,
+ *   heldDomainLocks?: readonly import("../infrastructure/ports.js").LockLease[],
  * }} options
  */
 export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
@@ -121,6 +122,7 @@ export function bindPhase4MaintenanceEvidence(evidence, stage, options) {
  *   stateRoot: string,
  *   spawnSync: (command: string, args: string[], options: { encoding: string }) => unknown,
  *   provenancePath: string,
+ *   heldDomainLocks?: readonly import("../infrastructure/ports.js").LockLease[],
  *   snapshot: Record<string, unknown>,
  *   firstPostMigration: ReturnType<typeof inspectPhase4MigrationIdentity>,
  *   reopenPostMigration: ReturnType<typeof inspectPhase4MigrationIdentity>,
@@ -147,6 +149,7 @@ export function bindPhase4PostMigrationEvidence(boundEvidence, options) {
     expectedProcessIdentity: bound.processIdentity,
     allowedSchemaVersions: [9],
     requireFullSchema: true,
+    ...(options.heldDomainLocks ? { heldDomainLocks: options.heldDomainLocks } : {}),
   });
   if (!sourceHashesEqual(bound.measured.sourceHashes, current.sourceHashes)) {
     throw new Error(

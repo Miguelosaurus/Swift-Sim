@@ -1,10 +1,16 @@
 // @ts-check
 
+import {
+  observeMaintenanceProcessIdentity,
+  phase4MaintenanceOwnsLock,
+} from "./phase4MaintenanceLocks.js";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { inspectPhase4HelperProcessIdentity } from "./phase4HelperProcessIdentity.js";
+import { SqlitePhase4AuthorityRepository } from "./sqlitePhase4AuthorityRepository.js";
+import { verifyPhase4RollbackBackups } from "./phase4PreparationBackupProof.js";
 import { inspectPhase4MigrationIdentity } from "./phase4MigrationIdentity.js";
 
 /** @typedef {(command: string, args: string[], options: { encoding: string }) => unknown} SpawnSyncLike */
@@ -25,6 +31,7 @@ import { inspectPhase4MigrationIdentity } from "./phase4MigrationIdentity.js";
  *   expectedProcessIdentity: { pid: number, startedAt: string },
  *   allowedSchemaVersions?: readonly number[],
  *   requireFullSchema?: boolean,
+ *   heldDomainLocks?: readonly import("../infrastructure/ports.js").LockLease[],
  * }} options
  */
 export function measurePhase4MaintenanceFacts(options) {
@@ -43,7 +50,7 @@ export function measurePhase4MaintenanceFacts(options) {
     spawnSync: options.spawnSync,
     expectedIdentity: options.expectedProcessIdentity,
   });
-  const locks = measureExactDomainLocks(stateRoot, options.spawnSync);
+  const locks = measureExactDomainLocks(stateRoot, options.spawnSync, options.heldDomainLocks);
   const permissions = readPrivatePermissions(stateRoot);
   const sourceHashes = readSourceHashes(stateRoot);
   const shadow = observePhase4ShadowMismatches(databasePath);
@@ -133,34 +140,8 @@ export function observePhase4AuthorityState(databasePath, schemaVersion) {
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
     database.exec("PRAGMA query_only = ON");
-    const row = database
-      .prepare(
-        `SELECT mode, revision, cutover_epoch, rollback_expires_at
-         FROM phase4_authority_state WHERE singleton = 1`,
-      )
-      .get();
-    if (!row || typeof row !== "object" || Array.isArray(row)) {
-      throw new Error("Phase-4 global authority observation returned no singleton row.");
-    }
-    const value = /** @type {Record<string, unknown>} */ (row);
-    const mode = String(value.mode || "");
-    if (
-      !["legacy", "preparing", "sqlite-rollback", "rollback-preparing", "sqlite-final"].includes(
-        mode,
-      )
-    ) {
-      throw new Error(`Phase-4 global authority mode is invalid: ${mode || "empty"}.`);
-    }
-    if (!Number.isSafeInteger(value.revision) || !Number.isSafeInteger(value.cutover_epoch)) {
-      throw new Error("Phase-4 global authority revision/epoch observation is invalid.");
-    }
-    return Object.freeze({
-      mode,
-      source: "phase4_authority_state",
-      revision: Number(value.revision),
-      cutoverEpoch: Number(value.cutover_epoch),
-      rollbackExpiresAt: value.rollback_expires_at ? String(value.rollback_expires_at) : null,
-    });
+    const authority = new SqlitePhase4AuthorityRepository(/** @type {any} */ (database)).getState();
+    return Object.freeze({ ...authority, source: "phase4_authority_state" });
   } finally {
     database.close();
   }
@@ -280,10 +261,10 @@ function readPrivatePermissions(stateRoot) {
   });
 }
 
-/** @param {string} stateRoot @param {SpawnSyncLike} spawnSync */
-function measureExactDomainLocks(stateRoot, spawnSync) {
+/** @param {string} stateRoot @param {SpawnSyncLike} spawnSync @param {readonly import("../infrastructure/ports.js").LockLease[]} [heldDomainLocks] */
+function measureExactDomainLocks(stateRoot, spawnSync, heldDomainLocks) {
   /** @param {number} pid */
-  const identify = (pid) => processStartToken(pid, spawnSync);
+  const identify = (pid) => observeMaintenanceProcessIdentity(pid, spawnSync)?.startToken ?? null;
   const locks = [
     "pairing.json.lock",
     "pairing-invites.json.lock",
@@ -315,33 +296,23 @@ function measureExactDomainLocks(stateRoot, spawnSync) {
     }
     const observed = identify(Number(record.pid));
     const live = observed !== null && observed === startToken;
+    const held = phase4MaintenanceOwnsLock(heldDomainLocks, path, record, observed);
     return Object.freeze({
       name,
-      available: !live,
-      state: live ? "owned-live" : observed === null ? "owner-absent" : "owner-pid-reused",
+      available: held || !live,
+      state: held
+        ? "held-by-maintenance"
+        : live
+          ? "owned-live"
+          : observed === null
+            ? "owner-absent"
+            : "owner-pid-reused",
     });
   });
   return Object.freeze({
     available: locks.every((lock) => lock.available),
     locks: Object.freeze(locks),
   });
-}
-
-/** @param {number} pid @param {SpawnSyncLike} spawnSync */
-function processStartToken(pid, spawnSync) {
-  let result;
-  try {
-    result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], {
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
-  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
-  const values = /** @type {Record<string, unknown>} */ (result);
-  if (values.status !== 0) return null;
-  const token = String(values.stdout || "").trim();
-  return token || null;
 }
 
 /** @param {string} stateRoot @param {Record<string, any>} authority */
@@ -352,7 +323,9 @@ function readRollbackMaterial(stateRoot, authority) {
   const directory = join(stateRoot, "migration-backups", "phase4-cutover");
   try {
     const entry = lstatSync(directory);
-    return entry.isDirectory() && !entry.isSymbolicLink() && (entry.mode & 0o077) === 0;
+    if (!entry.isDirectory() || entry.isSymbolicLink() || (entry.mode & 0o077) !== 0) return false;
+    return verifyPhase4RollbackBackups({ stateRoot, domains: authority.evidence?.domains })
+      .verified;
   } catch {
     return false;
   }

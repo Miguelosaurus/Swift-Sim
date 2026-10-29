@@ -114,10 +114,10 @@ export function inspectPhase4HelperProcessIdentity({ stateRoot, spawnSync, expec
     });
   }
 
-  const identify = createSessionLegacyProcessIdentity({
-    spawnSync: /** @type {any} */ (spawnSync),
-  });
-  const observed = identify(journal.pid);
+  // The legacy identity adapter intentionally collapses observation failure to
+  // null for ownership checks. Here null would authorize migration by proving
+  // quiescence, so only ps's explicit no-process result may mean absent.
+  const observed = observeHelperProcess(journal.pid, spawnSync);
   if (observed === null) {
     return frozenResult({
       state: "absent",
@@ -152,6 +152,37 @@ export function inspectPhase4HelperProcessIdentity({ stateRoot, spawnSync, expec
     startedAt: journal.startedAt,
     observedStartedAt: observed.startToken,
   });
+}
+
+/** @param {number} pid @param {SpawnSyncLike} spawnSync */
+function observeHelperProcess(pid, spawnSync) {
+  let result;
+  try {
+    result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], {
+      encoding: "utf8",
+    });
+  } catch (error) {
+    throw new Error("Phase-4 helper process observation failed.", { cause: error });
+  }
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("Phase-4 helper process observation returned an invalid result.");
+  }
+  const values = /** @type {Record<string, unknown>} */ (result);
+  if (
+    values.error ||
+    values.signal ||
+    typeof values.stdout !== "string" ||
+    typeof values.stderr !== "string" ||
+    values.stderr.trim() !== ""
+  ) {
+    throw new Error("Phase-4 helper process observation failed.");
+  }
+  const startToken = values.stdout.trim();
+  if (values.status === 1 && startToken === "") return null;
+  if (values.status !== 0 || startToken === "") {
+    throw new Error("Phase-4 helper process observation did not prove presence or absence.");
+  }
+  return Object.freeze({ startToken });
 }
 
 /** @param {unknown} value */

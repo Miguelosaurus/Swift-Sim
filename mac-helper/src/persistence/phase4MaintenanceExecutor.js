@@ -1,5 +1,6 @@
 // @ts-check
 
+import { withPhase4MaintenanceLocks } from "./phase4MaintenanceLocks.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "./phase4SqliteSchema.js";
 import { SwiftSimSqliteDatabase } from "./swiftSimSqliteDatabase.js";
 import {
@@ -52,72 +53,82 @@ export async function withPhase4MaintenanceDatabase(options, operation) {
         migrations: PHASE4_SQLITE_MIGRATIONS,
       }));
 
-  // Stage 1-3: immutable/read-only inspection and externally supplied ceremony
-  // binding. Any failure here occurs before snapshot creation or a migration-
-  // capable database owner is constructed.
-  const preMigration = bindPhase4MaintenanceEvidence(
-    options.evidence,
-    /** @type {any} */ (options.stage),
-    {
-      stateRoot,
-      spawnSync: options.spawnSync,
-      provenancePath: options.provenancePath,
+  const boundEvidence = await withPhase4MaintenanceLocks(
+    stateRoot,
+    options.spawnSync,
+    async (heldDomainLocks) => {
+      // Stage 1-3: immutable/read-only inspection and externally supplied ceremony
+      // binding. Any failure here occurs before snapshot creation or a migration-
+      // capable database owner is constructed.
+      const preMigration = bindPhase4MaintenanceEvidence(
+        options.evidence,
+        /** @type {any} */ (options.stage),
+        {
+          stateRoot,
+          spawnSync: options.spawnSync,
+          provenancePath: options.provenancePath,
+          heldDomainLocks,
+        },
+      );
+
+      let boundEvidence = preMigration;
+      if (options.stage === "prepare") {
+        // Stage 4: SQLite-consistent snapshot, created only after helper/writer,
+        // locks, permissions, exact prefix, provenance and shadow gates succeeded.
+        const snapshot = await createVerifiedPhase4PreMigrationSnapshot({
+          stateRoot,
+          databasePath,
+          expectedMigration: preMigration.measured.migration,
+        });
+
+        // Stage 5: first and only now may a migration-capable owner apply missing
+        // v8/v9 migrations. The owner itself revalidates the exact frozen history.
+        const migrated = openDatabase();
+        try {
+          const health = migrated.health();
+          if (!health.ok) throw new Error("Phase-4 migrated database failed owner health checks.");
+        } finally {
+          migrated.close();
+        }
+
+        // Stage 6/7: exact full identity after close, then reopen through the same
+        // owner. A second close/read-only observation proves migration idempotency.
+        const firstPostMigration = inspectPhase4MigrationIdentity(databasePath, {
+          allowedVersions: [9],
+          requireFull: true,
+          requireWal: true,
+        });
+        const reopened = openDatabase();
+        try {
+          const health = reopened.health();
+          if (!health.ok) throw new Error("Phase-4 reopened database failed owner health checks.");
+        } finally {
+          reopened.close();
+        }
+        const reopenPostMigration = inspectPhase4MigrationIdentity(databasePath, {
+          allowedVersions: [9],
+          requireFull: true,
+          requireWal: true,
+        });
+        boundEvidence = bindPhase4PostMigrationEvidence(preMigration, {
+          stateRoot,
+          spawnSync: options.spawnSync,
+          provenancePath: options.provenancePath,
+          heldDomainLocks,
+          snapshot,
+          firstPostMigration,
+          reopenPostMigration,
+        });
+      }
+
+      // Stage 8: all facts needed by the stage are now bound. Activation/rollback
+      // and cancellation start from exact full v9 and therefore do not need another
+      // pre-migration snapshot; their read-only binding still precedes this owner.
+      assertPhase4BoundMaintenanceEvidence(boundEvidence, /** @type {any} */ (options.stage));
+
+      return boundEvidence;
     },
   );
-
-  let boundEvidence = preMigration;
-  if (options.stage === "prepare") {
-    // Stage 4: SQLite-consistent snapshot, created only after helper/writer,
-    // locks, permissions, exact prefix, provenance and shadow gates succeeded.
-    const snapshot = await createVerifiedPhase4PreMigrationSnapshot({
-      stateRoot,
-      databasePath,
-      expectedMigration: preMigration.measured.migration,
-    });
-
-    // Stage 5: first and only now may a migration-capable owner apply missing
-    // v8/v9 migrations. The owner itself revalidates the exact frozen history.
-    const migrated = openDatabase();
-    try {
-      const health = migrated.health();
-      if (!health.ok) throw new Error("Phase-4 migrated database failed owner health checks.");
-    } finally {
-      migrated.close();
-    }
-
-    // Stage 6/7: exact full identity after close, then reopen through the same
-    // owner. A second close/read-only observation proves migration idempotency.
-    const firstPostMigration = inspectPhase4MigrationIdentity(databasePath, {
-      allowedVersions: [9],
-      requireFull: true,
-      requireWal: true,
-    });
-    const reopened = openDatabase();
-    try {
-      const health = reopened.health();
-      if (!health.ok) throw new Error("Phase-4 reopened database failed owner health checks.");
-    } finally {
-      reopened.close();
-    }
-    const reopenPostMigration = inspectPhase4MigrationIdentity(databasePath, {
-      allowedVersions: [9],
-      requireFull: true,
-      requireWal: true,
-    });
-    boundEvidence = bindPhase4PostMigrationEvidence(preMigration, {
-      stateRoot,
-      spawnSync: options.spawnSync,
-      provenancePath: options.provenancePath,
-      snapshot,
-      firstPostMigration,
-      reopenPostMigration,
-    });
-  }
-
-  // Stage 8: all facts needed by the stage are now bound. Activation/rollback
-  // and cancellation start from exact full v9 and therefore do not need another
-  // pre-migration snapshot; their read-only binding still precedes this owner.
-  assertPhase4BoundMaintenanceEvidence(boundEvidence, /** @type {any} */ (options.stage));
 
   // Stage 9 / operation: construct the owner only after all applicable gates.
   const database = openDatabase();

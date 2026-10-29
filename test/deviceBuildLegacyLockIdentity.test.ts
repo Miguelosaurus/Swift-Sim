@@ -122,7 +122,7 @@ test("NodeLockManager reclaims a reused PID when legacy startedAt no longer matc
 
   assert.equal(owner.pid, process.pid);
   assert.equal(owner.startToken, CURRENT_START);
-  assert.equal(Object.prototype.hasOwnProperty.call(owner, "startedAt"), false);
+  assert.equal(owner.startedAt, CURRENT_START);
   lease.releaseSync();
 });
 

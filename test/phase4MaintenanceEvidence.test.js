@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
+import { NodeLockManager } from "../mac-helper/src/infrastructure/nodeLockManager.js";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { readStateBytes } from "./fixtures/state-bytes.js";
 import { Phase4CutoverCoordinator } from "../mac-helper/src/persistence/phase4CutoverCoordinator.js";
 import {
   bindPhase4MaintenanceEvidence,
@@ -158,6 +159,7 @@ function absentHelperSpawn(command, args, options) {
 
 function runningHelperSpawn(command, args, options) {
   assert.equal(command, "/bin/ps");
+  if (Number(args[1]) === process.pid) return absentHelperSpawn(command, args, options);
   assert.deepEqual(args, ["-p", String(HELPER_PID), "-o", "lstart="]);
   assert.equal(options.encoding, "utf8");
   return { status: 0, stdout: `${HELPER_STARTED_AT}\n`, stderr: "" };
@@ -165,6 +167,7 @@ function runningHelperSpawn(command, args, options) {
 
 function reusedPidSpawn(command, args, options) {
   assert.equal(command, "/bin/ps");
+  if (Number(args[1]) === process.pid) return absentHelperSpawn(command, args, options);
   assert.deepEqual(args, ["-p", String(HELPER_PID), "-o", "lstart="]);
   assert.equal(options.encoding, "utf8");
   return { status: 0, stdout: "Mon Aug 17 00:01:00 2026\n", stderr: "" };
@@ -226,6 +229,7 @@ async function assertBlockedBeforeMigration(version, mutate, expected = /Phase-4
           provenancePath,
           openDatabase() {
             opens += 1;
+            if (opens <= 2) assertAllMigrationLocksHeld(stateRoot);
             return new SwiftSimSqliteDatabase({
               path: databasePath,
               migrations: PHASE4_SQLITE_MIGRATIONS,
@@ -258,6 +262,7 @@ for (const version of [7, 8]) {
           provenancePath,
           openDatabase() {
             opens += 1;
+            if (opens <= 2) assertAllMigrationLocksHeld(stateRoot);
             return new SwiftSimSqliteDatabase({
               path: databasePath,
               migrations: PHASE4_SQLITE_MIGRATIONS,
@@ -433,6 +438,7 @@ test("helper PID/start mismatch and a non-quiesced helper block before migration
           provenancePath,
           openDatabase() {
             opens += 1;
+            if (opens <= 2) assertAllMigrationLocksHeld(stateRoot);
             return new SwiftSimSqliteDatabase({
               path: databasePath,
               migrations: PHASE4_SQLITE_MIGRATIONS,
@@ -606,11 +612,83 @@ test("source hash proof is cryptographic over exact bytes", async () => {
       spawnSync: absentHelperSpawn,
       provenancePath,
     });
-    const bytes = readFileSync(join(stateRoot, "sessions.json"));
+    const bytes = readStateBytes(join(stateRoot, "sessions.json"));
     assert.equal(
       bound.measured.sourceHashes.sessions.sha256,
       createHash("sha256").update(bytes).digest("hex"),
     );
     assert.equal(bound.measured.sourceHashes.sessions.byteLength, bytes.length);
+  });
+});
+
+function assertAllMigrationLocksHeld(stateRoot) {
+  const competitor = new NodeLockManager({
+    identity: () => ({ startToken: LOCK_OWNER_STARTED_AT }),
+  });
+  for (const file of ["pairing.json", "pairing-invites.json", "device-builds.json", "sessions.json"]) {
+    assert.throws(() => competitor.acquireSync({
+      path: join(stateRoot, `${file}.lock`), waitMs: 0, staleAfterMs: 60000, ownerMode: 0o600,
+    }), /Timed out waiting for lock/);
+  }
+}
+
+test("maintenance holds all four legacy leases across the asynchronous snapshot", async () => {
+  await withFixture(8, async ({ stateRoot, databasePath, provenancePath }) => {
+    let inspected = false;
+    const observed = new Promise((resolve, reject) => {
+      setImmediate(() => {
+        try { assertAllMigrationLocksHeld(stateRoot); inspected = true; resolve(); }
+        catch (error) { reject(error); }
+      });
+    });
+    await Promise.all([
+      withPhase4MaintenanceDatabase({
+        stateRoot, evidence: evidence(), stage: "prepare", spawnSync: absentHelperSpawn,
+        provenancePath,
+      }, () => null),
+      observed,
+    ]);
+    assert.equal(inspected, true);
+    assert.equal(schemaVersion(databasePath), 9);
+    // Leases are released after migration proof so existing coordinator locks
+    // can protect imports/final activation without reentrant lock bypasses.
+    const competitor = new NodeLockManager({identity: () => ({startToken: LOCK_OWNER_STARTED_AT})});
+    const lease = competitor.acquireSync({path: join(stateRoot, "sessions.json.lock"), waitMs: 0, staleAfterMs: 60000, ownerMode: 0o600});
+    lease.releaseSync();
+  });
+});
+
+test("rollback readability proves all four preserved backups and tolerates partial current exports", async () => {
+  await withFixture(8, async ({stateRoot, databasePath, provenancePath, directory}) => {
+    const prepared = await withPhase4MaintenanceDatabase({stateRoot, evidence: evidence(), stage: "prepare", spawnSync: absentHelperSpawn, provenancePath},
+      (database, bound) => new Phase4CutoverCoordinator({database, stateRoot, spawnSync: absentHelperSpawn}).prepare({expectedRevision: 0, preparationID: PREPARATION_ID, maintenanceEvidence: bound}));
+    const database = new SwiftSimSqliteDatabase({path: databasePath, migrations: PHASE4_SQLITE_MIGRATIONS});
+    try {
+      new Phase4CutoverCoordinator({database, stateRoot, spawnSync: absentHelperSpawn}).activate({expectedRevision: prepared.authority.revision,
+        preparationID: prepared.authority.preparationID, evidenceHash: prepared.authority.evidenceHash,
+        rollbackWindowMs: 60000, maintenanceEvidence: evidence()});
+    } finally { database.close(); }
+    const bind = () => bindPhase4MaintenanceEvidence(evidence(), "rollback", {stateRoot, spawnSync: absentHelperSpawn, provenancePath});
+    assert.equal(bind().measured.rollbackReadable, true);
+    // A retry after partial current-state export legitimately differs from the
+    // pre-cutover legacy snapshots. Preserved backup identity remains required.
+    const pairingPath = join(stateRoot, "pairing.json");
+    const pairing = JSON.parse(readStateBytes(pairingPath).toString());
+    writeJSON(pairingPath, {...pairing, macName: "Current SQLite export"});
+    assert.equal(bind().measured.rollbackReadable, true);
+    const paths = [...prepared.domains.pairing.backups, ...prepared.domains.deviceBuild.backups, ...prepared.domains.sessions.backups];
+    for (const [index, path] of paths.entries()) {
+      const saved = join(directory, `backup-${index}.json`);
+      copyFileSync(path, saved);
+      unlinkSync(path);
+      let opens = 0;
+      await assert.rejects(withPhase4MaintenanceDatabase({stateRoot, evidence: evidence(), stage: "rollback", spawnSync: absentHelperSpawn, provenancePath,
+        openDatabase() { opens += 1; throw new Error("unexpected migration-capable open"); }}, () => null), /rollback.*readable/i);
+      assert.equal(opens, 0);
+      copyFileSync(saved, path); chmodSync(path, 0o600);
+      writeFileSync(path, "{}", {mode: 0o600});
+      assert.equal(bind().measured.rollbackReadable, false, "changed backup digest must block");
+      copyFileSync(saved, path); chmodSync(path, 0o600);
+    }
   });
 });

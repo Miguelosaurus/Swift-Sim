@@ -334,6 +334,9 @@ function parseAuthorityRow(row) {
     throw new Error("Phase-4 authority state is missing.");
   }
   const value = /** @type {Record<string, unknown>} */ (row);
+  if (value.storage_version !== 1) {
+    throw new Error("Phase-4 storage version must be exactly 1.");
+  }
   const mode = String(value.mode || "");
   if (
     mode !== PHASE4_AUTHORITY_MODES.legacy &&
@@ -362,10 +365,11 @@ function parseAuthorityRow(row) {
   const preparationID = nullableString(value.preparation_id);
   const evidenceHash = nullableString(value.evidence_hash);
   const evidenceJSON = nullableString(value.evidence_json);
-  const preparedAt = nullableString(value.prepared_at);
-  const cutoverAt = nullableString(value.cutover_at);
-  const rollbackExpiresAt = nullableString(value.rollback_expires_at);
-  const finalizedAt = nullableString(value.finalized_at);
+  const preparedAt = nullableTimestamp(value.prepared_at, "Phase-4 preparation time");
+  const cutoverAt = nullableTimestamp(value.cutover_at, "Phase-4 cutover time");
+  const rollbackExpiresAt = nullableTimestamp(value.rollback_expires_at, "Phase-4 rollback expiry");
+  const finalizedAt = nullableTimestamp(value.finalized_at, "Phase-4 finalization time");
+  const updatedAt = timestamp(value.updated_at, "Phase-4 update time");
   requireModeLayout({
     mode,
     preparationID,
@@ -375,7 +379,10 @@ function parseAuthorityRow(row) {
     cutoverAt,
     rollbackExpiresAt,
     finalizedAt,
+    updatedAt,
   });
+  if (preparationID !== null) digest(preparationID, "Phase-4 preparation id");
+  if (evidenceHash !== null) digest(evidenceHash, "Phase-4 evidence hash");
   let evidence = null;
   if (evidenceJSON !== null) {
     try {
@@ -383,9 +390,13 @@ function parseAuthorityRow(row) {
     } catch {
       throw new Error("Phase-4 preparation evidence is malformed.");
     }
+    const canonical = canonicalJSONString(evidence);
+    if (evidenceJSON !== canonical || sha256(canonical) !== evidenceHash) {
+      throw new Error("Phase-4 preparation evidence does not match its canonical SHA-256 hash.");
+    }
   }
   return Object.freeze({
-    storageVersion: revision(value.storage_version, "Phase-4 storage version"),
+    storageVersion: 1,
     mode,
     revision: revision(value.revision, "Phase-4 authority revision"),
     cutoverEpoch,
@@ -396,7 +407,7 @@ function parseAuthorityRow(row) {
     cutoverAt,
     rollbackExpiresAt,
     finalizedAt,
-    updatedAt: String(value.updated_at || ""),
+    updatedAt,
   });
 }
 
@@ -410,6 +421,7 @@ function parseAuthorityRow(row) {
  *   cutoverAt: string | null,
  *   rollbackExpiresAt: string | null,
  *   finalizedAt: string | null,
+ *   updatedAt: string,
  * }} input
  */
 function requireModeLayout(input) {
@@ -422,12 +434,16 @@ function requireModeLayout(input) {
     cutoverAt,
     rollbackExpiresAt,
     finalizedAt,
+    updatedAt,
   } = input;
   const preparedFields =
     preparationID !== null && evidenceHash !== null && evidenceJSON !== null && preparedAt !== null;
   if (mode === PHASE4_AUTHORITY_MODES.legacy) {
     if (
-      preparedFields ||
+      preparationID !== null ||
+      evidenceHash !== null ||
+      evidenceJSON !== null ||
+      preparedAt !== null ||
       cutoverAt !== null ||
       rollbackExpiresAt !== null ||
       finalizedAt !== null
@@ -435,6 +451,9 @@ function requireModeLayout(input) {
       throw new Error("Phase-4 legacy authority row contains transition evidence.");
     }
     return;
+  }
+  if (preparedAt !== null && Date.parse(updatedAt) < Date.parse(preparedAt)) {
+    throw new Error("Phase-4 update time precedes preparation time.");
   }
   if (mode === PHASE4_AUTHORITY_MODES.preparing) {
     if (
@@ -456,6 +475,9 @@ function requireModeLayout(input) {
       cutoverAt === null ||
       rollbackExpiresAt === null ||
       finalizedAt !== null ||
+      Date.parse(cutoverAt) < Date.parse(/** @type {string} */ (preparedAt)) ||
+      Date.parse(updatedAt) < Date.parse(cutoverAt) ||
+      Date.parse(updatedAt) >= Date.parse(rollbackExpiresAt) ||
       Date.parse(rollbackExpiresAt) <= Date.parse(cutoverAt)
     ) {
       throw new Error(`Phase-4 ${mode} authority row has an invalid rollback layout.`);
@@ -468,8 +490,10 @@ function requireModeLayout(input) {
       cutoverAt === null ||
       rollbackExpiresAt === null ||
       finalizedAt === null ||
+      Date.parse(cutoverAt) < Date.parse(/** @type {string} */ (preparedAt)) ||
       Date.parse(rollbackExpiresAt) <= Date.parse(cutoverAt) ||
-      Date.parse(finalizedAt) < Date.parse(rollbackExpiresAt)
+      Date.parse(finalizedAt) < Date.parse(rollbackExpiresAt) ||
+      Date.parse(updatedAt) < Date.parse(finalizedAt)
     ) {
       throw new Error("Phase-4 sqlite-final authority row has an invalid finalization layout.");
     }
@@ -530,9 +554,14 @@ function revision(value, label) {
 
 /** @param {unknown} value */
 function nullableString(value) {
-  if (value === null || value === undefined) return null;
+  if (value === null) return null;
   if (typeof value !== "string") throw new Error("Phase-4 authority text column is invalid.");
   return value;
+}
+
+/** @param {unknown} value @param {string} label */
+function nullableTimestamp(value, label) {
+  return value === null ? null : timestamp(value, label);
 }
 
 /** @param {number} expected @param {number} actual */

@@ -474,3 +474,12 @@ Complete only after Phase 10 and final merge authorization.
 - Remaining published limitations:
 - Deleted compatibility paths:
 - Deferred future work:
+
+
+## 2026-10-29 — recovered Phase 4 cutover correction continuation
+
+Recovered the latest web orchestrator and Agent 24 handoff; exact product base is #156 `fdd2b72dc1ecc9f93163ca60fcea809cef13c0a5`. The earlier numbered Agent 25/26 work had not started. Codex implements and reviews this bounded correction chunk on `codex/swift-sim-p4-reconcile`, with the final head and hosted run recorded in its draft PR.
+
+Closed the independent R1 audit's parser, cross-process session recovery, and source-test exception findings. Bounded independent review additionally corrected migration fencing, legacy lease token compatibility, process-inspection fail-open behavior, snapshot privacy, rollback-export intent recovery, and measured backup readability. No schema SQL/migration changed; global authority remains legacy by default, rollback/readers remain, no real maintenance occurred. Detailed changes, validation, inventory counts, residuals and rollback are in `P4_CUTOVER_RECONCILIATION_2026_10_29.md`.
+
+Review counts: P0/P1/P2/P3 = 0/0/0/2, conditional on final exact-head Verify. Two remaining gates are real-root staging and actual installed Homebrew upgrade/service proof. Those are deferred to a separately authorized maintenance window; authority activation and phase-stack merge remain separate decisions. No Phase 5 behavior was started.

@@ -102,6 +102,9 @@ export class SqliteDurableSessionMutationRepository {
   stageCreateIntent(value) {
     const durable = parseDurableSession(value);
     this.#database.transaction(() => {
+      if (this.#reader.get(durable.id) || this.hasCreateIntent(durable.id)) {
+        throw new Error("Session create intent cannot replace an existing session or intent.");
+      }
       this.#createIntentInsert.run(
         durable.id,
         durable.token,
@@ -120,10 +123,25 @@ export class SqliteDurableSessionMutationRepository {
   }
 
   /**
-   * Remove only an unowned durable row plus its create intent. This is the
-   * bounded compensation for a failed runtime publication; it never touches a
-   * row the runtime confirms it owns.
-   *
+   * Complete only the exact published create. The caller holds sessions.json's
+   * existing process-identity lock through publication and intent completion.
+   * @param {DurableSessionRecord} value
+   */
+  completeCreateIntent(value) {
+    const durable = parseDurableSession(value);
+    this.#database.transaction(() => {
+      const intent = this.#createIntentGet.get(durable.id);
+      if (!intent) return;
+      if (durableKey(parseCreateIntent(intent)) !== durableKey(durable)) {
+        throw new Error("Session create completion does not match its exact intent.");
+      }
+      this.#createIntentDelete.run(durable.id);
+    });
+  }
+
+  /**
+   * Compensate only an unpublished row that still exactly matches its intent.
+   * Callers must hold the same session lock as runtime publication/recovery.
    * @param {string} sessionID
    * @returns {boolean}
    */
@@ -132,41 +150,50 @@ export class SqliteDurableSessionMutationRepository {
     return this.#database.transaction(() => {
       const intent = this.#createIntentGet.get(normalized);
       if (!intent) return false;
-      this.#reader.deleteByID(normalized);
+      const expected = parseCreateIntent(intent);
+      const current = this.#reader.get(normalized);
+      if (current && durableKey(current) !== durableKey(expected)) {
+        throw new Error(
+          "Session create recovery found a row that does not match its exact intent.",
+        );
+      }
+      if (current) this.#reader.deleteByID(normalized);
       this.#createIntentDelete.run(normalized);
       return true;
     });
   }
 
   /**
-   * Resolve leftover create intents against the runtime file on reopen.
-   *
-   * - intent without a durable row: stale marker, drop the intent only;
-   * - intent whose durable row has no runtime record: an unpublished create
-   *   that crashed before runtime publication, compensate row + intent;
-   * - intent whose durable row has a runtime record: the create completed,
-   *   drop the now-unneeded intent marker only.
-   *
-   * @param {ReadonlySet<string>} runtimeIDs
+   * Resolve intents while holding the exact sessions.json lock. A runtime
+   * record proves publication only when its durable identity matches; ambiguous
+   * records are preserved and fail closed rather than deleting a replacement.
+   * @param {ReadonlyMap<string, SessionRecord>} runtime
    */
-  reconcileCreateIntents(runtimeIDs) {
-    if (!(runtimeIDs instanceof Set)) {
-      throw new TypeError("Runtime session ids must be a Set.");
+  reconcileCreateIntents(runtime) {
+    if (!(runtime instanceof Map)) {
+      throw new TypeError("Runtime sessions must be a Map.");
     }
+    // One transaction makes a failed identity check preserve the entire batch.
     this.#database.transaction(() => {
-      const intents = this.#createIntentList.all();
-      for (const intent of intents) {
-        const value = /** @type {Record<string, unknown>} */ (intent);
+      for (const row of this.#createIntentList.all()) {
+        const value = /** @type {Record<string, unknown>} */ (row);
         const sessionID = requireSessionID(String(value.session_id || ""));
-        const durableRow = this.#reader.get(sessionID);
-        if (!durableRow) {
-          this.#createIntentDelete.run(sessionID);
-        } else if (!runtimeIDs.has(sessionID)) {
-          this.#reader.deleteByID(sessionID);
-          this.#createIntentDelete.run(sessionID);
-        } else {
-          this.#createIntentDelete.run(sessionID);
+        const intent = parseCreateIntent(this.#createIntentGet.get(sessionID));
+        const durable = this.#reader.get(sessionID);
+        const published = runtime.get(sessionID);
+        if (durable && durableKey(durable) !== durableKey(intent)) {
+          throw new Error(
+            "Session create recovery found a row that does not match its exact intent.",
+          );
         }
+        if (
+          published &&
+          (!durable || durableKey(projectDurableSession(published)) !== durableKey(intent))
+        ) {
+          throw new Error("Session create recovery found conflicting runtime publication.");
+        }
+        if (durable && !published) this.#reader.deleteByID(sessionID);
+        this.#createIntentDelete.run(sessionID);
       }
     });
   }
@@ -178,6 +205,23 @@ function requireSessionID(value) {
     throw new TypeError("Session id must be a non-empty string.");
   }
   return value;
+}
+
+/** @param {unknown} row @returns {DurableSessionRecord} */
+function parseCreateIntent(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error("Session create intent is missing or malformed.");
+  }
+  const value = /** @type {Record<string, unknown>} */ (row);
+  if (value.intent_version !== 1) throw new Error("Session create intent version is unsupported.");
+  return parseDurableSession({
+    id: value.session_id,
+    token: value.token,
+    project: value.project,
+    scheme: value.scheme,
+    simulatorUDID: value.simulator_udid,
+    createdAt: value.created_at,
+  });
 }
 
 /**
@@ -198,7 +242,6 @@ export function createSqliteDurableSessionStore({ database, legacyPath }) {
   const store = /** @type {SessionStore & {
     _phase4AllowDurableInsert?: boolean,
     _phase4CreateIntentID?: string | null,
-    _phase4PublicationFailure?: unknown,
   }} */ (Object.create(SessionStore.prototype));
   store.path = legacyPath;
   store.lockPath = `${legacyPath}.lock`;
@@ -206,68 +249,82 @@ export function createSqliteDurableSessionStore({ database, legacyPath }) {
   store.stateError = null;
   store._phase4AllowDurableInsert = false;
   store._phase4CreateIntentID = null;
-  store._phase4PublicationFailure = null;
 
-  store.readStateUnlocked = () =>
-    reconstructSessionState(readRawRuntimeState(store), durableRepository.list());
+  // Recovery belongs to every exact locked operation, including operations on
+  // a store opened before another creator crashed, not just a fresh opener.
+  const inheritedWithLock = store.withLock.bind(store);
+  store.withLock = (operation) =>
+    inheritedWithLock(() => {
+      durableRepository.reconcileCreateIntents(readRawRuntimeState(store));
+      return operation();
+    });
+
+  store.readStateUnlocked = () => {
+    const runtime = readRawRuntimeState(store);
+    const visible = durableRepository.list().filter((durable) => {
+      if (!durableRepository.hasCreateIntent(durable.id)) return true;
+      const published = runtime.get(durable.id);
+      if (!published) return false;
+      if (durableKey(projectDurableSession(published)) !== durableKey(durable)) {
+        throw new Error("Pending session create conflicts with runtime publication.");
+      }
+      return true;
+    });
+    return reconstructSessionState(runtime, visible);
+  };
 
   store.writeStateUnlocked = (sessions) => {
     if (!(sessions instanceof Map)) throw new TypeError("Session state must be a Map.");
     const durableByID = new Map(durableRepository.list().map((record) => [record.id, record]));
-    if (store._phase4AllowDurableInsert) {
-      for (const session of sessions.values()) {
-        const durableCandidate = projectDurableSession(session);
-        if (durableByID.has(durableCandidate.id)) continue;
-        store._phase4CreateIntentID = durableCandidate.id;
-        durableRepository.stageCreateIntent(durableCandidate);
-        const durablePersisted = durableRepository.upsert(durableCandidate);
-        durableByID.set(durablePersisted.id, durablePersisted);
-      }
-    }
-
+    // BaseSessionStore invokes this method under its exact session lock. Keep
+    // stage/commit/publication/completion and any compensation inside that lock.
     try {
-      publishRuntimeUnlocked(store, durableRepository, durableByID, sessions);
-      store._phase4PublicationFailure = null;
-      store._phase4CreateIntentID = null;
+      if (store._phase4AllowDurableInsert) {
+        for (const session of sessions.values()) {
+          const candidate = projectDurableSession(session);
+          if (durableByID.has(candidate.id)) continue;
+          store._phase4CreateIntentID = candidate.id;
+          durableRepository.stageCreateIntent(candidate);
+          const persisted = durableRepository.upsert(candidate);
+          durableByID.set(persisted.id, persisted);
+        }
+      }
+      publishRuntimeUnlocked(store, durableByID, sessions);
+      const pendingID = store._phase4CreateIntentID;
+      if (pendingID) {
+        const durable = durableByID.get(pendingID);
+        if (!durable) throw new Error("Published session create lost its durable identity.");
+        durableRepository.completeCreateIntent(durable);
+      }
     } catch (error) {
-      store._phase4PublicationFailure = error;
+      const pendingID = store._phase4CreateIntentID;
+      if (pendingID && durableRepository.hasCreateIntent(pendingID)) {
+        // A rename can succeed before a later publication step fails. Observe
+        // the actual runtime record under the same lock before compensating.
+        durableRepository.reconcileCreateIntents(readRawRuntimeState(store));
+      }
       throw error;
+    } finally {
+      store._phase4CreateIntentID = null;
     }
   };
 
   const inheritedCreate = SessionStore.prototype.create;
   store.create = (input) => {
-    store._phase4CreateIntentID = null;
     try {
       store._phase4AllowDurableInsert = true;
       return inheritedCreate.call(store, input);
-    } catch (error) {
-      const pendingID = store._phase4CreateIntentID;
-      if (
-        store._phase4PublicationFailure &&
-        pendingID &&
-        durableRepository.hasCreateIntent(pendingID)
-      ) {
-        durableRepository.compensateUnpublishedCreate(pendingID);
-      }
-      store._phase4CreateIntentID = null;
-      store._phase4PublicationFailure = null;
-      throw error;
     } finally {
       store._phase4AllowDurableInsert = false;
     }
   };
 
   const inheritedLoad = store.load.bind(store);
-  store.load = () => {
-    const runtimeIDs = new Set(
-      [...readRawRuntimeState(store).values()].map((session) => String(session.id || "")),
-    );
-    durableRepository.reconcileCreateIntents(runtimeIDs);
-    store._phase4CreateIntentID = null;
-    store._phase4PublicationFailure = null;
-    return inheritedLoad();
-  };
+  store.load = () =>
+    store.withLock(() => {
+      store._phase4CreateIntentID = null;
+      return inheritedLoad();
+    });
 
   store.load();
   store.publishLifecycleRegistry();
@@ -275,12 +332,11 @@ export function createSqliteDurableSessionStore({ database, legacyPath }) {
 }
 
 /**
- * @param {SessionStore & { _phase4AllowDurableInsert?: boolean, _phase4CreateIntentID?: string | null, _phase4PublicationFailure?: unknown }} store
- * @param {SqliteDurableSessionMutationRepository} durableRepository
+ * @param {SessionStore & { _phase4AllowDurableInsert?: boolean, _phase4CreateIntentID?: string | null, }} store
  * @param {Map<string, DurableSessionRecord>} durableByID
  * @param {Map<string, SessionRecord>} sessions
  */
-function publishRuntimeUnlocked(store, durableRepository, durableByID, sessions) {
+function publishRuntimeUnlocked(store, durableByID, sessions) {
   const runtime = new Map();
   for (const [id, durable] of durableByID) {
     const candidate = sessions.get(id) || {};
@@ -318,6 +374,10 @@ export class SessionCurrentStateRollbackExport {
   exportCurrent() {
     return this.#runtimeStore.withLock(() => {
       const rawRuntime = readRawRuntimeState(this.#runtimeStore);
+      // Rollback may use an ordinary legacy store, whose lock does not run the
+      // hybrid opener's recovery hook. Resolve unpublished creates under this
+      // same lock before exporting the current durable set into legacy state.
+      this.#durableRepository.reconcileCreateIntents(rawRuntime);
       const durable = this.#durableRepository.list();
       const merged = reconstructSessionState(rawRuntime, durable);
       BaseSessionStore.prototype.writeStateUnlocked.call(this.#runtimeStore, merged);

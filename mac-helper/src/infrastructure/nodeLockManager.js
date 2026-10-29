@@ -16,7 +16,7 @@ import { SystemIdGenerator } from "./systemIdGenerator.js";
  * @typedef {{ startToken: string } | null} ProcessStartIdentity
  * @typedef {(pid: number) => ProcessStartIdentity} ProcessIdentityProvider
  * @typedef {{ device: string, inode: string, mtimeMs: number }} PathObservation
- * @typedef {{ version: number, pid: number, startToken: string, nonce: string, createdAt: string }} LockOwner
+ * @typedef {{ version: number, pid: number, startToken: string, startedAt: string, nonce: string, createdAt: string }} LockOwner
  * @typedef {{
  *   version?: unknown,
  *   pid: number,
@@ -167,10 +167,15 @@ export class NodeLockManager {
 
   /** @returns {LockOwner} */
   newOwner() {
+    const startToken = this.processStartIdentity();
     return {
       version: 2,
       pid: process.pid,
-      startToken: this.processStartIdentity(),
+      startToken,
+      // Legacy domain writers read startedAt. Keep the exact same Darwin
+      // token under both names until those writers leave the compatibility
+      // boundary; a live lease must never age into reclaimable ownership.
+      startedAt: startToken,
       nonce: this.idGenerator.randomUUID(),
       createdAt: this.clock.now().toISOString(),
     };

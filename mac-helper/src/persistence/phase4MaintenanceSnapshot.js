@@ -5,6 +5,7 @@ import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import {
+  NodeAtomicFileStore,
   ensureDirectoryModeSync,
   ensureFileModeSync,
 } from "../infrastructure/nodeAtomicFileStore.js";
@@ -41,6 +42,15 @@ export async function createVerifiedPhase4PreMigrationSnapshot({
   if (existsSync(snapshotPath)) {
     throw new Error("Phase-4 snapshot destination unexpectedly already exists.");
   }
+
+  // Online backup opens this existing file. Publish it privately first so a
+  // permissive process umask cannot expose DB bytes while backup is awaiting.
+  new NodeAtomicFileStore().writeTextSync(snapshotPath, "", {
+    mode: 0o600,
+    createParentMode: 0o700,
+    replace: false,
+    syncDirectory: true,
+  });
 
   const source = new DatabaseSync(databasePath, { readOnly: true });
   try {

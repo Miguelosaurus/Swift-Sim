@@ -1,8 +1,8 @@
 // @ts-check
 
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 /**
  * Prove the four exact legacy backups emitted by the locked snapshot readers.
@@ -108,4 +108,35 @@ function assertPrivateFile(path, label) {
 /** @param {Buffer} value */
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+/**
+ * Old legacy sources may already contain partial CURRENT SQLite exports during
+ * rollback retry. Validate preserved preparation backups independently of those
+ * mutable files, using paths bound into the authority row's canonical evidence.
+ * @param {{stateRoot: string, domains: any}} options
+ */
+export function verifyPhase4RollbackBackups({ stateRoot, domains }) {
+  const pairing = requireBackupArray(domains?.pairing?.backups, "pairing");
+  const device = requireBackupArray(domains?.deviceBuild?.backups, "device-build");
+  const sessions = requireBackupArray(domains?.sessions?.backups, "sessions");
+  if (pairing.length !== 2 || device.length !== 1 || sessions.length !== 1) {
+    throw new Error("Phase-4 rollback requires all four preserved legacy backups.");
+  }
+  requireBackupRole(pairing, "credential-");
+  requireBackupRole(pairing, "invitations-");
+  const directory = realpathSync(join(stateRoot, "migration-backups", "phase4-cutover"));
+  for (const path of [...pairing, ...device, ...sessions]) {
+    assertPrivateFile(path, "Phase-4 rollback backup");
+    if (dirname(realpathSync(path)) !== directory) {
+      throw new Error("Phase-4 rollback backup is outside the preparation directory.");
+    }
+    const digest = /\.([a-f0-9]{64})\.bak$/.exec(basename(path))?.[1];
+    const bytes = readFileSync(path);
+    if (!digest || sha256(bytes) !== digest) {
+      throw new Error("Phase-4 rollback backup bytes do not match the evidence-bound digest.");
+    }
+    JSON.parse(bytes.toString("utf8"));
+  }
+  return Object.freeze({ verified: true, count: 4 });
 }

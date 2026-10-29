@@ -4,6 +4,18 @@ Status: **Canonical assignment registry**
 
 The orchestrator owns this registry. Workers use it to determine what may run now and which workstream contract to read.
 
+## Current continuation overlay — 2026-10-29
+
+The old dispatch baseline and first-wave table below are historical. Their completed feeder assignments must not be restarted. The [current handoff](NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md) and [reconciliation report](P4_CUTOVER_RECONCILIATION_2026_10_29.md) record the recovered product lineage.
+
+| ID | Status | Current owner / boundary |
+| --- | --- | --- |
+| P4-CUTOVER-CORRECTIONS-R2 | REVIEW | Codex continuation `codex/swift-sim-p4-reconcile`, exact base #156 `fdd2b72dc1ecc9f93163ca60fcea809cef13c0a5`; remaining R1 findings corrected, bounded review 0/0/0/2, final exact-head Verify required. |
+| P4-MAINTENANCE-REQUALIFICATION | BLOCKED | Separate real-root and installed-release upgrade gates after final repository verification and explicit maintenance-window authorization. |
+| P4-AUTHORITY-ACTIVATION | BLOCKED | Separate decision after both environment gates; this correction does not authorize it. |
+
+Shared correction/composition/package-policy and control-plane reconciliation in this continuation are orchestrator-owned under the user's request to finish and reconcile the recovered chunk. Prior product/audit PRs remain unchanged, draft and unmerged. Phase 5 production work is outside this continuation.
+
 ## Status vocabulary
 
 - **READY** — bounded implementation may begin after dispatch.

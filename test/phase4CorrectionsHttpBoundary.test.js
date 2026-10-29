@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { readStateBytes } from "./fixtures/state-bytes.js";
 import {
   handlePublicDeviceBuildCapability,
   setDeviceBuildCapabilityBoundaryFactories,
@@ -161,8 +162,8 @@ test("helper HTTP boundaries route every pairing/build operation through the v9 
     const legacyPairing = seedLegacyState(stateRoot);
     const pairingPath = join(stateRoot, "pairing.json");
     const devicePath = join(stateRoot, "device-builds.json");
-    const pairingBefore = readFileSync(pairingPath);
-    const deviceBefore = readFileSync(devicePath);
+    const pairingBefore = readStateBytes(pairingPath);
+    const deviceBefore = readStateBytes(devicePath);
 
     const stores = createPhase4ProductionStoreFactories({
       stateRoot,
@@ -188,7 +189,7 @@ test("helper HTTP boundaries route every pairing/build operation through the v9 
     // HTTP pairing reads now observe SQLite after a SQLite-side rotation.
     const rotated = stores.createPairingStore().rotate();
     assert.notEqual(rotated.token, legacyPairing.token);
-    assert.equal(readFileSync(pairingPath, "utf8"), pairingBefore.toString("utf8"));
+    assert.equal(readStateBytes(pairingPath).toString("utf8"), pairingBefore.toString("utf8"));
 
     response = responseRecorder();
     assert.equal(
@@ -220,7 +221,7 @@ test("helper HTTP boundaries route every pairing/build operation through the v9 
     const buildStore = stores.createDeviceBuildStore();
     const build = buildStore.create({ scheme: "BoundaryApp" });
     publishReadyBuild(buildStore, build);
-    assert.equal(readFileSync(devicePath, "utf8"), deviceBefore.toString("utf8"));
+    assert.equal(readStateBytes(devicePath).toString("utf8"), deviceBefore.toString("utf8"));
 
     response = responseRecorder();
     assert.equal(
@@ -254,7 +255,7 @@ test("helper HTTP boundaries route every pairing/build operation through the v9 
       true,
     );
     assert.equal(response.status, 200);
-    assert.equal(readFileSync(devicePath, "utf8"), deviceBefore.toString("utf8"));
+    assert.equal(readStateBytes(devicePath).toString("utf8"), deviceBefore.toString("utf8"));
 
     // The boundary holds the routed facade, never a direct legacy store.
     const routedPairing = stores.createPairingStore();
@@ -268,8 +269,38 @@ test("helper HTTP boundaries route every pairing/build operation through the v9 
   });
 });
 
-test("selected SQLite failure propagates through the HTTP boundary with no legacy fallback", () => {
-  withRoot(({ stateRoot }) => {
+test("HTTP invitation reads and claims use SQLite while legacy invitation bytes stay frozen", async () => {
+  await withRoot(async ({ stateRoot }) => {
+    seedLegacyState(stateRoot);
+    const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
+    setHelperHttpBoundaryFactories({ factory: () => stores });
+    activateSqliteRollback(stores, stateRoot);
+    const invitePath = join(stateRoot, "pairing-invites.json");
+    const legacyBefore = readStateBytes(invitePath);
+    const pairing = stores.createPairingStore().current();
+    const invites = stores.createPairingInviteStore();
+    const { invite } = invites.create({ pairing });
+    const response = responseRecorder();
+    assert.equal(handlePairingFallback({
+      method: "GET",
+      url: `/pair?invite=${invite}`,
+      headers: { host: "127.0.0.1" },
+    }, response), true);
+    assert.equal(response.status, 200);
+    const claim = invites.claim(invite, "test-nonce-1234", pairing);
+    assert.equal(claim.ok, true);
+    assert.equal(invites.claim(invite, "test-nonce-1234", pairing).idempotent, true);
+    const consumed = responseRecorder();
+    handlePairingFallback({ method: "GET", url: `/pair?invite=${invite}`,
+      headers: { host: "127.0.0.1" } }, consumed);
+    assert.equal(consumed.status, 410);
+    assert.deepEqual(readStateBytes(invitePath), legacyBefore);
+    stores.database.close();
+  });
+});
+
+test("selected SQLite failure propagates through the HTTP boundary with no legacy fallback", async () => {
+  await withRoot(({ stateRoot }) => {
     seedLegacyState(stateRoot);
     const stores = createPhase4ProductionStoreFactories({
       stateRoot,
@@ -298,11 +329,11 @@ test("selected SQLite failure propagates through the HTTP boundary with no legac
   });
 });
 
-test("helper/service reopen in sqlite-rollback mode keeps HTTP reads on SQLite", () => {
-  withRoot(({ stateRoot }) => {
+test("helper/service reopen in sqlite-rollback mode keeps HTTP reads on SQLite", async () => {
+  await withRoot(({ stateRoot }) => {
     const legacyPairing = seedLegacyState(stateRoot);
     const pairingPath = join(stateRoot, "pairing.json");
-    const pairingBefore = readFileSync(pairingPath);
+    const pairingBefore = readStateBytes(pairingPath);
 
     let stores = createPhase4ProductionStoreFactories({
       stateRoot,
@@ -334,7 +365,7 @@ test("helper/service reopen in sqlite-rollback mode keeps HTTP reads on SQLite",
       true,
     );
     assert.equal(response.status, 200);
-    assert.equal(readFileSync(pairingPath, "utf8"), pairingBefore.toString("utf8"));
+    assert.equal(readStateBytes(pairingPath).toString("utf8"), pairingBefore.toString("utf8"));
 
     const reopened = new SwiftSimSqliteDatabase({
       path: join(stateRoot, "state.sqlite"),
@@ -345,8 +376,8 @@ test("helper/service reopen in sqlite-rollback mode keeps HTTP reads on SQLite",
   });
 });
 
-test("boundary store creation never leaves a direct legacy pairing/device store reachable", () => {
-  withRoot(({ stateRoot }) => {
+test("boundary store creation never leaves a direct legacy pairing/device store reachable", async () => {
+  await withRoot(({ stateRoot }) => {
     seedLegacyState(stateRoot);
     const stores = createPhase4ProductionStoreFactories({
       stateRoot,

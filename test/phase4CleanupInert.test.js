@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { readStateBytes } from "./fixtures/state-bytes.js";
 import { collectPhase4OperatorDiagnostics } from "../mac-helper/src/commands/phase4OperatorDiagnostics.js";
 import { Phase4CutoverCoordinator } from "../mac-helper/src/persistence/phase4CutoverCoordinator.js";
 import { createPhase4ProductionStoreFactories } from "../mac-helper/src/persistence/phase4ProductionStores.js";
@@ -120,7 +121,7 @@ function withCleanupRoot(operation) {
       artifactRoot,
       assertPreserved() {
         assert.equal(existsSync(sentinelPath), true, "cleanup sentinel was deleted");
-        assert.equal(readFileSync(sentinelPath, "utf8"), "do-not-clean\n");
+        assert.equal(readStateBytes(sentinelPath).toString("utf8"), "do-not-clean\n");
       },
     });
   } finally {
@@ -129,7 +130,7 @@ function withCleanupRoot(operation) {
 }
 
 function legacyCleanupJobCount(stateRoot) {
-  const raw = JSON.parse(readFileSync(join(stateRoot, "device-builds.json"), "utf8"));
+  const raw = JSON.parse(readStateBytes(join(stateRoot, "device-builds.json")).toString("utf8"));
   return Object.keys(raw.artifactCleanupJobs || {}).length;
 }
 
@@ -201,6 +202,18 @@ test("doctor and maintenance status never drain artifact cleanup", () => {
     });
     assert.equal(legacyCleanupJobCount(stateRoot), 1);
     assertPreserved();
+    const status = spawnSync(
+      process.execPath,
+      [new URL("../mac-helper/bin/swift-sim-phase4-cutover.js", import.meta.url).pathname,
+        "status", "--state-root", stateRoot],
+      { encoding: "utf8", timeout: 10_000 },
+    );
+    assert.equal(status.status, 0, status.stderr);
+    const report = JSON.parse(status.stdout);
+    assert.equal(report.readOnly, true);
+    assert.equal(report.mutationAllowed, false);
+    assert.equal(legacyCleanupJobCount(stateRoot), 1);
+    assertPreserved();
     stores.database.close();
   });
 });
@@ -250,7 +263,16 @@ test("SQLite-routed device-build store construction is cleanup-inert", () => {
     });
     stores.createDeviceBuildStore();
     assert.equal(stores.router.current().mode, "sqlite-rollback");
+    const cleanupBefore = stores.database.prepare("SELECT * FROM artifact_cleanup_jobs").all();
+    assert.equal(cleanupBefore.length, 1);
     assertPreserved();
     stores.database.close();
+    const reopened = createPhase4ProductionStoreFactories({ stateRoot });
+    reopened.createDeviceBuildStore().list();
+    assert.deepEqual(reopened.database.prepare("SELECT * FROM artifact_cleanup_jobs").all(), cleanupBefore);
+    assert.equal(reopened.router.current().mode, "sqlite-rollback");
+    assert.equal(legacyCleanupJobCount(stateRoot), 1);
+    assertPreserved();
+    reopened.database.close();
   });
 });

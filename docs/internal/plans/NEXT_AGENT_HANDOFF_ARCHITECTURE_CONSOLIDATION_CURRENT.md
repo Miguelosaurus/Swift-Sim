@@ -1,55 +1,26 @@
 # Architecture Consolidation — Current Handoff
 
-Status: **parallel orchestration mode**
+Status: **Phase 4 cutover R2 completion; real maintenance gated**
 
-Do not use older handoff branches or PR titles to infer current program state.
+The current continuation is documented in [the 2026-10-29 reconciliation](P4_CUTOVER_RECONCILIATION_2026_10_29.md). This supersedes the old Phase 4Z5 handoff for current-work questions. Preserve older documents as history; do not restart their completed feeder assignments.
 
-## Current product boundary
+## Exact continuation boundary
 
-- Hosted-green Phase 4Z5 product head: `0be8234583e9c989b1831c9bce5e042b19b3d46c`
-- PR: #124
-- Hosted Verify: #955 / run `31616562330`, passed end to end
-- Phase 4 remains incomplete, draft, and unmerged
-- Real-Mac 4Z5 audit verification passed on the exact product head: 212/212 builds measured, zero measurement issues, and the prior conservative artifact estimate was reproduced exactly
-- Current recorded device-build source-of-truth behavior was unchanged by that verification
+- Prior cutover implementation: #152 at `3a1fb02c9ace97dfdd0637fc5ecb391e3570a77e`.
+- R1 product #154: `24c8905c80a02dbacbf507e704142ee816e8aca1`.
+- R1 independent audit #155: `3c33c838a1f174b336039d8f683728365d6fb26b`, four repository corrections required.
+- Agent 24 completed preflight R2A in #156 at `fdd2b72dc1ecc9f93163ca60fcea809cef13c0a5`; Verify #1164 / run 31979347580 succeeded.
+- Codex completed the remaining R2 corrections plus bounded independent-review fixes on `codex/swift-sim-p4-reconcile`, stacked directly on that exact #156 product. Read its draft PR for final immutable head and hosted Verify.
+- The planned numbered Agent 25/26 web work is replaced by this Codex implementation/review. Codex subagents are unnumbered.
 
-## Canonical control plane
+Read `AGENTS.md`, the master plan, invariants, batched/parallel amendments, registry and the reconciliation report before continuing. The registry's current overlay controls dispatch. The old wave tables describe historical feeder work.
 
-Read in this order before architecture work:
+## Current outcome
 
-1. `/AGENTS.md`
-2. `ARCHITECTURE_CONSOLIDATION_MASTER_PLAN.md`
-3. `ARCHITECTURE_CONSOLIDATION_INVARIANTS.md`
-4. `ARCHITECTURE_CONSOLIDATION_BATCHED_EXECUTION_AMENDMENT.md`
-5. `ARCHITECTURE_CONSOLIDATION_PARALLEL_EXECUTION_AMENDMENT.md`
-6. `ARCHITECTURE_CONSOLIDATION_PARALLEL_ROADMAP.md`
-7. `ARCHITECTURE_CONSOLIDATION_WORKSTREAM_REGISTRY.md`
-8. `ARCHITECTURE_CONSOLIDATION_AGENT_PROTOCOL.md`
-9. your assigned file under `workstreams/`
+The parser, session concurrency/rollback recovery, test-integrity and maintenance preflight findings are corrected. Independent bounded code review is 0/0/0/2, subject to final exact-head verification. SQL v1-v9 and the six-column session boundary remain unchanged. Ordinary startup remains legacy-authoritative, cleanup-inert, and process ownership remains outside SQLite.
 
-Control-plane branch: `agent/architecture-consolidation-program-orchestration`.
-
-The registry determines which work is READY, PREP, or BLOCKED. Workers do not self-select from historical branches.
+The two P3s are real-root migration/helper staging and actual installed-release Homebrew upgrade/service proof. Both require a separate maintenance window tied to the final audited candidate. Do not switch authority, modify the real installation/state, expire rollback, delete legacy/artifacts, merge the stack, or start Phase 5 from this handoff.
 
 ## Whole-program position
 
-- Phase 0: complete/merged
-- Phase 1: complete/merged
-- Phase 2: Checkpoint 1 hosted-green; draft stack retained
-- Phase 3: implementation gate complete in current ancestry; draft stack retained
-- Phase 4: in progress through 4Z5 plus persistent-Mac evidence
-- Phases 5–10: canonical production integration not started
-- Preparatory work for Phases 5–10 may run only where the registry marks it PREP
-- Checkpoint 2 remains after Phase 5; checkpoint 3 remains after Phase 8
-
-The current 4Z5 ancestry has been reconciled against the final Phase 3 ancestry, pairing migration/rollback work, and the helper-state-growth correction. Older handoff siblings and temporary reconciliation/publisher branches are reference-only unless the registry explicitly names them.
-
-## Integration ownership
-
-Shared SQLite ordering, central helper/CLI composition, canonical authority selection, root package/compiler policy, authoritative workflows, and canonical roadmap/registry/progress/handoff remain orchestrator-owned by default.
-
-Workers should expose narrow integration seams and report shared dependencies rather than competing to edit those surfaces.
-
-## Current wave
-
-Implementation-ready Phase 4 work and preparatory future-phase work are listed in `ARCHITECTURE_CONSOLIDATION_WORKSTREAM_REGISTRY.md`. `P4-INTEGRATION` remains orchestrator-owned and is not eligible until feeder work has been reviewed.
+Phases 0–1 are merged. Phases 2–3 and Phase 4 remain in the retained draft stack. Phase 4 repository cutover corrections are at the verification boundary above; environment acceptance and authority activation remain unfinished. Future-phase preparatory feeders do not establish production integration. The user asked to finish this Phase 4 correction chunk, not the entire ten-phase program.
