@@ -4,6 +4,10 @@ Status: **Canonical assignment registry**
 
 The orchestrator owns this registry. Workers use it to determine what may run now and which workstream contract to read.
 
+## Main integration override — 2026-10-29
+
+Miguel explicitly authorized merging reviewed work to main and closing the accumulated PR stack by 2:09 PM Central. This current authorization supersedes the earlier draft-only restriction. See [the integration record](MAIN_INTEGRATION_2026_10_29.md) and [current handoff](NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md). Historical wave tables below are records, not active assignments. Real installation/state acceptance remains unproven; authority activation stays separately gated.
+
 ## Current continuation overlay — 2026-10-29
 
 The old dispatch baseline and first-wave table below are historical. Their completed feeder assignments must not be restarted. The [current handoff](NEXT_AGENT_HANDOFF_ARCHITECTURE_CONSOLIDATION_CURRENT.md) and [reconciliation report](P4_CUTOVER_RECONCILIATION_2026_10_29.md) record the recovered product lineage.

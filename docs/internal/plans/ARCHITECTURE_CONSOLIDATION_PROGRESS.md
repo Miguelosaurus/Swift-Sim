@@ -483,3 +483,8 @@ Recovered the latest web orchestrator and Agent 24 handoff; exact product base i
 Closed the independent R1 audit's parser, cross-process session recovery, and source-test exception findings. Bounded independent review additionally corrected migration fencing, legacy lease token compatibility, process-inspection fail-open behavior, snapshot privacy, rollback-export intent recovery, and measured backup readability. No schema SQL/migration changed; global authority remains legacy by default, rollback/readers remain, no real maintenance occurred. Detailed changes, validation, inventory counts, residuals and rollback are in `P4_CUTOVER_RECONCILIATION_2026_10_29.md`.
 
 Review counts: P0/P1/P2/P3 = 0/0/0/2, conditional on final exact-head Verify. Two remaining gates are real-root staging and actual installed Homebrew upgrade/service proof. Those are deferred to a separately authorized maintenance window; authority activation and phase-stack merge remain separate decisions. No Phase 5 behavior was started.
+
+
+## 2026-10-29 — explicit main integration authorization
+
+Miguel requested all reviewed work integrated into main with no open PRs by2:09PM Central. The canonical Phase2–4 product spine, final compatibility/staging fixes, accepted inert future-phase preparations and independent audit documents are integrated with preserved ancestry. Superseded PR alternatives are dispositioned in `MAIN_INTEGRATION_2026_10_29.md`; historical draft-only instructions are superseded for this integration. No real SQLite authority switch or cleanup is implied. Actual npm-linked installation/service and real-root acceptance remain deferred and unclaimed.
