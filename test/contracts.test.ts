@@ -89,7 +89,7 @@ test("contracts characterize the canonical delivery envelope", () => {
   );
   assert.equal(
     isDeliveryEnvelope({
-      schemaVersion: 1,
+      schemaVersion: 2,
       outcome: "install-link-ready",
       message: "bad install",
       delivery: {
@@ -103,7 +103,7 @@ test("contracts characterize the canonical delivery envelope", () => {
   );
   assert.equal(
     isDeliveryEnvelope({
-      schemaVersion: 1,
+      schemaVersion: 2,
       outcome: "needs-user-action",
       message: "bad error",
       error: { code: "ERR", message: undefined },

@@ -29,8 +29,8 @@ const transcriptFixtures = Object.freeze([
   { id: "warm-edits-2-through-10", commands: Array.from({ length: 9 }, () => "swift-sim deliver-change"), branch: "hot-reloaded", message: HOT_MESSAGE },
   { id: "structural-edit", commands: ["swift-sim deliver-change"], branch: "install-link-ready", message: BUILD_MESSAGE },
   { id: "recovered-live-failure", commands: ["swift-sim deliver-change"], branch: "hot-reloaded", message: HOT_MESSAGE },
-  { id: "fallback-live-failure", commands: ["swift-sim deliver-change"], branch: "install-link-ready", message: BUILD_MESSAGE },
-  { id: "protocol-drift", commands: ["swift-sim deliver-change"], branch: "needs-user-action", message: "Update Swift Sim, then start a new agent session." },
+  { id: "queued-device-absent", commands: ["swift-sim deliver-change --live-only"], branch: "queued", message: "Queued for the matching Debug app; no install was started." },
+  { id: "protocol-drift", commands: ["swift-sim deliver-change"], branch: "needs-user-action", message: "Align Swift Sim and reload the agent if its integration changed." },
   { id: "simulator-request", commands: ["swift-sim start-session"], branch: "simulator", message: "Open Simulator in Companion App" },
 ]);
 
@@ -69,7 +69,8 @@ test("deterministic transcript fixtures enforce one-command routing", () => {
     if (fixture.id === "warm-edits-2-through-10") assert.equal(fixture.commands.length, 9);
     if (fixture.branch === "hot-reloaded") assert.equal(fixture.message, HOT_MESSAGE);
     if (fixture.branch === "install-link-ready") assert.equal(fixture.message, BUILD_MESSAGE);
-    if (fixture.branch === "needs-user-action") assert.match(fixture.message, /new agent session/);
+    if (fixture.branch === "needs-user-action") assert.match(fixture.message, /integration changed/);
+    if (fixture.branch === "queued") assert.match(fixture.message, /Queued/);
     if (fixture.branch === "simulator") assert.equal(fixture.commands[0], "swift-sim start-session");
   }
 });

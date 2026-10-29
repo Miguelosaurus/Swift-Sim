@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
 import { ownedWorkerProcessState, prepareOwnedWorkerProcessIdentity, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
 import { verifyLiveBuildLinkerCompatibility } from "./liveBuildLinkerCompatibility.js";
+import { annotateBuildFailure, recordDeviceBuildFailure } from "./buildFailure.js";
 import {
   selectedTargetHasLivePackage,
   selectedXcodeApplicationTarget,
@@ -173,7 +174,7 @@ export async function runDeviceBuild(build, {
             { runCommand: runBuffered, cancelPath: build.control?.cancelPath || "" },
           );
           try {
-            const capture = await registerBuildResult({ resultBundle: resultBundlePath });
+            const capture = await registerBuildResult({ resultBundle: resultBundlePath, appPath });
             build.liveReload = {
               eligible: true,
               engineReady: true,
@@ -255,10 +256,7 @@ export async function runDeviceBuild(build, {
     return build;
   } catch (error) {
     if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
-    build.state = "failed";
-    build.logs.push(error instanceof Error ? error.message : String(error));
-    saveBuild();
-    throw error;
+    throw recordDeviceBuildFailure(build, error, save);
   }
 }
 
@@ -508,7 +506,11 @@ async function runLogged(command, args, log, { env = process.env, build } = {}) 
   });
   if (result.cancellationError) throw result.cancellationError;
   if (result.code !== 0) {
-    throw new DeviceBuildError(result.error || result.stderr || result.stdout || `${command} failed with exit code ${result.code}`);
+    const error = annotateBuildFailure(new DeviceBuildError(
+      result.error || result.stderr || result.stdout || `${command} failed with exit code ${result.code}`,
+    ), result);
+    error.message = `[${error.code}] ${error.message}`;
+    throw error;
   }
   return result;
 }

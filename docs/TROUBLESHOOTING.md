@@ -124,7 +124,8 @@ The JSON identifies the missing prerequisite. Common causes are:
 
 Patches must use the same Apple team as the installed app. If signing waits, find the macOS private-key prompt. Select **Always Allow** for the matching development key.
 
-If the key is unavailable, use the normal signed-build path.
+If the key is unavailable, resolve signing before retrying preparation. Do not
+turn a requested hot reload into an automatic full app build.
 
 Do not make port 8887 public.
 
@@ -132,14 +133,18 @@ Do not make port 8887 public.
 
 Run `swift-sim deliver-change` with the before and after Swift files.
 
-The command owns classification, warm readiness, one bounded recovery attempt, proof, and signed-build fallback.
+The command owns immutable classification, warm readiness, durable intent and
+current-request proof. Compatible edits wait for the app and do not select a
+full build because of a connection failure. Use `--live-only` for a hot-reload
+acceptance test; see [asynchronous delivery](ASYNC_HOT_RELOAD.md).
 
 Interpret the result:
 
 | Result | Meaning | Action |
 | --- | --- | --- |
 | `hot-reloaded` | The running app acknowledged the replacement, refresh, and new revision. | Test the running app. |
-| `install-link-ready` | The edit needs a signed build or live proof was unavailable. | Open the returned install link. |
+| `queued` | Intent is durable and incomplete. | Read `live-delivery-status`; allow the matching Debug app to run when convenient. |
+| `install-link-ready` | A structural edit required a signed build. | Open the returned install link. |
 | `needs-user-action` | A prerequisite needs manual action. | Follow the returned action. |
 | `failed` | Swift Sim could not complete either safe path. | Inspect the returned failure. |
 

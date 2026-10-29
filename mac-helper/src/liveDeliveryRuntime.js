@@ -1,0 +1,187 @@
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
+import { deliveryEnvelope } from "./changeDeliveryContract.js";
+
+const INCOMPLETE = new Set(["queued", "compiling", "waiting-for-device", "waiting-for-foreground", "applying", "applied"]);
+
+// The helper owns polling; one-shot callers only publish immutable intent and
+// optionally take one turn. There is no signed-build adapter in this service.
+export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), adapter, workerId = randomUUID(), now = () => Date.now() } = {}) {
+  if (!adapter) throw new TypeError("A live delivery adapter is required.");
+  let running;
+  let stopping = false;
+  const cancellation = new AbortController();
+  let lastCleanup = -Infinity;
+
+  async function enqueue({ files, project = "", scheme = "", host = "", requestId } = {}) {
+    const binding = await adapter.binding({ project, scheme, host });
+    let history = queue.list().filter((record) => sameBinary(record.scope, binding.scope));
+    if (binding.verifiedProcess && binding.revision === 0 && history.length && !history.some((record) => record.scope.sessionIdentity === binding.scope.sessionIdentity)) {
+      await queue.rebaseForProcess({ scope: binding.scope, currentRevision: 0, verified: true });
+      history = queue.list().filter((record) => sameBinary(record.scope, binding.scope));
+    }
+    const previous = history.findLast((record) => record.expiresAt > now() && (!binding.verifiedProcess || sameScope(record.scope, binding.scope)) && !["expired", "superseded", "failed"].includes(record.state));
+    const scope = { ...binding.scope, sessionIdentity: binding.verifiedProcess ? binding.scope.sessionIdentity : previous?.scope.sessionIdentity || binding.scope.sessionIdentity };
+    const snapshots = files.map((file) => ({
+      path: resolve(file.path || file.afterPath),
+      beforeSource: String(file.beforeSource ?? readFileSync(file.beforePath, "utf8")),
+      afterSource: String(file.afterSource ?? readFileSync(file.afterPath, "utf8")),
+    }));
+    for (const snapshot of snapshots) {
+      const prior = history.flatMap((record) => record.files).findLast((file) => file.path === snapshot.path);
+      const expected = prior?.afterHash || binding.sourceBaselines?.[snapshot.path];
+      if (!expected || createHash("sha256").update(snapshot.beforeSource).digest("hex") !== expected) throw Object.assign(new Error("The edit's source baseline differs from the qualified Debug build or queued predecessor. No rebuild was started."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+      if (binding.verifiedProcess && binding.revision === 0 && !previous) {
+        const original = queue.binaryBaseline(scope, snapshot.path);
+        if (original) snapshot.beforeSource = original.beforeSource;
+        if (createHash("sha256").update(snapshot.beforeSource).digest("hex") !== binding.sourceBaselines?.[snapshot.path]) throw Object.assign(new Error("The qualified original source baseline is unavailable for this fresh process."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+      }
+    }
+    const record = await queue.enqueue({ ...(requestId ? { requestId } : {}), scope, files: snapshots, baselineRevision: previous?.proof?.revision || binding.revision || 0 });
+    return projectLiveDelivery(record);
+  }
+
+  function status(requestId) {
+    let record = queue.get(requestId);
+    if (!record) throw Object.assign(new Error("The live delivery request was not found."), { code: "QUEUE_REQUEST_NOT_FOUND" });
+    const visited = new Set();
+    while (record.state === "superseded" && record.replacementRequestId) {
+      if (visited.has(record.requestId) || visited.size > 32) throw new Error("Invalid live delivery replacement chain.");
+      visited.add(record.requestId); record = queue.get(record.replacementRequestId);
+      if (!record) throw new Error("The live delivery replacement is missing.");
+    }
+    if (record.state === "superseded" && record.reasonCode === "QUEUE_NET_NO_CHANGE") return deliveryEnvelope({ outcome: "no-change", message: "The queued edits cancel each other; the fresh Debug process already contains that baseline." });
+    const result = projectLiveDelivery(record);
+    if (visited.size && result.delivery) result.delivery.supersededRequestId = requestId;
+    return result;
+  }
+
+  function runOnce() {
+    if (stopping) return Promise.resolve({ processed: false });
+    if (running) return running;
+    running = tick().finally(() => { running = null; });
+    return running;
+  }
+
+  async function tick() {
+    if (!queue.list().length) return { processed: false };
+    await queue.sweepExpired();
+    if (adapter.cleanup && now() - lastCleanup >= 60_000) {
+      await adapter.cleanup(queue.list(), { now: now() }); lastCleanup = now();
+    }
+    const records = queue.list().filter((record) => record.expiresAt > now() && (INCOMPLETE.has(record.state) || record.state === "uncertain" || record.state === "refreshed"));
+    if (!records.length) return { processed: false };
+    const operation = async () => {
+      if (stopping) return { processed: false };
+      // The engine watches one project. Inspect each distinct lane at most once
+      // per bounded helper turn, without Xcode/network/signing preflights.
+      const lanes = new Map();
+      for (const record of records) {
+        const { sessionIdentity: _session, ...binary } = record.scope;
+        const key = JSON.stringify(binary);
+        lanes.set(key, record);
+      }
+      for (const first of lanes.values()) {
+        if (stopping) break;
+        let observed;
+        try { observed = await adapter.inspect(first); } catch { continue; }
+        if (!observed?.engineAvailable) continue;
+        const matched = observed.matchesBinary === true;
+        let scope = first.scope;
+        if (matched && observed.scope?.sessionIdentity !== first.scope.sessionIdentity) {
+          const hasCurrentProcess = records.some((record) => sameScope(record.scope, observed.scope));
+          if (!hasCurrentProcess && observed.revision === 0) {
+            try {
+              await queue.rebaseForProcess({ scope: observed.scope, currentRevision: 0, verified: true });
+              return { processed: true, rebound: true };
+            } catch { continue; }
+          }
+          // A nonce alone cannot rebind a queue. The adapter must first compare
+          // the authenticated client's app/build and both Mach-O UUIDs.
+          for (const record of records.filter((item) => JSON.stringify(item.scope) === JSON.stringify(first.scope))) {
+            if (!["queued", "compiling", "waiting-for-device", "waiting-for-foreground"].includes(record.state)) continue;
+            try {
+              await queue.rebindSession(record.requestId, { previousSessionIdentity: record.scope.sessionIdentity, scope: observed.scope, currentRevision: observed.revision, verified: true });
+            } catch { /* An active claim must finish or expire before rebinding. */ }
+          }
+          scope = observed.scope;
+        }
+        // Lost acknowledgements are reconciled by receipt, never by issuing the
+        // mutation again. The native ledger is scoped to the same app process.
+        for (const record of records.filter((item) => ["applying", "applied", "uncertain"].includes(item.state) && sameScope(item.scope, scope))) {
+          if (!matched || !record.preparedPatch?.patchDigest) continue;
+          const proof = await adapter.receipt(record, observed);
+          if (proof?.noEffect) {
+            await queue.releaseNoEffect(record.requestId, { claimToken: record.applyClaimToken, scope, receipt: proof.noEffect, verified: true });
+            return { processed: true, requestId: record.requestId };
+          }
+          if (proof) {
+            await queue.reconcileReceipt(record.requestId, { scope, proof, verified: true });
+            return { processed: true, requestId: record.requestId };
+          }
+        }
+        const record = await queue.claimNext({ scope, currentRevision: observed.revision || 0, deviceConnected: matched && observed.connected === true, foreground: matched && observed.foreground === true && observed.rootReady === true, workerId });
+        if (!record) continue;
+        const claimToken = record.claim.token;
+        if (!record.preparedPatch) {
+          try {
+            const preparedPatch = await adapter.prepare(record, { cancellationSignal: cancellation.signal });
+            await queue.transition(record.requestId, { claimToken, state: matched && observed.connected && (!observed.foreground || !observed.rootReady) ? "waiting-for-foreground" : "waiting-for-device", preparedPatch });
+          } catch (error) {
+            if (stopping) {
+              await queue.transition(record.requestId, { claimToken, state: "waiting-for-device", reasonCode: "QUEUE_WORKER_STOPPED" });
+              return { processed: false };
+            }
+            const code = safeCode(error?.code, "PATCH_COMPILE_FAILED");
+            await queue.transition(record.requestId, { claimToken, state: "failed", reasonCode: code });
+          }
+          return { processed: true, requestId: record.requestId };
+        }
+        // Recheck immediately before persisting the applying barrier. A client
+        // reconnect or new executable cannot inherit a predecessor's mutation.
+        const current = await adapter.inspect(record);
+        if (stopping || !current.matchesBinary || !current.connected || !current.foreground || !current.rootReady || !sameScope(current.scope, record.scope) || current.revision !== record.baselineRevision) {
+          await queue.transition(record.requestId, { claimToken, state: "waiting-for-device", reasonCode: "LIVE_CONNECTION_CHANGED" });
+          continue;
+        }
+        await queue.transition(record.requestId, { claimToken, state: "applying", scope: current.scope, currentRevision: current.revision });
+        try {
+          const proof = await adapter.apply(record, current, { cancellationSignal: cancellation.signal });
+          if (proof?.noEffect) {
+            await queue.releaseNoEffect(record.requestId, { claimToken, scope: current.scope, receipt: proof.noEffect, verified: true });
+          } else if (!proof) {
+            await queue.transition(record.requestId, { claimToken, state: "uncertain", reasonCode: "QUEUE_APPLY_UNCONFIRMED" });
+          } else {
+            await queue.transition(record.requestId, { claimToken, state: proof.refreshed ? "refreshed" : "applied", proof });
+          }
+        } catch {
+          await queue.transition(record.requestId, { claimToken, state: "uncertain", reasonCode: "QUEUE_APPLY_UNCONFIRMED" });
+        }
+        return { processed: true, requestId: record.requestId };
+      }
+      return { processed: false };
+    };
+    return adapter.withLock ? adapter.withLock(operation) : operation();
+  }
+
+  async function stop() {
+    stopping = true; cancellation.abort();
+    if (running) await running.catch(() => {});
+  }
+  return Object.freeze({ enqueue, status, runOnce, stop, queue });
+}
+
+export function projectLiveDelivery(record) {
+  const state = record.state;
+  if (state === "refreshed") return deliveryEnvelope({ outcome: "hot-reloaded", message: "Hot reloaded successfully. The running Debug app acknowledged this edit and refreshed.", delivery: { kind: "live", requestId: record.requestId, revision: record.proof.revision }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
+  if (INCOMPLETE.has(state)) return deliveryEnvelope({ outcome: "queued", message: state === "applied" ? "The edit was applied; its refresh acknowledgement is still pending." : "The edit is queued. Swift Sim will apply it when the matching Debug app reconnects and can run.", reasonCode: record.reasonCode || "LIVE_DELIVERY_PENDING", delivery: { kind: "pending", requestId: record.requestId, state, expiresAt: new Date(record.expiresAt).toISOString() }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
+  const code = safeCode(record.reasonCode, state === "uncertain" ? "QUEUE_APPLY_UNCONFIRMED" : `QUEUE_${String(state).toUpperCase()}`);
+  const message = state === "uncertain" ? "The edit's application could not be confirmed. Swift Sim will reconcile a matching receipt without applying it again." : "The queued edit did not complete. No successful hot reload is claimed.";
+  return deliveryEnvelope({ outcome: "failed", message, reasonCode: code, error: { code, message }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
+}
+
+function sameBinary(a, b) { return ["project", "scheme", "appIdentity", "binaryIdentity"].every((key) => a?.[key] === b?.[key]); }
+function sameScope(a, b) { return sameBinary(a, b) && a?.sessionIdentity === b?.sessionIdentity; }
+function safeCode(value, fallback) { return /^[A-Z][A-Z0-9_]{1,79}$/.test(value || "") ? value : fallback; }

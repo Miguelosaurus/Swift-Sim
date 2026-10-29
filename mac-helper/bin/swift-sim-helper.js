@@ -57,6 +57,7 @@ import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeCon
 import { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBuildArtifactRetentionCompatibility.js";
 import { createSetupStatusService } from "../src/commands/setupStatusService.js";
 import { fetchRuntimeHealth } from "../src/runtimeHealth.js";
+import { liveDeliveryService } from "../src/liveDeliveryService.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 import { createDeviceBuildArtifactAuditCompatibility } from "../src/deviceBuildArtifactAuditCompatibility.js";
 import {
@@ -182,7 +183,7 @@ async function main(argv) {
       async buildDevice(values) {
         const build = await deviceBuildRuntime.createBuild(values);
         await deviceBuildRuntime.runCliBuild(build);
-        return publicDeviceBuild(build);
+        return projectDeviceBuild(build);
       },
       async stopSession({ sessionId, token }) {
         const session = store.get(sessionId);
@@ -220,6 +221,8 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     recoverInterruptedBuilds: () => deviceBuildRuntime.recoverInterruptedBuilds(),
     scheduleDeliveryCleanup: () => deviceBuildRuntime.scheduleDeliveryCleanup(),
     reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
+    reconcileLiveDeliveries: () => liveDeliveryService().runOnce(),
+    stopLiveDeliveries: () => liveDeliveryService().stop(),
     activeBuildTasks: () => deviceBuildRuntime.activeTasks(),
     cancelBuild: (build, reason) => deviceBuildRuntime.cancelBuild(build, reason),
     listSessions: () => (typeof store.list === "function" ? store.list() : []),
@@ -236,9 +239,9 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   const deviceAppService = createDeviceAppApplicationService({
     pairingTokenMatches,
     listBuilds: () => deviceBuildStore.list(),
-    projectBuild: publicDeviceBuild,
+    projectBuild: projectDeviceBuild,
     listApps: (options) => deviceBuildStore.listApps(options),
-    projectApp: publicDeviceApp,
+    projectApp: projectDeviceApp,
     getApp: (appID) => deviceBuildStore.getApp(appID),
     setAppArchived: (appID, archived) => deviceBuildStore.setAppArchived(appID, archived),
     findRebuild: (options) => deviceBuildStore.findRebuild(options),
@@ -259,7 +262,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     trackTask: (key, build, operation) => deviceBuildRuntime.trackTask(key, build, operation),
     prepareDelivery: (build, options) => deviceBuildRuntime.prepareDelivery(build, options),
     saveBuild: (build) => deviceBuildStore.save(build),
-    projectBuild: publicDeviceBuild,
+    projectBuild: projectDeviceBuild,
   });
   const deviceBuildCapabilityService = createDeviceBuildCapabilityApplicationService({
     pairedMacEnabled: !deviceBuildsOnly,
@@ -270,7 +273,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
     verifyBuild: verifyDeviceBuild,
     claimVerification: claimDeviceVerification,
-    projectBuild: publicDeviceBuild,
+    projectBuild: projectDeviceBuild,
     buildLinks: deviceBuildLinks,
     buildManifest,
     renderInstallPage: (build) => renderDeviceBuildFallbackPage({
@@ -401,4 +404,12 @@ function bearerToken(req) {
 
 function tokenMatches(session, token) {
   return secretsMatch(session?.token, token);
+}
+
+function projectDeviceBuild(build) {
+  return publicDeviceBuild(deviceBuildRuntime.projectBuildState(build));
+}
+
+function projectDeviceApp(app) {
+  return publicDeviceApp({ ...app, builds: (app.builds || []).map((build) => deviceBuildRuntime.projectBuildState(build)) });
 }

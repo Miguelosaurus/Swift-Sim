@@ -18,12 +18,16 @@ private final class SwiftSimLiveObserver: ObservableObject {
         .sink { [weak self] _ in
             guard let self else { return }
             self.revision &+= 1
+            InjectionSetRootReady(true, UInt(self.revision))
             NotificationCenter.default.post(
                 name: Notification.Name("SWIFT_SIM_LIVE_REVISION_APPLIED"),
                 object: nil,
                 userInfo: ["revision": self.revision]
             )
         }
+        // Registration follows the revision subscription, so a queued patch
+        // cannot race an unobserved first refresh at process startup.
+        InjectionSetRootReady(true, UInt(revision))
     }
 }
 

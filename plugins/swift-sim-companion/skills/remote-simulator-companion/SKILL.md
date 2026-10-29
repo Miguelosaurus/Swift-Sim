@@ -20,9 +20,8 @@ ask the user to choose between live reload and a build.
 
 ## Fast phone-edit contract
 
-Use this lane only when the user requested iPhone delivery, remote hot reload,
-or is continuing an explicit phone-testing loop. An ordinary coding task
-invokes zero Swift Sim commands. After one logical change, invoke exactly once:
+Use for requested iPhone delivery or hot reload. Ordinary coding invokes zero
+Swift Sim commands. After one logical change, invoke exactly once:
 
 ```sh
 swift-sim deliver-change \
@@ -35,14 +34,21 @@ swift-sim deliver-change \
 
 Use `--workspace` for workspaces, repeat matching `--before`/`--after` pairs
 for multi-file changes, and preserve repeated `--build-setting` arguments.
-The command owns classification, cheap warm validation, bounded recovery,
-strict applied/refresh/revision proof, and one existing signed-build fallback.
+The command owns immutable snapshots, classification, cheap warm validation,
+durable queueing and strict applied/refresh/revision proof. For an explicit hot
+reload request or acceptance test, add `--live-only`; it never builds an app.
 
 Never run `doctor`, `live-status`, screenshots, UI analysis, or a second
 classification command before a normal warm delivery. No-change returns
-without contacting the engine or builder. Structural, mixed, non-Swift, live
-unavailable, or unproven edits become one signed build result. A compiled
-patch or loaded dylib is not proof.
+without contacting the engine or builder. Compatible edits queue while the
+app is absent or disconnected; temporary absence and unproven application do
+not start a signed rebuild. Structural/mixed/non-Swift edits require a signed
+build, unless `--live-only` forbids it. A compiled patch or loaded dylib is not proof.
+
+Schema 2 adds incomplete `queued` delivery. Report its state; the helper applies
+it when the matching app can run. Never claim done, require a specific screen,
+or retry delivery. Read progress with `swift-sim live-delivery-status --request
+<opaque-request-id>`.
 
 Terminal outcomes are `hot-reloaded`, `install-link-ready`, `no-change`,
 `needs-user-action`, and `failed`. Say exactly:
@@ -65,8 +71,11 @@ for an explicit diagnostic request.
 
 ## Safety and lane boundaries
 
-Remote replacement is Debug-only, private-Tailnet-only, and applies to the
-regular signed app already running on the iPhone. Never enable live loading
+Remote replacement is Debug-only and private-Tailnet-only. Compatible intent
+can be queued while the phone is locked, offline, on another app, or the Debug
+process is terminated. Apply when the matching Debug process next reaches
+foreground/root readiness; iOS suspension grants no background execution.
+No particular screen is required. Never enable live loading
 for Release, TestFlight, or App Store builds. Never expose live port 8887
 through Funnel, Cloudflare, public DNS, router forwarding, or a public
 firewall. Keep bundle identifier, signing team, entitlements, and app-data
@@ -88,6 +97,10 @@ Tailnet.
 For first-time hot reload, follow [live project integration](references/live-project-integration.md)
 through signed Debug install, cold launch, connection, and one proven edit.
 Setup readiness and a connected engine do not prove a successful hot reload.
+The asynchronous contract needs the matching SDK, prepared-delivery engine and
+helper capability. Older installations require explicit bootstrap/update;
+they must not silently queue work they cannot process. See the live reference
+for current candidate availability and execution limits.
 
 If `deliver-change` reports a readiness failure, follow its typed recovery
 action. A timeout, refused connection, or malformed response does not prove

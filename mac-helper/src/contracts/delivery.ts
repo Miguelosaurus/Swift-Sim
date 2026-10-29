@@ -11,9 +11,10 @@ import {
   type Validator,
 } from "./validation.js";
 
-export const DELIVERY_SCHEMA_VERSION = 1 as const;
+export const DELIVERY_SCHEMA_VERSION = 2 as const;
 export const DELIVERY_OUTCOMES = [
   "hot-reloaded",
+  "queued",
   "install-link-ready",
   "no-change",
   "needs-user-action",
@@ -22,7 +23,23 @@ export const DELIVERY_OUTCOMES = [
 
 export interface LiveDelivery {
   kind: "live";
+  requestId?: string;
+  supersededRequestId?: string;
   revision: number;
+}
+
+export interface PendingDelivery {
+  kind: "pending";
+  requestId: string;
+  state:
+    | "queued"
+    | "waiting-for-device"
+    | "waiting-for-foreground"
+    | "compiling"
+    | "applying"
+    | "applied";
+  expiresAt: string;
+  supersededRequestId?: string;
 }
 
 export interface InstallDelivery {
@@ -47,9 +64,10 @@ export interface DeliveryNotice {
 export type DeliveryDiagnostics = Readonly<Record<string, unknown>>;
 
 interface DeliveryEnvelopeCommon {
-  schemaVersion: 1;
+  schemaVersion: 2;
   message: string;
   reasonCode?: string;
+  fallbackReasonCode?: string;
   timing?: DeliveryTiming;
   error?: DeliveryNotice;
   warning?: DeliveryNotice;
@@ -59,6 +77,7 @@ interface DeliveryEnvelopeCommon {
 export type DeliveryEnvelope = DeliveryEnvelopeCommon &
   (
     | { outcome: "hot-reloaded"; delivery: LiveDelivery }
+    | { outcome: "queued"; delivery: PendingDelivery }
     | { outcome: "install-link-ready"; delivery: InstallDelivery }
     | { outcome: "no-change"; delivery?: never }
     | { outcome: "needs-user-action"; error: DeliveryNotice; delivery?: never }
@@ -68,6 +87,7 @@ export type DeliveryEnvelope = DeliveryEnvelopeCommon &
 interface DeliveryEnvelopeInputCommon {
   message: string;
   reasonCode?: string;
+  fallbackReasonCode?: string;
   timing?: DeliveryTiming;
   error?: DeliveryNotice;
   warning?: DeliveryNotice;
@@ -77,6 +97,7 @@ interface DeliveryEnvelopeInputCommon {
 export type DeliveryEnvelopeInput = DeliveryEnvelopeInputCommon &
   (
     | { outcome: "hot-reloaded"; delivery: LiveDelivery }
+    | { outcome: "queued"; delivery: PendingDelivery }
     | { outcome: "install-link-ready"; delivery: InstallDelivery }
     | { outcome: "no-change"; delivery?: never }
     | { outcome: "needs-user-action"; error: DeliveryNotice; delivery?: never }
@@ -117,6 +138,7 @@ function isTypedDeliveryEnvelope(value: unknown): value is DeliveryEnvelope {
     value.schemaVersion !== DELIVERY_SCHEMA_VERSION ||
     !isNonEmptyString(value.message) ||
     !hasOptionalString(value, "reasonCode") ||
+    !hasOptionalString(value, "fallbackReasonCode") ||
     !optionalTiming(value, "timing") ||
     !optionalNotice(value, "error") ||
     !optionalNotice(value, "warning") ||
@@ -127,6 +149,14 @@ function isTypedDeliveryEnvelope(value: unknown): value is DeliveryEnvelope {
   switch (value.outcome) {
     case "hot-reloaded":
       return isLiveDelivery(value.delivery);
+    case "queued":
+      return (
+        isRecord(value.delivery) &&
+        value.delivery.kind === "pending" &&
+        isNonEmptyString(value.delivery.requestId) &&
+        isNonEmptyString(value.delivery.state) &&
+        isNonEmptyString(value.delivery.expiresAt)
+      );
     case "install-link-ready":
       return isInstallDelivery(value.delivery);
     case "no-change":

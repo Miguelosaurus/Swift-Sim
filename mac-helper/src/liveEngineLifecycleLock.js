@@ -12,6 +12,10 @@ const DEFAULT_WAIT_MS = 120_000;
 const OWNERLESS_LOCK_GRACE_MS = 1_000;
 const lockManager = new NodeLockManager({ identity: kernelProcessIdentity });
 
+// Share the explicit owner-verified port with the delivery journal composition;
+// queue/application modules never import an ownership preload.
+export const liveRuntimeLockManager = lockManager;
+
 export async function withLiveEngineLifecycleLock(
   operation,
   { lockPath = DEFAULT_LOCK_PATH, waitMs = DEFAULT_WAIT_MS } = {},

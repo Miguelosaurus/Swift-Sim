@@ -215,14 +215,14 @@ Complete this setup one time:
 This is first-time bootstrap. Adding the package/root integration or changing
 compiler/linker settings requires a new signed Debug installation. A setup
 report, signed build, or connected engine alone does not prove hot reload.
-Keep the app running during the subsequent edit loop.
+The matching asynchronous SDK reconnects on foreground execution; the app need not stay open while edits are requested. See [asynchronous delivery availability](ASYNC_HOT_RELOAD.md).
 
 Apple device-management reachability and private-network reachability are
 separate. Xcode uses a trusted USB or wireless device connection for device
 registration and exact installed-version verification. The live patch channel
 uses the private Tailnet. Success in either lane does not establish the other.
 
-The agent runs `swift-sim deliver-change` once after each completed logical edit. Compatible edits use the private live lane. Structural, mixed, non-Swift, unavailable, and unproven edits use a signed build.
+The agent runs `swift-sim deliver-change` once after each completed logical edit. Compatible edits queue on the Mac for the private live lane. Device absence or uncertain proof does not trigger a signed build. Structural, mixed and non-Swift edits need a signed build; `--live-only` reports that requirement without starting one.
 
 Normal warm edits do not repeat setup, doctor, live-status, or installation.
 For a typed readiness failure, follow the specific recovery action in

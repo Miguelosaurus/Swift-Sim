@@ -1,7 +1,8 @@
-export const DELIVERY_SCHEMA_VERSION = 1;
+export const DELIVERY_SCHEMA_VERSION = 2;
 
 export const DELIVERY_OUTCOMES = Object.freeze([
   "hot-reloaded",
+  "queued",
   "install-link-ready",
   "no-change",
   "needs-user-action",
@@ -28,6 +29,7 @@ export function deliveryEnvelope({
   outcome,
   message,
   reasonCode = "",
+  fallbackReasonCode = "",
   delivery = undefined,
   timing = undefined,
   error = undefined,
@@ -40,6 +42,7 @@ export function deliveryEnvelope({
     message: String(message || ""),
   };
   if (reasonCode) envelope.reasonCode = String(reasonCode);
+  if (fallbackReasonCode) envelope.fallbackReasonCode = String(fallbackReasonCode);
   if (delivery !== undefined) envelope.delivery = delivery;
   if (timing !== undefined) envelope.timing = timing;
   if (error !== undefined) envelope.error = error;
@@ -58,6 +61,7 @@ export function validateDeliveryEnvelope(value) {
   if (!DELIVERY_OUTCOMES.includes(value.outcome)) errors.push("Unsupported outcome.");
   if (typeof value.message !== "string" || value.message.length === 0) errors.push("message is required.");
   if (value.reasonCode !== undefined && typeof value.reasonCode !== "string") errors.push("reasonCode must be a string.");
+  if (value.fallbackReasonCode !== undefined && typeof value.fallbackReasonCode !== "string") errors.push("fallbackReasonCode must be a string.");
   collectForbiddenKeys(value, errors);
 
   if (value.outcome === "hot-reloaded") {
@@ -77,6 +81,12 @@ export function validateDeliveryEnvelope(value) {
     if (value.delivery?.expiresAt !== undefined && typeof value.delivery.expiresAt !== "string") {
       errors.push("install delivery expiresAt must be a string.");
     }
+  }
+  if (value.outcome === "queued") {
+    if (value.delivery?.kind !== "pending") errors.push("queued requires pending delivery.");
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/.test(value.delivery?.requestId || "")) errors.push("queued requires an opaque request identity.");
+    if (!["queued", "waiting-for-device", "waiting-for-foreground", "compiling", "applying", "applied"].includes(value.delivery?.state)) errors.push("queued requires an incomplete delivery state.");
+    if (typeof value.delivery?.expiresAt !== "string" || !Number.isFinite(Date.parse(value.delivery.expiresAt))) errors.push("queued requires an expiry.");
   }
   if (["no-change", "needs-user-action", "failed"].includes(value.outcome) && value.delivery !== undefined) {
     errors.push(`${value.outcome} must not include delivery.`);

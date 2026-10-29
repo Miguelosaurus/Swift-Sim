@@ -77,9 +77,10 @@ test("Phase 2 records repeated warm checks without private data", async () => {
   assert.doesNotMatch(serialized, /trycloudflare|token=|bearer/i);
 });
 
-test("delivery contract defines the five terminal outcomes", () => {
+test("delivery contract distinguishes pending delivery from terminal outcomes", () => {
   assert.deepEqual(DELIVERY_OUTCOMES, [
     "hot-reloaded",
+    "queued",
     "install-link-ready",
     "no-change",
     "needs-user-action",

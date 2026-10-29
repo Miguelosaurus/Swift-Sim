@@ -3,6 +3,7 @@
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import { runDeliveryCleanupSafely } from "./deliveryCleanupScheduler.js";
 import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "./deviceBuildTaskTracker.js";
+import { recordDeviceBuildFailure } from "./buildFailure.js";
 
 /** @typedef {import("./infrastructure/ports.js").Clock} Clock */
 /** @typedef {{ mode?: string, provider?: string | undefined, expiresAt?: string | undefined, generation?: string, referenceID?: string }} BuildDelivery */
@@ -39,6 +40,7 @@ import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "./device
  *   save(build: BuildRecord): unknown,
  *   list(): BuildRecord[],
  *   nextBuildNumber(app: unknown, current: unknown): string,
+ *   buildStorageHistory?(): unknown[],
  *   listDeliveryReferenceCleanupJobs(): DeliveryCleanupJob[],
  *   completeDeliveryReferenceCleanupJob(jobID: string): unknown,
  *   failDeliveryReferenceCleanupJob(jobID: string, error: unknown): unknown,
@@ -58,7 +60,7 @@ import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "./device
  *   pathExists(path: string): boolean,
  *   clock: Clock,
  *   capabilityExpiresAt(input: { ttlMinutes: number, deliveryExpiresAt: string, now: number }): string,
- *   runBuild(build: BuildRecord, options: { save(next: BuildRecord): unknown, nextBuildNumber(app: unknown, current: unknown): string }): Promise<unknown>,
+ *   runBuild(build: BuildRecord, options: { save(next: BuildRecord): unknown, nextBuildNumber(app: unknown, current: unknown): string, previousBuilds: unknown[] }): Promise<unknown>,
  *   requestCancellation(build: BuildRecord, reason: string): unknown,
  *   terminateRecordedWorker(build: BuildRecord): Promise<boolean>,
  *   signals: SignalRuntime,
@@ -80,6 +82,8 @@ export function createDeviceBuildRuntimeController(dependencies) {
   validateDependencies(dependencies);
   /** @type {Map<string, { build: BuildRecord, promise: Promise<unknown> }>} */
   const activeTasks = new Map();
+  /** @type {Map<string, BuildRecord>} */
+  const pendingTerminalBuilds = new Map();
   let deliveryCleanupRunning = false;
 
   return Object.freeze({
@@ -91,6 +95,9 @@ export function createDeviceBuildRuntimeController(dependencies) {
     recoverInterruptedBuilds,
     drainDeliveryReferences,
     scheduleDeliveryCleanup,
+    flushTerminalBuildFailures,
+    pendingTerminalFailures: () => [...pendingTerminalBuilds.keys()],
+    projectBuildState,
     activeTasks: () => [...activeTasks.values()],
     cancelBuild,
   });
@@ -275,6 +282,9 @@ export function createDeviceBuildRuntimeController(dependencies) {
     if (deliveryCleanupRunning) return;
     deliveryCleanupRunning = true;
     try {
+      // Reuse the existing maintenance tick. This retries only terminal
+      // metadata, never the Xcode build or an install operation.
+      flushTerminalBuildFailures();
       for (const job of dependencies.store.listDeliveryReferenceCleanupJobs()) {
         const dueAt = Date.parse(job.nextAttemptAt || job.createdAt || "");
         if (Number.isFinite(dueAt) && dueAt > dependencies.clock.now().getTime()) continue;
@@ -305,6 +315,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
       await dependencies.runBuild(build, {
         save: (next) => dependencies.store.save(next),
         nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
+        previousBuilds: dependencies.store.buildStorageHistory?.() || [],
       });
       build.state = "delivering";
       buildLogs(build).push("Creating temporary install link.");
@@ -315,9 +326,42 @@ export function createDeviceBuildRuntimeController(dependencies) {
       retainTerminalBuild(readyBuild);
       return readyBuild;
     } catch (error) {
-      if (build.state === "failed") retainTerminalBuild(build);
-      throw error;
+      if (hasErrorCode(error, "SWIFT_SIM_BUILD_CANCELLED")) throw error;
+      const failure = recordDeviceBuildFailure(build, error, (next) =>
+        dependencies.store.save(next),
+      );
+      if (failure.metadataPersistenceFailed === true) {
+        pendingTerminalBuilds.set(build.id, build);
+        try {
+          dependencies.reportRetentionError?.(
+            "The build stopped, but terminal metadata could not be persisted. Persistence will be retried after storage recovers; the build will not restart.",
+          );
+        } catch {}
+      }
+      retainTerminalBuild(build);
+      throw failure;
     }
+  }
+
+  function flushTerminalBuildFailures() {
+    for (const [id, build] of [...pendingTerminalBuilds.entries()].slice(0, 32)) {
+      try {
+        dependencies.store.save(build);
+        pendingTerminalBuilds.delete(id);
+      } catch {
+        // A full or unavailable filesystem is not a successful state repair.
+        // Keep this record for the next already-scheduled maintenance pass.
+      }
+    }
+  }
+
+  /** @param {BuildRecord} build @returns {BuildRecord} */
+  function projectBuildState(build) {
+    const pending = pendingTerminalBuilds.get(build.id);
+    if (!pending) return build;
+    // Runtime knowledge may be newer than durable bytes during ENOSPC. Do not
+    // project an active build after its task and verified worker have stopped.
+    return { ...build, state: "failed", logs: [...(pending.logs || [])] };
   }
 
   /** @param {BuildRecord} build */
@@ -328,7 +372,9 @@ export function createDeviceBuildRuntimeController(dependencies) {
     } catch {
       try {
         dependencies.reportRetentionError?.(
-          "Device-build artifact retention failed; build metadata and install state were preserved.",
+          pendingTerminalBuilds.has(build.id)
+            ? "Device-build artifact retention failed; terminal build metadata is still pending persistence."
+            : "Device-build artifact retention failed; build metadata and install state were preserved.",
         );
       } catch {}
     }

@@ -135,10 +135,12 @@ export function helperCommandLooksOwned(command) {
 }
 
 export async function currentHelperRuntimeHealth() {
-  return inspectRuntimeHealth(new URL("/health", helperBaseURL()), {
+  const health = await inspectRuntimeHealth(new URL("/health", helperBaseURL()), {
     expectedRole: HELPER_RUNTIME_ROLE,
     fetchImpl: rawFetch,
   });
+  if (health.ok && !(Array.isArray(health.payload?.capabilities) && health.payload.capabilities.includes("durable-live-delivery-v1"))) return { ...health, ok: false, failureCode: "HELPER_UPDATE_REQUIRED" };
+  return health;
 }
 
 async function waitForCompatibleHelper() {

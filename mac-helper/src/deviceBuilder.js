@@ -5,6 +5,8 @@ import { basename, dirname } from "node:path";
 import { runRequiredBuildValidation } from "./buildValidation.js";
 import { renewalCancellationPath } from "./renewalCancellation.js";
 import { completeOwnedWorkerProcessRecord, ownedWorkerProcessState } from "./ownedWorkerIdentity.js";
+import { assertDeviceBuildStorage } from "./deviceBuildStorage.js";
+import { recordDeviceBuildFailure } from "./buildFailure.js";
 import {
   requestDeviceBuildCancellation as requestDeviceBuildCancellationCore,
   runDeviceBuild as runDeviceBuildCore,
@@ -18,6 +20,11 @@ export async function runDeviceBuild(build, options = {}) {
   try {
     build.state = "validating";
     save();
+    if (!build.project && !build.workspace) throw Object.assign(new Error("Missing project or workspace path."), { code: "BUILD_INPUT_INVALID" });
+    if (typeof build.scheme !== "string" || !build.scheme.trim()) throw Object.assign(new Error("Missing required scheme."), { code: "BUILD_INPUT_INVALID" });
+    (options.checkStorage || assertDeviceBuildStorage)(build, {
+      previousBuilds: options.previousBuilds || [],
+    });
     await runRequiredBuildValidation({
       project: build.project || "",
       workspace: build.workspace || "",
@@ -26,13 +33,7 @@ export async function runDeviceBuild(build, options = {}) {
     return await runDeviceBuildCore(build, options);
   } catch (error) {
     if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
-    if (build.state === "validating") {
-      build.state = "failed";
-      build.logs = Array.isArray(build.logs) ? build.logs : [];
-      build.logs.push(error instanceof Error ? error.message : String(error));
-      save();
-    }
-    throw error;
+    throw recordDeviceBuildFailure(build, error, options.save);
   }
 }
 

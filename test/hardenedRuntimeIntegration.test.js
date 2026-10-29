@@ -55,6 +55,7 @@ for (const [scriptName, role] of [
         helper: role,
         version: SWIFT_SIM_VERSION,
         protocol: SWIFT_SIM_RUNTIME_PROTOCOL,
+        ...(role === HELPER_RUNTIME_ROLE ? { capabilities: ["durable-live-delivery-v1"] } : {}),
       });
     } finally {
       rmSync(directory, { recursive: true, force: true });

@@ -4,6 +4,7 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   openSync,
@@ -12,6 +13,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  statfsSync,
   truncateSync,
   writeFileSync,
 } from "node:fs";
@@ -21,6 +23,11 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 import { abortPendingLiveEngine } from "./liveEngineOwnershipPreload.js";
 import { buildLiveSessionDescriptor, publishLiveSessionDescriptor, readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
+import { machoUUID, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
+import { ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
+import { NodeCommandRunner } from "./infrastructure/nodeCommandRunner.js";
+import { fileURLToPath } from "node:url";
+import { readLocalEngineCandidate } from "./liveEngineCandidate.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
@@ -45,8 +52,9 @@ export const LIVE_REASON_CODES = Object.freeze({
   PATCH_TIMEOUT: "PATCH_TIMEOUT",
 });
 
-const ENGINE_VERSION = "0.4.0";
-const ENGINE_SHA256 = "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696";
+const LOCAL_ENGINE_CANDIDATE = readLocalEngineCandidate();
+const ENGINE_VERSION = LOCAL_ENGINE_CANDIDATE.candidate?.version || "0.4.0";
+const ENGINE_SHA256 = LOCAL_ENGINE_CANDIDATE.candidate?.sha256 || "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696";
 const ENGINE_URL = `https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-${ENGINE_VERSION}/swift-sim-engine-${ENGINE_VERSION}-arm64-signed.zip?sha256=${ENGINE_SHA256}`;
 const ENGINE_ROOT = join(homedir(), ".swift-sim", "engine");
 const ENGINE_APP = join(ENGINE_ROOT, "InjectionNext.app");
@@ -341,6 +349,8 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
       running: Boolean(engineStatus),
       watchingProject,
       connected,
+      preparedDeliveryProtocol: Number(engineStatus?.prepared_delivery_protocol || 0),
+      localCandidate: Boolean(LOCAL_ENGINE_CANDIDATE.candidate),
       injectionState: engineStatus?.injection_state || "Stopped",
       lastSource: engineStatus?.last_source || "",
       lastError: engineStatus?.last_error || "",
@@ -402,7 +412,7 @@ function statusFromLiveSessionDescriptor(descriptor, { engineStatus = null, read
   const watchingProject = Boolean(engineStatus?.watching_directories?.some((path) => resolve(path) === project.root));
   return {
     ready, canStart: true, mode: "debug-only", transport: "private-tailscale", host: descriptor.liveHost, port: 8887,
-    engine: { installed: true, version: descriptor.engine.version, running: Boolean(engineStatus), watchingProject, connected: Boolean(engineStatus?.has_connected_client), injectionState: engineStatus?.injection_state || "Stopped", lastSource: engineStatus?.last_source || "", lastError: engineStatus?.last_error || "", signingReady: Boolean(engineStatus?.codesigning_identity_configured), compilerReady: Number(engineStatus?.captured_compilations || 0) > 0, capturedCompilations: Number(engineStatus?.captured_compilations || 0) },
+    engine: { installed: true, version: descriptor.engine.version, preparedDeliveryProtocol: Number(engineStatus?.prepared_delivery_protocol || 0), localCandidate: Boolean(LOCAL_ENGINE_CANDIDATE.candidate), running: Boolean(engineStatus), watchingProject, connected: Boolean(engineStatus?.has_connected_client), injectionState: engineStatus?.injection_state || "Stopped", lastSource: engineStatus?.last_source || "", lastError: engineStatus?.last_error || "", signingReady: Boolean(engineStatus?.codesigning_identity_configured), compilerReady: Number(engineStatus?.captured_compilations || 0) > 0, capturedCompilations: Number(engineStatus?.captured_compilations || 0) },
     tailnet: { detected: Boolean(descriptor.liveHost), userspace: Boolean(descriptor.tailnet?.userspace), privateForwardConfigured: Boolean(descriptor.tailnet?.privateForwardConfigured) },
     project: { path: project.path, root: project.root, readable: true, packageConfigured: Boolean(project.packageConfigured), interposableConfigured: Boolean(project.interposableConfigured), buildSettingsManagedBySwiftSim: Boolean(project.packageConfigured), scheme: project.scheme, availableSchemes: project.availableSchemes || [], schemeRequired: false, schemeError: "", applicationTarget: project.applicationTarget || "" },
     requiredBuildSettings: { configuration: "Debug", INJECTION_HOST: descriptor.liveHost, EMIT_FRONTEND_COMMAND_LINES: "YES", COMPILATION_CACHE_ENABLE_CACHING: "NO", ENABLE_DEBUG_DYLIB: "YES", ENABLE_XOJIT_PREVIEWS: "YES", SWIFT_OPTIMIZATION_LEVEL: "-Onone", OTHER_SWIFT_FLAGS: ["$(inherited)", "-Xfrontend", "-enable-implicit-dynamic", "-enable-private-imports"], OTHER_LDFLAGS: ["$(inherited)", "-Xlinker", "-interposable"] },
@@ -415,6 +425,7 @@ export async function ensureLiveEngineInstalled() {
 }
 
 async function ensureLiveEngineInstalledUnlocked() {
+  if (LOCAL_ENGINE_CANDIDATE.error) throw new Error(LOCAL_ENGINE_CANDIDATE.error);
   if (installedEngineMatchesManifest()) {
     return {
       id: "live-engine",
@@ -430,14 +441,13 @@ async function ensureLiveEngineInstalledUnlocked() {
   mkdirSync(ENGINE_ROOT, { recursive: true });
   const archivePath = join(ENGINE_ROOT, `engine-${ENGINE_VERSION}.zip`);
   const stagingPath = join(ENGINE_ROOT, `.staging-${process.pid}`);
-  const response = await fetch(ENGINE_URL, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!response.ok) {
-    throw new Error(`Unable to download the Swift Sim live engine (${response.status}).`);
+  let bytes;
+  if (LOCAL_ENGINE_CANDIDATE.candidate) bytes = readFileSync(LOCAL_ENGINE_CANDIDATE.candidate.archivePath);
+  else {
+    const response = await fetch(ENGINE_URL, { redirect: "follow", signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) throw new Error(`Unable to download the Swift Sim live engine (${response.status}).`);
+    bytes = Buffer.from(await response.arrayBuffer());
   }
-  const bytes = Buffer.from(await response.arrayBuffer());
   const digest = createHash("sha256").update(bytes).digest("hex");
   if (digest !== ENGINE_SHA256) {
     throw new Error("The downloaded Swift Sim live engine failed its integrity check.");
@@ -458,6 +468,10 @@ async function ensureLiveEngineInstalledUnlocked() {
   if (signature.status !== 0) {
     throw new Error("The Swift Sim live engine signature could not be verified.");
   }
+  if (LOCAL_ENGINE_CANDIDATE.candidate) {
+    const version = spawnSync("/usr/bin/plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", join(stagedApp, "Contents", "Info.plist")], { encoding: "utf8" });
+    if (version.status !== 0 || String(version.stdout).trim() !== ENGINE_VERSION) throw new Error("The local candidate app version does not match its measured configuration.");
+  }
   spawnSync("/usr/bin/xattr", ["-dr", "com.apple.quarantine", stagedApp], { encoding: "utf8" });
   await stopLiveEngine();
   rmSync(ENGINE_APP, { recursive: true, force: true });
@@ -465,7 +479,8 @@ async function ensureLiveEngineInstalledUnlocked() {
   writeFileSync(ENGINE_MANIFEST, `${JSON.stringify({
     version: ENGINE_VERSION,
     sha256: ENGINE_SHA256,
-    sourceRevision: "abdf6467318599abd3e952c941fed12e0caef04e",
+    sourceRevision: LOCAL_ENGINE_CANDIDATE.candidate?.sourceRevision || "abdf6467318599abd3e952c941fed12e0caef04e",
+    localCandidate: Boolean(LOCAL_ENGINE_CANDIDATE.candidate),
   }, null, 2)}\n`, { mode: 0o600 });
   rmSync(stagingPath, { recursive: true, force: true });
   rmSync(archivePath, { force: true });
@@ -491,12 +506,12 @@ export async function withLiveBuildSession(options, operation, runtime = {}) {
     const liveSession = await start(options);
     return operation({
       liveSession,
-      registerLiveBuildResult: register,
+      registerLiveBuildResult: (registration) => register({ ...registration, projectPath: options.project, scheme: options.scheme }),
     });
   });
 }
 
-async function registerLiveBuildResultUnlocked({ resultBundle, runtime = {} }) {
+async function registerLiveBuildResultUnlocked({ resultBundle, appPath = "", projectPath = "", scheme = "", runtime = {} }) {
   const path = resolve(resultBundle || "");
   if (!existsSync(path)) {
     throw new Error("The Xcode result bundle is missing.");
@@ -542,13 +557,128 @@ async function registerLiveBuildResultUnlocked({ resultBundle, runtime = {} }) {
     );
   }
   const liveManifestPath = resolve(String(runtime.liveManifestPath || LIVE_MANIFEST));
+  const binaryIdentity = appPath ? readBuiltLiveIdentity(appPath) : null;
+  const sourceBaselines = {};
+  if (binaryIdentity) {
+    for (const source of new Set(compilationContexts.flatMap((context) => context.sources || []))) {
+      if (!existsSync(source) || statSync(source).size > 2 * 1024 * 1024) continue;
+      sourceBaselines[resolve(source)] = createHash("sha256").update(readFileSync(source)).digest("hex");
+    }
+  }
   mkdirSync(dirname(liveManifestPath), { recursive: true });
   writeFileSync(liveManifestPath, `${JSON.stringify({
     version: 1,
     capturedAt: new Date().toISOString(),
     compilations: compilationContexts,
+    ...(binaryIdentity ? { binaryIdentity, sourceBaselines, binding: { projectPath: resolve(projectPath), scheme: String(scheme), projectRoot: readJSONFile(ENGINE_SESSION)?.projectRoot || "" } } : {}),
   }, null, 2)}\n`, { mode: 0o600 });
   return { registered, sources: [...sources].sort() };
+}
+
+function readBuiltLiveIdentity(appPath) {
+  const plist = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(appPath, "Info.plist")], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+  if (plist.status !== 0) throw new Error("The signed Debug app metadata could not be read.");
+  const info = JSON.parse(plist.stdout);
+  const executable = String(info.CFBundleExecutable || "");
+  if (!executable || basename(executable) !== executable) throw new Error("The signed Debug app executable is invalid.");
+  return normalizedLiveBinaryIdentity({
+    bundle_id: String(info.CFBundleIdentifier || ""), bundle_version: String(info.CFBundleShortVersionString || ""), build_number: String(info.CFBundleVersion || ""),
+    executable_uuid: machoUUID(readFileSync(join(appPath, executable))),
+    debug_dylib_uuid: machoUUID(readFileSync(join(appPath, `${executable}.debug.dylib`))),
+  });
+}
+
+export async function queuedLiveEngineControl(request, options = {}) {
+  return engineControl(request, options);
+}
+
+export function prepareQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, "queued-artifacts") } = {}) {
+  if (classifyEditSet({ files: record.files.map((file) => ({ ...file, kind: "swift", status: "modified" })) }).route !== "hot-reload") throw Object.assign(new Error("The queued snapshot is not an implementation-only edit."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
+  ensureDirectoryModeSync(artifactRoot, 0o700);
+  const key = createHash("sha256").update(JSON.stringify([record.requestId, record.snapshotDigest, record.scope.binaryIdentity])).digest("hex");
+  const path = join(artifactRoot, `eval_injection_swift_sim_dynamic_${key}.dylib`);
+  const marker = `${path}.json`;
+  const previous = readJSONFile(marker);
+  if (existsSync(path)) {
+    const stats = lstatSync(path);
+    if (!stats.isFile() || stats.isSymbolicLink() || (stats.mode & 0o077) !== 0 || previous?.key !== key || previous.requestId !== record.requestId || previous.snapshotDigest !== record.snapshotDigest) throw Object.assign(new Error("The queued artifact cannot be reused safely."), { code: "PATCH_ARTIFACT_INVALID" });
+    return { path, mode: "swift-dynamic-replacement-bundle" };
+  }
+  const entries = readdirSync(artifactRoot);
+  if (entries.length > 1024) throw Object.assign(new Error("Queued artifact capacity is exhausted."), { code: "PATCH_STORAGE_INSUFFICIENT" });
+  const volume = statfsSync(artifactRoot);
+  if (queuedArtifactUsage(artifactRoot) > 120 * 1024 * 1024 || Number(volume.bavail) * Number(volume.bsize) < 128 * 1024 * 1024) throw Object.assign(new Error("There is not enough bounded storage for a queued patch."), { code: "PATCH_STORAGE_INSUFFICIENT" });
+  // Publish ownership before compilation too, so an interrupted/failed compile
+  // has a bounded deterministic directory which expiry cleanup can reclaim.
+  writeFileSync(marker, JSON.stringify({ version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest, binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt }), { flag: "w", mode: 0o600 });
+  const generated = compileDynamicReplacementBundle(record.files.map((file) => ({ sourcePath: file.path, sourceText: file.afterSource, beforeSourceText: file.beforeSource })), { identifier: `queued_${key}` });
+  if (!generated) throw Object.assign(new Error("This edit cannot be prepared as a queued replacement."), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
+  const size = statSync(generated.dylibPath).size;
+  if (size > 32 * 1024 * 1024 || queuedArtifactUsage(artifactRoot) + size + 1024 * 1024 > 128 * 1024 * 1024) {
+    rmSync(dirname(generated.dylibPath), { recursive: true, force: true });
+    throw Object.assign(new Error("The prepared patch exceeds its storage quota."), { code: "PATCH_STORAGE_INSUFFICIENT" });
+  }
+  // A deterministic owner marker makes a failed publication reusable and gives
+  // expiry cleanup exact ownership; no unrelated app/build artifact is touched.
+  writeFileSync(path, readFileSync(generated.dylibPath), { flag: "wx", mode: 0o600 });
+  return { path, mode: "swift-dynamic-replacement-bundle" };
+}
+
+function queuedArtifactUsage(root) {
+  let bytes = 0;
+  for (const name of readdirSync(root).slice(0, 1025)) {
+    const stats = lstatSync(join(root, name));
+    if (stats.isFile() && !stats.isSymbolicLink()) bytes += stats.size;
+  }
+  if (existsSync(LIVE_PATCH_ROOT)) {
+    const directories = readdirSync(LIVE_PATCH_ROOT).filter((name) => /^queued_[a-f0-9]{64}$/.test(name));
+    if (directories.length > 1024) return Infinity;
+    for (const directory of directories) {
+      const path = join(LIVE_PATCH_ROOT, directory);
+      if (lstatSync(path).isSymbolicLink()) return Infinity;
+      for (const name of ["SwiftSimLivePatch.swift", `eval_injection_swift_sim_dynamic_${directory}.dylib`]) {
+        const file = join(path, name);
+        if (existsSync(file)) { const stats = lstatSync(file); if (stats.isSymbolicLink()) return Infinity; bytes += stats.size; }
+      }
+    }
+  }
+  return bytes;
+}
+
+export function cleanupQueuedLiveArtifacts(records, { artifactRoot = join(LIVE_ROOT, "queued-artifacts"), now = Date.now() } = {}) {
+  if (!existsSync(artifactRoot)) return;
+  const root = lstatSync(artifactRoot);
+  if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o077) !== 0) return;
+  const retained = new Set(records.filter((record) => record.expiresAt > now).map((record) => record.requestId));
+  for (const name of readdirSync(artifactRoot).slice(0, 1024)) {
+    if (!/^eval_injection_swift_sim_dynamic_[a-f0-9]{64}\.dylib\.json$/.test(name)) continue;
+    const markerPath = join(artifactRoot, name); const stats = lstatSync(markerPath);
+    if (!stats.isFile() || stats.isSymbolicLink() || stats.size > 16_384 || (stats.mode & 0o077) !== 0) continue;
+    const marker = readJSONFile(markerPath);
+    if (marker?.version !== 1 || !/^[a-f0-9]{64}$/.test(marker.key) || name !== `eval_injection_swift_sim_dynamic_${marker.key}.dylib.json`
+      || retained.has(marker.requestId) || !Number.isSafeInteger(marker.expiresAt) || marker.expiresAt > now) continue;
+    const path = markerPath.slice(0, -5);
+    if (existsSync(path) && lstatSync(path).isSymbolicLink()) continue;
+    rmSync(path, { force: true });
+    // The compilation path is derived, never trusted from marker text.
+    const compilation = join(LIVE_PATCH_ROOT, `queued_${marker.key}`);
+    if (existsSync(compilation) && !lstatSync(compilation).isSymbolicLink()) rmSync(compilation, { recursive: true, force: true });
+    rmSync(markerPath, { force: true });
+  }
+}
+
+export async function prepareQueuedLivePatchAsync(record, { cancellationSignal } = {}) {
+  const runner = new NodeCommandRunner({ spawn, spawnSync });
+  const result = await runner.run({
+    executable: process.execPath,
+    args: [fileURLToPath(new URL("../bin/swift-sim-live-prepare.js", import.meta.url))],
+    input: JSON.stringify(record),
+    ...(cancellationSignal ? { cancellationSignal } : {}),
+    environment: { inherit: ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS"], overrides: {}, unset: [] },
+    policy: { timeoutMs: 60_000, outputLimitBytes: 1024 * 1024, processGroup: "new", acceptedExitCodes: [0] },
+  });
+  if (result.code !== 0 || result.timedOut || result.cancellationError) throw Object.assign(new Error("The queued replacement could not be compiled. No app rebuild was started."), { code: "PATCH_COMPILE_FAILED" });
+  try { return JSON.parse(result.stdout); } catch { throw Object.assign(new Error("The queued compiler returned an invalid result."), { code: "PATCH_COMPILE_FAILED" }); }
 }
 
 function readXcodeBuildLog(path) {
@@ -1434,17 +1564,17 @@ function prepareLivePatchBundle(files) {
   };
 }
 
-function compileDynamicReplacementBundle(files) {
+function compileDynamicReplacementBundle(files, { identifier: requestedIdentifier = "" } = {}) {
   const manifest = readJSONFile(LIVE_MANIFEST);
-  const entries = files.map(({ sourcePath, beforePath = "" }) => {
-    const source = readFileSync(sourcePath, "utf8");
+  const entries = files.map(({ sourcePath, beforePath = "", sourceText, beforeSourceText }) => {
+    const source = sourceText ?? readFileSync(sourcePath, "utf8");
     const context = manifest?.compilations?.find((item) =>
       item.sources?.some((candidate) => resolve(candidate) === resolve(sourcePath))
     );
     if (!context) throw new Error(`No captured compiler context exists for ${basename(sourcePath)}.`);
     const replacement = generateDynamicReplacementSource({
       source,
-      beforeSource: beforePath && existsSync(beforePath) ? readFileSync(beforePath, "utf8") : "",
+      beforeSource: beforeSourceText ?? (beforePath && existsSync(beforePath) ? readFileSync(beforePath, "utf8") : ""),
       sourcePath,
       moduleName: context.moduleName,
     });
@@ -1462,7 +1592,8 @@ function compileDynamicReplacementBundle(files) {
     throw new Error("Multi-file replacements must belong to one captured Swift module and compiler context.");
   }
   const replacement = entries.map((entry) => entry.replacement).join("\n");
-  const identifier = `${Date.now()}-${process.pid}`;
+  const identifier = requestedIdentifier || `${Date.now()}-${process.pid}`;
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(identifier)) throw new Error("Invalid replacement artifact identity.");
   const patchDirectory = join(LIVE_PATCH_ROOT, identifier);
   const moduleName = `SwiftSimLivePatch_${identifier.replaceAll("-", "_")}`;
   const generatedPath = join(patchDirectory, "SwiftSimLivePatch.swift");
@@ -1850,6 +1981,7 @@ function braceDepth(source, start, end) {
 }
 
 function installedEngineMatchesManifest() {
+  if (LOCAL_ENGINE_CANDIDATE.error) return false;
   if (!existsSync(ENGINE_EXECUTABLE) || !existsSync(ENGINE_MANIFEST)) return false;
   try {
     const manifest = JSON.parse(readFileSync(ENGINE_MANIFEST, "utf8"));

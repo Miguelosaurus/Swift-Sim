@@ -20,7 +20,8 @@ Read only the matching branch:
   [linker recovery instructions](../../../../../docs/TROUBLESHOOTING.md#live-enabled-debug-build-has-a-linker-compatibility-failure).
 - **Live edit absent:** do not screenshot or repeat deep inspection. Confirm
   Debug app, private Tailnet, unlocked device, and same signing team; open the
-  signed result from `deliver-change`.
+  queued status from `live-delivery-status`. A disconnected compatible edit
+  must not trigger a signed build.
 - **Live not ready:** confirm `SwiftSimLive`, one root `.swiftSimLive()`,
   prepared Debug build, and matching development identity. Never publish 8887.
 - **Pairing/Tailnet:** use `setup-status`, then `pair` or `pair --qr` for a
@@ -34,3 +35,19 @@ Read only the matching branch:
   Tailscale.
 - **Simulator stream:** inspect `transport.activeForPhone` and create a fresh
   session only after native decoder reconnect has had a moment.
+
+- **Queued edit:** keep the Mac/helper available. The phone may be offline,
+  locked, backgrounded or on another screen. The matching updated Debug client
+  reconnects when it can run; report pending status without asking for manual
+  injection retries or another install.
+- **Engine/client/helper update required:** this is a protocol activation issue,
+  not temporary phone absence. Activate the matching candidate/release and
+  perform the single Debug SDK update if needed. Do not queue work forever on
+  the old engine or silently start an app build.
+- **Uncertain application:** preserve request, digest and process identity.
+  Matching receipts may reconcile it. Do not replace its identity or retry an
+  ambiguous/partial effect as a new operation.
+- **Storage:** signed builds check configuration-specific capacity only when a
+  build is selected. Queued patch preparation has its own bounded quota. A
+  storage/signing failure is not a bad project input and must retain any
+  original fallback reason. Do not repeatedly rebuild or delete user data.

@@ -19,6 +19,7 @@ export function runtimeHealthPayload(role, { nonce = runtimeHealthNonce(role) } 
     helper: String(role || ""),
     version: SWIFT_SIM_VERSION,
     protocol: SWIFT_SIM_RUNTIME_PROTOCOL,
+    ...(role === HELPER_RUNTIME_ROLE ? { capabilities: ["durable-live-delivery-v1"] } : {}),
     ...(nonce ? { nonce: String(nonce) } : {}),
   };
 }

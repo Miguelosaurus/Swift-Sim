@@ -19,6 +19,9 @@ import {
 } from "../src/liveReload.js";
 import { deliverChange } from "../src/changeDelivery.js";
 import { deliveryRuntimeHealth } from "../src/helperDeliveryReadiness.js";
+import { liveDeliveryService } from "../src/liveDeliveryService.js";
+import { classifyBuildFailure } from "../src/buildFailure.js";
+import { stageLocalEngineCandidate } from "../src/liveEngineCandidate.js";
 import { deviceBuildArtifactDoctorSection } from "../src/commands/deviceBuildArtifactDoctorProjection.js";
 
 const runtimeRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -50,6 +53,18 @@ async function main() {
   if (command === "doctor" || command === "status") return doctor(args);
   if (command === "update") return update();
   if (command === "live-status") return liveStatus(args);
+  if (command === "live-delivery-status") {
+    const { values } = parseArgs({ args, options: { request: { type: "string" } } });
+    if (!values.request) throw new Error("Pass the queued live request identity with --request.");
+    console.log(JSON.stringify(liveDeliveryService().status(values.request)));
+    return;
+  }
+  if (command === "engine-candidate") {
+    const { values } = parseArgs({ args, options: { archive: { type: "string" }, version: { type: "string" }, sha256: { type: "string" }, "source-revision": { type: "string" } } });
+    const result = await stageLocalEngineCandidate({ archivePath: values.archive, version: values.version, sha256: values.sha256, sourceRevision: values["source-revision"] });
+    console.log(JSON.stringify({ ...result, installed: false, nextAction: "Run swift-sim setup to activate the explicitly staged local candidate." }));
+    return;
+  }
   if (command === "live-start") return liveStart(args);
   if (command === "classify-change") return classifyChange(args);
   if (command === "route-change") return routeChange(args);
@@ -208,6 +223,7 @@ async function deliverChangeCommand(args) {
     "build-setting": { type: "string", multiple: true },
     "allow-provisioning-updates": { type: "boolean" }, "replace-app-data": { type: "boolean" },
     "verbose-json": { type: "boolean" },
+    "live-only": { type: "boolean" },
   }});
   const files = values["changes-manifest"] ? readChangesManifest(values["changes-manifest"]) : deliveryFiles(values.before || [], values.after || []);
   const result = await deliverChange({
@@ -220,6 +236,7 @@ async function deliverChangeCommand(args) {
       "replace-app-data": Boolean(values["replace-app-data"]),
     },
     runtimeCheck: deliveryRuntimeHealth, buildDevice: runDeliveryDeviceBuild,
+    liveOnly: Boolean(values["live-only"]),
     verbose: Boolean(values["verbose-json"]),
   });
   console.log(values["verbose-json"] ? JSON.stringify(result, null, 2) : JSON.stringify(result));
@@ -243,7 +260,7 @@ async function runDeliveryDeviceBuild(input) {
   const result = spawnSync(process.execPath, [helperEntryPath, ...helperArgs], { encoding: "utf8", env: process.env, maxBuffer: 32 * 1024 * 1024 });
   if (result.status !== 0) {
     const error = new Error(compactError(result) || "The signed Swift Sim build failed.");
-    if (/outdated|protocol|version mismatch/i.test(error.message)) error.code = "PROTOCOL_MISMATCH";
+    error.code = classifyBuildFailure(error);
     throw error;
   }
   const parsed = parseJSONOutput(result.stdout);
@@ -435,6 +452,7 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
       optional: true,
       readinessScope: "prerequisites",
       liveProofRequired: true,
+      asyncDelivery: { helperReady: helper.queueReady === true, engineProtocol: Number(liveReload.engine.preparedDeliveryProtocol || 0), localCandidate: Boolean(liveReload.engine.localCandidate), physicalProofRequired: true },
       ready: liveReload.engine.installed && Boolean(liveReload.host),
       engine: check(liveReload.engine.installed, liveReload.engine.installed
         ? `Swift Sim live engine ${liveReload.engine.version} is installed`
@@ -861,7 +879,8 @@ Usage:
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
   swift-sim route-change ...      Choose hot reload or a new signed build
-  swift-sim deliver-change ...    Deliver one edit with live proof or one signed fallback
+  swift-sim deliver-change ...    Queue a compatible edit; --live-only never builds
+  swift-sim live-delivery-status  Read a queued request with --request
   swift-sim list-apps [--archived] List managed prototype apps and build history
   swift-sim verify-device-build    Verify an install on a reachable iPhone
   swift-sim archive-app ...        Archive or restore an app from the library

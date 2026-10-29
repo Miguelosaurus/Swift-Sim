@@ -18,7 +18,7 @@ let package = Package(
         // unstable revision under Swift Package Manager.
         .package(
             url: "https://github.com/Miguelosaurus/InjectionNext.git",
-            revision: "abdf646"
+            revision: "f93719095ffc1b107507736c55aa3984222da751"
         ),
     ],
     targets: [

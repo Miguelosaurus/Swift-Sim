@@ -27,7 +27,7 @@ running and connects to the intended live session. A ready build, setup
 report, or engine connection alone is not hot-reload acceptance. Use one
 temporary body-only visible label change, deliver it once, and require the
 current-request proof below without another installation. Restore the label
-through another proven delivery. Preserve app identity, data, and any existing
+through another proven delivery; the request itself can be made while the app is absent. Preserve app identity, data, and any existing
 project-specific linker workaround. Later ordinary edits use `deliver-change`
 without repeating setup or deep readiness checks.
 
@@ -48,3 +48,25 @@ a revision greater than the prior revision. Screenshots are not proof. One
 bounded recovery may restart a stale session; compile failures and partial
 applications are never retried.
 
+
+## Asynchronous edits
+
+The reconnect SDK and prepared-delivery engine are a matching contract. The
+current engine 0.5.0 is a qualified local candidate; public setup still defaults
+to 0.4.0. A reachable old engine, SDK, or helper must return an explicit update
+requirement. Complete one Debug SDK bootstrap when the matching candidate is
+activated; do not repeatedly rebuild because a device is temporarily absent.
+
+For an explicit hot reload or acceptance test, pass `--live-only`. Compatible
+edits become durable `queued` intent. The Mac helper compiles offline when its
+engine/context/signing prerequisites are available, then applies when the
+matching Debug app next reaches foreground/root readiness, from any screen.
+The app need not stay open while changes are requested. Locked/offline/
+terminated phones wait on the Mac; iOS is not forced to execute background code.
+
+Use `live-delivery-status --request <opaque-request-id>` for progress, not a
+second delivery attempt. `applied` without `refreshed` is incomplete. Fresh
+processes may receive a cumulative replacement request with a conservative
+expiry; report that current identity/expiry. Offline interposition-only
+preparation is not supported by this candidate. Keep uncertain effects fenced;
+only matching native receipts or proven no-admission rejections can recover.

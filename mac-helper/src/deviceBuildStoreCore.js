@@ -213,6 +213,19 @@ export class DeviceBuildStore {
     return this.withTransaction((state) => sortedBuilds(state.builds));
   }
 
+  // Storage planning needs only a bounded metadata hint, not another state
+  // transaction. Staleness may miss an estimate but can never reduce the
+  // configuration floor or grant build/install authority.
+  buildStorageHistory() {
+    return sortedBuilds(this.builds).slice(0, 64).map((build) => ({
+      project: build.project || "",
+      workspace: build.workspace || "",
+      scheme: build.scheme || "",
+      configuration: build.configuration || "Release",
+      artifacts: { ipaPath: build.artifacts?.ipaPath || "" },
+    }));
+  }
+
   listApps({ includeArchived = false } = {}) {
     return this.withTransaction((state) => listAppsFromState(state, includeArchived));
   }

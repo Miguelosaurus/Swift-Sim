@@ -314,3 +314,86 @@ test("failed and recovered builds hand terminal artifacts to retention", async (
     ["recovered-build", "failed"],
   ]);
 });
+
+test("an arbitrary run failure cannot leave an active build after its task has ended", async () => {
+  const diagnostics = [];
+  const original = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+  const { deps, saved } = harness({
+    async runBuild(value, options) {
+      value.state = "building";
+      options.save(value);
+      throw original;
+    },
+    artifactRetention: { afterTerminalBuild() { throw new Error("ENOSPC during retention"); } },
+    reportRetentionError: (message) => diagnostics.push(message),
+  });
+  const runtime = createDeviceBuildRuntimeController(deps);
+  const value = build("failed-active");
+  await runtime.startBuild(value);
+  assert.equal(value.state, "failed");
+  assert.equal(saved.at(-1).state, "failed");
+  assert.equal(runtime.activeTasks().length, 0);
+  assert.equal(runtime.pendingTerminalFailures().length, 0);
+  assert.equal(original.code, "BUILD_STORAGE_INSUFFICIENT");
+  assert.equal(diagnostics.length, 1);
+});
+
+test("terminal metadata retries after ENOSPC without rebuilding or reporting the stale record active", async () => {
+  let unavailable = true; let runs = 0;
+  const diagnostics = [];
+  const signingFailure = new Error("Command CodeSign failed");
+  const { deps, store } = harness({
+    async runBuild(value, options) {
+      runs += 1;
+      value.state = "building";
+      options.save(value);
+      throw signingFailure;
+    },
+    reportRetentionError: (message) => diagnostics.push(message),
+  });
+  let durable;
+  store.save = (value) => {
+    if (value.state === "failed" && unavailable) throw Object.assign(new Error("ENOSPC"), { code: "ENOSPC" });
+    durable = structuredClone(value);
+    return value;
+  };
+  const runtime = createDeviceBuildRuntimeController(deps);
+  const value = build("pending-terminal");
+  await assert.rejects(runtime.runCliBuild(value), (error) => error === signingFailure && error.code === "SIGNING_FAILED" && error.metadataPersistenceFailed === true);
+  assert.equal(durable.state, "building");
+  assert.equal(runtime.projectBuildState(durable).state, "failed");
+  assert.deepEqual(runtime.pendingTerminalFailures(), [value.id]);
+  assert.match(diagnostics[0], /terminal metadata could not be persisted/);
+  runtime.flushTerminalBuildFailures();
+  assert.deepEqual(runtime.pendingTerminalFailures(), [value.id]);
+  unavailable = false;
+  await runtime.drainDeliveryReferences();
+  assert.equal(durable.state, "failed");
+  assert.deepEqual(runtime.pendingTerminalFailures(), []);
+  assert.equal(runs, 1);
+});
+
+test("a progress save ENOSPC is persisted terminal before retention rather than leaving building state", async () => {
+  let startedWorker = false;
+  const { deps, store } = harness({
+    async runBuild(value, options) {
+      value.state = "building";
+      options.save(value);
+      startedWorker = true;
+    },
+    artifactRetention: { afterTerminalBuild() { throw new Error("ENOSPC during retention"); } },
+  });
+  let durable;
+  store.save = (value) => {
+    if (value.state === "building") throw Object.assign(new Error("progress ENOSPC"), { code: "ENOSPC" });
+    durable = structuredClone(value);
+    return value;
+  };
+  const runtime = createDeviceBuildRuntimeController(deps);
+  const value = build("progress-save-failure");
+  await runtime.startBuild(value);
+  assert.equal(startedWorker, false);
+  assert.equal(value.state, "failed");
+  assert.equal(durable.state, "failed");
+  assert.equal(runtime.activeTasks().length, 0);
+});

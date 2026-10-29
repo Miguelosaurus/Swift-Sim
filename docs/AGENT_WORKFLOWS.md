@@ -20,7 +20,7 @@ The normal rules are:
 - Use Swift Sim when the user requests iPhone delivery, remote hot reload, or Simulator preview.
 - Keep the agent session on the Mac that contains Xcode and the project.
 - Run `swift-sim deliver-change` one time after a completed phone-loop edit.
-- Let that command choose between a live Debug update and a signed build.
+- Compatible edits queue for the matching Debug app; only structural edits select a signed build. Use `--live-only` for explicit hot reload requests/tests.
 - Do not claim a live update without applied, refresh, and revision proof.
 - Report **Install opened** until helper and device verification proves **Installed**.
 - Do not expose paths, device identifiers, signing identities, private hostnames, ports, or tokens.
@@ -141,15 +141,16 @@ The command owns:
 
 - change classification
 - warm live readiness
-- one bounded recovery attempt
-- runtime proof
-- signed-build fallback
+- durable snapshots and bounded reconnect recovery
+- current-request runtime proof
+- signed builds only for structural edits when live-only mode is absent
 
 Interpret the terminal outcome:
 
 | Outcome | Agent response |
 | --- | --- |
-| `hot-reloaded` | Tell the user to test the running Debug app. No install is required. |
+| `hot-reloaded` | Report the matching refreshed request/revision; no install is required. |
+| `queued` | Report pending state. The helper continues when the matching Debug app can run; no manual delivery retry or specific screen is required. |
 | `install-link-ready` | Say that the change needs a new signed build. Provide **Open in Swift Sim to Install**. |
 | `no-change` | Do not report a delivery result. |
 | `needs-user-action` | Explain only the returned action. |
@@ -166,7 +167,11 @@ and engine connection alone are not successful hot reload.
 
 A compiled patch or loaded dynamic library is not proof. A live success requires the correlated applied replacement, refresh acknowledgement, and new root revision.
 
-Structural, mixed, non-Swift, unavailable, and unproven edits must use a signed build. Partial application is not success.
+Structural, mixed and non-Swift edits require a signed build unless `--live-only` forbids it. Compatible edits remain queued/failed if preparation or proof is unavailable; they do not silently start a build. Partial application is not success.
+
+Delivery schema 2 and matching engine/SDK/helper capabilities are required for
+[asynchronous delivery](ASYNC_HOT_RELOAD.md). A local candidate is distinct from
+a published release; an old installation returns an explicit update requirement.
 
 See [Hot Reload Evidence](evidence/README.md) for tested mechanism boundaries.
 

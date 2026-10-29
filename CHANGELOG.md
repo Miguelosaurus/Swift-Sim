@@ -6,6 +6,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Asynchronous live-delivery candidate: immutable durable intents, offline
+  dynamic-replacement preparation, native reconnect/receipt fences, live-only
+  mode, and explicit queue status. Requires the matching local engine/SDK
+  candidate; no new public engine binary release is implied.
 - Interactive one-time `swift-sim pair --qr` invitations with bounded TTLs,
   private-Tailnet handoff, and a native **Scan Pairing QR** flow.
 - A secure invitation exchange that keeps the durable pairing token out of the
@@ -23,6 +27,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Kept compatible disconnected edits out of full-build fallback. Preserved
+  fallback routing reasons, classified CodeSign/storage failures, and retried
+  terminal metadata persistence without rebuilding after retention/save errors.
 - Detect known private self-import linker failures in managed Debug builds
   before packaging an install, while preserving an explicitly selected linker.
 - Report typed, sanitized helper health failures consistently across delivery,
