@@ -322,13 +322,26 @@ function requireVerifiedSnapshot(snapshot, bound) {
 
 /** @param {Record<string, any>} left @param {Record<string, any>} right */
 function sourceHashesEqual(left, right) {
-  return ["credential", "invitations", "deviceBuilds", "sessions"].every(
-    (key) =>
-      left?.[key]?.present === true &&
-      right?.[key]?.present === true &&
-      left[key].sha256 === right[key].sha256 &&
-      left[key].byteLength === right[key].byteLength,
-  );
+  return ["credential", "invitations", "deviceBuilds", "sessions"].every((key) => {
+    const before = left?.[key];
+    const after = right?.[key];
+    if (!before || !after || before.present !== after.present || before.fileName !== after.fileName)
+      return false;
+    if (before.present === false) {
+      return (
+        ["invitations", "sessions"].includes(key) &&
+        before.sha256 === null &&
+        after.sha256 === null &&
+        before.byteLength === null &&
+        after.byteLength === null
+      );
+    }
+    return (
+      before.present === true &&
+      before.sha256 === after.sha256 &&
+      before.byteLength === after.byteLength
+    );
+  });
 }
 
 /** @template T @param {T} value @returns {T} */

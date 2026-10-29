@@ -38,6 +38,12 @@ if [[ -f "$ROOT/mac-helper/bin/swift-sim-phase4-cutover.js" ]]; then
   chmod +x "$DIST/mac-helper/bin/swift-sim-phase4-cutover.js"
 fi
 
+# Keep the local operator runner available to compiled process verification.
+# It loads the explicitly supplied installed candidate; it never starts a helper.
+if [[ -f "$ROOT/scripts/phase4/requalify-state.mjs" ]]; then
+  copy_tracked_asset "scripts/phase4/requalify-state.mjs"
+fi
+
 # Record immutable candidate provenance inside the packaged mac-helper tree.
 # Pull-request Actions check out a synthetic merge ref by default, so prefer the
 # immutable PR head SHA from the event payload. Release/push/local builds fall

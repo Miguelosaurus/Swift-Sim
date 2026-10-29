@@ -127,11 +127,17 @@ export class Phase4CutoverCoordinator {
     this.#preparePairingFence(preparationID);
 
     const domains = this.#runPreparationImports();
+    const measured = /** @type {Record<string, unknown>} */ (maintenance).measured;
+    const sourcePresence =
+      measured && typeof measured === "object"
+        ? /** @type {Record<string, unknown>} */ (measured).sourceHashes
+        : undefined;
     const evidence = Object.freeze({
       version: 1,
       candidateSHA: maintenance.candidateSHA,
       verifyRunID: maintenance.verifyRunID,
       domains,
+      ...(sourcePresence === undefined ? {} : { sourcePresence }),
     });
     const authority = this.#authority.beginPreparation({
       expectedRevision: input.expectedRevision,

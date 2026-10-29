@@ -1,5 +1,7 @@
 // @ts-check
 
+import { normalizePhase4ExpectedHelperIdentity } from "./phase4HelperProcessIdentity.js";
+
 /**
  * External ceremony / operator facts. These are intentionally separate from
  * machine-observable facts measured by phase4MaintenanceEvidence.js. A caller
@@ -91,17 +93,7 @@ export function validatePhase4MaintenanceEvidence(evidence, stage) {
 
   const candidateSHA = requireGitSHA(values.candidateSHA, "Phase-4 candidate SHA");
   const verifyRunID = requirePositiveInteger(values.verifyRunID, "Phase-4 Verify run id");
-  const processIdentity = requireRecord(values.processIdentity, "Phase-4 helper process identity");
-  const pid = requirePositiveInteger(processIdentity.pid, "Phase-4 helper process pid");
-  const startedAt = requireNonEmptyString(
-    processIdentity.startedAt,
-    "Phase-4 helper process start identity",
-  );
-  if (pid <= 1) {
-    throw new Error(
-      "Phase-4 helper process identity requires PID plus process start identity; PID alone is forbidden.",
-    );
-  }
+  const processIdentity = normalizePhase4ExpectedHelperIdentity(values.processIdentity);
 
   // Submitted machine-observable values are informational only. If supplied,
   // validate their shape so malformed evidence cannot hide in the ceremony
@@ -123,7 +115,7 @@ export function validatePhase4MaintenanceEvidence(evidence, stage) {
     ...structuredClone(values),
     candidateSHA,
     verifyRunID,
-    processIdentity: Object.freeze({ ...processIdentity, pid, startedAt }),
+    processIdentity,
     ...(shadowMismatchCount === undefined ? {} : { shadowMismatchCount }),
   });
 }
@@ -150,20 +142,4 @@ function requireNonNegativeInteger(value, label) {
     throw new Error(`${label} must be a non-negative safe integer.`);
   }
   return Number(value);
-}
-
-/** @param {unknown} value @param {string} label */
-function requireNonEmptyString(value, label) {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label} must be non-empty.`);
-  }
-  return value.trim();
-}
-
-/** @param {unknown} value @param {string} label */
-function requireRecord(value, label) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
-  }
-  return /** @type {Record<string, unknown>} */ (value);
 }

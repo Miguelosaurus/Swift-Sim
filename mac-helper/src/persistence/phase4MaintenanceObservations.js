@@ -28,7 +28,7 @@ import { inspectPhase4MigrationIdentity } from "./phase4MigrationIdentity.js";
  *   provenancePath: string,
  *   stage?: MaintenanceStage,
  *   expectedCandidateSHA: string,
- *   expectedProcessIdentity: { pid: number, startedAt: string },
+ *   expectedProcessIdentity: import("./phase4HelperProcessIdentity.js").ExpectedHelperIdentity,
  *   allowedSchemaVersions?: readonly number[],
  *   requireFullSchema?: boolean,
  *   heldDomainLocks?: readonly import("../infrastructure/ports.js").LockLease[],
@@ -51,7 +51,7 @@ export function measurePhase4MaintenanceFacts(options) {
     expectedIdentity: options.expectedProcessIdentity,
   });
   const locks = measureExactDomainLocks(stateRoot, options.spawnSync, options.heldDomainLocks);
-  const permissions = readPrivatePermissions(stateRoot);
+  const permissions = readPrivatePermissions(stateRoot, helper.state === "absent-unrecorded");
   const sourceHashes = readSourceHashes(stateRoot);
   const shadow = observePhase4ShadowMismatches(databasePath);
   const authority = observePhase4AuthorityState(databasePath, migration.schemaVersion);
@@ -62,7 +62,8 @@ export function measurePhase4MaintenanceFacts(options) {
   const helperQuiesced = helper.helperQuiesced === true;
   const exactDomainLocksAvailable = locks.available === true;
   const liveSourceHashesCaptured = Object.values(sourceHashes).every(
-    (entry) => entry.present === true && typeof entry.sha256 === "string",
+    (entry) =>
+      entry.present === false || (entry.present === true && typeof entry.sha256 === "string"),
   );
 
   return deepFreeze({
@@ -179,11 +180,20 @@ function readCandidateProvenance(provenancePath) {
 
 /** @param {string} stateRoot */
 function readSourceHashes(stateRoot) {
-  /** @param {string} fileName */
-  const readSource = (fileName) => {
+  /** @param {string} fileName @param {boolean} [optional] */
+  const readSource = (fileName, optional = false) => {
     const path = join(stateRoot, fileName);
+    try {
+      // Inspect before reading so a dangling symlink is never interpreted as
+      // legitimate absence. Only a genuinely missing optional leaf is absent.
+      assertPrivateFile(path, `Phase-4 legacy source ${fileName}`);
+    } catch (error) {
+      if (optional && hasCode(error, "ENOENT")) {
+        return Object.freeze({ present: false, fileName, byteLength: null, sha256: null });
+      }
+      throw error;
+    }
     const bytes = readFileSync(path);
-    assertPrivateFile(path, `Phase-4 legacy source ${fileName}`);
     return Object.freeze({
       present: true,
       fileName,
@@ -193,14 +203,14 @@ function readSourceHashes(stateRoot) {
   };
   return Object.freeze({
     credential: readSource("pairing.json"),
-    invitations: readSource("pairing-invites.json"),
+    invitations: readSource("pairing-invites.json", true),
     deviceBuilds: readSource("device-builds.json"),
-    sessions: readSource("sessions.json"),
+    sessions: readSource("sessions.json", true),
   });
 }
 
-/** @param {string} stateRoot */
-function readPrivatePermissions(stateRoot) {
+/** @param {string} stateRoot @param {boolean} allowMissingHelperIdentity */
+function readPrivatePermissions(stateRoot, allowMissingHelperIdentity) {
   /** @type {Array<{ label: string, path: string, kind: "directory" | "file" }>} */
   const checks = [
     { label: "stateRoot", path: stateRoot, kind: "directory" },
@@ -248,6 +258,14 @@ function readPrivatePermissions(stateRoot) {
       if (!privateMode) missing.push(check.label);
     } catch (error) {
       if (hasCode(error, "ENOENT") || hasCode(error, "ENOTDIR")) {
+        if (
+          check.label === "pairingInvitations" ||
+          check.label === "sessions" ||
+          (check.label === "helperIdentity" && allowMissingHelperIdentity)
+        ) {
+          entries[check.label] = Object.freeze({ present: false, private: true });
+          continue;
+        }
         entries[check.label] = Object.freeze({ present: false, private: false });
         missing.push(check.label);
         continue;
@@ -324,8 +342,11 @@ function readRollbackMaterial(stateRoot, authority) {
   try {
     const entry = lstatSync(directory);
     if (!entry.isDirectory() || entry.isSymbolicLink() || (entry.mode & 0o077) !== 0) return false;
-    return verifyPhase4RollbackBackups({ stateRoot, domains: authority.evidence?.domains })
-      .verified;
+    return verifyPhase4RollbackBackups({
+      stateRoot,
+      domains: authority.evidence?.domains,
+      sourcePresence: authority.evidence?.sourcePresence,
+    }).verified;
   } catch {
     return false;
   }

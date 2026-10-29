@@ -2,11 +2,13 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { createSessionLegacyProcessIdentity } from "../infrastructure/sessionLegacyProcessIdentity.js";
 import { NodeAtomicFileStore } from "../infrastructure/nodeAtomicFileStore.js";
+import { observePhase4UnrecordedHelperAbsence } from "./phase4HelperAbsenceObservation.js";
 
 /** @typedef {(command: string, args: string[], options: { encoding: string }) => unknown} SpawnSyncLike */
+/** @typedef {{ state: "absent" } | { pid: number, startedAt: string }} ExpectedHelperIdentity */
 
 const JOURNAL_VERSION = 1;
 const JOURNAL_ROLE = "swift-sim-helper";
@@ -72,12 +74,24 @@ export function publishPhase4HelperProcessIdentity({
  * @param {{
  *   stateRoot: string,
  *   spawnSync: SpawnSyncLike,
- *   expectedIdentity: { pid: number, startedAt: string },
+ *   expectedIdentity: ExpectedHelperIdentity,
  * }} options
  */
 export function inspectPhase4HelperProcessIdentity({ stateRoot, spawnSync, expectedIdentity }) {
-  const expected = normalizeExpectedIdentity(expectedIdentity);
+  const expected = normalizePhase4ExpectedHelperIdentity(expectedIdentity);
   const path = phase4HelperProcessIdentityPath(stateRoot);
+  if ("state" in expected) {
+    // This bootstrap is only for genuine old-release absence. A pre-existing,
+    // unreadable, malformed or symlinked journal must use its recorded-identity
+    // path and cannot be bypassed by claiming it does not exist.
+    try {
+      lstatSync(path);
+    } catch (error) {
+      if (hasCode(error, "ENOENT")) return observePhase4UnrecordedHelperAbsence(spawnSync);
+      throw new Error("Phase-4 helper identity journal absence is not proven.", { cause: error });
+    }
+    throw new Error("Phase-4 unrecorded helper absence requires no existing identity journal.");
+  }
   let parsed;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
@@ -186,11 +200,23 @@ function observeHelperProcess(pid, spawnSync) {
 }
 
 /** @param {unknown} value */
-function normalizeExpectedIdentity(value) {
+export function normalizePhase4ExpectedHelperIdentity(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Phase-4 expected helper identity must be an object.");
   }
   const record = /** @type {Record<string, unknown>} */ (value);
+  if (record.state === "absent") {
+    if (Object.keys(record).length !== 1) {
+      throw new Error("Phase-4 absent helper request cannot contain a PID or process identity.");
+    }
+    return Object.freeze({ state: /** @type {const} */ ("absent") });
+  }
+  if (
+    record.state !== undefined ||
+    Object.keys(record).some((key) => !["pid", "startedAt"].includes(key))
+  ) {
+    throw new Error("Phase-4 expected helper identity request is invalid.");
+  }
   return Object.freeze({
     pid: requirePid(record.pid),
     startedAt: requireStartToken(record.startedAt),

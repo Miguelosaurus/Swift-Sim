@@ -202,3 +202,25 @@ machine-observable facts before any migration-capable open. Hand-authored
 inspector and the evidence binding both run read-only.
 
 Those operations were not performed by the P4-CUTOVER-IMPLEMENTATION worker.
+
+## Optional legacy source absence
+
+A prior release may legitimately have no `pairing-invites.json` or no
+`sessions.json`. Do not create empty files to pass maintenance preflight. The
+locked readers treat these sources as empty projections while preserving their
+absence as part of source revision identity. Pairing credentials and the
+device-build source remain required.
+
+Preflight records each optional absence explicitly as `present=false`, the exact
+source filename, and null byte length/digest. Every present source still needs
+owner-only permissions and an exact byte-for-byte backup. Preparation evidence
+persists all four source-presence records; its backup proof includes both actual
+backups and absent-source witnesses. The backup count therefore may be two,
+three, or four, while there are always four source identity proofs.
+
+Any absent-to-present or present-to-absent change between preflight and the
+dependent stage is stale evidence and blocks that stage. A symlink, unreadable
+file or invalid permissions never counts as absence. Rollback validates the
+persisted optional absence witness and every preserved present-source backup;
+it does not require current legacy files to remain absent because a retry may
+already have published part of the current SQLite export.
