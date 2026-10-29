@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 1,
+  "request": {
+    "protocolVersion": 1,
+    "requestId": "fixture:implementation-only",
+    "files": [
+      {
+        "path": "Card.swift",
+        "kind": "swift",
+        "status": "modified",
+        "beforeSource": "func value() -> String { \"old\" }\n",
+        "afterSource": "func value() -> String { \"new\" }\n"
+      }
+    ]
+  },
+  "responses": {
+    "hotReload": {
+      "protocolVersion": 1,
+      "analyzerVersion": "swift-syntax-prototype",
+      "requestId": "fixture:implementation-only",
+      "status": "ok",
+      "route": "hot-reload",
+      "reasonCode": "IMPLEMENTATION_ONLY",
+      "detail": "Only implementation syntax changed."
+    },
+    "rebuild": {
+      "protocolVersion": 1,
+      "analyzerVersion": "swift-syntax-prototype",
+      "requestId": "fixture:implementation-only",
+      "status": "ok",
+      "route": "rebuild-required",
+      "reasonCode": "STRUCTURAL_CHANGE",
+      "detail": "Declaration surface changed."
+    },
+    "unsupported": {
+      "protocolVersion": 1,
+      "analyzerVersion": "swift-syntax-prototype",
+      "requestId": "fixture:implementation-only",
+      "status": "unsupported",
+      "route": "rebuild-required",
+      "reasonCode": "UNSUPPORTED_SYNTAX",
+      "detail": "Unsupported syntax must fail closed."
+    }
+  }
+}
