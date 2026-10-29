@@ -1,6 +1,7 @@
 import childProcess from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
+import packageJSON from "../../package.json" with { type: "json" };
 
 const originalSpawnSync = childProcess.spawnSync;
 const helperPathSuffix = "/mac-helper/bin/swift-sim-helper.js";
@@ -41,6 +42,13 @@ childProcess.spawnSync = function patchedSpawnSync(command, args = [], options =
   return originalSpawnSync.call(this, command, args, options);
 };
 
+// This dispatch fixture must never start a real helper if readiness regresses.
+childProcess.spawn = () => { throw new Error("Pair CLI fixture cannot start an external process."); };
 syncBuiltinESMExports();
 
-globalThis.fetch = async () => ({ ok: true, status: 200 });
+globalThis.fetch = async () => new Response(JSON.stringify({
+  ok: true,
+  helper: "swift-sim-helper",
+  version: packageJSON.version,
+  protocol: 1,
+}), { status: 200 });

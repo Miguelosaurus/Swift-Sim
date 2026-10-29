@@ -18,6 +18,7 @@ import {
   startLiveReload,
 } from "../src/liveReload.js";
 import { deliverChange } from "../src/changeDelivery.js";
+import { deliveryRuntimeHealth } from "../src/helperDeliveryReadiness.js";
 import { deviceBuildArtifactDoctorSection } from "../src/commands/deviceBuildArtifactDoctorProjection.js";
 
 const runtimeRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -230,15 +231,6 @@ function deliveryFiles(beforePaths, afterPaths) {
   return beforePaths.map((beforePath, index) => ({ path: afterPaths[index] || beforePath, status: "modified", kind: "swift", beforePath, afterPath: afterPaths[index] }));
 }
 
-async function deliveryRuntimeHealth() {
-  try {
-    const response = await fetch(`${helperBaseURL}/health`, { cache: "no-store", signal: AbortSignal.timeout(1_200) });
-    let payload = null; try { payload = await response.json(); } catch {}
-    if (response.ok && payload?.helper === "swift-sim-helper" && payload?.version === packageJSON.version && Number(payload?.protocol) === 1) return { ok: true, version: payload.version, protocol: Number(payload.protocol) };
-    if (response.status === 503 || payload?.helper || payload?.version || payload?.protocol) return { ok: false, userAction: true, code: "PROTOCOL_MISMATCH", message: "Update Swift Sim, then start a new agent session." };
-    return { ok: false, userAction: true, code: "HELPER_UNAVAILABLE", message: "Swift Sim is not ready. Run swift-sim setup, then start a new agent session." };
-  } catch { return { ok: false, userAction: true, code: "HELPER_UNAVAILABLE", message: "Swift Sim is not ready. Run swift-sim setup, then start a new agent session." }; }
-}
 
 async function runDeliveryDeviceBuild(input) {
   const helperArgs = ["build-device"];
@@ -431,7 +423,7 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
       signing: check(signingIdentityCount > 0, signingIdentityCount > 0
         ? `${signingIdentityCount} local signing ${signingIdentityCount === 1 ? "identity" : "identities"} found`
         : "Xcode will request or create signing credentials during the first device build", true),
-      helper: check(helper.ok, helper.ok ? "Mac helper is running" : "Mac helper is not running"),
+      helper: { ...check(helper.ok, helper.ok ? "Compatible Mac helper is running" : helper.message), ...(helper.diagnostic ? { diagnostic: helper.diagnostic } : {}) },
       agentIntegrations: check(agentIntegrationsReady, agentIntegrationsReady
         ? `Ready in ${readyAgentNames.join(", ")}`
         : "Install Codex, Cursor, Claude Code, or OpenCode, then rerun swift-sim setup"),
@@ -441,6 +433,8 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
     ...(includeStorage ? { storage: deviceBuildArtifactDoctorSection(artifactAudit) } : {}),
     remoteHotReload: {
       optional: true,
+      readinessScope: "prerequisites",
+      liveProofRequired: true,
       ready: liveReload.engine.installed && Boolean(liveReload.host),
       engine: check(liveReload.engine.installed, liveReload.engine.installed
         ? `Swift Sim live engine ${liveReload.engine.version} is installed`
@@ -781,12 +775,7 @@ function agentCheck(detected, ready, detail) {
 }
 
 async function helperHealth() {
-  try {
-    const response = await fetch(`${helperBaseURL}/health`, { signal: AbortSignal.timeout(1200) });
-    return { ok: response.ok, status: response.status };
-  } catch {
-    return { ok: false, status: 0 };
-  }
+  return deliveryRuntimeHealth();
 }
 
 async function waitForHelper() {

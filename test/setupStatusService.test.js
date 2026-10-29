@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { runtimeHealthPayload, HELPER_RUNTIME_ROLE } from "../mac-helper/src/runtimeHealth.js";
 import { createSetupStatusService } from "../mac-helper/src/commands/setupStatusService.js";
 
 function onlineStatus({ id = "node-1", dnsName = "mac.tail.ts.net." } = {}) {
@@ -39,7 +40,7 @@ function harness(overrides = {}) {
     homeDirectory: () => "/Users/test",
     environmentNames: () => ["PATH", "HOME"],
     preferredTailscaleMode: () => "",
-    fetchImpl: async () => new Response("ok", { status: 200 }),
+    fetchImpl: async () => new Response(JSON.stringify(runtimeHealthPayload(HELPER_RUNTIME_ROLE)), { status: 200 }),
     inspectTransports: async () => ({
       "native-companion": { available: true },
       "serve-sim": { available: true },
@@ -150,7 +151,7 @@ test("preferred userspace backend keeps legacy serve guidance and command errors
   assert.equal(requests.at(-1).policy.processGroup, "new");
 });
 
-test("helper-health failure preserves setup remediation and serve-sim fallback", async () => {
+test("helper-health transport failure preserves typed remediation and serve-sim fallback", async () => {
   const { deps } = harness({
     fetchImpl: async () => { throw new Error("helper unavailable"); },
     inspectTransports: async () => ({
@@ -160,7 +161,26 @@ test("helper-health failure preserves setup remediation and serve-sim fallback",
   });
   const result = await createSetupStatusService(deps).setupStatus({ host: "127.0.0.1", port: 47217 });
   assert.equal(result.ok, false);
-  assert.equal(result.helper.error, "helper unavailable");
+  assert.equal(result.helper.error, "HELPER_TRANSPORT_ERROR");
+  assert.equal(result.helper.reasonCode, "HELPER_TRANSPORT_ERROR");
+  assert.deepEqual(result.helper.diagnostic.cause, { category: "transport" });
   assert.equal(result.transport.activeForPhone, "serve-sim");
-  assert.ok(result.nextSteps.includes("Run swift-sim setup to start the Mac helper."));
+  assert.ok(result.nextSteps.includes(result.helper.message));
+  assert.match(result.helper.message, /doctor --json/);
 });
+
+for (const [name, response, code] of [
+  ["malformed response", () => new Response("private token=secret /Users/private/file"), "HELPER_RESPONSE_INVALID"],
+  ["wrong version", () => new Response(JSON.stringify({ ...runtimeHealthPayload(HELPER_RUNTIME_ROLE), version: "0.4.0" })), "HELPER_VERSION_MISMATCH"],
+  ["HTTP failure", () => new Response("private token=secret", { status: 503 }), "HELPER_HTTP_ERROR"],
+]) {
+  test(`setup-status reports ${name} using the delivery readiness contract`, async () => {
+    const { deps } = harness({ fetchImpl: async () => response() });
+    const result = await createSetupStatusService(deps).setupStatus({ host: "127.0.0.1", port: 47217 });
+    assert.equal(result.ok, false);
+    assert.equal(result.helper.reasonCode, code);
+    assert.equal(result.helper.diagnostic.code, code);
+    assert.ok(result.nextSteps.includes(result.helper.message));
+    assert.doesNotMatch(JSON.stringify(result.helper), /private token|secret|\/Users\/private/);
+  });
+}

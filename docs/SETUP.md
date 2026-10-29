@@ -203,9 +203,33 @@ Complete this setup one time:
      --allow-provisioning-updates
    ```
 
-Install the build through Swift Sim. Open it and keep it running during the edit loop.
+7. Install the signed Debug build over the existing app. Cold-launch it and
+   confirm it stays running. Check `live-status` for the intended app/session
+   connection and the development signing/compiler prerequisites.
+8. Make one reversible body-only edit, such as a temporary noninteractive
+   label, and send it once through `swift-sim deliver-change`. Acceptance
+   requires the label to appear without another installation, a correlated
+   applied result, refresh acknowledgement, and a revision newer than the
+   pre-edit revision. Restore the edit and verify that delivery too.
+
+This is first-time bootstrap. Adding the package/root integration or changing
+compiler/linker settings requires a new signed Debug installation. A setup
+report, signed build, or connected engine alone does not prove hot reload.
+Keep the app running during the subsequent edit loop.
+
+Apple device-management reachability and private-network reachability are
+separate. Xcode uses a trusted USB or wireless device connection for device
+registration and exact installed-version verification. The live patch channel
+uses the private Tailnet. Success in either lane does not establish the other.
 
 The agent runs `swift-sim deliver-change` once after each completed logical edit. Compatible edits use the private live lane. Structural, mixed, non-Swift, unavailable, and unproven edits use a signed build.
+
+Normal warm edits do not repeat setup, doctor, live-status, or installation.
+For a typed readiness failure, follow the specific recovery action in
+[Troubleshooting](TROUBLESHOOTING.md#the-mac-helper-is-unavailable). A transient
+health failure does not require restarting the agent. A live-enabled Debug
+build rejected for linker incompatibility must be corrected before install;
+see [linker recovery](TROUBLESHOOTING.md#live-enabled-debug-build-has-a-linker-compatibility-failure).
 
 Do not publish port 8887 through Funnel, Cloudflare Quick Tunnel, public DNS, router forwarding, or a public firewall rule.
 
@@ -243,7 +267,11 @@ swift-sim update
 
 The command upgrades Homebrew and refreshes each detected agent integration. It does not change an agent session that is already running.
 
-After an update, start a new agent session. This lets the agent load the new workflow.
+After an update changes packaged agent instructions or the version contract,
+reload the integration or start a new agent session to load the new workflow.
+Read-only diagnostics and same-version helper recovery do not require a new
+agent session. Setup's readiness fields describe prerequisites; a proven
+phone edit remains a separate acceptance step.
 
 ## Next
 

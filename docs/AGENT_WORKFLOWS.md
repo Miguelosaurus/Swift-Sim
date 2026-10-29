@@ -35,9 +35,15 @@ Run:
 swift-sim update
 ```
 
-Then start a new agent session.
+Reload the integration or start a new agent session after its packaged
+instructions or version contract change. A same-version helper restart or
+read-only diagnosis does not require discarding the current session.
 
 If `swift-sim doctor --json` reports version drift, update before using remote hot reload. The CLI, helper, and skill must use one contract.
+
+Follow typed readiness failures: a bounded timeout, connection refusal, HTTP
+failure, or invalid health response does not establish missing setup. Do not
+repeat setup and restart the agent for every readiness failure.
 
 ## Supported Agents
 
@@ -150,6 +156,13 @@ Interpret the terminal outcome:
 | `failed` | Report the returned failure without claiming delivery. |
 
 Do not run `doctor`, `live-status`, screenshots, UI analysis, or a second classification command before a normal warm delivery.
+
+For the first phone edit, complete [live bootstrap](SETUP.md#optional-remote-iphone-hot-reload)
+first: package/root integration, setup, private live session, signed Debug
+install, cold launch, app connection, and one reversible visible edit with
+current-request apply/refresh/increasing-revision proof without reinstalling.
+This initial diagnosis is distinct from the cheap warm path. Setup readiness
+and engine connection alone are not successful hot reload.
 
 A compiled patch or loaded dynamic library is not proof. A live success requires the correlated applied replacement, refresh acknowledgement, and new root revision.
 

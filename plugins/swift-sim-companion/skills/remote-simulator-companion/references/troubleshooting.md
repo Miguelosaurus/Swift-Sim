@@ -2,9 +2,22 @@
 
 Read only the matching branch:
 
-- **Missing CLI/helper/integration:** install the signed Homebrew release and
-  run `swift-sim setup`. For protocol mismatch say **Update Swift Sim, then
-  start a new agent session.**
+- **Missing CLI/helper/integration:** install the supported Homebrew release
+  and run `swift-sim setup`. Reload the integration or start a new agent
+  session only when its instructions or version contract changed.
+- **Helper health failure:** follow the typed error. A timeout means the
+  bounded probe expired; refusal means no connection was accepted. Neither
+  proves missing project setup. HTTP/invalid-data/identity failures require
+  inspecting the local listener; version/protocol drift requires aligning
+  CLI and helper. Same-version service recovery does not require a new agent
+  session. Never expose raw health data or retry a partial live apply.
+- **Debug linker incompatibility:** an interposable self-import can make a
+  successfully signed app die at launch, including native Rust dependencies.
+  Stop before installation. Review a Debug application-target-only linker
+  workaround supported by the selected Xcode toolchain, or use an ordinary
+  signed build without live integration. Preserve existing workarounds; never
+  add a classic-linker override globally or to Release. See the public
+  [linker recovery instructions](../../../../../docs/TROUBLESHOOTING.md#live-enabled-debug-build-has-a-linker-compatibility-failure).
 - **Live edit absent:** do not screenshot or repeat deep inspection. Confirm
   Debug app, private Tailnet, unlocked device, and same signing team; open the
   signed result from `deliver-change`.

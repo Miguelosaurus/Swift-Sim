@@ -16,9 +16,25 @@ swift-sim build-device \
   --allow-provisioning-updates
 ```
 
-Keep a trusted iPhone reachable for registration and approve a matching
-development-key prompt with **Always Allow**. Install, launch, and leave the
-app running; later edits use `deliver-change`.
+Keep a trusted iPhone reachable through Apple's device-management connection
+for registration/install verification and approve a matching development-key
+prompt with **Always Allow**. USB or Xcode's trusted wireless connection serves
+this lane. A private Tailnet connection serves live patches; it does not prove
+that Apple device management can reach the phone, or vice versa.
+
+Install over the existing app, cold-launch it, and confirm that it stays
+running and connects to the intended live session. A ready build, setup
+report, or engine connection alone is not hot-reload acceptance. Use one
+temporary body-only visible label change, deliver it once, and require the
+current-request proof below without another installation. Restore the label
+through another proven delivery. Preserve app identity, data, and any existing
+project-specific linker workaround. Later ordinary edits use `deliver-change`
+without repeating setup or deep readiness checks.
+
+Swift Sim checks live-enabled Debug binaries before packaging for the known
+interposable-linker self-import defect. If it reports linker incompatibility,
+do not install that build. Follow the targeted [troubleshooting](troubleshooting.md)
+branch. Never force a different linker for every project or change Release.
 
 Implementation bodies, SwiftUI layout/modifier changes, computed helpers,
 generic/parameterized functions, accessors, actor/extension members, UIKit

@@ -29,7 +29,8 @@ swift-sim setup
 
 Then refresh the agent:
 
-- Codex: start a new task.
+- Codex: reload the integration if supported, or start a new agent session to
+  load changed packaged instructions.
 - Cursor: start a new agent session or reload the Cursor window.
 - Claude Code: run `/reload-plugins` or start a new session.
 - OpenCode: start a new session.
@@ -38,15 +39,38 @@ For detailed status, run `swift-sim doctor --json`. The current host must report
 
 ## The Mac Helper Is Unavailable
 
-Run setup again. Then check the service:
+Follow the typed `deliver-change` failure before selecting recovery. The
+health request checks the local helper, independently of the private live
+engine connection. A timeout, refusal, or malformed response does not establish
+that first-time setup is missing. Setup and doctor readiness describe
+prerequisites; they do not prove that a later health request or live edit succeeds.
+
+For explicit diagnosis, check the service and local health response:
 
 ```sh
-swift-sim setup
 brew services list | grep swift-sim
 curl http://127.0.0.1:47217/health
 ```
 
-The health response must contain `"ok": true`.
+The health response must identify `swift-sim-helper`, report `"ok": true`,
+and match the CLI's package version and runtime protocol. `ok` alone is
+insufficient. Keep raw responses and logs private.
+
+- Timeout: the bounded request expired. Inspect local helper responsiveness;
+  do not infer that the app or integration is missing.
+- Connection refused: no listener accepted the connection. Start the intended
+  helper through `swift-sim setup` if it is stopped.
+- HTTP failure or invalid health data: inspect the local listener and response
+  contract before restarting anything.
+- Wrong helper identity: identify the listener; do not terminate an unrelated
+  process or overwrite project setup.
+- Version/protocol mismatch: align the installed CLI and helper. Use
+  `swift-sim update` for an installed release or setup from the intended source
+  checkout. Reload the agent integration only if its instructions or version
+  contract actually changed.
+
+After same-version helper recovery, continue in the existing agent session.
+Do not repeat live delivery blindly, especially after a partial application.
 
 If it does not, inspect the logs:
 
@@ -122,6 +146,34 @@ Interpret the result:
 A compiled patch or loaded library is not proof of success.
 
 Do not repeatedly inject the same edit. Do not run screenshots or repeated doctor checks before a normal warm delivery.
+
+## Live-Enabled Debug Build Has a Linker Compatibility Failure
+
+The managed live build uses `-interposable`. Some Apple linker versions can
+emit an unresolved import from the binary's own image even though the symbol
+exists there as a private definition. The app can compile, sign, and install
+successfully, then terminate in dyld before startup. Native Rust/serde
+dependencies are one reported case. The upstream maintainer tracks this as
+[InjectionIII issue 569 and FB22853074](https://github.com/johnno1962/InjectionIII/issues/569).
+
+Swift Sim inspects live-enabled Debug images before packaging/install-link
+publication and rejects the known unresolved self-import shape. An inspection
+failure is not a launchability pass. Do not install a rejected build or treat
+it as a signing failure. This guard detects the known defect; it is not proof
+that an app will cold-launch or that all dyld failures have been excluded.
+
+If the selected Xcode toolchain provides and supports `ld-classic`, review an
+application-target **Debug-only** workaround in Other Linker Flags:
+
+```text
+$(inherited) -fuse-ld=$(TOOLCHAIN_DIR)/usr/bin/ld-classic
+```
+
+Preserve any existing project-specific workaround. Do not force the classic
+linker for every project, dependency target, or shipping configuration. If the
+workaround is unavailable or unsuitable, use the ordinary signed-build lane
+without managed live integration. Rebuild and cold-launch before attempting
+another live edit; never uninstall or reset app data as a workaround.
 
 ## The Temporary Delivery Link Fails
 

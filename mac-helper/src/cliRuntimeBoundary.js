@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import {
   HELPER_RUNTIME_ROLE,
   inspectRuntimeHealth,
-  runtimeHealthMatches,
 } from "./runtimeHealth.js";
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
@@ -99,9 +98,8 @@ export function installCompatibleHelperHealthFetchBoundary({
   globalThis.fetch = async function compatibleHelperFetch(input, init) {
     const response = await originalFetch.call(this, input, init);
     if (!compatibleHealthURLs.has(requestURL(input)) || !response.ok) return response;
-    let payload = null;
-    try { payload = await response.clone().json(); } catch {}
-    if (runtimeHealthMatches(payload, HELPER_RUNTIME_ROLE)) return response;
+    const health = await inspectRuntimeHealth(input, { fetchImpl: async () => response });
+    if (health.ok) return new Response(JSON.stringify(health.payload), { status: response.status, headers: response.headers });
     return new Response(JSON.stringify({ error: "A different or outdated helper is running." }), {
       status: 503,
       headers: {
@@ -136,7 +134,7 @@ export function helperCommandLooksOwned(command) {
     && /(?:^|\/)mac-helper\/bin\/swift-sim-helper(?:-entry)?\.js$/.test(script);
 }
 
-async function currentHelperRuntimeHealth() {
+export async function currentHelperRuntimeHealth() {
   return inspectRuntimeHealth(new URL("/health", helperBaseURL()), {
     expectedRole: HELPER_RUNTIME_ROLE,
     fetchImpl: rawFetch,

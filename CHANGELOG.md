@@ -13,6 +13,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Documentation
 
+- Separated first-time live bootstrap and physical apply/refresh proof from
+  ordinary warm edits, with targeted helper and Debug linker recovery.
 - Documented QR pairing, camera/link fallback, invitation lifecycle, route
   boundaries, privacy handling, and beta coverage.
 - Reworked the README as a product overview, added a documentation guide,
@@ -21,6 +23,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Detect known private self-import linker failures in managed Debug builds
+  before packaging an install, while preserving an explicitly selected linker.
+- Report typed, sanitized helper health failures consistently across delivery,
+  setup and doctor without treating every failure as missing setup or requiring
+  a fresh agent session.
 - Preserved live-engine ownership metadata when the child-runtime hardening
   wrapper and live-engine launcher are installed together, so `live-start` can
   publish and later verify the exact engine process.

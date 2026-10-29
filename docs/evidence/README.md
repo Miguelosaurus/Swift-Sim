@@ -6,5 +6,6 @@ These reports define the tested scope of Swift Sim remote hot reload. They do no
 - [Liquid Glass Coverage](LIQUID_GLASS_HOT_RELOAD.md): supported Liquid Glass and adjacent SwiftUI changes
 - [Native System-Surface Coverage](NATIVE_SYSTEM_SURFACE_HOT_RELOAD.md): menus, navigation, presentations, controls, forms, search, and toolbars
 - [Mechanism Coverage](HOT_RELOAD_MECHANISM_COVERAGE.md): replacement shapes, recovery behavior, and rebuild controls
+- [Bootstrap and Recovery Corrections](HOT_RELOAD_BOOTSTRAP_RECOVERY_2026_10_29.md): linker self-import detection, typed helper diagnostics, and outstanding phone acceptance
 
 The benchmark design and denominator rules are in the [Remote Hot Reload Benchmark Plan](../internal/plans/HOT_RELOAD_BENCHMARK_PLAN.md).

@@ -19,6 +19,7 @@ test("packaged swift-sim pair reaches setup-status and the real pair dispatch pa
         encoding: "utf8",
         env: {
           ...process.env,
+          HOME: directory,
           SWIFT_SIM_PAIR_CALLS: callsPath,
         },
       },

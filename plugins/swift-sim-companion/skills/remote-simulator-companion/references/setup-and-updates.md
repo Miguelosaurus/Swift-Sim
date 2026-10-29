@@ -18,7 +18,22 @@ before `swift-sim pair` or the interactive `swift-sim pair --qr` flow. See the
 [pairing reference](pairing.md) for QR TTLs, camera fallback, and link-handling
 rules.
 
-There is no background updater. Run `swift-sim update` and start a new agent
-session. A protocol mismatch says **Update Swift Sim, then start a new agent
-session.** Never run doctor or setup before every warm edit. The helper stays
-bound to localhost; never publish port 8887.
+There is no background updater. `swift-sim update` refreshes the installed
+release and integrations; use `swift-sim setup` for a source checkout. Reload
+the integration or start a new agent session after packaged instructions or
+the version contract change. A helper restart with the same integration does
+not itself require a new agent session.
+
+Follow the typed delivery error before choosing setup or update. Timeout,
+connection refusal, HTTP failure, invalid health data, and a helper identity,
+version, or protocol mismatch have different recovery actions. A failed
+health request does not establish that a package or project integration is
+missing. After read-only diagnosis or same-version helper recovery, continue
+the existing session; do not repeat delivery blindly or retry a partial apply.
+
+`deviceInstalls.ready` describes build prerequisites; `remoteHotReload.ready`
+describes optional local engine/network prerequisites. Neither proves that
+an app cold-launches or that a patch compiled, applied, refreshed, and advanced
+the runtime revision. Complete [first-time live integration](live-project-integration.md)
+before the warm loop. Never run doctor or setup before every warm edit. The
+helper stays bound to localhost; never publish port 8887.

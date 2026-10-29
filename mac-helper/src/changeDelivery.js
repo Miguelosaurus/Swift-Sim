@@ -19,7 +19,7 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, run
   if (change.route === "no-change") return finish(deliveryEnvelope({ outcome: "no-change", message: "No Swift source changes need delivery.", timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { route: "none" }) }), !verbose);
   if (typeof buildDevice !== "function") return failedEnvelope("BUILD_ADAPTER_MISSING", "Swift Sim could not start the signed build workflow.");
   const health = await checkRuntime(runtimeCheck);
-  if (!health.ok) return finish(deliveryEnvelope({ outcome: health.userAction ? "needs-user-action" : "failed", message: health.message, reasonCode: health.code, error: { code: health.code, message: health.message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { runtime: { code: health.code } }) }), !verbose);
+  if (!health.ok) return finish(deliveryEnvelope({ outcome: health.userAction ? "needs-user-action" : "failed", message: health.message, reasonCode: health.code, error: { code: health.code, message: health.message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { runtime: health.diagnostic || { code: health.code } }) }), !verbose);
   if (change.route === "rebuild-required") return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: change.reasonCode, startedAt, now, verbose, diagnostic: { action: "build-device", reasonCode: change.reasonCode } }), !verbose);
   const routed = await route({ files, project, host, scheme, runtime: { ...runtime, classify: () => change } });
   if (routed?.action === "hot-reload") {
@@ -60,7 +60,7 @@ function liveProof(result) {
 }
 async function checkRuntime(check) {
   if (typeof check !== "function") return { ok: true };
-  try { const result = await check(); return result?.ok ? result : { ok: false, userAction: result?.userAction !== false, code: result?.code || "HELPER_UNAVAILABLE", message: result?.message || "Swift Sim is not ready. Run swift-sim setup, then start a new agent session." }; } catch (error) { return { ok: false, userAction: true, code: error?.code || "HELPER_UNAVAILABLE", message: safeError(error) }; }
+  try { const result = await check(); return result?.ok ? result : { ok: false, userAction: result?.userAction !== false, code: result?.code || "HELPER_UNAVAILABLE", message: result?.message || "The Mac helper is not ready. Run swift-sim doctor --json and resolve the reported item before retrying.", ...(result?.diagnostic ? { diagnostic: result.diagnostic } : {}) }; } catch (error) { return { ok: false, userAction: true, code: error?.code || "HELPER_UNAVAILABLE", message: safeError(error) }; }
 }
 function finish(value, compact) {
   const check = validateDeliveryEnvelope(value);

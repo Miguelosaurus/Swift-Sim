@@ -5,6 +5,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
 import { ownedWorkerProcessState, prepareOwnedWorkerProcessIdentity, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
+import { verifyLiveBuildLinkerCompatibility } from "./liveBuildLinkerCompatibility.js";
 import {
   selectedTargetHasLivePackage,
   selectedXcodeApplicationTarget,
@@ -93,7 +94,7 @@ export async function runDeviceBuild(build, {
       log(`Using build number ${automaticBuildNumber} so every Swift Sim build is distinct.`);
     }
     const liveBuildSettingArgs = liveEligible
-      ? [...buildSettingArgs, ...managedLiveBuildSettings()]
+      ? [...buildSettingArgs, ...managedLiveBuildSettings(buildSettingArgs)]
       : buildSettingArgs;
     build.app.bundleIdentifier = resolvedIdentity.bundleIdentifier;
     build.app.version = settings.MARKETING_VERSION || "";
@@ -166,6 +167,11 @@ export async function runDeviceBuild(build, {
               "Xcode did not produce the required Debug dylib. Swift Sim cannot safely enable hot reload for this build."
             );
           }
+          log("Checking the live-enabled Debug app for incompatible linker self-imports.");
+          await verifyLiveBuildLinkerCompatibility(
+            readdirSync(appPath).filter((name) => name.endsWith(".debug.dylib")).map((name) => join(appPath, name)),
+            { runCommand: runBuffered, cancelPath: build.control?.cancelPath || "" },
+          );
           try {
             const capture = await registerBuildResult({ resultBundle: resultBundlePath });
             build.liveReload = {
@@ -818,7 +824,11 @@ function findIpa(exportPath) {
 }
 
 
-function managedLiveBuildSettings() {
+function managedLiveBuildSettings(buildSettingArgs = []) {
+  // A user-selected linker may be required for native dependencies. The managed
+  // flag must augment that selection rather than replace its command-line value.
+  const linkerSetting = buildSettingArgs.findLast((setting) => setting.startsWith("OTHER_LDFLAGS="));
+  const linkerFlags = linkerSetting ? linkerSetting.slice("OTHER_LDFLAGS=".length) : "$(inherited)";
   return [
     "ENABLE_DEBUG_DYLIB=YES",
     "ENABLE_PREVIEWS=NO",
@@ -827,7 +837,7 @@ function managedLiveBuildSettings() {
     "EMIT_FRONTEND_COMMAND_LINES=YES",
     "COMPILATION_CACHE_ENABLE_CACHING=NO",
     "OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -enable-implicit-dynamic -enable-private-imports",
-    "OTHER_LDFLAGS=$(inherited) -Xlinker -interposable",
+    `OTHER_LDFLAGS=${linkerFlags} -Xlinker -interposable`,
   ];
 }
 

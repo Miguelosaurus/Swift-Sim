@@ -56,6 +56,7 @@ import { createSessionRuntimeController } from "../src/sessionRuntimeController.
 import { createDeviceBuildRuntimeController } from "../src/deviceBuildRuntimeController.js";
 import { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBuildArtifactRetentionCompatibility.js";
 import { createSetupStatusService } from "../src/commands/setupStatusService.js";
+import { fetchRuntimeHealth } from "../src/runtimeHealth.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 import { createDeviceBuildArtifactAuditCompatibility } from "../src/deviceBuildArtifactAuditCompatibility.js";
 import {
@@ -155,7 +156,7 @@ function initializeCompatibilityRuntime() {
     homeDirectory: homedir,
     environmentNames: () => Object.keys(process.env),
     preferredTailscaleMode: () => process.env.SWIFT_SIM_TAILSCALE_MODE || "",
-    fetchImpl: (input, init) => fetch(input, init),
+    fetchImpl: fetchRuntimeHealth,
     inspectTransports,
     deviceDeliveryStatus: () => deviceDelivery.status(),
     defaultTransportPreference,

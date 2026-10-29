@@ -1,5 +1,7 @@
 // @ts-check
 
+import { inspectRuntimeHealth } from "../runtimeHealth.js";
+import { helperReadinessResult } from "../helperDeliveryReadiness.js";
 import { selectTailscaleProbe, tailscaleBackendsConflict } from "../tailscaleBackends.js";
 
 /** @typedef {import("../contracts/command.js").CommandResult} CommandResult */
@@ -19,7 +21,7 @@ import { selectTailscaleProbe, tailscaleBackendsConflict } from "../tailscaleBac
  *   error: string,
  * }} TailscaleProbe
  * @typedef {{ configured: boolean, error?: string, raw: string, mode: string, remoteBaseUrl?: string }} TailscaleServeStatus
- * @typedef {{ ok: boolean, url: string, status?: number, error?: string }} HelperHealth
+ * @typedef {{ ok: boolean, url: string, status?: number, error?: string, reasonCode?: string, message?: string, diagnostic?: Record<string, unknown> }} HelperHealth
  * @typedef {{
  *   commandRunner: CommandRunner,
  *   pathExists(path: string): boolean,
@@ -70,7 +72,9 @@ export function createSetupStatusService(dependencies) {
     }
 
     if (!helperHealth.ok) {
-      nextSteps.push("Run swift-sim setup to start the Mac helper.");
+      nextSteps.push(
+        helperHealth.message || "Run swift-sim doctor --json to inspect the Mac helper.",
+      );
     }
 
     if (!tailscale.conflict && tailscale.online && !serveStatus.configured) {
@@ -230,23 +234,24 @@ export function createSetupStatusService(dependencies) {
   /** @param {string} host @param {number} port @returns {Promise<HelperHealth>} */
   async function readHelperHealth(host, port) {
     const url = `http://${host}:${port}`;
-    try {
-      const response = await fetchWithTimeout(`${url}/health`, HELPER_HEALTH_TIMEOUT_MS);
-      return { ok: response.ok, url, status: response.status };
-    } catch (error) {
-      return { ok: false, url, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  /** @param {string} url @param {number} timeoutMs */
-  async function fetchWithTimeout(url, timeoutMs) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await dependencies.fetchImpl(url, { signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
-    }
+    const health = await inspectRuntimeHealth(`${url}/health`, {
+      fetchImpl: dependencies.fetchImpl,
+      timeoutMs: HELPER_HEALTH_TIMEOUT_MS,
+    });
+    const result = helperReadinessResult(health);
+    return {
+      ok: health.ok,
+      url,
+      status: health.status,
+      ...(!result.ok
+        ? {
+            error: result.code,
+            reasonCode: result.code,
+            message: result.message,
+            diagnostic: result.diagnostic,
+          }
+        : {}),
+    };
   }
 }
 

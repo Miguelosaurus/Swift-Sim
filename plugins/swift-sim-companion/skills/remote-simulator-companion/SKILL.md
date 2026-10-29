@@ -85,10 +85,16 @@ Tailnet.
 
 ## First use, drift, and lazy references
 
-If `deliver-change` reports a missing helper, integration, or protocol
-mismatch, follow only the requested setup/update branch, then start a new
-agent session. Use `swift-sim setup` for a source checkout or `swift-sim
-update` for an installed release. Do not silently update a running session.
+For first-time hot reload, follow [live project integration](references/live-project-integration.md)
+through signed Debug install, cold launch, connection, and one proven edit.
+Setup readiness and a connected engine do not prove a successful hot reload.
+
+If `deliver-change` reports a readiness failure, follow its typed recovery
+action. A timeout, refused connection, or malformed response does not prove
+missing setup or require a new agent session. Use `swift-sim setup` for a
+missing helper/integration or `swift-sim update` for installed release drift.
+Reload the integration or start a new agent session only after its packaged
+instructions or version contract actually change. Do not silently update a running session.
 `swift-sim doctor --json` is for setup, update, or explicit diagnostics—not
 the normal warm edit loop.
 
