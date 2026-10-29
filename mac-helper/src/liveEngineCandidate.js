@@ -49,6 +49,13 @@ export async function stageLocalEngineCandidate({ archivePath, version, sha256, 
   return { staged: true, version, sha256, localCandidate: true };
 }
 
+export function validateLocalEngineAppMetadata(info) {
+  // The upstream app's marketing version is independent of Swift Sim's engine
+  // artifact version. Archive checksum/source provenance bind the candidate.
+  if (info?.CFBundleIdentifier !== "com.johnholdsworth.InjectionNext" || info?.CFBundleExecutable !== "InjectionNext") throw candidateError();
+  return true;
+}
+
 function validate(value) {
   if (!value || !/^\d+\.\d+\.\d+$/.test(value.version || "") || !/^[a-f0-9]{64}$/.test(value.sha256 || "")
     || !/^[a-f0-9]{40}$/.test(value.sourceRevision || "") || value.localCandidate !== true) throw candidateError();

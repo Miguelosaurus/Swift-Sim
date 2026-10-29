@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readLocalEngineCandidate, stageLocalEngineCandidate } from "../mac-helper/src/liveEngineCandidate.js";
+import { readLocalEngineCandidate, stageLocalEngineCandidate, validateLocalEngineAppMetadata } from "../mac-helper/src/liveEngineCandidate.js";
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-candidate-"));
@@ -62,4 +62,9 @@ test("candidate parent-directory symlinks and broad permissions cannot redirect 
     const alias = join(f.directory, "redirected-engine"); symlinkSync(f.rootPath, alias);
     assert.ok(readLocalEngineCandidate({ rootPath: alias }).error);
   } finally { f.cleanup(); }
+});
+test("engine artifact version is independent of upstream marketing version while app identity stays exact", () => {
+  assert.equal(validateLocalEngineAppMetadata({ CFBundleIdentifier: "com.johnholdsworth.InjectionNext", CFBundleExecutable: "InjectionNext", CFBundleShortVersionString: "2.0.1" }), true);
+  assert.throws(() => validateLocalEngineAppMetadata({ CFBundleIdentifier: "com.example.other", CFBundleExecutable: "InjectionNext" }), { code: "LIVE_ENGINE_CANDIDATE_INVALID" });
+  assert.throws(() => validateLocalEngineAppMetadata({ CFBundleIdentifier: "com.johnholdsworth.InjectionNext", CFBundleExecutable: "Other" }), { code: "LIVE_ENGINE_CANDIDATE_INVALID" });
 });

@@ -27,7 +27,7 @@ import { machoUUID, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js
 import { ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 import { NodeCommandRunner } from "./infrastructure/nodeCommandRunner.js";
 import { fileURLToPath } from "node:url";
-import { readLocalEngineCandidate } from "./liveEngineCandidate.js";
+import { readLocalEngineCandidate, validateLocalEngineAppMetadata } from "./liveEngineCandidate.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
@@ -469,8 +469,9 @@ async function ensureLiveEngineInstalledUnlocked() {
     throw new Error("The Swift Sim live engine signature could not be verified.");
   }
   if (LOCAL_ENGINE_CANDIDATE.candidate) {
-    const version = spawnSync("/usr/bin/plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", join(stagedApp, "Contents", "Info.plist")], { encoding: "utf8" });
-    if (version.status !== 0 || String(version.stdout).trim() !== ENGINE_VERSION) throw new Error("The local candidate app version does not match its measured configuration.");
+    const metadata = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(stagedApp, "Contents", "Info.plist")], { encoding: "utf8" });
+    if (metadata.status !== 0) throw new Error("The local candidate app metadata could not be read.");
+    validateLocalEngineAppMetadata(JSON.parse(metadata.stdout));
   }
   spawnSync("/usr/bin/xattr", ["-dr", "com.apple.quarantine", stagedApp], { encoding: "utf8" });
   await stopLiveEngine();
