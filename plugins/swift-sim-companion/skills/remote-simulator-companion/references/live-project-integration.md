@@ -38,7 +38,7 @@ branch. Never force a different linker for every project or change Release.
 
 Implementation bodies, SwiftUI layout/modifier changes, computed helpers,
 generic/parameterized functions, accessors, actor/extension members, UIKit
-callbacks, and supported interposition can be live. Imports, declarations,
+callbacks, and supported interposition can be live. Imports, added helper/type declarations,
 stored state, signatures, macros, resources, packages, build settings,
 Info.plist, capabilities, entitlements, signing, and mixed edits rebuild.
 Implementation-local bindings do not change existing-instance storage. The live

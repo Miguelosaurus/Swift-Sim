@@ -81,6 +81,23 @@ excluded from these explanations.
   and compiled results are retained in `/tmp/swift-sim-local-scopes-*.log`;
   final reviewed totals are recorded with the final qualification checkpoint.
 
+### Final automated checkpoint
+
+Full `npm run check` passed at implementation commit `4b1e6b9`: **1,231 source
+tests, 634 compiled tests and two hermetic tests**, plus syntax, architecture,
+documentation, types, formatting, lint, package contents, clean archive install,
+source/compiled entrypoint equivalence and Homebrew formula/Node-24 checks.
+The destructive clean Homebrew installation gate remains opt-in and was not run.
+Another **126 compiled classifier/delivery tests** passed. Independent review
+also ran 50 storage/layout probes with no permissive result after the fixes.
+Logs: `/tmp/swift-sim-local-scopes-final-reviewed-gate.log` and
+`/tmp/swift-sim-local-scopes-final-extra-compiled.log`.
+
+The subsequent checkpoint only clarifies packaged guidance and records these
+results. Candidate Codex integration `0.6.1+codex.20261030.2` is prepared but is
+not installed; the production checkout remains on `3919e39` while the physical
+gate below is pending. No new signed Companion build is required by this change.
+
 ## Physical boundary and retained failed attempt
 
 A first qualification request entered the ordinary queue and was rejected by the

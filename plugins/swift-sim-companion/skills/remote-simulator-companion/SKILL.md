@@ -91,7 +91,7 @@ Local `let`/`var` and pattern bindings inside existing implementation bodies are
 implementation edits. Existing-instance stored layout remains fixed. A queued
 compiler must represent every changed implementation; unsupported forms reject
 the whole patch before application rather than silently omitting members.
-Imports, declarations, stored state, signatures, macros, resources, packages,
+Imports, added helper/type declarations, stored state, signatures, macros, resources, packages,
 build settings, signing, and mixed edits require a build. Partial application
 is not success and requires clean-session recovery.
 
