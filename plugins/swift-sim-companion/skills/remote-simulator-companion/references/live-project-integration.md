@@ -68,5 +68,17 @@ Use `live-delivery-status --request <opaque-request-id>` for progress, not a
 second delivery attempt. `applied` without `refreshed` is incomplete. Fresh
 processes may receive a cumulative replacement request with a conservative
 expiry; report that current identity/expiry. Offline interposition-only
-preparation is not supported by this candidate. Keep uncertain effects fenced;
-only matching native receipts or proven no-admission rejections can recover.
+preparation is not supported by this candidate. Keep uncertain effects fenced
+in their original process; only matching native receipts or proven
+no-admission rejections resolve them there. Once a different matching process
+is authenticated at revision zero and prior claims expire, cumulative recovery
+can supersede the old uncertain operation while preserving its evidence.
+
+Confirmed desired source outlives pending-request expiry and is automatically
+restored after relaunch. The qualified original binary baseline, latest source,
+and removals remain private on the Mac. A genuinely offline relaunch runs the
+installed baseline until the helper/private connection returns. There is no
+device-local patch cache or guaranteed suppression of stale startup frames.
+Use `live-desired-revoke --project <project> --scheme <scheme>` (or
+`--workspace`) only when the user wants to stop restoration for that Debug
+binary. Revocation cannot unload a patch from the current process.

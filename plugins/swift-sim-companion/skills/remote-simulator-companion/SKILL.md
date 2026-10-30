@@ -102,6 +102,13 @@ helper capability. Older installations require explicit bootstrap/update;
 they must not silently queue work they cannot process. See the live reference
 for current candidate availability and execution limits.
 
+Confirmed compatible edits are retained as desired source for that exact Debug
+binary and automatically restored after relaunch on reconnect. Pending expiry
+does not erase confirmed desired state. An offline relaunch runs the installed
+baseline until the Mac/helper connection returns; there is no device-local patch
+cache or promise of zero stale startup frames. Never claim restart acceptance
+from source tests alone. See the live reference for explicit revocation.
+
 If `deliver-change` reports a readiness failure, follow its typed recovery
 action. A timeout, refused connection, or malformed response does not prove
 missing setup or require a new agent session. Use `swift-sim setup` for a

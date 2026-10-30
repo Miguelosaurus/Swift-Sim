@@ -56,7 +56,7 @@ swift-sim live-delivery-status --request "<opaque-request-id>"
 | `applying` | The application barrier was persisted and the native transaction was sent. |
 | `applied` | Application was acknowledged; refresh proof remains outstanding. |
 | `refreshed` / `hot-reloaded` | This request has a matching applied replacement, refresh acknowledgement and increased revision. |
-| `uncertain` / `failed` | The effect cannot be confirmed; a matching receipt may reconcile it. No new operation is manufactured. |
+| `uncertain` / `failed` | The effect cannot be confirmed. The same process requires a matching receipt; a verified fresh process can recover cumulative intent. |
 
 Queued work is not "done". A ready build, connected engine, loaded library,
 screenshot, or unrelated last-patch report is insufficient. Agents report the
@@ -76,13 +76,36 @@ request/attempt identity and revision fence every application. A socket
 reconnect retains the process's receipts; a new process gets a cumulative
 replacement derived from the qualified original binary source baseline.
 Replaced requests point to that cumulative request and expose its expiry.
-Unresolved partial/uncertain history blocks unsafe fresh-process replay.
+An ambiguous old-process effect cannot survive into a verified fresh address
+space. Once any old worker claim expires, the helper may recover the latest
+cumulative source in the matching new process at revision zero. It retains the
+old uncertainty as evidence; it never invents its missing receipt or retries it
+in the same process. A different binary, nonzero unknown process, or live claim
+blocks this recovery.
 
-Requests expire within 24 hours. A cumulative cohort uses its earliest
+Pending requests expire within 24 hours. A cumulative cohort uses its earliest
 accepted expiry, so it may shorten a later request's remaining lifetime; it
 never silently extends accepted intent. Expired cohorts are not automatically
-resurrected. The bounded original source-baseline index can outlive request
-expiry while retained binary history needs it. All content remains on the Mac.
+resurrected. Confirmed desired source is stored separately in the same private
+journal and remains bound to that exact Debug binary until explicitly revoked.
+Its lifetime does not depend on the original pending request's expiry. A new
+matching process receives a new bounded restoration request compiled from the
+original binary baseline to the latest confirmed source plus unexpired pending
+intent. Successful removals and returns to the binary baseline are retained,
+so a temporary label cannot return from older history. The original baseline
+index survives request garbage collection while durable state needs it.
+
+To stop automatic restoration and revoke unclaimed queued work for a qualified
+Debug binary, run:
+
+```sh
+swift-sim live-desired-revoke --project "<App.xcodeproj>" --scheme "<App>"
+```
+
+Use `--workspace` instead of `--project` where appropriate. Revocation does not
+undo a library already loaded in the current app process; restart the app to
+return to its installed baseline. A new explicit confirmed edit can establish
+a new desired state. Active worker claims must finish or expire first.
 
 The journal is bounded to 256 requests, 32 files per request, 1 MiB per source
 file and 32 MiB total. Prepared artifacts use deterministic ownership and a
@@ -108,6 +131,10 @@ reconnect when code runs; it does not grant execution time.
 Best-effort background finishing is a separate future qualification. The root
 readiness barrier prevents applying before the refresh observer is installed;
 this candidate does not claim that it suppresses every stale startup frame.
+There is no device-local patch cache: a relaunch while the Mac/helper or private
+connection is unavailable runs the installed binary until automatic restoration
+can complete on reconnect. Desired source survives on the Mac; memory-only
+injection does not survive independently on an offline phone.
 
 Physical acceptance still requires foreground on another screen, background /
 return, network interruption / return, helper restart with the app open, and

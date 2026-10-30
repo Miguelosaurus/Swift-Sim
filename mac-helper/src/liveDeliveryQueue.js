@@ -37,11 +37,15 @@ export function createLiveDeliveryQueue({
   function read() {
     assertPrivatePath(root, "directory");
     const observation = assertPrivatePath(journalPath, "file");
-    if (!observation) return { schemaVersion: 1, nextSequence: 1, records: [], processRebases: [], binaryBaselines: [] };
+    if (!observation) return { schemaVersion: 1, nextSequence: 1, records: [], processRebases: [], binaryBaselines: [], desiredStates: [] };
     if (observation.size > LIMITS.journalBytes) throw queueError("QUEUE_JOURNAL_INVALID");
     let value;
     try { value = fileStore.readJSONSync(journalPath); } catch { throw queueError("QUEUE_JOURNAL_INVALID"); }
     validateJournal(value);
+    value.desiredStates ||= [];
+    // Upgrade old journals in memory only. Their authenticated refresh proofs
+    // establish desired state before any later expiry/GC mutation can remove it.
+    for (const record of value.records) if (record.state === "refreshed") retainDesiredState(value, record, record.updatedAt);
     return value;
   }
   async function mutate(operation) {
@@ -73,6 +77,10 @@ export function createLiveDeliveryQueue({
       return clone(scope ? records.filter((record) => scopeMatches(record.scope, normalizeScope(scope))) : records);
     },
     get(requestId) { return clone(read().records.find((record) => record.requestId === requestId) || null); },
+    desiredStates({ scope, includeRevoked = false } = {}) {
+      const binding = scope ? normalizeScope(scope) : null;
+      return clone(read().desiredStates.filter((item) => (includeRevoked || !item.revoked) && (!binding || sameBinaryScope(item.scope, binding))));
+    },
     binaryBaseline(scope, path) {
       const binding = normalizeScope(scope);
       return clone(read().binaryBaselines.find((item) => sameBinaryScope(item.scope, binding))?.files.find((file) => file.path === path) || null);
@@ -92,16 +100,13 @@ export function createLiveDeliveryQueue({
         }
         // Only expired terminal history without a pending dependent may leave
         // the journal. No live receipt or queued source baseline is discarded.
-        journal.processRebases = journal.processRebases.filter((item) => item.expiresAt > time);
-        const referenced = new Set(journal.records.filter((item) => !TERMINAL.has(item.state)).map((item) => item.predecessorRequestId));
-        journal.records = journal.records.filter((item) => !(TERMINAL.has(item.state) && item.expiresAt <= time && !referenced.has(item.requestId)));
-        const retained = new Set(journal.records.map((item) => item.requestId));
-        for (const item of journal.records) if (TERMINAL.has(item.state) && !retained.has(item.predecessorRequestId)) item.predecessorRequestId = "";
+        pruneExpiredHistory(journal, time);
         if (journal.records.length >= LIMITS.records) throw queueError("QUEUE_LIMIT_REACHED");
         pruneOriginalBaselines(journal, time, binding);
         retainOriginalBaselines(journal, binding, snapshots, time);
         const lane = journal.records.filter((record) => scopeMatches(record.scope, binding) && record.expiresAt > time && !["expired", "superseded", "failed"].includes(record.state));
         const predecessor = lane.at(-1);
+        assertDesiredCapacity(journal, binding, snapshots, time);
         for (const snapshot of snapshots) {
           const prior = lane.flatMap((item) => item.files).findLast((file) => file.path === snapshot.path);
           if (prior && prior.afterHash !== snapshot.beforeHash) throw queueError("QUEUE_SOURCE_BASELINE_CONFLICT");
@@ -116,6 +121,7 @@ export function createLiveDeliveryQueue({
           claim: null, proof: null, reasonCode: "", bindingHistory: [],
         };
         journal.records.push(record);
+        assertJournalPublicationCapacity(journal, time);
         pruneOriginalBaselines(journal, time);
         return record;
       });
@@ -152,6 +158,11 @@ export function createLiveDeliveryQueue({
           record.baselineRevision = predecessor.proof.revision;
         }
         if (record.preparedPatch) {
+          if (lane.some((item) => item.sequence < record.sequence && unresolvedEffect(item))) {
+            record.reasonCode = "QUEUE_AMBIGUOUS_PREDECESSOR";
+            if (record.state !== "waiting-for-device") { record.state = "waiting-for-device"; record.updatedAt = time; }
+            return null;
+          }
           if (!deviceConnected || !foreground) {
             record.state = deviceConnected ? "waiting-for-foreground" : "waiting-for-device";
             record.updatedAt = time;
@@ -186,7 +197,9 @@ export function createLiveDeliveryQueue({
         }
         if (state === "applying") {
           if (!PRE_APPLY.has(record.state) || !record.preparedPatch || !scopeMatches(record.scope, normalizeScope(scope))
-            || currentRevision !== record.baselineRevision) throw queueError("QUEUE_APPLICATION_FENCE_FAILED");
+            || currentRevision !== record.baselineRevision
+            || journal.records.some((item) => scopeMatches(item.scope, record.scope) && item.sequence < record.sequence && unresolvedEffect(item))) throw queueError("QUEUE_APPLICATION_FENCE_FAILED");
+          assertJournalPublicationCapacity(journal, time);
           record.applyClaimToken = record.claim.token;
           record.lastNoEffectReceipt = null;
         } else if (state === "applied" || state === "refreshed") {
@@ -201,6 +214,7 @@ export function createLiveDeliveryQueue({
         if (state === "failed" && (record.state === "applying" || record.state === "applied")) state = "uncertain";
         record.state = state; record.reasonCode = safeReason(reasonCode); record.updatedAt = time;
         if (state !== "applying" && state !== "applied") record.claim = null;
+        if (state === "refreshed") retainDesiredState(journal, record, time);
         return record;
       });
     },
@@ -212,29 +226,35 @@ export function createLiveDeliveryQueue({
       validateId(newRequestId);
       if (!verified || currentRevision !== 0) throw queueError("QUEUE_REBASE_REJECTED");
       return mutate((journal, time) => {
-        journal.processRebases = journal.processRebases.filter((item) => item.expiresAt > time);
+        sweepJournal(journal, time);
+        pruneExpiredHistory(journal, time);
         const existing = journal.processRebases.find((item) => scopeMatches(item.scope, binding));
         if (existing) return { record: existing.requestId ? find(journal, existing.requestId) : null, supersededRequestIds: existing.supersededRequestIds, netNoChange: existing.netNoChange };
         if (journal.processRebases.length >= LIMITS.records) throw queueError("QUEUE_LIMIT_REACHED");
         const lane = journal.records.filter((record) => sameBinaryScope(record.scope, binding));
-        if (!lane.some((record) => record.scope.sessionIdentity !== binding.sessionIdentity)) throw queueError("QUEUE_REBASE_REJECTED");
-        if (lane.some((record) => record.state === "uncertain" || record.state === "applying" || record.state === "applied"
-          || (record.claim && record.claim.expiresAt > time)
-          || (record.state === "refreshed" && record.scope.sessionIdentity === binding.sessionIdentity))) throw queueError("QUEUE_REBASE_BLOCKED");
-        const history = lane.filter((record) => record.expiresAt > time && (record.state === "refreshed" || PRE_APPLY.has(record.state)));
+        const desired = journal.desiredStates.find((item) => sameBinaryScope(item.scope, binding));
+        if (!lane.some((record) => record.scope.sessionIdentity !== binding.sessionIdentity) && (!desired || desired.scope.sessionIdentity === binding.sessionIdentity)) throw queueError("QUEUE_REBASE_REJECTED");
+        // The caller has authenticated a different process of this exact
+        // binary at revision zero. Ambiguous effects in its dead predecessor
+        // cannot exist in this new address space. Live workers and any effect
+        // in the CURRENT process still prohibit a replacement operation.
+        if (lane.some((record) => (record.claim && record.claim.expiresAt > time)
+          || (record.scope.sessionIdentity === binding.sessionIdentity && ["uncertain", "applying", "applied", "refreshed"].includes(record.state)))) throw queueError("QUEUE_REBASE_BLOCKED");
+        const watermark = desired?.confirmedThroughSequence || 0;
+        const history = lane.filter((record) => record.sequence > watermark && record.expiresAt > time && (PRE_APPLY.has(record.state) || ["uncertain", "applying", "applied"].includes(record.state)));
         const original = journal.binaryBaselines.find((item) => sameBinaryScope(item.scope, binding));
-        const merged = new Map();
+        const merged = new Map((desired && !desired.revoked ? desired.files : []).map((file) => [file.path, clone(file)]));
         for (const record of history) {
-          for (const file of record.files) {
+          for (const file of record.desiredSnapshots || record.files) {
             const baseline = original?.files.find((item) => item.path === file.path);
             if (!baseline || baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
             merged.set(file.path, { path: file.path, beforeSource: baseline.beforeSource, afterSource: file.afterSource });
           }
         }
         const files = [...merged.values()].filter((file) => file.beforeSource !== file.afterSource);
-        const superseded = history.filter((record) => PRE_APPLY.has(record.state));
+        const superseded = history;
         if (journal.records.some((record) => record.requestId === newRequestId)) throw queueError("QUEUE_REQUEST_CONFLICT");
-        if (history.length === 0) return { record: null, supersededRequestIds: [], netNoChange: true };
+        if (history.length === 0 && (!desired || desired.revoked)) return { record: null, supersededRequestIds: [], netNoChange: true };
         // A cumulative cohort inherits its earliest accepted expiry. This may
         // shorten a later intent, but never extends or silently reschedules it.
         const expiryBound = Math.min(time + DEFAULT_TTL_MS, ...history.map((item) => item.expiresAt));
@@ -244,6 +264,7 @@ export function createLiveDeliveryQueue({
         if (files.length) {
           if (journal.records.length >= LIMITS.records) throw queueError("QUEUE_LIMIT_REACHED");
           const snapshots = normalizeFiles(files);
+          const desiredSnapshots = normalizeFiles([...merged.values()]);
           record = {
             schemaVersion: 1, requestId: newRequestId, sequence: journal.nextSequence++, scope: binding,
             files: snapshots, snapshotDigest: digest(snapshots), baselineRevision: 0,
@@ -251,6 +272,7 @@ export function createLiveDeliveryQueue({
             predecessorRequestId: "", preparedPatch: null, claim: null, proof: null,
             reasonCode: "QUEUE_PROCESS_REBASED", bindingHistory: [],
             rebaseSessionIdentity: binding.sessionIdentity,
+            ...(digest(desiredSnapshots) !== digest(snapshots) ? { desiredSnapshots, desiredSnapshotDigest: digest(desiredSnapshots) } : {}),
             rebaseSourceRequestIds: history.map((item) => item.requestId),
             rebaseSupersededRequestIds: superseded.map((item) => item.requestId),
           };
@@ -259,14 +281,44 @@ export function createLiveDeliveryQueue({
         // The replacement and all supersession pointers are one atomic journal
         // publication. A failed write leaves the original requests intact.
         for (const item of superseded) {
+          item.supersededState = item.state;
           item.state = "superseded"; item.claim = null;
           item.replacementRequestId = record?.requestId || "";
           item.reasonCode = record ? "QUEUE_PROCESS_REBASED" : "QUEUE_NET_NO_CHANGE";
           item.updatedAt = time;
         }
+        // Preserve historical proof while allowing status to describe the
+        // restoration currently required by a different app process.
+        for (const item of lane.filter((candidate) => candidate.state === "refreshed")) {
+          item.restorationRequestId = record?.requestId || "";
+          item.restorationNoChange = record ? null : { scope: binding, observedAt: time };
+        }
         const supersededRequestIds = superseded.map((item) => item.requestId);
+        if (!record && merged.size) retainBaselineDesire(journal, { scope: binding, files: [...merged.values()], sequence: Math.max(watermark, ...history.map((item) => item.sequence)), sourceRequestId: history.at(-1)?.requestId || desired.sourceRequestId }, time);
         journal.processRebases.push({ scope: binding, requestId: record?.requestId || null, supersededRequestIds, netNoChange: !record, createdAt: time, expiresAt: expiry });
         return { record, supersededRequestIds, netNoChange: !record };
+      });
+    },
+    async revokeDesired({ scope } = {}) {
+      const binding = normalizeScope(scope);
+      return mutate((journal, time) => {
+        const lane = journal.records.filter((record) => sameBinaryScope(record.scope, binding));
+        if (lane.some((record) => record.claim && record.claim.expiresAt > time)) throw queueError("QUEUE_REVOKE_BLOCKED");
+        const previous = journal.desiredStates.find((item) => sameBinaryScope(item.scope, binding));
+        const watermark = Math.max(previous?.confirmedThroughSequence || 0, ...lane.map((record) => record.sequence));
+        if (previous?.revoked && previous.confirmedThroughSequence === watermark) return previous;
+        for (const record of lane) {
+          // Revocation disables future restoration; it cannot establish that
+          // an ambiguous mutation had no effect in this same app process.
+          if (!PRE_APPLY.has(record.state)) continue;
+          record.supersededState = record.state; record.state = "superseded";
+          record.claim = null; record.replacementRequestId = "";
+          record.reasonCode = "QUEUE_DESIRED_REVOKED"; record.updatedAt = time;
+        }
+        const value = { scope: binding, files: [], confirmedThroughSequence: watermark, sourceRequestId: "", proof: null, confirmation: "revoked", revoked: true, createdAt: previous?.createdAt ?? time, updatedAt: time };
+        replaceDesired(journal, value);
+        journal.processRebases = journal.processRebases.filter((item) => !sameBinaryScope(item.scope, binding));
+        return value;
       });
     },
     async releaseNoEffect(requestId, { claimToken, scope, receipt, verified = false } = {}) {
@@ -308,6 +360,7 @@ export function createLiveDeliveryQueue({
         record.proof = clone(proof); record.state = refreshed ? "refreshed" : "applied";
         record.claim = null; record.reasonCode = refreshed ? "" : "QUEUE_REFRESH_PENDING";
         record.updatedAt = time;
+        if (refreshed) retainDesiredState(journal, record, time);
         return record;
       });
     },
@@ -362,6 +415,38 @@ function sweepJournal(journal, time, scope = null) {
   return result;
 }
 
+function pruneExpiredHistory(journal, time) {
+  journal.processRebases = journal.processRebases.filter((item) => item.expiresAt > time);
+  const referenced = new Set(journal.records.filter((item) => !TERMINAL.has(item.state)).map((item) => item.predecessorRequestId));
+  const retained = new Set(journal.records.filter((item) => item.expiresAt > time || !TERMINAL.has(item.state) || unresolvedEffect(item)).map((item) => item.requestId));
+  for (const marker of journal.processRebases) if (marker.requestId) retained.add(marker.requestId);
+  // A later accepted request can outlive the cumulative request it points to.
+  // Keep each reachable target so status remains defined through its own
+  // accepted lifetime, even when the replacement has already expired.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const item of journal.records) {
+      if (!retained.has(item.requestId)) continue;
+      for (const id of [item.replacementRequestId, item.restorationRequestId]) {
+        if (!id || retained.has(id)) continue;
+        retained.add(id); changed = true;
+      }
+    }
+  }
+  // Expiry revokes permission to apply; it cannot erase uncertainty about an
+  // effect in a still-running process. Keep that fence until receipt or a
+  // verified fresh-process recovery explicitly resolves/supersedes it.
+  journal.records = journal.records.filter((item) => retained.has(item.requestId) || referenced.has(item.requestId));
+  const present = new Set(journal.records.map((item) => item.requestId));
+  for (const item of journal.records) if (TERMINAL.has(item.state) && !present.has(item.predecessorRequestId)) item.predecessorRequestId = "";
+}
+
+function unresolvedEffect(record) {
+  return ["uncertain", "applying", "applied"].includes(record.state)
+    || (record.state === "superseded" && ["uncertain", "applying", "applied"].includes(record.supersededState) && record.proof?.refreshed !== true);
+}
+
 function normalizeBinaryScope(scope) {
   if (!scope || typeof scope !== "object" || Array.isArray(scope)) throw queueError("QUEUE_SCOPE_INVALID");
   const binding = {};
@@ -393,7 +478,77 @@ function pruneOriginalBaselines(journal, time, preserveScope = null) {
   journal.binaryBaselines = journal.binaryBaselines.filter((baseline) =>
     (preserveScope && sameBinaryScope(preserveScope, baseline.scope))
     || journal.records.some((record) => sameBinaryScope(record.scope, baseline.scope))
+    || journal.desiredStates.some((desired) => !desired.revoked && sameBinaryScope(desired.scope, baseline.scope))
     || journal.processRebases.some((marker) => marker.expiresAt > time && sameBinaryScope(marker.scope, baseline.scope)));
+}
+
+function replaceDesired(journal, value) {
+  const index = journal.desiredStates.findIndex((item) => sameBinaryScope(item.scope, value.scope));
+  if (index < 0) {
+    if (journal.desiredStates.length >= LIMITS.records) throw queueError("QUEUE_LIMIT_REACHED");
+    journal.desiredStates.push(value);
+  } else journal.desiredStates[index] = value;
+}
+function assertDesiredCapacity(journal, scope, incoming, time) {
+  const desired = journal.desiredStates.find((item) => sameBinaryScope(item.scope, scope));
+  const original = journal.binaryBaselines.find((item) => sameBinaryScope(item.scope, scope));
+  const files = new Map((desired && !desired.revoked ? desired.files : []).map((file) => [file.path, clone(file)]));
+  const history = journal.records.filter((record) => sameBinaryScope(record.scope, scope)
+    && record.sequence > (desired?.confirmedThroughSequence || 0) && record.expiresAt > time
+    && !["expired", "failed", "superseded"].includes(record.state));
+  for (const file of [...history.flatMap((record) => record.desiredSnapshots || record.files), ...incoming]) {
+    const baseline = original?.files.find((item) => item.path === file.path);
+    if (!baseline || baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
+    files.set(file.path, { path: file.path, beforeSource: baseline.beforeSource, afterSource: file.afterSource });
+  }
+  // Bound the eventual cumulative recovery BEFORE admitting another request.
+  // Splitting a large desired state into small offline deltas cannot defer a
+  // size failure until after a native patch has already changed the process.
+  return normalizeFiles([...files.values()]);
+}
+function assertJournalPublicationCapacity(journal, time) {
+  const projected = clone(journal);
+  const candidates = journal.records.filter((record) => record.expiresAt > time && (PRE_APPLY.has(record.state) || ["applying", "applied", "uncertain"].includes(record.state)));
+  const lanes = new Map(candidates.map((record) => [digest(normalizeBinaryScope(record.scope)), record]));
+  let receiptReserve = 0;
+  for (const record of candidates) {
+    receiptReserve += 1024 + 2 * Buffer.byteLength(JSON.stringify({ requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, patchDigest: record.preparedPatch?.patchDigest || "0".repeat(64) }));
+  }
+  for (const record of lanes.values()) {
+    const previous = projected.desiredStates.find((item) => sameBinaryScope(item.scope, record.scope));
+    if (previous && record.sequence <= previous.confirmedThroughSequence) continue;
+    const files = assertDesiredCapacity(journal, record.scope, [], time);
+    // This is a byte-capacity projection, never persisted or treated as proof.
+    // Reserve cumulative desired sources for ALL pending binary lanes, not
+    // merely the delta that happens to fit in the journal at enqueue time.
+    replaceDesired(projected, { scope: record.scope, files, confirmedThroughSequence: record.sequence, sourceRequestId: record.requestId, proof: null, confirmation: "refreshed", revoked: false, createdAt: previous?.createdAt ?? time, updatedAt: time });
+  }
+  if (Buffer.byteLength(JSON.stringify(projected)) + receiptReserve > LIMITS.journalBytes) throw queueError("QUEUE_LIMIT_REACHED");
+}
+function retainDesiredState(journal, record, time) {
+  const previous = journal.desiredStates.find((item) => sameBinaryScope(item.scope, record.scope));
+  if (previous && previous.confirmedThroughSequence >= record.sequence) return;
+  const original = journal.binaryBaselines.find((item) => sameBinaryScope(item.scope, record.scope));
+  const files = new Map((previous && !previous.revoked ? previous.files : []).map((file) => [file.path, clone(file)]));
+  for (const file of record.desiredSnapshots || record.files) {
+    const baseline = original?.files.find((item) => item.path === file.path);
+    if (!baseline || baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
+    files.set(file.path, { path: file.path, beforeSource: baseline.beforeSource, afterSource: file.afterSource });
+  }
+  const snapshots = normalizeFiles([...files.values()]);
+  replaceDesired(journal, {
+    scope: clone(record.scope), files: snapshots, confirmedThroughSequence: record.sequence,
+    sourceRequestId: record.requestId, proof: clone(record.proof), confirmation: "refreshed", revoked: false,
+    createdAt: previous?.createdAt ?? time, updatedAt: time,
+  });
+}
+function retainBaselineDesire(journal, record, time) {
+  const previous = journal.desiredStates.find((item) => sameBinaryScope(item.scope, record.scope));
+  replaceDesired(journal, {
+    scope: clone(record.scope), files: normalizeFiles(record.files), confirmedThroughSequence: record.sequence,
+    sourceRequestId: record.sourceRequestId, proof: null, confirmation: "verified-binary-baseline", revoked: false,
+    createdAt: previous?.createdAt ?? time, updatedAt: time,
+  });
 }
 
 function normalizeScope(scope) {
@@ -442,7 +597,8 @@ function validateJournal(journal) {
   if (!journal || journal.schemaVersion !== 1 || !Number.isSafeInteger(journal.nextSequence)
     || !Array.isArray(journal.records) || journal.records.length > LIMITS.records
     || !Array.isArray(journal.processRebases) || journal.processRebases.length > LIMITS.records
-    || !Array.isArray(journal.binaryBaselines) || journal.binaryBaselines.length > LIMITS.records) throw queueError("QUEUE_JOURNAL_INVALID");
+    || !Array.isArray(journal.binaryBaselines) || journal.binaryBaselines.length > LIMITS.records
+    || (journal.desiredStates !== undefined && (!Array.isArray(journal.desiredStates) || journal.desiredStates.length > LIMITS.records))) throw queueError("QUEUE_JOURNAL_INVALID");
   const ids = new Set(); let sequence = 0;
   try {
     for (const record of journal.records) {
@@ -459,12 +615,55 @@ function validateJournal(journal) {
       for (let index = 0; index < snapshots.length; index += 1) {
         if (snapshots[index].beforeHash !== record.files[index].beforeHash || snapshots[index].afterHash !== record.files[index].afterHash) throw queueError("QUEUE_JOURNAL_INVALID");
       }
+      if (record.desiredSnapshots !== undefined) {
+        const desired = normalizeFiles(record.desiredSnapshots);
+        if (record.desiredSnapshotDigest !== digest(desired)) throw queueError("QUEUE_JOURNAL_INVALID");
+        for (const file of desired) {
+          const compiled = snapshots.find((item) => item.path === file.path);
+          if (compiled ? compiled.beforeHash !== file.beforeHash || compiled.afterHash !== file.afterHash : file.beforeHash !== file.afterHash) throw queueError("QUEUE_JOURNAL_INVALID");
+        }
+        if (snapshots.some((file) => !desired.some((item) => item.path === file.path))) throw queueError("QUEUE_JOURNAL_INVALID");
+      }
+      if (record.supersededState !== undefined && (!LIVE_DELIVERY_STATES.includes(record.supersededState) || record.state !== "superseded")) throw queueError("QUEUE_JOURNAL_INVALID");
+      if (record.restorationRequestId !== undefined && typeof record.restorationRequestId !== "string") throw queueError("QUEUE_JOURNAL_INVALID");
+      if (record.restorationNoChange) {
+        normalizeScope(record.restorationNoChange.scope);
+        if (!Number.isSafeInteger(record.restorationNoChange.observedAt)) throw queueError("QUEUE_JOURNAL_INVALID");
+      }
       if (record.claim !== null) {
         validateId(record.claim.token); validateId(record.claim.workerId);
         if (!Number.isSafeInteger(record.claim.expiresAt) || TERMINAL.has(record.state)) throw queueError("QUEUE_JOURNAL_INVALID");
       }
       if ((record.state === "compiling" || record.state === "applying") && !record.claim) throw queueError("QUEUE_JOURNAL_INVALID");
       if (record.state === "applied" || record.state === "refreshed") validateProof(record, record.proof, record.state === "refreshed");
+    }
+    const desiredScopes = new Set();
+    for (const desired of journal.desiredStates || []) {
+      normalizeScope(desired.scope);
+      const key = digest(normalizeBinaryScope(desired.scope));
+      if (desiredScopes.has(key) || !Number.isSafeInteger(desired.confirmedThroughSequence) || desired.confirmedThroughSequence < 0 || desired.confirmedThroughSequence >= journal.nextSequence
+        || !Number.isSafeInteger(desired.createdAt) || desired.createdAt < 0 || !Number.isSafeInteger(desired.updatedAt) || desired.updatedAt < desired.createdAt
+        || typeof desired.revoked !== "boolean" || !Array.isArray(desired.files)) throw queueError("QUEUE_JOURNAL_INVALID");
+      desiredScopes.add(key);
+      if (desired.revoked) {
+        if (desired.files.length || desired.proof !== null || desired.confirmation !== "revoked" || desired.sourceRequestId !== "") throw queueError("QUEUE_JOURNAL_INVALID");
+        continue;
+      }
+      validateId(desired.sourceRequestId);
+      const snapshots = normalizeFiles(desired.files);
+      const baseline = journal.binaryBaselines.find((item) => sameBinaryScope(item.scope, desired.scope));
+      for (let index = 0; index < snapshots.length; index += 1) {
+        const file = desired.files[index];
+        if (file.beforeHash !== snapshots[index].beforeHash || file.afterHash !== snapshots[index].afterHash
+          || baseline?.files.find((item) => item.path === file.path)?.beforeHash !== file.beforeHash) throw queueError("QUEUE_JOURNAL_INVALID");
+      }
+      if (desired.confirmation === "verified-binary-baseline") {
+        if (desired.proof !== null || snapshots.some((file) => file.beforeHash !== file.afterHash)) throw queueError("QUEUE_JOURNAL_INVALID");
+      } else if (desired.confirmation === "refreshed") {
+        const proof = desired.proof;
+        if (!proof || proof.requestId !== desired.sourceRequestId || proof.sessionIdentity !== desired.scope.sessionIdentity || proof.binaryIdentity !== desired.scope.binaryIdentity
+          || proof.applied !== true || proof.refreshed !== true || !Number.isSafeInteger(proof.revision) || proof.revision <= 0 || typeof proof.patchDigest !== "string" || !proof.patchDigest) throw queueError("QUEUE_JOURNAL_INVALID");
+      } else throw queueError("QUEUE_JOURNAL_INVALID");
     }
     const binaryScopes = new Set();
     for (const baseline of journal.binaryBaselines) {

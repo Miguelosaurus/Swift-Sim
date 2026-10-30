@@ -9,7 +9,7 @@ export async function deliveryRuntimeHealth({ inspect = () => inspectRuntimeHeal
 }
 
 export function helperReadinessResult(health) {
-  if (health.ok) return { ok: true, version: health.version, protocol: health.protocol, queueReady: Array.isArray(health.payload?.capabilities) && health.payload.capabilities.includes("durable-live-delivery-v1") };
+  if (health.ok) return { ok: true, version: health.version, protocol: health.protocol, queueReady: Array.isArray(health.payload?.capabilities) && ["durable-live-delivery-v1", "durable-desired-state-v1"].every((value) => health.payload.capabilities.includes(value)) };
   const code = health.failureCode || "HELPER_UNAVAILABLE";
   const message = recoveryMessage(code, health.status);
   return {

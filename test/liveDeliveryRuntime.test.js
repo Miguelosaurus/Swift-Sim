@@ -26,10 +26,120 @@ test("a new request after expired history uses the fresh process revision and qu
     f.state.scope.sessionIdentity = "fixture-process-new"; f.state.revision = 0;
     const response = await f.service.enqueue({ files: f.files(firstEdit, secondEdit) });
     const record = f.queue.get(response.delivery.requestId);
-    assert.equal(record.baselineRevision, 0); assert.equal(record.files[0].beforeSource, original);
+    assert.equal(record.baselineRevision, 0); assert.equal(record.files[0].beforeSource, firstEdit);
     assert.equal(record.files[0].afterSource, secondEdit);
-    await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.queue.get(record.predecessorRequestId).files[0].beforeSource, original);
+    await f.service.runOnce(); await f.service.runOnce(); await f.service.runOnce(); await f.service.runOnce();
     assert.equal(f.service.status(record.requestId).outcome, "hot-reloaded");
+  } finally { f.cleanup(); }
+});
+
+test("a lost old-process acknowledgement and its successor recover cumulatively only in a verified fresh process", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    const apply = f.adapter.apply;
+    f.adapter.apply = async (record) => { await apply(record); f.receipts.clear(); return null; };
+    await f.service.enqueue({ requestId: "request-lost-a", files: f.files() });
+    await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.queue.get("request-lost-a").state, "uncertain");
+    await f.service.enqueue({ requestId: "request-successor-a", files: f.files(firstEdit, secondEdit) });
+    await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.queue.get("request-successor-a").reasonCode, "QUEUE_PREDECESSOR_PENDING");
+    assert.equal(f.calls.apply.length, 1);
+    // Same process reconnect/foreground changes cannot erase admission doubt.
+    f.state.connected = false; await f.runtime().runOnce();
+    f.state.connected = true; await f.runtime().runOnce();
+    assert.equal(f.calls.apply.length, 1);
+    // A new authenticated nonce with nonzero revision has no fresh baseline.
+    f.state.scope.sessionIdentity = "fixture-process-nonzero";
+    await f.runtime().runOnce();
+    assert.equal(f.calls.apply.length, 1);
+    f.state.scope.sessionIdentity = "fixture-process-new"; f.state.revision = 0;
+    f.adapter.apply = apply;
+    const restarted = f.runtime();
+    await restarted.runOnce(); await restarted.runOnce(); await restarted.runOnce();
+    const latest = f.calls.apply.at(-1);
+    assert.equal(latest.files[0].beforeSource, original);
+    assert.equal(latest.files[0].afterSource, secondEdit);
+    assert.equal(latest.scope.sessionIdentity, "fixture-process-new");
+    assert.equal(latest.baselineRevision, 0);
+    assert.equal(f.calls.apply.length, 2);
+    assert.equal(restarted.status("request-successor-a").outcome, "hot-reloaded");
+    assert.equal(f.queue.get("request-lost-a").proof, null);
+  } finally { f.cleanup(); }
+});
+
+test("confirmed desired source survives expiry, helper absence and repeated app relaunches without resending", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    await f.service.enqueue({ requestId: "request-durable", files: f.files() });
+    await f.service.runOnce(); await f.service.runOnce();
+    await f.service.enqueue({ requestId: "request-removal", files: f.files(firstEdit, original.replace('second: String { "old" }', 'second: String { "new" }')) });
+    await f.service.runOnce(); await f.service.runOnce();
+    const desired = f.queue.desiredStates()[0].files[0].afterSource;
+    assert.doesNotMatch(desired, /first: String \{ "new"/);
+    f.advance(24 * 60 * 60 * 1000 + 1);
+    f.state.scope.sessionIdentity = "fixture-after-eviction"; f.state.revision = 0;
+    f.state.connected = false; f.state.foreground = false;
+    f.state.engineAvailable = false;
+    const resumed = f.runtime();
+    await resumed.runOnce();
+    assert.equal(f.calls.apply.length, 2);
+    f.state.engineAvailable = true; f.state.connected = true;
+    await resumed.runOnce(); await resumed.runOnce();
+    assert.equal(f.calls.apply.length, 2);
+    const restorationId = f.queue.list().findLast((item) => item.scope.sessionIdentity === f.state.scope.sessionIdentity).requestId;
+    assert.equal(resumed.status(restorationId).outcome, "queued");
+    f.state.foreground = true;
+    await resumed.runOnce();
+    assert.equal(f.calls.apply.at(-1).files[0].beforeSource, original);
+    assert.equal(f.calls.apply.at(-1).files[0].afterSource, desired);
+    assert.equal(resumed.status(restorationId).outcome, "hot-reloaded");
+    // A helper restart and foreground transition in the same app process do not
+    // apply again. A later force-quit-equivalent nonce restores the same source.
+    f.state.foreground = false; await f.runtime().runOnce();
+    f.state.foreground = true; await f.runtime().runOnce();
+    assert.equal(f.calls.apply.length, 3);
+    f.state.scope.sessionIdentity = "fixture-after-force-quit"; f.state.revision = 0;
+    const again = f.runtime();
+    await again.runOnce(); await again.runOnce(); await again.runOnce();
+    assert.equal(f.calls.apply.length, 4);
+    assert.equal(f.calls.apply.at(-1).files[0].afterSource, desired);
+    assert.equal(again.status(restorationId).outcome, "hot-reloaded");
+    assert.equal(f.state.revision, 1);
+  } finally { f.cleanup(); }
+});
+
+test("revoking durable restoration leaves current effects alone and prevents future automatic replay", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    await f.service.enqueue({ requestId: "request-revoke", files: f.files() });
+    await f.service.runOnce(); await f.service.runOnce();
+    assert.equal((await f.service.revokeDesired()).revoked, true);
+    f.state.scope.sessionIdentity = "fixture-after-revoke"; f.state.revision = 0;
+    await f.runtime().runOnce(); await f.runtime().runOnce();
+    assert.equal(f.calls.apply.length, 1);
+    assert.equal(f.queue.desiredStates().length, 0);
+  } finally { f.cleanup(); }
+});
+
+test("insufficient journal capacity for desired publication fails before native admission", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    const queue = { ...f.queue, async transition(requestId, options) {
+      if (options.state === "applying") throw Object.assign(new Error("publication reserve exhausted"), { code: "QUEUE_LIMIT_REACHED" });
+      return f.queue.transition(requestId, options);
+    } };
+    const service = createLiveDeliveryRuntime({ queue, adapter: f.adapter, now: () => 1_000_000 });
+    await service.enqueue({ requestId: "request-capacity", files: f.files() });
+    await service.runOnce(); await service.runOnce();
+    assert.equal(f.calls.apply.length, 0);
+    assert.equal(f.queue.get("request-capacity").state, "failed");
+    assert.equal(service.status("request-capacity").reasonCode, "QUEUE_LIMIT_REACHED");
   } finally { f.cleanup(); }
 });
 
@@ -196,6 +306,23 @@ test("helper restart reconciles a lost acknowledgement without applying the edit
     assert.equal(restarted.status("request-ack-0001").outcome, "hot-reloaded");
     assert.equal(f.calls.apply.length, 1);
     assert.deepEqual(f.calls.receipt, ["request-ack-0001"]);
+  } finally { f.cleanup(); }
+});
+
+test("an existing admitted receipt can clear uncertainty after pending expiry without another apply", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    const apply = f.adapter.apply;
+    f.adapter.apply = async (record) => { await apply(record); throw new Error("lost reply"); };
+    await f.service.enqueue({ requestId: "request-late-receipt", files: f.files() });
+    await f.service.runOnce(); await f.service.runOnce();
+    f.advance(24 * 60 * 60 * 1000 + 1);
+    await f.runtime().runOnce();
+    assert.equal(f.queue.get("request-late-receipt").state, "refreshed");
+    assert.equal(f.queue.desiredStates()[0].files[0].afterSource, firstEdit);
+    assert.equal(f.calls.apply.length, 1);
+    assert.deepEqual(f.calls.receipt, ["request-late-receipt"]);
   } finally { f.cleanup(); }
 });
 

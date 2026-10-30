@@ -74,6 +74,9 @@ test("a same-version older helper cannot advertise queue readiness without its c
   const older = { ...payload }; delete older.capabilities;
   const report = await deliveryRuntimeHealth({ inspect: () => inspectRuntimeHealth("http://127.0.0.1/health", { fetchImpl: async () => new Response(JSON.stringify(older)) }) });
   assert.equal(report.ok, true); assert.equal(report.queueReady, false);
+  older.capabilities = ["durable-live-delivery-v1"];
+  const withoutRestoration = await deliveryRuntimeHealth({ inspect: () => inspectRuntimeHealth("http://127.0.0.1/health", { fetchImpl: async () => new Response(JSON.stringify(older)) }) });
+  assert.equal(withoutRestoration.queueReady, false);
 });
 
 test("transport exceptions keep only allowlisted causes and block all delivery mutation", async () => {

@@ -8,7 +8,7 @@ import { prepareQueuedLivePatchAsync, cleanupQueuedLiveArtifacts, queuedLiveEngi
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 
 const LIVE_ROOT = join(homedir(), ".swift-sim", "live");
-const REQUIRED_CAPABILITIES = ["prepared-delivery-v1", "receipt-v1"];
+const REQUIRED_CAPABILITIES = ["prepared-delivery-v1", "receipt-v1", "replacement-proof-v2"];
 
 export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "compilations.json"), control = queuedLiveEngineControl, compile = prepareQueuedLivePatchAsync, lock = withLiveEngineLifecycleLock, now = () => Date.now(), wait = (ms) => new Promise((done) => setTimeout(done, ms)) } = {}) {
   function capture() {
@@ -37,20 +37,21 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     if (!["project", "scheme", "appIdentity", "binaryIdentity"].every((key) => record.scope[key] === expectedScope[key])) return { engineAvailable: false, matchesBinary: false };
     const response = await control({ action: "status" });
     const data = response?.success ? response.data : null;
-    const capabilities = data?.client_capabilities || [];
+    const capabilities = Array.isArray(data?.client_capabilities) ? data.client_capabilities : [];
     const engineSupports = data?.prepared_delivery_protocol === 1;
     const client = data?.client_identity;
     const matchesBinary = liveBinaryMatches(manifest.binaryIdentity, client) && typeof client?.process_nonce === "string" && client.process_nonce.length >= 8;
+    const revisionValid = Number.isSafeInteger(client?.root_revision) && client.root_revision >= 0;
     return {
       engineAvailable: Boolean(data && engineSupports),
       engineReachable: Boolean(data),
       clientPresent: Boolean(data?.has_connected_client),
       supportsReceipts: REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value)),
       matchesBinary,
-      connected: Boolean(data?.has_connected_client && matchesBinary && REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value))),
+      connected: Boolean(data?.has_connected_client && matchesBinary && revisionValid && REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value))),
       foreground: client?.is_active === true,
       rootReady: client?.root_ready === true,
-      revision: Number.isSafeInteger(client?.root_revision) && client.root_revision >= 0 ? client.root_revision : 0,
+      revision: revisionValid ? client.root_revision : null,
       scope: scopeFor(manifest, matchesBinary ? client.process_nonce : record.scope.sessionIdentity),
       identity: client,
     };

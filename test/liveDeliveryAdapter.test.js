@@ -19,7 +19,7 @@ async function fixture() {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-adapter-"));
   const manifestPath = join(root, "compilations.json"); const artifact = join(root, "prepared.dylib");
   const bytes = Buffer.from("synthetic signed fixture bytes"); writeFileSync(artifact, bytes, { mode: 0o600 });
-  const status = { prepared_delivery_protocol: 1, client_capabilities: ["prepared-delivery-v1", "receipt-v1"], client_identity: { ...identity }, has_connected_client: true };
+  const status = { prepared_delivery_protocol: 1, client_capabilities: ["prepared-delivery-v1", "receipt-v1", "replacement-proof-v2"], client_identity: { ...identity }, has_connected_client: true };
   writeFileSync(manifestPath, JSON.stringify({ binaryIdentity: identity, binding: { projectPath: join(root, "Example.xcodeproj", "project.pbxproj"), projectRoot: root, scheme: "Example" }, sourceBaselines: {} }), { mode: 0o600 });
   let clock = 1000; const calls = []; let result; let prepareDigest = digest(bytes);
   const adapter = createLiveDeliveryAdapter({ manifestPath, compile: async (_record, options) => ({ path: artifact, mode: "swift-dynamic-replacement-bundle", receivedSignal: options?.cancellationSignal }),
@@ -62,6 +62,23 @@ test("application without refresh remains an incomplete applied proof", async ()
   } finally { f.cleanup(); }
 });
 
+test("an unknown or malformed native revision cannot establish a fresh-process baseline", async () => {
+  const f = await fixture();
+  try {
+    for (const revision of [undefined, null, "0", -1, 0.5, NaN]) {
+      f.status.client_identity.root_revision = revision;
+      const observed = await f.adapter.inspect(f.record);
+      assert.equal(observed.connected, false);
+      assert.equal(observed.revision, null);
+      assert.equal((await f.adapter.binding({})).verifiedProcess, false);
+    }
+    f.status.client_identity.root_revision = 0;
+    assert.equal((await f.adapter.inspect(f.record)).connected, true);
+    f.status.client_capabilities = "prepared-delivery-v1 receipt-v1 replacement-proof-v2";
+    await assert.rejects(f.adapter.binding({}), { code: "LIVE_CLIENT_UPDATE_REQUIRED" });
+  } finally { f.cleanup(); }
+});
+
 test("only authenticated current-attempt pre-admission rejection is retryable", async () => {
   const f = await fixture();
   try {
@@ -82,6 +99,8 @@ test("reachable old engines and clients require activation rather than promising
     f.status.prepared_delivery_protocol = 0;
     await assert.rejects(f.adapter.binding({}), { code: "LIVE_ENGINE_UPDATE_REQUIRED" });
     f.status.prepared_delivery_protocol = 1; f.status.client_capabilities = [];
+    await assert.rejects(f.adapter.binding({}), { code: "LIVE_CLIENT_UPDATE_REQUIRED" });
+    f.status.client_capabilities = ["prepared-delivery-v1", "receipt-v1"];
     await assert.rejects(f.adapter.binding({}), { code: "LIVE_CLIENT_UPDATE_REQUIRED" });
     f.status.has_connected_client = false; delete f.status.client_identity;
     const binding = await f.adapter.binding({}); assert.equal(binding.verifiedProcess, false);

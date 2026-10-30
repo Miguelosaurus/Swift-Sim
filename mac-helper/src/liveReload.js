@@ -2003,12 +2003,13 @@ function readJSONFile(path) {
 export function liveEngineSessionMatches(session, {
   projectRoot = "",
   scheme = "",
+  expectedEngineVersion = ENGINE_VERSION,
 } = {}) {
   return Boolean(
     session
     && String(session.projectRoot || "") === String(projectRoot || "")
     && String(session.scheme || "") === String(scheme || "")
-    && session.engineVersion === ENGINE_VERSION
+    && session.engineVersion === expectedEngineVersion
   );
 }
 

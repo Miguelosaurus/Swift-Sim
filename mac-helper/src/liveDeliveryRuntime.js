@@ -18,7 +18,9 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   async function enqueue({ files, project = "", scheme = "", host = "", requestId } = {}) {
     const binding = await adapter.binding({ project, scheme, host });
     let history = queue.list().filter((record) => sameBinary(record.scope, binding.scope));
-    if (binding.verifiedProcess && binding.revision === 0 && history.length && !history.some((record) => record.scope.sessionIdentity === binding.scope.sessionIdentity)) {
+    const desires = queue.desiredStates().filter((item) => sameBinary(item.scope, binding.scope));
+    if (binding.verifiedProcess && binding.revision === 0 && (history.length || desires.length) && !history.some((record) => record.scope.sessionIdentity === binding.scope.sessionIdentity)
+      && !desires.some((item) => item.scope.sessionIdentity === binding.scope.sessionIdentity)) {
       await queue.rebaseForProcess({ scope: binding.scope, currentRevision: 0, verified: true });
       history = queue.list().filter((record) => sameBinary(record.scope, binding.scope));
     }
@@ -31,7 +33,8 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
     }));
     for (const snapshot of snapshots) {
       const prior = history.flatMap((record) => record.files).findLast((file) => file.path === snapshot.path);
-      const expected = prior?.afterHash || binding.sourceBaselines?.[snapshot.path];
+      const desired = queue.desiredStates().find((item) => sameBinary(item.scope, scope))?.files.find((file) => file.path === snapshot.path);
+      const expected = prior?.afterHash || desired?.afterHash || binding.sourceBaselines?.[snapshot.path];
       if (!expected || createHash("sha256").update(snapshot.beforeSource).digest("hex") !== expected) throw Object.assign(new Error("The edit's source baseline differs from the qualified Debug build or queued predecessor. No rebuild was started."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
       if (binding.verifiedProcess && binding.revision === 0 && !previous) {
         const original = queue.binaryBaseline(scope, snapshot.path);
@@ -47,12 +50,12 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
     let record = queue.get(requestId);
     if (!record) throw Object.assign(new Error("The live delivery request was not found."), { code: "QUEUE_REQUEST_NOT_FOUND" });
     const visited = new Set();
-    while (record.state === "superseded" && record.replacementRequestId) {
-      if (visited.has(record.requestId) || visited.size > 32) throw new Error("Invalid live delivery replacement chain.");
-      visited.add(record.requestId); record = queue.get(record.replacementRequestId);
+    while ((record.state === "superseded" && record.replacementRequestId) || record.restorationRequestId) {
+      if (visited.has(record.requestId) || visited.size >= 256) throw new Error("Invalid live delivery replacement chain.");
+      visited.add(record.requestId); record = queue.get(record.restorationRequestId || record.replacementRequestId);
       if (!record) throw new Error("The live delivery replacement is missing.");
     }
-    if (record.state === "superseded" && record.reasonCode === "QUEUE_NET_NO_CHANGE") return deliveryEnvelope({ outcome: "no-change", message: "The queued edits cancel each other; the fresh Debug process already contains that baseline." });
+    if ((record.state === "superseded" && record.reasonCode === "QUEUE_NET_NO_CHANGE") || record.restorationNoChange) return deliveryEnvelope({ outcome: "no-change", message: "The queued edits cancel each other; the fresh Debug process already contains that baseline." });
     const result = projectLiveDelivery(record);
     if (visited.size && result.delivery) result.delivery.supersededRequestId = requestId;
     return result;
@@ -66,19 +69,21 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   }
 
   async function tick() {
-    if (!queue.list().length) return { processed: false };
+    if (!queue.list().length && !queue.desiredStates().length) return { processed: false };
     await queue.sweepExpired();
     if (adapter.cleanup && now() - lastCleanup >= 60_000) {
       await adapter.cleanup(queue.list(), { now: now() }); lastCleanup = now();
     }
-    const records = queue.list().filter((record) => record.expiresAt > now() && (INCOMPLETE.has(record.state) || record.state === "uncertain" || record.state === "refreshed"));
-    if (!records.length) return { processed: false };
+    const records = queue.list().filter((record) => ["applying", "applied", "uncertain"].includes(record.state)
+      || (record.expiresAt > now() && (INCOMPLETE.has(record.state) || record.state === "refreshed")));
+    const desires = queue.desiredStates();
+    if (!records.length && !desires.length) return { processed: false };
     const operation = async () => {
       if (stopping) return { processed: false };
       // The engine watches one project. Inspect each distinct lane at most once
       // per bounded helper turn, without Xcode/network/signing preflights.
       const lanes = new Map();
-      for (const record of records) {
+      for (const record of [...desires, ...records]) {
         const { sessionIdentity: _session, ...binary } = record.scope;
         const key = JSON.stringify(binary);
         lanes.set(key, record);
@@ -92,20 +97,15 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
         let scope = first.scope;
         if (matched && observed.scope?.sessionIdentity !== first.scope.sessionIdentity) {
           const hasCurrentProcess = records.some((record) => sameScope(record.scope, observed.scope));
-          if (!hasCurrentProcess && observed.revision === 0) {
+          if (!hasCurrentProcess && observed.connected === true && observed.revision === 0) {
             try {
               await queue.rebaseForProcess({ scope: observed.scope, currentRevision: 0, verified: true });
               return { processed: true, rebound: true };
             } catch { continue; }
           }
-          // A nonce alone cannot rebind a queue. The adapter must first compare
-          // the authenticated client's app/build and both Mach-O UUIDs.
-          for (const record of records.filter((item) => JSON.stringify(item.scope) === JSON.stringify(first.scope))) {
-            if (!["queued", "compiling", "waiting-for-device", "waiting-for-foreground"].includes(record.state)) continue;
-            try {
-              await queue.rebindSession(record.requestId, { previousSessionIdentity: record.scope.sessionIdentity, scope: observed.scope, currentRevision: observed.revision, verified: true });
-            } catch { /* An active claim must finish or expire before rebinding. */ }
-          }
+          // Reconnection to a different nonzero process does not establish its
+          // source baseline. Never carry a prior process's pending patch into it.
+          if (!hasCurrentProcess) continue;
           scope = observed.scope;
         }
         // Lost acknowledgements are reconciled by receipt, never by issuing the
@@ -146,7 +146,13 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           await queue.transition(record.requestId, { claimToken, state: "waiting-for-device", reasonCode: "LIVE_CONNECTION_CHANGED" });
           continue;
         }
-        await queue.transition(record.requestId, { claimToken, state: "applying", scope: current.scope, currentRevision: current.revision });
+        try {
+          await queue.transition(record.requestId, { claimToken, state: "applying", scope: current.scope, currentRevision: current.revision });
+        } catch (error) {
+          if (error?.code !== "QUEUE_LIMIT_REACHED") throw error;
+          await queue.transition(record.requestId, { claimToken, state: "failed", reasonCode: "QUEUE_LIMIT_REACHED" });
+          return { processed: true, requestId: record.requestId };
+        }
         try {
           const proof = await adapter.apply(record, current, { cancellationSignal: cancellation.signal });
           if (proof?.noEffect) {
@@ -170,7 +176,12 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
     stopping = true; cancellation.abort();
     if (running) await running.catch(() => {});
   }
-  return Object.freeze({ enqueue, status, runOnce, stop, queue });
+  async function revokeDesired({ project = "", scheme = "" } = {}) {
+    const binding = await adapter.binding({ project, scheme });
+    await queue.revokeDesired({ scope: binding.scope });
+    return { revoked: true, message: "Automatic restoration and unclaimed queued edits for this Debug binary are revoked. An already running patch remains until the app restarts." };
+  }
+  return Object.freeze({ enqueue, status, runOnce, stop, revokeDesired, queue });
 }
 
 export function projectLiveDelivery(record) {

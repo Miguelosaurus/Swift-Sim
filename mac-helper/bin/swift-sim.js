@@ -59,6 +59,12 @@ async function main() {
     console.log(JSON.stringify(liveDeliveryService().status(values.request)));
     return;
   }
+  if (command === "live-desired-revoke") {
+    const { values } = parseArgs({ args, options: { project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" } } });
+    if ((!values.project && !values.workspace) || !values.scheme) throw new Error("Select the qualified Debug project or workspace and scheme to revoke restoration.");
+    console.log(JSON.stringify(await liveDeliveryService().revokeDesired({ project: values.workspace || values.project, scheme: values.scheme })));
+    return;
+  }
   if (command === "engine-candidate") {
     const { values } = parseArgs({ args, options: { archive: { type: "string" }, version: { type: "string" }, sha256: { type: "string" }, "source-revision": { type: "string" } } });
     const result = await stageLocalEngineCandidate({ archivePath: values.archive, version: values.version, sha256: values.sha256, sourceRevision: values["source-revision"] });
@@ -881,6 +887,7 @@ Usage:
   swift-sim route-change ...      Choose hot reload or a new signed build
   swift-sim deliver-change ...    Queue a compatible edit; --live-only never builds
   swift-sim live-delivery-status  Read a queued request with --request
+  swift-sim live-desired-revoke   Revoke restoration for a qualified Debug project/scheme
   swift-sim list-apps [--archived] List managed prototype apps and build history
   swift-sim verify-device-build    Verify an install on a reachable iPhone
   swift-sim archive-app ...        Archive or restore an app from the library

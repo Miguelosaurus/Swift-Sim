@@ -353,14 +353,17 @@ test("live readiness is bound to the active engine scheme", () => {
   assert.equal(liveEngineSessionMatches(session, {
     projectRoot: "/tmp/Repo",
     scheme: "SelectedApp",
+    expectedEngineVersion: "0.4.0",
   }), false);
   assert.equal(liveEngineSessionMatches(session, {
     projectRoot: "/tmp/Repo",
     scheme: "OtherApp",
+    expectedEngineVersion: "0.4.0",
   }), true);
   assert.equal(liveEngineSessionMatches(session, {
     projectRoot: "/tmp/AnotherRepo",
     scheme: "OtherApp",
+    expectedEngineVersion: "0.4.0",
   }), false);
 
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");

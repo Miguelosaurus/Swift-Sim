@@ -397,7 +397,7 @@ test("a net-no-change relaunch supersedes pending requests without claiming hot 
   } finally { f.cleanup(); }
 });
 
-test("new-process rebase refuses unverified, same-process, live-claim and uncertain histories", async () => {
+test("new-process rebase refuses unverified, same-process and live-claim histories", async () => {
   const f = fixture();
   try {
     await queued(f);
@@ -411,7 +411,7 @@ test("new-process rebase refuses unverified, same-process, live-claim and uncert
     const claim = await f.queue.claimNext({ scope, currentRevision: 0, workerId: "compiler" });
     await assert.rejects(f.queue.rebaseForProcess({ scope: newScope, currentRevision: 0, verified: true }), { code: "QUEUE_REBASE_BLOCKED" });
     await f.queue.transition("request-1", { claimToken: claim.claim.token, state: "uncertain" });
-    await assert.rejects(f.queue.rebaseForProcess({ scope: newScope, currentRevision: 0, verified: true }), { code: "QUEUE_REBASE_BLOCKED" });
+    await assert.rejects(f.queue.rebaseForProcess({ scope, currentRevision: 0, verified: true }), { code: "QUEUE_REBASE_REJECTED" });
     assert.equal(f.queue.get("request-1").scope.sessionIdentity, scope.sessionIdentity);
   } finally { f.cleanup(); }
 });
@@ -594,5 +594,193 @@ test("near-expiry process rebase cannot extend accepted intent or marker lifetim
     f.tick(51); await f.queue.sweepExpired();
     assert.equal(f.queue.get("replay").state, "expired");
     assert.equal(await f.queue.claimNext({ scope: newScope, currentRevision: 0, workerId: "late" }), null);
+  } finally { f.cleanup(); }
+});
+
+test("a fresh matching process recovers an uncertain predecessor and latest queued successor without inventing proof", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "uncertain", reasonCode: "QUEUE_APPLY_UNCONFIRMED" });
+    await queued(f, "request-2", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: "latest useful source" }]);
+    await prepare(f, "request-2");
+    assert.equal(await f.queue.claimNext({ scope, currentRevision: 1, deviceConnected: true, foreground: true, workerId: "same-process" }), null);
+    const newScope = { ...scope, sessionIdentity: "verified-fresh-process" };
+    const recovery = await f.reopen().rebaseForProcess({ scope: newScope, verified: true, currentRevision: 0, newRequestId: "recovery" });
+    assert.deepEqual(recovery.supersededRequestIds, ["request-1", "request-2"]);
+    assert.equal(recovery.record.baselineRevision, 0);
+    assert.equal(recovery.record.predecessorRequestId, "");
+    assert.equal(recovery.record.files[0].beforeSource, sources[0].beforeSource);
+    assert.equal(recovery.record.files[0].afterSource, "latest useful source");
+    const prior = f.queue.get("request-1");
+    assert.equal(prior.state, "superseded"); assert.equal(prior.supersededState, "uncertain");
+    assert.equal(prior.proof, null); assert.equal(prior.scope.sessionIdentity, scope.sessionIdentity);
+    await assert.rejects(f.queue.reconcileReceipt("request-1", { scope, proof: proof(), verified: true }), { code: "QUEUE_RECEIPT_REJECTED" });
+    assert.deepEqual(f.queue.desiredStates(), []);
+    const claim = await f.queue.claimNext({ scope: newScope, currentRevision: 0, workerId: "compiler" });
+    assert.equal(claim.requestId, "recovery");
+  } finally { f.cleanup(); }
+});
+
+test("fresh-process recovery waits for a prior applying worker's live lease", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); await begin(f);
+    const input = { scope: { ...scope, sessionIdentity: "fresh" }, verified: true, currentRevision: 0, newRequestId: "recovery" };
+    await assert.rejects(f.queue.rebaseForProcess(input), { code: "QUEUE_REBASE_BLOCKED" });
+    f.tick(120_001);
+    const recovery = await f.queue.rebaseForProcess(input);
+    assert.equal(recovery.record.scope.sessionIdentity, "fresh");
+    assert.equal(f.queue.get("request-1").supersededState, "uncertain");
+    assert.equal(f.queue.get("request-1").proof, null);
+  } finally { f.cleanup(); }
+});
+
+test("confirmed desired sources survive request expiry, garbage collection and helper reopen", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    assert.equal(f.queue.desiredStates()[0].files[0].afterSource, sources[0].afterSource);
+    f.tick(24 * 60 * 60 * 1000 + 1);
+    const otherScope = { ...scope, binaryIdentity: "different-binary" };
+    await f.queue.enqueue({ requestId: "gc", scope: otherScope, files: sources });
+    assert.equal(f.queue.get("request-1"), null);
+    const reopened = f.reopen();
+    const desired = reopened.desiredStates({ scope })[0];
+    assert.equal(desired.confirmation, "refreshed");
+    assert.deepEqual(desired.proof, proof());
+    const input = { scope: { ...scope, sessionIdentity: "relaunch-after-expiry" }, verified: true, currentRevision: 0, newRequestId: "restore" };
+    const recovery = await reopened.rebaseForProcess(input);
+    assert.equal(recovery.record.files[0].beforeSource, sources[0].beforeSource);
+    assert.equal(recovery.record.files[0].afterSource, sources[0].afterSource);
+    assert.equal(recovery.record.expiresAt - recovery.record.createdAt, 24 * 60 * 60 * 1000);
+  } finally { f.cleanup(); }
+});
+
+test("confirmed label removal remains durable and old receipts cannot restore the label", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); let token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    await queued(f, "request-2", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: sources[0].beforeSource }]);
+    await prepare(f, "request-2"); token = await begin(f, "request-2", 1);
+    await f.queue.transition("request-2", { claimToken: token, state: "refreshed", proof: proof("request-2", 2) });
+    await f.queue.reconcileReceipt("request-1", { scope, proof: proof(), verified: true });
+    assert.equal(f.reopen().desiredStates()[0].files[0].afterSource, sources[0].beforeSource);
+    assert.equal(f.queue.desiredStates()[0].sourceRequestId, "request-2");
+    f.tick(24 * 60 * 60 * 1000 + 1);
+    const recovery = await f.queue.rebaseForProcess({ scope: { ...scope, sessionIdentity: "new" }, verified: true, currentRevision: 0 });
+    assert.equal(recovery.netNoChange, true); assert.equal(recovery.record, null);
+    assert.equal(f.queue.desiredStates()[0].confirmation, "verified-binary-baseline");
+    assert.equal(f.queue.desiredStates()[0].proof, null);
+    assert.equal(f.queue.desiredStates()[0].files[0].afterSource, sources[0].beforeSource);
+  } finally { f.cleanup(); }
+});
+
+test("a cumulative recovery retains baseline tombstones for removed files alongside another live edit", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); let token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    await queued(f, "request-2", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: sources[0].beforeSource }, { path: "Other.swift", beforeSource: "old", afterSource: "useful" }]);
+    const newScope = { ...scope, sessionIdentity: "fresh" };
+    const { record } = await f.queue.rebaseForProcess({ scope: newScope, verified: true, currentRevision: 0, newRequestId: "restore" });
+    assert.deepEqual(record.files.map((file) => file.path), ["Other.swift"]);
+    assert.equal(record.desiredSnapshots.find((file) => file.path === "Card.swift").afterSource, sources[0].beforeSource);
+    let claim = await f.queue.claimNext({ scope: newScope, currentRevision: 0, workerId: "compiler" });
+    await f.queue.transition("restore", { claimToken: claim.claim.token, state: "waiting-for-device", preparedPatch: { patchDigest: "restore" } });
+    claim = await f.queue.claimNext({ scope: newScope, currentRevision: 0, deviceConnected: true, foreground: true, workerId: "applier" });
+    token = claim.claim.token;
+    await f.queue.transition("restore", { claimToken: token, state: "applying", scope: newScope, currentRevision: 0 });
+    await f.queue.transition("restore", { claimToken: token, state: "refreshed", proof: { ...proof("restore"), sessionIdentity: "fresh" } });
+    assert.equal(f.queue.desiredStates()[0].files.find((file) => file.path === "Card.swift").afterSource, sources[0].beforeSource);
+    assert.equal(f.queue.get("request-1").restorationRequestId, "restore");
+    assert.deepEqual(f.queue.get("request-1").proof, proof());
+  } finally { f.cleanup(); }
+});
+
+test("expired pending intent never becomes durable desired state during fresh-process recovery", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    await f.queue.enqueue({ requestId: "request-2", scope, files: [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: "never confirmed" }], expiresAt: 1100 });
+    f.tick(101);
+    const { record } = await f.queue.rebaseForProcess({ scope: { ...scope, sessionIdentity: "fresh" }, verified: true, currentRevision: 0 });
+    assert.equal(record.files[0].afterSource, sources[0].afterSource);
+    assert.equal(f.queue.desiredStates()[0].files[0].afterSource, sources[0].afterSource);
+  } finally { f.cleanup(); }
+});
+
+test("revocation fences confirmed and ambiguous history without falsifying its evidence", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); let token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    await queued(f, "request-2", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: "ambiguous" }]);
+    await prepare(f, "request-2"); token = await begin(f, "request-2", 1);
+    await assert.rejects(f.queue.revokeDesired({ scope }), { code: "QUEUE_REVOKE_BLOCKED" });
+    await f.queue.transition("request-2", { claimToken: token, state: "uncertain" });
+    const revoked = await f.queue.revokeDesired({ scope });
+    assert.equal(revoked.revoked, true); assert.equal(revoked.confirmedThroughSequence, 2);
+    assert.deepEqual(f.reopen().desiredStates(), []);
+    assert.equal(f.queue.get("request-2").state, "uncertain");
+    assert.equal(f.queue.get("request-2").supersededState, undefined);
+    assert.equal(f.queue.get("request-2").proof, null);
+    await f.queue.reconcileReceipt("request-1", { scope, proof: proof(), verified: true });
+    assert.deepEqual(f.queue.desiredStates(), []);
+    const result = await f.queue.rebaseForProcess({ scope: { ...scope, sessionIdentity: "fresh" }, verified: true, currentRevision: 0 });
+    assert.equal(result.netNoChange, true); assert.equal(result.record, null);
+    assert.equal(f.queue.desiredStates({ includeRevoked: true })[0].revoked, true);
+  } finally { f.cleanup(); }
+});
+
+test("schema-one confirmed history migrates in memory without touching journal bytes", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    const path = join(f.rootPath, "queue.json");
+    const legacy = await f.fileStore.readJSON(path); delete legacy.desiredStates;
+    await f.fileStore.writeJSON(path, legacy, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+    const bytes = await f.fileStore.readText(path); const stats = lstatSync(path);
+    assert.equal(f.reopen().desiredStates()[0].files[0].afterSource, sources[0].afterSource);
+    assert.equal(await f.fileStore.readText(path), bytes); assert.equal(lstatSync(path).ino, stats.ino);
+    f.tick(24 * 60 * 60 * 1000 + 1);
+    const { record } = await f.queue.rebaseForProcess({ scope: { ...scope, sessionIdentity: "fresh" }, verified: true, currentRevision: 0 });
+    assert.equal(record.files[0].afterSource, sources[0].afterSource);
+    assert.equal((await f.fileStore.readJSON(path)).desiredStates.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test("expired ambiguity still fences new effects in the same process after revocation and GC", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "uncertain" });
+    await f.queue.revokeDesired({ scope });
+    f.tick(24 * 60 * 60 * 1000 + 1);
+    await queued(f, "request-2", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: "new explicit intent" }]);
+    await prepare(f, "request-2");
+    assert.equal(f.queue.get("request-1").state, "uncertain");
+    assert.equal(await f.queue.claimNext({ scope, currentRevision: 1, deviceConnected: true, foreground: true, workerId: "same-process" }), null);
+    assert.equal(f.queue.get("request-2").reasonCode, "QUEUE_AMBIGUOUS_PREDECESSOR");
+    const newScope = { ...scope, sessionIdentity: "fresh-process" };
+    const { record } = await f.queue.rebaseForProcess({ scope: newScope, verified: true, currentRevision: 0, newRequestId: "fresh-request" });
+    assert.equal(record.files[0].afterSource, "new explicit intent");
+  } finally { f.cleanup(); }
+});
+
+test("split offline requests cannot exceed eventual cumulative recovery source limits", async () => {
+  const f = fixture();
+  try {
+    const full = "a".repeat(1024 * 1024);
+    const files = Array.from({ length: 4 }, (_, index) => ({ path: `File${index}.swift`, beforeSource: full, afterSource: `b${full.slice(1)}` }));
+    await queued(f, "large-pending", files);
+    await assert.rejects(queued(f, "too-large", [{ path: "File4.swift", beforeSource: full, afterSource: `c${full.slice(1)}` }]), { code: "QUEUE_LIMIT_REACHED" });
+    assert.equal(f.queue.get("too-large"), null);
+    assert.equal(f.queue.list().length, 1);
+    assert.equal(f.queue.get("large-pending").state, "queued");
   } finally { f.cleanup(); }
 });

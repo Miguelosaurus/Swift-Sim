@@ -27,6 +27,12 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Recover cumulative live intent after a verified fresh Debug process even
+  when the previous process lost its acknowledgement; preserve same-process
+  ambiguity. Retain confirmed desired source and removals independently of
+  pending expiry, with explicit restoration revocation and offline limits.
+- Recognize generated Swift dynamic-replacement symbols in the matching Debug
+  SDK instead of reporting a visible replacement as unapplied.
 - Kept compatible disconnected edits out of full-build fallback. Preserved
   fallback routing reasons, classified CodeSign/storage failures, and retried
   terminal metadata persistence without rebuilding after retention/save errors.

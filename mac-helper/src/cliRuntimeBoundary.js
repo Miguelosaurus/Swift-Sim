@@ -139,7 +139,7 @@ export async function currentHelperRuntimeHealth() {
     expectedRole: HELPER_RUNTIME_ROLE,
     fetchImpl: rawFetch,
   });
-  if (health.ok && !(Array.isArray(health.payload?.capabilities) && health.payload.capabilities.includes("durable-live-delivery-v1"))) return { ...health, ok: false, failureCode: "HELPER_UPDATE_REQUIRED" };
+  if (health.ok && !(Array.isArray(health.payload?.capabilities) && ["durable-live-delivery-v1", "durable-desired-state-v1"].every((value) => health.payload.capabilities.includes(value)))) return { ...health, ok: false, failureCode: "HELPER_UPDATE_REQUIRED" };
   return health;
 }
 
