@@ -94,17 +94,19 @@ export function activitySnapshotEvents({ builds = [], liveDeliveries = [], previ
   for (const build of builds.slice(0, 500)) {
     if (!opaque(build?.id)) continue;
     const time = parseTime(build.updatedAt || build.createdAt, now);
-    const base = { buildId: build.id, time, state: String(build.state || "unknown") };
-    if (BUILD_PENDING.has(build.state)) add(`build:${build.id}`, { ...base, kind: "queued", title: "Preparing update", message: "Your signed update is being prepared.", notify: false });
-    else if (build.state === "ready" && build.artifacts?.ipaPath && build.remoteBaseUrl && !build.tokenExpiredAt && Date.parse(build.expiresAt || "") > now) add(`build:${build.id}`, { ...base, kind: "build-ready", title: "New build ready", message: "Your signed update is ready to install." });
-    else if (build.state === "ready") add(`build:${build.id}`, { ...base, state: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "expired" : "delivering", kind: "queued", title: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Install link expired" : "Preparing install", message: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Open app history for the current install action." : "The app is packaged; its install delivery is being prepared.", notify: false });
+    const targetAppName = safeAppName(build.app?.name);
+    const title = (text) => targetAppName ? `${targetAppName} — ${text}` : text;
+    const base = { buildId: build.id, ...(targetAppName ? { targetAppName } : {}), time, state: String(build.state || "unknown") };
+    if (BUILD_PENDING.has(build.state)) add(`build:${build.id}`, { ...base, kind: "queued", title: title("Preparing update"), message: "Your signed update is being prepared.", notify: false });
+    else if (build.state === "ready" && build.artifacts?.ipaPath && build.remoteBaseUrl && !build.tokenExpiredAt && Date.parse(build.expiresAt || "") > now) add(`build:${build.id}`, { ...base, kind: "build-ready", title: title("New build ready"), message: "Your signed update is ready to install." });
+    else if (build.state === "ready") add(`build:${build.id}`, { ...base, state: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "expired" : "delivering", kind: "queued", title: title(build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Install link expired" : "Preparing install"), message: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Open app history for the current install action." : "The app is packaged; its install delivery is being prepared.", notify: false });
     else if (build.state === "failed") {
       const marker = String(build.logs?.at(-1) || "").match(/\[([A-Z][A-Z0-9_]{1,79})\]/)?.[1];
       const notice = buildFailureNotice({ code: marker || "BUILD_FAILED" });
-      add(`build:${build.id}`, { ...base, kind: "attention", title: "Build needs attention", message: notice.message });
+      add(`build:${build.id}`, { ...base, kind: "attention", title: title("Build needs attention"), message: notice.message });
     }
     const installation = build.installation;
-    if (["launch-confirmed", "verified"].includes(installation?.state) && Number.isFinite(Date.parse(installation?.launchConfirmedAt || ""))) add(`launch:${build.id}`, { buildId: build.id, time: parseTime(installation.launchConfirmedAt || installation.lastSeenAt || installation.verifiedAt, now), state: "launch-confirmed", kind: "launch-confirmed", title: "App launch confirmed", message: "The exact installed Debug build connected successfully." });
+    if (["launch-confirmed", "verified"].includes(installation?.state) && Number.isFinite(Date.parse(installation?.launchConfirmedAt || ""))) add(`launch:${build.id}`, { ...base, time: parseTime(installation.launchConfirmedAt || installation.lastSeenAt || installation.verifiedAt, now), state: "launch-confirmed", kind: "launch-confirmed", title: title("App launch confirmed"), message: "The exact installed Debug build connected successfully." });
   }
   for (const input of liveDeliveries.slice(-256)) {
     const expiresAt = typeof input?.expiresAt === "number" ? input.expiresAt : Date.parse(input?.expiresAt || "");

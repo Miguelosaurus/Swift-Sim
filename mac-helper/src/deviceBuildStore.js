@@ -710,7 +710,7 @@ export function isInternalCatalogBuild(build = {}) {
   const bundleIdentifier = String(build.app?.bundleIdentifier || "").toLowerCase();
   return (
     project.includes("/Swift-Sim/.build/qa-") ||
-    project.includes("/Swift-Sim/Companion/") ||
+    (project.includes("/Swift-Sim/Companion/") && bundleIdentifier !== "com.seaandsea.swiftsimcompanion") ||
     project.includes("/SwiftSimPhysicalProbe/") ||
     (project.includes("/tmp/") && bundleIdentifier.endsWith(".test")) ||
     project.includes("/swift-sim-benchmark-") ||
@@ -718,7 +718,6 @@ export function isInternalCatalogBuild(build = {}) {
     project.includes("benchmarks/fixtures/") ||
     bundleIdentifier === "dev.local.mirrorqa" ||
     bundleIdentifier === "dev.local.swiftsimcompanion" ||
-    bundleIdentifier === "com.seaandsea.swiftsimcompanion" ||
     bundleIdentifier === "com.seaandsea.swiftsimupdateprobe" ||
     bundleIdentifier === "com.miguel.swift-sim-physical-probe" ||
     bundleIdentifier === "com.swiftsim.benchmark.catalog"

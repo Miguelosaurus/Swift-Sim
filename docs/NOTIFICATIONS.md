@@ -9,8 +9,10 @@ The inbox initially shows the five newest items, followed by Notifications
 settings. Older activity stays collapsed until you choose to expand it.
 
 A ready build can therefore appear without transferring its install link through
-chat. The phone fetches its install information through the authenticated helper;
-push payloads contain opaque event identifiers and bounded display text, not
+chat. The phone fetches its install information through the authenticated helper.
+Build notifications include a safe app display name when available, so a failed
+build for one project is distinguishable from a successful update for another.
+Push payloads contain opaque event identifiers and bounded display text, not
 install capabilities, pairing credentials or diagnostic logs. A notification tap
 refreshes the current authenticated feed and checks the Mac installation identity
 before resolving a target. Expired, removed or superseded requests do not offer a
@@ -80,8 +82,9 @@ without reaching the Mac. Fetching fresh private activity/build information and
 applying hot reload still require a route to the Mac, normally Tailscale.
 An APNs 200 means Apple accepted the alert, not that iOS displayed it. Permission,
 Focus, connectivity and iOS scheduling can prevent or delay display. This
-implementation has not yet been qualified with a real APNs key and signed
-physical Companion.
+implementation has been qualified with a production APNs key and signed physical
+Companion: Apple accepted build-ready alerts, and the user separately confirmed
+receiving an alert. Each new build still needs its own installation verification.
 
 ## Installation and launch history
 

@@ -49,6 +49,27 @@ test("initial history fills the inbox without pushes; later ready transition is 
   } finally { f.cleanup(); }
 });
 
+test("build alerts identify their app without replaying unchanged generic history", async () => {
+  const f = fixture(); try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    const ready = { ...f.build("companion-update"), app: { name: "Swift Sim" } };
+    const failed = { ...f.build("larply-attempt", "failed"), app: { name: "Larply" }, logs: ["[BUILD_SIGNING_FAILED]"] };
+    f.setBuilds([ready, failed]); await f.service.runOnce();
+    f.advance(1000); await f.service.runOnce();
+    assert.deepEqual(f.sent.map((input) => input.payload.aps.alert.title).sort(), ["Larply — Build needs attention", "Swift Sim — New build ready"]);
+    assert.equal(f.service.feed().events.find((event) => event.buildId === "larply-attempt").targetAppName, "Larply");
+
+    const generic = { ...ready, app: {} };
+    const previous = activitySnapshotEvents({ builds: [generic], now: f.now() }).observations;
+    assert.equal(activitySnapshotEvents({ builds: [ready], previous, now: f.now() }).entries.length, 0);
+    for (const name of ["/Users/private/project", "Bearer secret", "https://private.example", "token=secret", "Bad\nName", "x".repeat(61)]) {
+      const event = activitySnapshotEvents({ builds: [{ ...ready, app: { name } }], now: f.now() }).entries[0];
+      assert.equal(event.title, "New build ready");
+      assert.equal(event.targetAppName, undefined);
+    }
+  } finally { f.cleanup(); }
+});
+
 test("queued/prepared/unconfirmed live work cannot notify successful application", async () => {
   const f = fixture(); try {
     await f.service.runOnce(); await f.register({ hotReload: true });

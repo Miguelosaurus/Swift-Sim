@@ -109,6 +109,22 @@ test("Swift Sim QA builds are archived while real project builds remain visible"
   assert.equal(store.listApps({ includeArchived: true }).length, 2);
 }));
 
+test("production Companion updates stay visible and retain explicit archive control", () => withStore((store) => {
+  const production = completeBuild(store, "Swift Sim", "com.seaandsea.SwiftSimCompanion", "TEAM123", "0.6.1", "18");
+  production.project = "/Users/test/Swift-Sim/Companion/SwiftSimCompanion.xcodeproj";
+  store.save(production);
+  const development = completeBuild(store, "Development Companion", "dev.local.SwiftSimCompanion", "TEAM123", "0.6.1", "19");
+  development.project = production.project;
+  store.save(development);
+
+  assert.deepEqual(store.listApps().map((app) => app.name), ["Swift Sim"]);
+  assert.equal(store.listApps({ includeArchived: true }).length, 2);
+  store.setAppArchived(production.app.identity, true);
+  assert.equal(store.listApps().length, 0);
+  store.setAppArchived(production.app.identity, false);
+  assert.equal(store.listApps()[0].builds[0].app.build, "18");
+}));
+
 test("device build logs stay bounded to the user-visible diagnostic tail", () => withStore((store) => {
   const build = store.create({ scheme: "Example" });
   build.logs = Array.from({ length: MAX_DEVICE_BUILD_LOG_LINES + 25 }, (_, index) => `line-${index}`);

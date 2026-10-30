@@ -103,3 +103,26 @@ journal recorded Apple's acceptance of build 18's new-build alert (sequence
 Build 18 is ready for the user's installation; no physical installation of this
 build is claimed here. The Codex checkout was fast-forwarded to the correction
 and its compiled build passed.
+
+## Production catalog visibility and app-specific alerts
+
+The user subsequently reported that Swift Sim itself was missing from Apps and
+received a signing-failure alert near the successful Companion update. Inspection
+found that the catalog's internal-QA defaults matched both the production
+Companion bundle and its project path. Production Companion builds now remain
+visible; development and QA probes retain their internal defaults, and explicit
+user archiving remains available.
+
+The signing alert was a separate Larply build attempt, not Companion build 18.
+Build alerts now prefix their title with a safe, bounded app display name when
+available. Unsafe names retain generic text. Presentation changes preserve event
+fingerprints, preventing this update from replaying unchanged historical alerts.
+
+Focused catalog, activity, security and route regressions passed **84/84** both
+from source and compiled output. Coverage includes production visibility,
+development-probe hiding, explicit archive/unarchive, app-specific APNs titles,
+unsafe-name rejection and unchanged-history non-replay. Source syntax,
+architecture and documentation checks passed. Companion source did not change;
+these corrections require only the Mac helper update. Build 18 remains signed
+and ready; the current inventory check has not independently verified its
+installation on the phone.
