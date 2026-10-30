@@ -36,6 +36,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Keep expired, superseded and unavailable history updates out of foreground
+  popups so an older build cannot show a misleading error during a new install.
+  Their actual status remains visible in history and build details.
+
 - Keep activity history collapsed after the five newest items so Notifications
   settings stay easy to reach. Applied hot reload alerts now default on, with
   a one-time upgrade for the original unchanged default preference profile.

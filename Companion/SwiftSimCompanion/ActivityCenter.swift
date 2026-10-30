@@ -61,7 +61,12 @@ struct ActivityEvent: Identifiable, Codable, Equatable {
     var date: Date? { SwiftSimISO8601.date(from: updatedAt ?? createdAt) }
     var canApplyQueuedChange: Bool { kind == "queued" && !["expired", "superseded", "unavailable", "failed"].contains(state) }
     var isAttention: Bool { kind == "attention" }
-    var isMeaningful: Bool { ["queued", "build-ready", "attention", "live-applied", "launch-confirmed"].contains(kind) }
+    var isMeaningful: Bool {
+        // Retained history can expire while an unrelated current install opens.
+        // Keep that state in the inbox without presenting it as a new action.
+        !["expired", "superseded", "unavailable"].contains(state)
+            && ["queued", "build-ready", "attention", "live-applied", "launch-confirmed"].contains(kind)
+    }
     var symbol: String {
         switch kind {
         case "build-ready": return "shippingbox.fill"

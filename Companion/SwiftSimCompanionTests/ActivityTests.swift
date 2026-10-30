@@ -210,4 +210,35 @@ final class ActivityTests: XCTestCase {
         XCTAssertFalse(reopened.preferences.hotReload)
     }
 
+    @MainActor
+    func testHistoricalExpiryDoesNotAnnounceAnErrorDuringAnotherBuildHandoff() async throws {
+        let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
+        var next = event("current-build", sequence: 1, buildID: "current")
+        let center = ActivityCenter(defaults: store, notifications: CompanionNotifications(), transport: { request in
+            (try self.feed([next]), self.response(request))
+        })
+        center.connect(to: PairedMac(token: "fixture", baseURL: URL(string: "https://paired.example")!))
+        var announced: [String] = []
+        center.onForegroundEvent = { announced.append($0.id) }
+        await center.refresh()
+        for (index, state) in ["expired", "superseded", "unavailable"].enumerated() {
+            next = event("old-\(state)", sequence: index + 2, buildID: "old-build", kind: "queued")
+            next["state"] = state
+            await center.refresh()
+            XCTAssertTrue(announced.isEmpty)
+            let historical = try XCTUnwrap(center.events.first(where: { $0.id == "old-\(state)" }))
+            XCTAssertEqual(historical.state, state)
+            await center.open(historical)
+            XCTAssertEqual(center.selectedEvent?.state, state)
+            XCTAssertFalse(center.selectedEvent?.canApplyQueuedChange ?? true)
+        }
+        next = event("new-build", sequence: 5, buildID: "new-build")
+        await center.refresh()
+        XCTAssertEqual(announced, ["new-build"])
+        next = event("real-failure", sequence: 6, kind: "attention")
+        next["state"] = "failed"
+        await center.refresh()
+        XCTAssertEqual(announced, ["new-build", "real-failure"])
+    }
+
 }

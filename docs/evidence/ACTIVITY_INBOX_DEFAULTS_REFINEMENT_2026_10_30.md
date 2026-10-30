@@ -49,3 +49,32 @@ system-symbol cache after checking that known physical devices use 27.0.1 and
 26.6.1 and that no open files/process referenced that exact cache. Current 27.0.1
 symbols and project products/archives were retained. No simulator or device data
 was erased. This restored sufficient space for the next signed build.
+
+## Build 17 delivery and foreground-expiry regression
+
+The refinements were committed as `1f0fedc` and shipped as signed Release OTA
+build 17 through the existing production identity/profile. Apple accepted its
+build-ready APNs alert, and the user confirmed receiving a new-build alert and
+successfully opening/installing an update. The authenticated production
+registration now reports applied-hot-reload alerts enabled.
+
+The user also reported an in-app expired-link banner on the first attempt,
+followed by a successful retry. The current build link was valid. Activity
+history showed an older Zenics build expiring during that foreground refresh.
+The client classified terminal queued-history states as meaningful foreground
+announcements, allowing that unrelated expiry to appear during the current
+install handoff.
+
+The follow-up fix excludes expired, superseded and unavailable history states
+from foreground popups. It keeps those items in the inbox and preserves their
+explicit detail/tap handling. Current-link expiry checks remain unchanged;
+genuine actionable failures and new ready-build announcements still appear.
+
+Regression qualification: **40/40 real Companion XCTest tests passed**, including
+an asynchronous baseline/delta refresh test that keeps all three historical
+terminal states silent and explicitly openable while still announcing a new
+ready build and genuine failure. The task-owned stock Simulator was shut down.
+Log: `/tmp/swift-sim-activity-terminal-banner-tests.log`.
+Result: `/tmp/swift-sim-activity-terminal-banner-tests-20261030.xcresult`.
+Architecture (239 production sources), documentation links and diff checks also
+passed. No helper/runtime code changed after the passing full Node gate above.
