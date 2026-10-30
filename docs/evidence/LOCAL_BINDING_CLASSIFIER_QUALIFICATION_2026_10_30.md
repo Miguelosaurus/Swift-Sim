@@ -146,3 +146,19 @@ launch. The original failed compatibility attempt and auxiliary read failure
 remain in evidence. This closes the scoped implementation-local binding gate;
 it does not enable imports, additive declarations or unsupported async forms,
 or establish general restart/offline-persistence acceptance.
+
+## Activation
+
+The qualified changes were fast-forwarded into `main` at `d684082` and pushed.
+The primary checkout's compiled build succeeded, and the paired helper was
+restarted only after verifying no signed build or live compilation/application
+was active. Its health endpoint returned HTTP 200. The existing engine process
+was preserved; no engine downgrade, new iPhone installation or SDK source update
+was performed.
+
+The installed compiled classifier reports version 2, accepts the minimal
+method-local binding reproduction and still rejects an added stored field.
+Codex CLI installed and enabled integration `0.6.1+codex.20261030.2` from the
+existing local marketplace. All 12 installed plugin files were hash-checked
+against the qualified source. This final documentation-only checkpoint records
+the activation without changing the tested runtime implementation.
