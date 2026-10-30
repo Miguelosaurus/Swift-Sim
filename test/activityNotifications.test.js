@@ -62,11 +62,12 @@ test("queued/prepared/unconfirmed live work cannot notify successful application
   } finally { f.cleanup(); }
 });
 
-test("hot reload and launch success are inbox-only by default and non-proof launch states cannot confirm", async () => {
+test("proven hot reload alerts default on while launch alerts remain inbox-only", async () => {
   const f = fixture(); try {
     await f.service.runOnce(); await f.register(); f.advance();
     f.setLive([applied(f.live())]); const build = f.build(); build.installation = { state: "launch-confirmed", launchConfirmedAt: new Date(f.now()).toISOString() };
-    f.setBuilds([build]); await f.service.runOnce(); assert.equal(f.sent.length, 1); // Only build ready.
+    f.setBuilds([build]); await f.service.runOnce(); assert.equal(f.sent.length, 2); // Build ready and proven hot reload.
+    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title).sort(), ["New build ready", "Update applied"]);
     assert.equal(f.service.feed().events.filter((e) => e.kind === "launch-confirmed").length, 1);
     const events = activitySnapshotEvents({ builds: [{ ...build, installation: { state: "requested" } }], now: f.now() }).entries;
     assert.equal(events.some((e) => e.kind === "launch-confirmed"), false);
@@ -148,7 +149,8 @@ test("foreground success cancels a delayed queued alert and building states neve
     const request = f.live("quick-apply", "waiting-for-device");
     f.setLive([request]); f.setBuilds([f.build("compiling-build", "building")]); await f.service.runOnce();
     f.advance(2000); f.setLive([{ ...applied(request), updatedAt: f.now() }]); await f.service.runOnce();
-    f.advance(5000); await f.service.runOnce(); assert.equal(f.sent.length, 0);
+    f.advance(5000); await f.service.runOnce();
+    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title), ["Update applied"]);
     assert.equal(f.store.snapshot().jobs.length, 0);
   } finally { f.cleanup(); }
 });
@@ -228,5 +230,18 @@ test("queued app launch action requires explicit opt-in and exact project, bundl
       build.liveReload.presentation.launchURL = launchURL; await f.service.refresh(); assert.equal(queued().launchURL, undefined);
     }
     assert.doesNotMatch(JSON.stringify(f.sent), /example-debug|private\/project/);
+  } finally { f.cleanup(); }
+});
+
+
+test("an explicit hot reload opt-out survives helper restart and enabling never replays history", async () => {
+  const f = fixture(); try {
+    await f.service.runOnce(); await f.register({ hotReload: false }); f.advance();
+    f.setLive([applied(f.live())]); await f.service.runOnce(); assert.equal(f.sent.length, 0);
+    f.reopen(); await f.service.runOnce(); assert.equal(f.sent.length, 0);
+    assert.equal(f.store.snapshot().devices[0].preferences.hotReload, false);
+    await f.register({ hotReload: true }); await f.service.runOnce(); assert.equal(f.sent.length, 0);
+    f.advance(); f.setLive([applied(f.live("next-request"))]); await f.service.runOnce();
+    assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.aps.alert.title, "Update applied");
   } finally { f.cleanup(); }
 });

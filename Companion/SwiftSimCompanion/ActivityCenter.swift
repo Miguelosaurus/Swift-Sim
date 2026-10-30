@@ -8,19 +8,29 @@ struct ActivityPreferences: Codable, Equatable {
     var queued = true
     var buildReady = true
     var attention = true
-    var hotReload = false
+    var hotReload = true
     var launchConfirmed = false
 
-    init(queued: Bool = true, buildReady: Bool = true, attention: Bool = true, hotReload: Bool = false, launchConfirmed: Bool = false) {
+    init(queued: Bool = true, buildReady: Bool = true, attention: Bool = true, hotReload: Bool = true, launchConfirmed: Bool = false) {
         self.queued = queued; self.buildReady = buildReady; self.attention = attention; self.hotReload = hotReload; self.launchConfirmed = launchConfirmed
     }
+    // Only the complete original default profile is upgraded. Customized
+    // legacy preferences and choices saved by the new version are preserved.
+    func adoptingCurrentDefaults(previousVersion: Int?) -> Self {
+        let originalDefaults = Self(hotReload: false)
+        guard previousVersion == nil, self == originalDefaults else { return self }
+        var updated = self
+        updated.hotReload = true
+        return updated
+    }
+
     private enum CodingKeys: String, CodingKey { case queued, buildReady, attention, hotReload, launchConfirmed }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         queued = try values.decodeIfPresent(Bool.self, forKey: .queued) ?? true
         buildReady = try values.decodeIfPresent(Bool.self, forKey: .buildReady) ?? true
         attention = try values.decodeIfPresent(Bool.self, forKey: .attention) ?? true
-        hotReload = try values.decodeIfPresent(Bool.self, forKey: .hotReload) ?? false
+        hotReload = try values.decodeIfPresent(Bool.self, forKey: .hotReload) ?? true
         launchConfirmed = try values.decodeIfPresent(Bool.self, forKey: .launchConfirmed) ?? false
     }
 }
@@ -136,6 +146,7 @@ private struct ActivityCache: Codable {
     var installationId: String?
     var preferences = ActivityPreferences()
     var hasSynced = false
+    var preferenceDefaultsVersion: Int? = 1
 }
 
 enum ActivityPresentation: String, Identifiable {
@@ -209,6 +220,8 @@ final class ActivityCenter: ObservableObject {
             if let data = defaults.data(forKey: key), data.count < 512 * 1024,
                let saved = try? JSONDecoder().decode(ActivityCache.self, from: data) {
                 cache = saved
+                cache.preferences = saved.preferences.adoptingCurrentDefaults(previousVersion: saved.preferenceDefaultsVersion)
+                cache.preferenceDefaultsVersion = 1
                 cache.events = saved.events.filter(\.isValid).suffix(200).map { $0 }
             }
         }

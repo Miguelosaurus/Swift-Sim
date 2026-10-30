@@ -67,3 +67,10 @@ signed/exported/reachable build 16, not physical installation or displayed push.
 The APNs key is production-only and restricted to the Companion topic; it does
 not authorize sandbox Companion builds. No TestFlight/App Store upload occurred
 in this direct OTA delivery.
+
+### Build 16 user acceptance
+
+The user subsequently confirmed installation and notification permission on the
+phone. The Mac observed one enabled production APNs registration. This is
+user-confirmed installation plus authenticated registration, not an Apple
+inventory observation or proof that a push banner displayed.

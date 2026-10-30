@@ -89,15 +89,15 @@ function fixture() {
 
 for (const revocation of ["pairing", "subscription", "preferences", "registration", "provider", "superseded", "failed", "applied", "source-expiry"]) {
   test(`deferred transport admission rejects ${revocation} revocation of an already claimed alert`, async () => {
-    const f = fixture(); const gate = deferred(); const entered = deferred(); let transmitted = 0; let sending;
+    const f = fixture(); const gate = deferred(); const entered = deferred(); const transmitted = []; let sending;
     try {
       await f.service.runOnce(); await f.register(); f.advance();
       const request = f.waiting(); f.setLive([request]); await f.service.runOnce(); f.advance(5000);
-      f.sendWith(async ({ isCurrent }) => {
+      f.sendWith(async ({ isCurrent, payload }) => {
         entered.resolve(); await gate.promise;
         assert.equal(typeof isCurrent, "function", "service must pass a fresh journal and authority admission fence");
         if (!await isCurrent()) return { state: "rejected", reason: "AUTHORITY_CHANGED" };
-        transmitted += 1; return { state: "accepted" };
+        transmitted.push(payload.aps.alert.title); return { state: "accepted" };
       });
       sending = f.service.runOnce(); await entered.promise;
       if (revocation === "pairing") f.rotate();
@@ -112,7 +112,8 @@ for (const revocation of ["pairing", "subscription", "preferences", "registratio
       } }]);
       if (revocation === "source-expiry") f.advance(2000);
       gate.resolve(); await sending;
-      assert.equal(transmitted, 0);
+      assert.deepEqual(transmitted, revocation === "applied" ? ["Update applied"] : []);
+      assert.equal(transmitted.includes("Hot reload queued"), false);
     } finally { gate.resolve(); if (sending) await sending.catch(() => {}); await f.service.stop(); f.cleanup(); }
   });
 }

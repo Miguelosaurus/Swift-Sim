@@ -5,7 +5,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 import { validDeviceToken } from "./apnsProvider.js";
 
-export const DEFAULT_NOTIFICATION_PREFERENCES = Object.freeze({ buildReady: true, attention: true, hotReload: false, launchConfirmed: false, queued: true });
+export const DEFAULT_NOTIFICATION_PREFERENCES = Object.freeze({ buildReady: true, attention: true, hotReload: true, launchConfirmed: false, queued: true });
 const PREFERENCE_FOR_KIND = { queued: "queued", "build-ready": "buildReady", attention: "attention", "live-applied": "hotReload", "launch-confirmed": "launchConfirmed" };
 const KINDS = new Set(["queued", "live-applied", "build-ready", "attention", "launch-confirmed"]);
 const MAX_EVENTS = 500;

@@ -2,9 +2,11 @@
 
 Swift Sim keeps a durable activity inbox on the Mac. The Companion shows an
 unread badge and lets each paired Mac configure queued-edit, build-ready,
-attention, confirmed-reload and launch-confirmation alerts. The last two are off
-by default. Notification permission is requested from an explicit user action;
+attention, confirmed-reload and launch-confirmation alerts. Confirmed hot reloads are on by default; launch-confirmation alerts are
+off by default. Notification permission is requested from an explicit user action;
 foreground Companion updates go to the inbox without an additional OS banner.
+The inbox initially shows the five newest items, followed by Notifications
+settings. Older activity stays collapsed until you choose to expand it.
 
 A ready build can therefore appear without transferring its install link through
 chat. The phone fetches its install information through the authenticated helper;

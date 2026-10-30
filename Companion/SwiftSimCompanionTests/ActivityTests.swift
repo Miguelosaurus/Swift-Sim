@@ -32,7 +32,7 @@ final class ActivityTests: XCTestCase {
         XCTAssertTrue(preferences.queued)
         XCTAssertTrue(preferences.buildReady)
         XCTAssertTrue(preferences.attention)
-        XCTAssertFalse(preferences.hotReload)
+        XCTAssertTrue(preferences.hotReload)
         XCTAssertFalse(preferences.launchConfirmed)
         let legacyPreferences = try JSONDecoder().decode(ActivityPreferences.self, from: Data("{}".utf8))
         XCTAssertEqual(legacyPreferences, preferences)
@@ -178,4 +178,36 @@ final class ActivityTests: XCTestCase {
         XCTAssertEqual(roundtrip.markingInstallRequested().installationStatus, .launchConfirmed)
         XCTAssertEqual(DeviceBuildStatus(cached: roundtrip).markingInstallRequested().installation?.state, "launch-confirmed")
     }
+    func testCurrentPreferenceDefaultsPreserveCustomizedLegacyChoices() {
+        let original = ActivityPreferences(hotReload: false)
+        XCTAssertTrue(original.adoptingCurrentDefaults(previousVersion: nil).hotReload)
+        XCTAssertFalse(original.adoptingCurrentDefaults(previousVersion: 1).hotReload)
+        let customized = ActivityPreferences(queued: false, hotReload: false)
+        XCTAssertEqual(customized.adoptingCurrentDefaults(previousVersion: nil), customized)
+    }
+
+    @MainActor
+    func testLegacyDefaultUpgradePersistsAndLaterExplicitOptOutSurvivesReconnect() throws {
+        let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
+        let mac = PairedMac(token: "fixture", baseURL: URL(string: "https://paired.example")!)
+        let initial = ActivityCenter(defaults: store, notifications: CompanionNotifications())
+        initial.connect(to: mac)
+        let key = try XCTUnwrap(store.dictionaryRepresentation().keys.first(where: { $0.hasPrefix("swiftSim.activity.") }))
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(store.data(forKey: key))) as? [String: Any])
+        legacy.removeValue(forKey: "preferenceDefaultsVersion")
+        legacy["preferences"] = ["queued": true, "buildReady": true, "attention": true, "hotReload": false, "launchConfirmed": false]
+        store.set(try JSONSerialization.data(withJSONObject: legacy), forKey: key)
+        let upgraded = ActivityCenter(defaults: store, notifications: CompanionNotifications())
+        upgraded.connect(to: mac)
+        XCTAssertTrue(upgraded.preferences.hotReload)
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(store.data(forKey: key))) as? [String: Any])
+        XCTAssertEqual(saved["preferenceDefaultsVersion"] as? Int, 1)
+        var optedOut = upgraded.preferences
+        optedOut.hotReload = false
+        upgraded.updatePreferences(optedOut)
+        let reopened = ActivityCenter(defaults: store, notifications: CompanionNotifications())
+        reopened.connect(to: mac)
+        XCTAssertFalse(reopened.preferences.hotReload)
+    }
+
 }

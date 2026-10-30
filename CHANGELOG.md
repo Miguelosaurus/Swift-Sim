@@ -36,6 +36,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Keep activity history collapsed after the five newest items so Notifications
+  settings stay easy to reach. Applied hot reload alerts now default on, with
+  a one-time upgrade for the original unchanged default preference profile.
+
 - Preserve explicitly selected manual signing profiles and certificates during
   IPA export, including push-enabled OTA updates without an Xcode account.
 

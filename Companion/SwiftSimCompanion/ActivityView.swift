@@ -4,6 +4,7 @@ import UserNotifications
 struct ActivityInboxView: View {
     @EnvironmentObject private var activity: ActivityCenter
     @Environment(\.dismiss) private var dismiss
+    @State private var showOlderActivity = false
 
     var body: some View {
         NavigationStack {
@@ -17,32 +18,10 @@ struct ActivityInboxView: View {
                             .listRowBackground(Color.clear)
                     }
                 } else {
-                    Section {
-                        ForEach(activity.events) { event in
-                            Button { Task { await activity.open(event) } } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Image(systemName: event.symbol)
-                                        .font(.title3)
-                                        .foregroundStyle(event.isAttention ? .orange : .blue)
-                                        .frame(width: 28)
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(event.title).font(.headline).foregroundStyle(.primary)
-                                        Text(event.message).font(.subheadline).foregroundStyle(.secondary)
-                                        HStack {
-                                            Text(event.statusLabel)
-                                            Spacer()
-                                            if let date = event.date { Text(date, style: .relative) }
-                                        }
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 5)
-                            }
-                            .buttonStyle(.plain)
+                    Section("Recent") {
+                        ForEach(activity.events.prefix(5)) { event in
+                            activityRow(event)
                         }
-                    } footer: {
-                        Text("Queued is waiting. Applied means the matching Debug app acknowledged its update and refresh. Launch confirmation records the last time that exact build reported running.")
                     }
                 }
                 Section {
@@ -50,6 +29,19 @@ struct ActivityInboxView: View {
                         ActivityNotificationSettingsView(activity: activity, notifications: activity.notifications)
                     } label: {
                         Label("Notifications", systemImage: "bell.badge")
+                    }
+                    .accessibilityIdentifier("activityNotificationSettingsLink")
+                }
+                if activity.events.count > 5 {
+                    Section {
+                        DisclosureGroup(isExpanded: $showOlderActivity) {
+                            ForEach(activity.events.dropFirst(5)) { event in
+                                activityRow(event)
+                            }
+                        } label: {
+                            Label("Older activity (\(activity.events.count - 5))", systemImage: "clock.arrow.circlepath")
+                        }
+                        .accessibilityIdentifier("olderActivityDisclosure")
                     }
                 }
             }
@@ -63,6 +55,30 @@ struct ActivityInboxView: View {
                 ActivityEventDetailView(event: event)
             }
         }
+    }
+
+    private func activityRow(_ event: ActivityEvent) -> some View {
+        Button { Task { await activity.open(event) } } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: event.symbol)
+                    .font(.title3)
+                    .foregroundStyle(event.isAttention ? .orange : .blue)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(event.title).font(.headline).foregroundStyle(.primary)
+                    Text(event.message).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                    HStack {
+                        Text(event.statusLabel)
+                        Spacer()
+                        if let date = event.date { Text(date, style: .relative) }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 5)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -118,7 +134,7 @@ private struct ActivityNotificationSettingsView: View {
                 }
                 if let message = notifications.registrationMessage { Text(message).font(.footnote).foregroundStyle(.secondary) }
             } footer: {
-                Text("Queued edits, build-ready and actionable alerts are on by default. You control permission in iPhone Settings.")
+                Text("Queued edits, build-ready, applied hot reloads and actionable alerts are on by default. You control permission in iPhone Settings.")
             }
             Section {
                 Toggle("Hot reload queued", isOn: preference(\.queued))
