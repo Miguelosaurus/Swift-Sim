@@ -91,6 +91,22 @@ durable state after expiry/GC and multiple relaunches, helper absence,
 foreground gating, label removal, multi-file restoration, late receipt
 resolution, revocation, status-chain GC and source/journal capacity limits.
 
+## Local activation
+
+Implementation commit `de5288610036b8610a2a6e6878c2bf803477538a` was pushed to
+`main` and the primary checkout was fast-forwarded and rebuilt. Canonical setup
+reconciled the owned helper; its live health advertises both
+`durable-live-delivery-v1` and `durable-desired-state-v1`. The engine remains
+0.5.0 with the same measured archive hash. Read-only runtime inspection found
+all tracked Simulator streams stopped before helper reconciliation.
+
+The Codex plugin was refreshed to `0.6.1+codex.20261029.3`, enabled, and all 12
+cached files matched the checked-in source. The original three queue records
+were retained; exact snapshot digests and prior proof fields matched the
+private pre-activation evidence copy. The original uncertain request still
+reports unconfirmed application, rather than a fabricated success. Activation
+did not build or install an app or issue a replacement phone delivery.
+
 ## Physical handoff and remaining acceptance
 
 No Zenics source, data, gestures, signing identity, linker workaround or phone
