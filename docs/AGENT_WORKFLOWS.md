@@ -156,6 +156,12 @@ Interpret the terminal outcome:
 | `needs-user-action` | Explain only the returned action. |
 | `failed` | Report the returned failure without claiming delivery. |
 
+When present, explain the returned `rebuildReason` alongside a signed-build
+handoff. It identifies the relevant file/member and distinguishes installed
+storage/signature changes from currently unsupported live compiler forms. Do
+not call an unsupported helper/import edit universally impossible, and never
+apply the supported part of an unsupported multi-file operation.
+
 Do not run `doctor`, `live-status`, screenshots, UI analysis, or a second classification command before a normal warm delivery.
 
 For the first phone edit, complete [live bootstrap](SETUP.md#optional-remote-iphone-hot-reload)

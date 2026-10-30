@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 import { readLocalEngineCandidate, validateLocalEngineAppMetadata } from "./liveEngineCandidate.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
-export const CLASSIFIER_VERSION = 1;
+export const CLASSIFIER_VERSION = 2;
 export const LIVE_ENGINE_CONTROL_TIMEOUT_MS = 750;
 export const LIVE_COMPILER_REGISTRATION_TIMEOUT_MS = 30_000;
 export const LIVE_COMPILER_REGISTRATION_BUDGET_MS = 180_000;
@@ -187,76 +187,68 @@ export function classifySwiftSource(before, after, paths = {}) {
 
   const beforeSurface = declarationSurface(before);
   const afterSurface = declarationSurface(after);
+  const rebuild = (reason, reasonCode, category = "unsupported-live-edit", kinds = []) => {
+    const storage = reasonCode === LIVE_REASON_CODES.STORED_PROPERTY_CHANGED;
+    const select = (member) => (!kinds.length || kinds.includes(member.kind)) && (!storage || member.storedValue !== undefined);
+    const beforeMembers = (beforeSurface.members || []).filter(select);
+    const afterMembers = (afterSurface.members || []).filter(select);
+    const key = storage ? "storedValue" : "signature";
+    const index = afterMembers.findIndex((member, position) => member[key] !== beforeMembers[position]?.[key]);
+    const member = afterMembers[index] || (beforeMembers.length > afterMembers.length ? beforeMembers[afterMembers.length] : null);
+    return { ...result("rebuild-required", false, reason, paths, reasonCode), diagnostic: { category, ...(member ? { member: member.member, line: member.line } : {}) } };
+  };
   if (beforeSurface.unsupported || afterSurface.unsupported) {
-    return result(
-      "rebuild-required",
-      false,
+    return rebuild(
       beforeSurface.unsupported || afterSurface.unsupported,
-      paths,
       LIVE_REASON_CODES.MACRO_OR_EXPLICIT_REPLACEMENT,
     );
   }
 
   if (beforeSurface.imports !== afterSurface.imports) {
-    return result(
-      "rebuild-required",
-      false,
+    return rebuild(
       "Imports changed.",
-      paths,
       LIVE_REASON_CODES.IMPORT_CHANGED,
     );
   }
   if (beforeSurface.compilerConditions !== afterSurface.compilerConditions) {
-    return result(
-      "rebuild-required",
-      false,
+    return rebuild(
       "A conditional-compilation or availability condition changed.",
-      paths,
       LIVE_REASON_CODES.DECLARATION_CHANGED,
     );
   }
   if (beforeSurface.attributes !== afterSurface.attributes) {
-    return result(
-      "rebuild-required",
-      false,
+    return rebuild(
       "A declaration attribute or property-wrapper argument changed.",
-      paths,
       LIVE_REASON_CODES.DECLARATION_CHANGED,
     );
   }
   if (beforeSurface.modifiers !== afterSurface.modifiers) {
-    return result(
-      "rebuild-required",
-      false,
+    return rebuild(
       "A declaration access modifier or attribute changed.",
-      paths,
       LIVE_REASON_CODES.DECLARATION_CHANGED,
     );
   }
   if (beforeSurface.storedProperties !== afterSurface.storedProperties) {
-    return result(
-      "rebuild-required",
-      false,
+    return rebuild(
       "A stored property or its initializer changed.",
-      paths,
       LIVE_REASON_CODES.STORED_PROPERTY_CHANGED,
+      "installed-structure", ["let", "var"],
     );
   }
   if (beforeSurface.signatures !== afterSurface.signatures) {
-    return result(
-      "rebuild-required",
-      false,
+    const kinds = ["func", "init", "subscript", "typealias", "operator", "precedencegroup"];
+    const previous = beforeSurface.members.filter((member) => kinds.includes(member.kind));
+    const current = afterSurface.members.filter((member) => kinds.includes(member.kind));
+    const existing = previous.length === current.length && previous.every((member, index) => member.member === current[index].member && member.kind === current[index].kind);
+    return rebuild(
       "A function, initializer, subscript, or type signature changed.",
-      paths,
       LIVE_REASON_CODES.SIGNATURE_CHANGED,
+      existing ? "installed-structure" : "unsupported-live-edit", kinds,
     );
   }
   if (beforeSurface.declarations !== afterSurface.declarations) {
-    return result(
-      "rebuild-required",
-      false,
+    return rebuild(
       "A declaration, stored property, type shape, or function signature changed.",
-      paths,
       LIVE_REASON_CODES.DECLARATION_CHANGED,
     );
   }
@@ -770,7 +762,13 @@ export async function prepareQueuedLivePatchAsync(record, { cancellationSignal }
     environment: { inherit: ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS"], overrides: {}, unset: [] },
     policy: { timeoutMs: 60_000, outputLimitBytes: 1024 * 1024, processGroup: "new", acceptedExitCodes: [0] },
   });
-  if (result.code !== 0 || result.timedOut || result.cancellationError) throw Object.assign(new Error("The queued replacement could not be compiled. No app rebuild was started."), { code: "PATCH_COMPILE_FAILED" });
+  if (result.code !== 0 || result.timedOut || result.cancellationError) {
+    let failure;
+    try { failure = JSON.parse(result.stderr.trim()); } catch {}
+    const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID"];
+    const code = !result.timedOut && !result.cancellationError && allowed.includes(failure?.code) ? failure.code : "PATCH_COMPILE_FAILED";
+    throw Object.assign(new Error("The queued replacement could not be prepared. No patch was applied or app rebuild started."), { code });
+  }
   try { return JSON.parse(result.stdout); } catch { throw Object.assign(new Error("The queued compiler returned an invalid result."), { code: "PATCH_COMPILE_FAILED" }); }
 }
 
@@ -1746,6 +1744,16 @@ export function generateDynamicReplacementSource({ source, beforeSource = "", so
   const beforeViews = beforeSource ? swiftUIViewBodies(beforeSource) : [];
   const beforeViewBodies = new Map(beforeViews.map((view) => [view.qualifiedName, view.body]));
   const members = swiftMemberImplementations(source);
+  let complete = true;
+  if (beforeSource) {
+    const outer = (text) => implementationBindingRanges(maskCommentsAndStrings(text)).filter((range, _, ranges) =>
+      !ranges.some((owner) => owner.open < range.open && range.close < owner.close));
+    const previous = outer(beforeSource);
+    const current = outer(source);
+    complete = previous.length === current.length && current.every((range, index) =>
+      source.slice(range.open, range.close + 1) === beforeSource.slice(previous[index].open, previous[index].close + 1)
+      || [...views, ...members].some((member) => member.bodyOpen === range.open));
+  }
   const beforeMembers = new Map(swiftMemberImplementations(beforeSource).map((member) => [member.key, member]));
   const changedMembers = beforeSource
     ? members.filter((member) => beforeMembers.get(member.key)?.body !== member.body)
@@ -1753,6 +1761,12 @@ export function generateDynamicReplacementSource({ source, beforeSource = "", so
   const changedAsyncMembers = changedMembers.filter((member) => member.effects?.includes("async"));
   const changedInitializerMembers = changedMembers.filter((member) => member.kind === "initializer");
   const changedSubscriptMembers = changedMembers.filter((member) => member.kind === "subscript");
+  // Do not silently omit changed implementations from a successful bundle.
+  // The legacy inlining forms remain limited to their exact supported shapes.
+  const unsupportedAsync = changedAsyncMembers.some((member) => member.parameters || !member.body.slice(1, -1).trim() || /[{};]/.test(member.body.slice(1, -1))
+    || !views.some((view) => new RegExp(`\\bawait\\s+${escapeRegExp(member.name)}\\(\\)`).test(view.body)));
+  const unsupportedInline = views.length && (changedInitializerMembers.some((member) => !/\{\s*self\.[A-Za-z_][A-Za-z0-9_]*\s*=\s*"(?:\\.|[^"\\])*"\s*\}/s.test(member.body))
+    || changedSubscriptMembers.some((member) => !/\{\s*(?:"(?:\\.|[^"\\])*"|[-+]?\d+(?:\.\d+)?)\s*\}/s.test(member.body)));
   const supportedMembers = changedMembers.filter((member) =>
     !member.effects?.includes("async")
     && (views.length === 0 || (member.kind !== "initializer" && member.kind !== "subscript"))
@@ -1771,6 +1785,7 @@ export function generateDynamicReplacementSource({ source, beforeSource = "", so
       .filter((view) => beforeViewBodies.get(view.qualifiedName) !== view.body)
     : views;
   if (changedViews.length === 0 && supportedMembers.length === 0) return "";
+  if (!complete || unsupportedAsync || unsupportedInline) throw unsupportedReplacement();
   const imports = [...source.matchAll(/^\s*(?:@testable\s+)?import\s+([A-Za-z_][A-Za-z0-9_]*)[^\n]*$/gm)]
     .map((match) => match[0].trim())
     .filter((line) => !line.endsWith(` ${moduleName}`));
@@ -1801,6 +1816,10 @@ ${view.availability ? `${view.availability}\n` : ""}extension ${view.qualifiedNa
     `${target}\n${entries.join("\n")}\n}`
   ).join("\n");
   return `@_private(sourceFile: "${sourceFile}") import ${moduleName}\n${imports.join("\n")}\n${replacements}\n${memberSource}\n`;
+}
+
+function unsupportedReplacement() {
+  return Object.assign(new Error("The current live compiler cannot represent every changed implementation in one complete replacement. No patch was applied."), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
 }
 
 function inlineAsyncReplacements(body, members) {
@@ -1866,6 +1885,7 @@ function swiftMemberImplementations(source) {
         effects: match[5].trim(),
         returnType: match[6]?.trim() || "",
         isStatic: Boolean(match[1]),
+        bodyOpen, bodyClose,
         body: source.slice(bodyOpen, bodyClose + 1),
       });
     }
@@ -1886,6 +1906,7 @@ function swiftMemberImplementations(source) {
         labels: replacementParameterLabels(parameters),
         effects: match[2].trim(),
         returnType: match[3]?.trim() || "",
+        bodyOpen, bodyClose,
         body: source.slice(bodyOpen, bodyClose + 1),
       });
     }
@@ -1907,6 +1928,7 @@ function swiftMemberImplementations(source) {
         labels: replacementParameterLabels(parameters),
         effects: "",
         returnType: compact(match[3]),
+        bodyOpen, bodyClose,
         body: source.slice(bodyOpen, bodyClose + 1),
       });
     }
@@ -1923,6 +1945,7 @@ function swiftMemberImplementations(source) {
         kind: "property",
         name: match[1],
         returnType: match[2].trim(),
+        bodyOpen, bodyClose,
         body: source.slice(bodyOpen, bodyClose + 1),
       });
     }
@@ -2031,6 +2054,7 @@ function swiftUIViewBodies(source) {
       output.push({
         qualifiedName: candidate.qualifiedName,
         availability: candidate.availability,
+        bodyOpen, bodyClose,
         body: source.slice(bodyOpen, bodyClose + 1),
       });
       break;
@@ -2656,7 +2680,11 @@ function requiredSwiftSource(path, label) {
 }
 
 function declarationSurface(source) {
-  const clean = maskCommentsAndStrings(source);
+  const lexical = {};
+  const clean = maskCommentsAndStrings(source, lexical);
+  if (!lexical.complete || !balancedSwiftDelimiters(clean)) {
+    return { unsupported: "Incomplete Swift syntax requires a rebuild." };
+  }
   if (/#(?:externalMacro|freestanding|attached)\b|@_dynamicReplacement\b/.test(clean)) {
     return { unsupported: "Macros and explicit dynamic replacement require a rebuild." };
   }
@@ -2677,7 +2705,7 @@ function declarationSurface(source) {
     ...swiftRuntimeAvailabilitySurface(source, clean),
   ].join("\n");
   const attributes = swiftAttributeSurface(source, clean);
-  const modifiers = [...clean.matchAll(/^\s*((?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\s*\((?:[^()\n]|\([^()]*\))*\))?|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
+  const modifiers = [...clean.matchAll(/(?<![A-Za-z0-9_.])((?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\s*\((?:[^()\n]|\([^()]*\))*\))?|public|private|fileprivate|internal|open|package|nonisolated|static|final|mutating|consuming|borrowing)\s+)+)(?=(?:actor|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b)/gm)]
     .map((match) => {
       const captureOffset = match[0].indexOf(match[1]);
       const start = match.index + captureOffset;
@@ -2686,19 +2714,31 @@ function declarationSurface(source) {
     .join("\n");
   const declarationPattern = /\b(actor|associatedtype|case|class|deinit|enum|extension|func|init|let|operator|precedencegroup|protocol|struct|subscript|typealias|var)\b/gm;
   const typeRanges = typeDeclarationRanges(clean);
+  const implementationRanges = implementationBindingRanges(clean);
+  const members = [];
+  let lineNumber = 1;
+  let lineCursor = 0;
 
   for (const match of clean.matchAll(declarationPattern)) {
     if (match[1] === "class" && /^\s+(?:func|var|subscript)\b/.test(clean.slice(match.index + match[0].length))) {
       continue;
     }
     const start = match.index;
+    if (["let", "var", "case"].includes(match[1]) && implementationRanges.some((range) =>
+      range.open < start && start < range.close
+      && !typeRanges.some((type) => range.open < type.open && type.open < start && start < type.close)
+    )) continue;
     const signature = readDeclarationSignature(clean, start, match[1]);
+    while (lineCursor < start) if (source[lineCursor++] === "\n") lineNumber++;
+    const member = { kind: match[1], signature: compact(signature), member: signature.match(/^\w+\s+([A-Za-z_][A-Za-z0-9_]*)/)?.[1] || match[1], line: lineNumber };
+    members.push(member);
     declarations.push(compact(signature));
     if (["func", "init", "subscript", "typealias", "operator", "precedencegroup"].includes(match[1])) {
       signatures.push(compact(signature));
     }
     if (["let", "var"].includes(match[1]) && isStoredProperty(clean, start, typeRanges, signature)) {
-      storedProperties.push(compact(readStoredProperty(source, start)));
+      member.storedValue = compact(readStoredProperty(source, start));
+      storedProperties.push(member.storedValue);
     }
   }
   return {
@@ -2709,8 +2749,42 @@ function declarationSurface(source) {
     compilerConditions,
     attributes,
     modifiers,
+    members,
     unsupported: "",
   };
+}
+
+// Only bindings enclosed by an existing callable/computed implementation are
+// omitted. Their containing declaration is still compared, as are nested type
+// declarations, attributes, conditional compilation and stored initializers.
+function implementationBindingRanges(clean) {
+  const ranges = [];
+  for (const match of clean.matchAll(/\b(func|init|deinit|subscript|var)\b/g)) {
+    const previous = clean[match.index - 1];
+    const next = clean[match.index + match[0].length];
+    // Swift identifiers may contain Unicode and escaped keywords. Only admit
+    // a keyword at a declaration boundary, never a substring of an identifier.
+    if ((previous && !/[\s{;}]/u.test(previous)) || (next && !/[\s(<{?!]/u.test(next))) continue;
+    const signature = readDeclarationSignature(clean, match.index, match[1]);
+    // A protocol/external declaration has no body. Do not scan through its
+    // boundary and mistake a following nominal type's brace for that body.
+    if (/[{}]/.test(signature) || /\b(?:actor|class|enum|extension|protocol|struct|func|let|var|init|deinit|subscript)\b/.test(signature.slice(match[0].length))) continue;
+    const open = match.index + signature.length;
+    if (clean[open] !== "{") continue;
+    if (match[1] === "var" && /^\s*(?:willSet|didSet)\b/.test(clean.slice(open + 1))) continue;
+    const close = matchingBrace(clean, open);
+    if (close >= 0) ranges.push({ open, close });
+  }
+  return ranges;
+}
+
+function balancedSwiftDelimiters(clean) {
+  const stack = [];
+  for (const character of clean) {
+    if ("({[".includes(character)) stack.push(character);
+    else if (")}]".includes(character) && stack.pop() !== ({ ")": "(", "}": "{", "]": "[" })[character]) return false;
+  }
+  return stack.length === 0;
 }
 
 function swiftRegexLiteralPresent(source, clean) {
@@ -2832,7 +2906,7 @@ function swiftRuntimeAvailabilitySurface(source, clean) {
 
 function typeDeclarationRanges(source) {
   const ranges = [];
-  const declaration = /\b(?:actor|class|enum|protocol|struct)\b[^{}\n]*\{/g;
+  const declaration = /\b(?:actor|class|enum|extension|protocol|struct)\b[^{}]*\{/g;
   for (const match of source.matchAll(declaration)) {
     const open = match.index + match[0].lastIndexOf("{");
     const close = matchingBrace(source, open);
@@ -2845,10 +2919,10 @@ function isStoredProperty(source, start, ranges, signature) {
   const owner = ranges
     .filter((range) => range.open < start && range.close > start)
     .sort((left, right) => right.open - left.open)[0];
-  if (!owner) return false;
   const signatureEnd = start + String(signature).length;
   const next = source.slice(signatureEnd).match(/\S/)?.[0] || "";
   if (next === "{") return false;
+  if (!owner) return braceDepth(source, 0, start) === 0;
   return braceDepth(source, owner.open + 1, start) === 0;
 }
 
@@ -2920,7 +2994,7 @@ function readDeclarationSignature(source, start, kind) {
   return source.slice(start);
 }
 
-function maskCommentsAndStrings(source) {
+function maskCommentsAndStrings(source, lexical = null) {
   let output = "";
   let mode = "code";
   let escaped = false;
@@ -2988,6 +3062,7 @@ function maskCommentsAndStrings(source) {
       }
     }
   }
+  if (lexical) lexical.complete = mode === "code" || mode === "line-comment";
   return output;
 }
 

@@ -4,6 +4,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Correct implementation-local binding classification, preserve storage and
+  nominal-type fences, reject incomplete queued replacement bundles, and explain
+  the specific file/member that needs a signed build. Device qualification is
+  recorded in the local-binding evidence before this candidate is enabled.
+
 - Keep production Swift Sim Companion updates visible in Apps while retaining
   internal QA hiding, and identify the target app in build notification titles.
 

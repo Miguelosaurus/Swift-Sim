@@ -17,14 +17,17 @@ test("P7 differential corpus verifies the legacy oracle and proof gates", () => 
   assert.deepEqual(payload.summary, {
     corpusSchemaVersion: 2,
     corpusCases: 69,
-    equivalent: 49,
-    stricter: 16,
+    equivalent: 54,
+    stricter: 11,
     potentiallyMorePermissive: 4,
-    differences: 20,
+    differences: 15,
   });
   const relaxations = payload.rows.filter((row) => row.class === "potentially-more-permissive");
   assert.equal(relaxations.length, 4);
   assert.ok(relaxations.every(
     (row) => row.productionEnabled === false && row.physicalProofRequired === true,
   ));
+  assert.deepEqual(payload.rows.filter((row) => row.legacyRoute !== row.dispatchRoute).map((row) => row.id).sort(), [
+    "access-modifier", "malformed-missing-brace", "static-modifier", "unterminated-block-comment", "unterminated-string",
+  ]);
 });

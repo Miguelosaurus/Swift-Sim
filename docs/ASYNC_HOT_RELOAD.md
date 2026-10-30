@@ -40,6 +40,21 @@ ordinary signed build; compatible edits still queue and never rebuild merely
 because the device is unavailable, compilation fails, or an acknowledgement is
 uncertain.
 
+Local constants, mutable variables and pattern bindings inside an existing
+implementation belong to that body, rather than the object's stored layout.
+Stored properties, signatures and nominal declarations retain rebuild fences.
+The live compiler must represent every changed implementation in one complete
+replacement; unsupported async or unrecognized member forms reject the whole
+patch before application with `QUEUED_MECHANISM_UNSUPPORTED`. That is a current
+compiler-support limit, not a claim that all such changes are impossible.
+
+Signed-build outcomes may include an optional `rebuildReason` explaining the
+first rejected file/member and the number of additional rejected files. This is
+an additive schema-2 field; older readers may ignore it. Live-only rejections
+include the same explanation in `error.message`; verbose output contains bounded,
+sanitized per-file reasons. Imports and additive helpers remain unsupported;
+they are distinguished from changes to installed storage or signatures.
+
 Delivery envelope schema **2** adds `queued` as an incomplete outcome. Save its
 opaque `delivery.requestId`. Status can be read without repeating delivery:
 

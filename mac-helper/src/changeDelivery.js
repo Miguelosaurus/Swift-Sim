@@ -25,9 +25,10 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
   const health = await checkRuntime(runtimeCheck);
   if (!health.ok) return finish(deliveryEnvelope({ outcome: health.userAction ? "needs-user-action" : "failed", message: health.message, reasonCode: health.code, error: { code: health.code, message: health.message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { runtime: health.diagnostic || { code: health.code } }) }), !verbose);
   if (change.route === "rebuild-required") {
-    if (liveOnly) return finish(deliveryEnvelope({ outcome: "needs-user-action", message: "This edit needs a signed build. No build was started because live-only delivery was requested.", reasonCode: change.reasonCode, error: { code: "REBUILD_REQUIRED", message: "This edit changes compiled structure." } }), !verbose);
+    const explanation = rebuildExplanation(change);
+    if (liveOnly) return finish(deliveryEnvelope({ outcome: "needs-user-action", message: "This edit needs a signed build. No build was started because live-only delivery was requested.", reasonCode: change.reasonCode, error: { code: "REBUILD_REQUIRED", message: explanation.message }, ...diagnostics(verbose, { action: "requires-build", reasonCode: change.reasonCode, changes: explanation.changes }) }), !verbose);
     if (typeof buildDevice !== "function") return failedEnvelope("BUILD_ADAPTER_MISSING", "Swift Sim could not start the signed build workflow.");
-    return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: change.reasonCode, startedAt, now, verbose, diagnostic: { action: "build-device", reasonCode: change.reasonCode } }), !verbose);
+    return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: change.reasonCode, rebuildReason: explanation.message, startedAt, now, verbose, diagnostic: { action: "build-device", reasonCode: change.reasonCode, changes: explanation.changes } }), !verbose);
   }
   if (health.queueReady === false) return finish(deliveryEnvelope({ outcome: "needs-user-action", message: "The running helper needs the durable-delivery update. Restart it with the matching Swift Sim installation; no build was started.", reasonCode: "HELPER_UPDATE_REQUIRED", error: { code: "HELPER_UPDATE_REQUIRED", message: "The helper does not advertise durable live delivery." } }), !verbose);
   try {
@@ -42,7 +43,7 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
   }
 }
 
-async function fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode, startedAt, now, verbose = false, diagnostic = undefined }) {
+async function fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode, rebuildReason, startedAt, now, verbose = false, diagnostic = undefined }) {
   let built;
   try { built = await buildDevice({ ...build, project, workspace, scheme, change }); } catch (error) {
     const { message, code } = buildFailureNotice(error);
@@ -51,7 +52,7 @@ async function fallback({ buildDevice, build, project, workspace, scheme, change
   const link = installDelivery(built);
   if (!link) return deliveryEnvelope({ outcome: "failed", message: "The signed build finished without a usable Swift Sim install link.", reasonCode: "INSTALL_LINK_MISSING", error: { code: "INSTALL_LINK_MISSING", message: "The signed build did not return a universal install link." }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
   const warnings = Array.isArray(built?.signing?.warnings) ? built.signing.warnings.filter(Boolean).slice(0, 3) : [];
-  return deliveryEnvelope({ outcome: "install-link-ready", message: "This change needs a new signed build.", reasonCode, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
+  return deliveryEnvelope({ outcome: "install-link-ready", message: "This change needs a new signed build.", reasonCode, rebuildReason, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
 }
 
 function installDelivery(build) {
@@ -73,6 +74,38 @@ function finish(value, compact) {
   return Buffer.byteLength(JSON.stringify(value)) <= max ? value : failedEnvelope("DELIVERY_ENVELOPE_TOO_LARGE", "Swift Sim returned an oversized delivery result.");
 }
 function diagnostics(verbose, value) { return verbose && value ? { diagnostics: value } : {}; }
+
+function rebuildExplanation(change) {
+  const changes = (change.changes || []).filter((item) => item.route === "rebuild-required").slice(0, 32).map((item) => {
+    const reasonCode = /^[A-Z][A-Z0-9_]{1,79}$/.test(item.reasonCode || "") ? item.reasonCode : "UNSUPPORTED_CHANGE";
+    const category = ["installed-structure", "unsupported-live-edit"].includes(item.diagnostic?.category)
+      ? item.diagnostic.category
+      : ["STORED_PROPERTY_CHANGED", "SIGNATURE_CHANGED"].includes(reasonCode) ? "installed-structure" : "unsupported-live-edit";
+    const rawFile = String(item.path || item.after || item.before || "").replaceAll("\\", "/").split("/").at(-1);
+    const file = /^[A-Za-z0-9][A-Za-z0-9_. -]{0,63}$/.test(rawFile || "") && !/\b(?:bearer|authorization|credential|password|secret)\b/i.test(rawFile) ? rawFile : "Swift source";
+    const candidateMember = item.diagnostic?.member;
+    const member = typeof candidateMember === "string" && candidateMember.length <= 80 && /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\([A-Za-z0-9_:, ]*\))?$/.test(candidateMember) ? candidateMember : "";
+    const line = item.diagnostic?.line;
+    return { file, reasonCode, category, ...(member ? { member } : {}), ...(Number.isSafeInteger(line) && line > 0 && line <= 10_000_000 ? { line } : {}) };
+  });
+  const first = changes[0] || { file: "Swift source", reasonCode: change.reasonCode };
+  const location = `${first.file}${first.line ? `:${first.line}` : ""}${first.member ? ` (${first.member})` : ""}`;
+  const reasons = {
+    STORED_PROPERTY_CHANGED: "Stored state or its initializer changed; live replacement preserves existing object storage.",
+    SIGNATURE_CHANGED: first.category === "unsupported-live-edit"
+      ? "Adding or removing helper declarations is not supported by the current live compiler."
+      : "The installed type or callable signature changed; a signed build is required.",
+    IMPORT_CHANGED: "Import changes are not supported by the current live compiler.",
+    DECLARATION_CHANGED: "This declaration or syntax change is outside the classifier's supported live edits.",
+    MACRO_OR_EXPLICIT_REPLACEMENT: "This syntax is not supported by the current live compiler.",
+    FILE_ADDED_OR_REMOVED: "Adding, removing or renaming a Swift file is not supported by the current live compiler.",
+    NON_SWIFT_FILE: "Resources, configuration and other non-Swift files require a signed build.",
+  };
+  const reason = reasons[first.reasonCode] || "Compatibility with the installed app is not proven for this edit; a signed build is required.";
+  const remaining = changes.length > 1 ? ` ${changes.length - 1} additional ${changes.length === 2 ? "file also requires" : "files also require"} a build.` : "";
+  return { message: `${location}: ${reason}${remaining}`, changes };
+}
+
 function failedEnvelope(code, message) { return deliveryEnvelope({ outcome: "failed", message: String(message), reasonCode: String(code), error: { code: String(code), message: String(message) } }); }
 function elapsed(now, start) { return Math.max(0, Number(now()) - Number(start)); }
 function safeError(error) { return (error instanceof Error ? error.message : String(error || "Swift Sim could not deliver this change.")).replace(/(?:\/Users\/|\/private\/var\/|\/tmp\/)[^\s,)]+/g, "<private-path>").replace(/(?:token|bearer|authorization)[=:][^\s&]+/gi, "credential=<redacted>").slice(0, 900); }

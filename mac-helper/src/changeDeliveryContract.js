@@ -30,6 +30,7 @@ export function deliveryEnvelope({
   message,
   reasonCode = "",
   fallbackReasonCode = "",
+  rebuildReason = undefined,
   delivery = undefined,
   timing = undefined,
   error = undefined,
@@ -43,6 +44,7 @@ export function deliveryEnvelope({
   };
   if (reasonCode) envelope.reasonCode = String(reasonCode);
   if (fallbackReasonCode) envelope.fallbackReasonCode = String(fallbackReasonCode);
+  if (rebuildReason !== undefined) envelope.rebuildReason = rebuildReason;
   if (delivery !== undefined) envelope.delivery = delivery;
   if (timing !== undefined) envelope.timing = timing;
   if (error !== undefined) envelope.error = error;
@@ -62,6 +64,7 @@ export function validateDeliveryEnvelope(value) {
   if (typeof value.message !== "string" || value.message.length === 0) errors.push("message is required.");
   if (value.reasonCode !== undefined && typeof value.reasonCode !== "string") errors.push("reasonCode must be a string.");
   if (value.fallbackReasonCode !== undefined && typeof value.fallbackReasonCode !== "string") errors.push("fallbackReasonCode must be a string.");
+  if (value.rebuildReason !== undefined && (typeof value.rebuildReason !== "string" || !value.rebuildReason.length || value.rebuildReason.length > 600)) errors.push("rebuildReason must be bounded explanation text.");
   collectForbiddenKeys(value, errors);
 
   if (value.outcome === "hot-reloaded") {

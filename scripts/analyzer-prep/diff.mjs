@@ -18,14 +18,26 @@ const corpusPath = resolve(root, options.corpus || "test/fixtures/swift-analyzer
 const corpus = loadCorpus(corpusPath);
 const corpusCases = corpus.cases.map((row) => hydrateCase(corpus.fields, row));
 const legacyModule = await import(resolve(root, "mac-helper/src/liveReload.js"));
+const requalification = corpus.productionRequalification;
+if (requalification && requalification.classifierVersion !== legacyModule.CLASSIFIER_VERSION) {
+  throw new Error("Production corpus requalification does not match the classifier version.");
+}
+const overrides = requalification?.stricterRoutes || {};
+for (const [id, route] of Object.entries(overrides)) {
+  const item = corpusCases.find((entry) => entry.id === id);
+  if (!item || route !== "rebuild-required" || item.legacyExpected.route === route) {
+    throw new Error(`Invalid stricter production requalification: ${id}`);
+  }
+}
 
 const rows = [];
 const legacySnapshotMismatches = [];
 for (const caseItem of corpusCases) {
   const legacy = classifyLegacy(caseItem, legacyModule);
-  if (legacy.route !== caseItem.legacyExpected.route) {
+  const expectedRoute = overrides[caseItem.id] || caseItem.legacyExpected.route;
+  if (legacy.route !== expectedRoute) {
     legacySnapshotMismatches.push(
-      `${caseItem.id}: expected ${caseItem.legacyExpected.route}, received ${legacy.route}`,
+      `${caseItem.id}: expected ${expectedRoute}, received ${legacy.route}`,
     );
   }
 
@@ -46,6 +58,7 @@ for (const caseItem of corpusCases) {
     id: caseItem.id,
     category: caseItem.category,
     legacyRoute: legacy.route,
+    dispatchRoute: caseItem.legacyExpected.route,
     candidateRoute: candidate.route,
     class: className,
     productionEnabled: caseItem.productionEnabled,

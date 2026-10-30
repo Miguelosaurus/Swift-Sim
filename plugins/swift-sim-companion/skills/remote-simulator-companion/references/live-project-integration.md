@@ -41,6 +41,10 @@ generic/parameterized functions, accessors, actor/extension members, UIKit
 callbacks, and supported interposition can be live. Imports, declarations,
 stored state, signatures, macros, resources, packages, build settings,
 Info.plist, capabilities, entitlements, signing, and mixed edits rebuild.
+Implementation-local bindings do not change existing-instance storage. The live
+compiler still needs complete support for every changed member. An unsupported
+async/unrecognized implementation rejects the entire prepared patch; it cannot
+be silently skipped while other members are reported applied.
 
 Require current-request compile/load proof, `applied: true` where applicable,
 nonzero replacements unless interposition is used, `refresh_acknowledged`, and

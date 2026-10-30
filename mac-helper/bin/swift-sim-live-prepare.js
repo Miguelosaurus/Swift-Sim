@@ -8,7 +8,8 @@ try {
   const record = JSON.parse(input);
   if (!Array.isArray(record?.files) || record.files.length === 0 || record.files.length > 32) throw new Error("Invalid compiler request.");
   console.log(JSON.stringify(prepareQueuedLivePatch(record)));
-} catch {
-  console.error("The queued replacement could not be compiled.");
+} catch (error) {
+  const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID"];
+  console.error(JSON.stringify({ code: allowed.includes(error?.code) ? error.code : "PATCH_COMPILE_FAILED" }));
   process.exitCode = 1;
 }

@@ -68,6 +68,9 @@ Install**. Do not expose paths, device identifiers, signing identities,
 Tailnet names, ports, archives, or raw logs. Explain `needs-user-action` only
 with its returned action; do not mention `no-change`. Use `--verbose-json` only
 for an explicit diagnostic request.
+When a signed build includes `rebuildReason`, explain that bounded file/member
+reason too. Distinguish existing storage/signature changes from current live
+compiler support limits; unsupported does not mean universally impossible.
 
 ## Safety and lane boundaries
 
@@ -83,6 +86,10 @@ identity for signed fallbacks; never uninstall first.
 
 Implementation bodies, SwiftUI layout/modifier changes, computed helpers,
 supported accessors, UIKit callbacks, and supported interposition can be live.
+Local `let`/`var` and pattern bindings inside existing implementation bodies are
+implementation edits. Existing-instance stored layout remains fixed. A queued
+compiler must represent every changed implementation; unsupported forms reject
+the whole patch before application rather than silently omitting members.
 Imports, declarations, stored state, signatures, macros, resources, packages,
 build settings, signing, and mixed edits require a build. Partial application
 is not success and requires clean-session recovery.

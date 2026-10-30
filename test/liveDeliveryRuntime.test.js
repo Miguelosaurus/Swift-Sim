@@ -14,6 +14,20 @@ const firstEdit = original.replace('first: String { "old" }', 'first: String { "
 const secondEdit = firstEdit.replace('second: String { "old" }', 'second: String { "new" }');
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
+test("unsupported complete replacement reports its actual limit without applying or retrying", async () => {
+  const f = fixture();
+  try {
+    f.adapter.prepare = async () => { throw Object.assign(new Error("unsupported"), { code: "QUEUED_MECHANISM_UNSUPPORTED" }); };
+    const pending = await f.service.enqueue({ files: f.files() });
+    await f.service.runOnce(); await f.service.runOnce();
+    const result = f.service.status(pending.delivery.requestId);
+    assert.equal(result.outcome, "failed");
+    assert.equal(result.reasonCode, "QUEUED_MECHANISM_UNSUPPORTED");
+    assert.match(result.message, /cannot represent every changed implementation/);
+    assert.equal(f.calls.apply.length, 0);
+  } finally { f.cleanup(); }
+});
+
 test("a new request after expired history uses the fresh process revision and qualified original source", async () => {
   const f = fixture();
   try {

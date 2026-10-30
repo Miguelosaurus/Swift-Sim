@@ -198,7 +198,10 @@ export function projectLiveDelivery(record) {
     return deliveryEnvelope({ outcome: "queued", message, reasonCode: record.reasonCode || "LIVE_DELIVERY_PENDING", delivery: { kind: "pending", requestId: record.requestId, state, prepared, normalWaiting, guidanceCode, requiredAppState: "foreground-ready", expiresAt: new Date(record.expiresAt).toISOString() }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
   }
   const code = safeCode(record.reasonCode, state === "uncertain" ? "QUEUE_APPLY_UNCONFIRMED" : `QUEUE_${String(state).toUpperCase()}`);
-  const message = state === "uncertain" ? "The edit's application could not be confirmed. Swift Sim will reconcile a matching receipt without applying it again." : "The queued edit did not complete. No successful hot reload is claimed.";
+  const message = state === "uncertain" ? "The edit's application could not be confirmed. Swift Sim will reconcile a matching receipt without applying it again."
+    : code === "QUEUED_MECHANISM_UNSUPPORTED" ? "The current live compiler cannot represent every changed implementation in one complete replacement. No patch was applied; this edit needs a signed build."
+    : code === "QUEUED_EDIT_NOT_COMPATIBLE" ? "The background compiler rejected this edit's compatibility. No patch was applied or app rebuild started."
+    : "The queued edit did not complete. No successful hot reload is claimed.";
   return deliveryEnvelope({ outcome: "failed", message, reasonCode: code, error: { code, message }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
 }
 
