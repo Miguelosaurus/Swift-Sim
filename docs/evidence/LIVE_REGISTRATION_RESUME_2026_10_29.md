@@ -94,6 +94,31 @@ Homebrew formula/entrypoint checks passed; the optional destructive clean
 Homebrew installation gate was not run. The compiled gate includes the new
 registration, preserved-build resume and independent safety regressions.
 
-The actual supported resume outcome is recorded after activation.
-Restart/hot-reload physical acceptance still needs the corrected app installed
-and request-correlated application/refresh proof.
+## Actual local activation and resume
+
+Implementation commit `172ed09` was pushed to `main`; the primary checkout was
+fast-forwarded and rebuilt. The archive above was explicitly staged and
+canonical setup activated local engine 0.5.1. The helper is healthy and
+advertises `transactional-compilation-registration-v1`. All tracked Simulator
+streams were stopped before reconciliation. Codex plugin
+`0.6.1+codex.20261029.4` is enabled; all 12 cached files match source.
+
+The supported resume command completed for the preserved build 28. The same
+build number now reports `ready`, `compilerReady: true`, recovery phase
+`packaged`, and an existing IPA. Its manifest contains all 89 frontend commands
+and 856 source baselines. A read-only query of the actual engine returned the
+matching current committed receipt, with exact operation, map/provenance
+digests and engine nonce. This was completion of registration and packaging;
+no Xcode compilation, new build number, phone install or new live request was
+performed by this recovery lane.
+
+Private pre-activation evidence was retained. All original queued snapshot
+digests and prior proof fields are unchanged. No old uncertainty was cleared
+or presented as successful application. Zenics source, signing identity,
+approved gestures and phone data were not edited.
+
+The Zenics lane can now use ready build 28 in the ordinary install workflow;
+another SDK compilation is unnecessary for this engine/helper repair. Phone
+installation is still unverified. Restart/hot-reload acceptance still needs
+that corrected app installed, then current-request application/refresh proof
+and visible change/removal across the requested connection/restart cases.
