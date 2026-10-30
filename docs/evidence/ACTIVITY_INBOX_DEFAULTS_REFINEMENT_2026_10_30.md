@@ -78,3 +78,28 @@ Log: `/tmp/swift-sim-activity-terminal-banner-tests.log`.
 Result: `/tmp/swift-sim-activity-terminal-banner-tests-20261030.xcresult`.
 Architecture (239 production sources), documentation links and diff checks also
 passed. No helper/runtime code changed after the passing full Node gate above.
+
+## Build 18 signed delivery
+
+The foreground-popup correction at `6ed85aa` was exported as Release OTA
+**0.6.1 (18)** with the same production bundle, team, existing registered phone
+and manual ad hoc profile. The user authorized temporarily quitting Comet;
+quitting it normally restored enough disk space for the ordinary export storage
+preflight. Browsing data, project archives and signed products were retained.
+
+Verification of the exported IPA passed strict deep code-signature validation,
+exact application identity, production push entitlement and routing, inclusion
+of the registered phone, disabled debugger entitlement, and absence of APNs
+private keys. The public manifest returned HTTP 200 with the exact bundle and
+build 18; the complete public IPA returned HTTP 200 and matched the locally
+verified IPA's SHA-256. Private receipts are under
+`.build/ota-companion-20261030/build18-{export,delivery}-verification.json`.
+
+The paired helper was absent during the initial export; it was restored from
+the compiled current source as a detached process. Its health endpoint returned
+HTTP 200, the existing engine process was preserved, and the durable activity
+journal recorded Apple's acceptance of build 18's new-build alert (sequence
+65). This establishes APNs acceptance, not notification display or installation.
+Build 18 is ready for the user's installation; no physical installation of this
+build is claimed here. The Codex checkout was fast-forwarded to the correction
+and its compiled build passed.
