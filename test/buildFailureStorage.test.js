@@ -39,6 +39,18 @@ test("storage evidence remains distinct from an unproven CodeSign failure cause"
   assert.doesNotMatch(JSON.stringify(notice), /\/Users\/|Bearer|secret/);
 });
 
+test("preserved Debug registration failures retain bounded typed recovery without exposing raw artifacts", () => {
+  for (const code of ["LIVE_REGISTRATION_PENDING", "LIVE_REGISTRATION_RECEIPT_MISMATCH", "LIVE_ENGINE_REGISTRATION_UPDATE_REQUIRED", "LIVE_CAPTURE_PROVENANCE_CHANGED", "LIVE_BUILD_RESUME_SOURCE_CHANGED", "LIVE_BUILD_RESUME_IDENTITY_MISMATCH", "BUILD_RESUME_STATE_CHANGED"]) {
+    const error = Object.assign(new Error("private /Users/private/artifact Bearer secret"), { code });
+    assert.equal(classifyBuildFailure(error), code);
+    assert.equal(classifyBuildFailure(`[${code}] stage failure`), code);
+    const notice = buildFailureNotice(error);
+    assert.equal(notice.code, code);
+    assert.doesNotMatch(JSON.stringify(notice), /\/Users\/|Bearer|secret/);
+  }
+  assert.equal(classifyBuildFailure("[UNTRUSTED_MADE_UP_CODE] arbitrary"), "BUILD_FAILED");
+});
+
 test("a terminal save failure preserves the original error and can be reconciled later", () => {
   const build = { state: "building", logs: [] };
   const original = new Error("Command CodeSign failed");

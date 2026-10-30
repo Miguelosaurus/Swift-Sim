@@ -17,7 +17,7 @@ test("runtime health identifies the exact helper version and protocol", () => {
     helper: HELPER_RUNTIME_ROLE,
     version: SWIFT_SIM_VERSION,
     protocol: SWIFT_SIM_RUNTIME_PROTOCOL,
-    capabilities: ["durable-live-delivery-v1", "durable-desired-state-v1"],
+    capabilities: ["durable-live-delivery-v1", "durable-desired-state-v1", "transactional-compilation-registration-v1"],
   });
   assert.equal(runtimeHealthMatches(payload, HELPER_RUNTIME_ROLE), true);
   assert.equal(runtimeHealthMatches(payload, GATEWAY_RUNTIME_ROLE), false);

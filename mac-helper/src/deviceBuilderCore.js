@@ -1,10 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
-import { ownedWorkerProcessState, prepareOwnedWorkerProcessIdentity, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
+import { completeOwnedWorkerProcessRecord, ownedWorkerProcessState, prepareOwnedWorkerProcessIdentity, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
+import * as liveBuildCapture from "./liveReload.js";
 import { verifyLiveBuildLinkerCompatibility } from "./liveBuildLinkerCompatibility.js";
 import { annotateBuildFailure, recordDeviceBuildFailure } from "./buildFailure.js";
 import {
@@ -14,6 +16,226 @@ import {
 } from "./liveReload.js";
 
 export class DeviceBuildError extends Error {}
+
+// Creating an install payload never needs to wait for a paired phone. The
+// provisioning flag permits signing updates; it does not choose a live device.
+export function signedDebugBuildDestination() { return "generic/platform=iOS"; }
+
+/** Finish a preserved signed Debug build without compiling or installing it. */
+export async function resumeDeviceBuild(build, { save, logger = () => {}, readCurrent, runtime = {} } = {}) {
+  assertResumeAdmission(build);
+  const requested = resumeBinding(build);
+  const runCommand = runtime.runCommand || runBuffered;
+  const inspect = runtime.inspectLiveBuildResult || liveBuildCapture.inspectLiveBuildResult;
+  const withSession = runtime.withLiveBuildSession || withLiveBuildSession;
+  const saveBuild = () => save?.(build);
+  const log = (message) => {
+    build.logs ||= [];
+    build.logs.push(message);
+    if (build.logs.length > MAX_DEVICE_BUILD_LOG_LINES) build.logs.splice(0, build.logs.length - MAX_DEVICE_BUILD_LOG_LINES);
+    logger(message);
+  };
+  let checkpoint;
+  const attemptId = randomUUID();
+  const assertCurrent = (owned = false) => {
+    throwIfBuildCancelled(build);
+    if (typeof readCurrent !== "function") return;
+    const current = readCurrent();
+    if (!current || JSON.stringify(resumeBinding(current)) !== JSON.stringify(requested)
+      || (owned ? current.liveReload?.recovery?.attemptId !== attemptId || !["preparing", "exporting"].includes(current.state) : current.state !== "failed")) {
+      throw resumeError("BUILD_RESUME_STATE_CHANGED", "The build changed, was deleted, or another operation owns its recovery. No prior build state was replaced.", true);
+    }
+    if (!owned) Object.assign(build, current);
+  };
+  try {
+    return await withSession({ project: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme }, async ({ liveSession, registerLiveBuildResult: register }) => {
+      assertCurrent(true);
+      if (!liveSession?.started) throw resumeError("LIVE_BUILD_RESUME_ENGINE_UNAVAILABLE", "The matching live engine is unavailable. The signed app and result bundle were retained; no rebuild was started.");
+      log("Resuming live compiler registration from the preserved signed Debug app.");
+      const capture = await register({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, expectedProvenance: checkpoint.provenance, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+      if (!Number.isSafeInteger(capture?.registered) || capture.registered < 1) throw resumeError("LIVE_BUILD_RESUME_REGISTRATION_INCOMPLETE", "Compiler registration did not acknowledge a complete nonempty map. The signed app was retained.");
+      assertCurrent(true);
+      const current = inspect({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+      assertResumeProvenance(checkpoint.provenance, current.provenance);
+      build.liveReload = { ...build.liveReload, engineReady: true, compilerReady: true, host: liveSession.host, capturedCompilations: capture.registered, recovery: { ...checkpoint, phase: "registered", attemptId } };
+      build.state = "exporting";
+      saveBuild();
+      log("Packaging the preserved signed Debug app; no compilation or installation is performed.");
+      const ipaPath = await (runtime.packageApp || packageResumedDebugApp)(checkpoint.appPath, build.artifacts.exportPath, build.scheme, { runCommand, build, expectedProvenance: checkpoint.provenance });
+      assertCurrent(true);
+      const finalCapture = inspect({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+      assertResumeProvenance(checkpoint.provenance, finalCapture.provenance);
+      assertContainedArtifact(build.artifacts.root, ipaPath, "file");
+      build.artifacts.ipaPath = ipaPath;
+      build.app.name = displayNameFromIpa(ipaPath) || build.scheme;
+      build.liveReload.recovery.phase = "packaged";
+      build.state = "ready";
+      saveBuild();
+      log("Preserved Debug build is ready for ordinary install delivery.");
+      return build;
+    }, {
+      beforeStart: async () => {
+        assertCurrent();
+        assertResumeAdmission(build);
+        assertResumeWorkerInactive(build);
+        const paths = resumeArtifactPaths(build, runtime);
+        checkpoint = await inspectSignedDebugResume(build, { ...paths, runtime: { ...runtime, runCommand } });
+        if (build.liveReload.recovery) {
+          if (build.liveReload.recovery.version !== 1) throw resumeError("LIVE_BUILD_RESUME_PROVENANCE_INVALID", "The preserved recovery checkpoint has an unsupported version.");
+          assertResumeProvenance(build.liveReload.recovery.provenance, checkpoint.provenance);
+        }
+        assertCurrent();
+        build.liveReload.recovery = { ...checkpoint, phase: "registration", attemptId };
+        build.state = "preparing";
+        saveBuild();
+      },
+    });
+  } catch (error) {
+    if (error?.preserveBuildState || error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
+    throw recordDeviceBuildFailure(build, error, save);
+  }
+}
+
+function assertResumeAdmission(build) {
+  if (!build || build.state !== "failed") throw resumeError("BUILD_RESUME_STATE_CHANGED", "Only a failed preserved build can be resumed.", true);
+  if (build.tokenExpiredAt || build.pendingRenewal?.id || String(build.configuration || "").toLowerCase() !== "debug" || build.workspace || !build.project || !String(build.scheme || "").trim()
+    || build.liveReload?.eligible !== true || (build.liveReload.compilerReady === true && !build.liveReload.recovery)) {
+    throw resumeError("LIVE_BUILD_RESUME_INELIGIBLE", "This build does not have a preserved live-enabled Debug registration or packaging stage. No rebuild was started.", true);
+  }
+}
+function resumeBinding(build) {
+  return { id: build.id, project: build.project, workspace: build.workspace || "", scheme: build.scheme, configuration: build.configuration, root: build.artifacts?.root, tokenExpiredAt: build.tokenExpiredAt || "", renewalID: build.pendingRenewal?.id || "", app: { bundleIdentifier: build.app?.bundleIdentifier, version: build.app?.version, build: build.app?.build, teamID: build.app?.teamID } };
+}
+function resumeArtifactPaths(build, runtime) {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(String(build.id || ""))) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved build identity is invalid.");
+  const expectedRoot = join(runtime.buildRootBase || join(homedir(), ".swift-sim", "device-builds"), build.id);
+  if (resolve(build.artifacts?.root || "") !== resolve(expectedRoot)) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved artifact root does not match this build.");
+  if (resolve(build.control?.cancelPath || "") !== join(expectedRoot, ".cancelled")) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved worker journal is not scoped to this build.");
+  assertContainedArtifact(dirname(expectedRoot), expectedRoot, "directory");
+  const expectedResult = join(expectedRoot, `${safeName(build.scheme)}.xcresult`);
+  const expectedExport = join(expectedRoot, "export");
+  if (resolve(build.artifacts?.resultBundlePath || "") !== expectedResult || resolve(build.artifacts?.exportPath || "") !== expectedExport) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved result or export path does not match this build.");
+  assertContainedArtifact(expectedRoot, expectedResult, "directory");
+  const products = join(expectedRoot, "DerivedData", "Build", "Products", "Debug-iphoneos");
+  assertContainedArtifact(expectedRoot, products, "directory");
+  const apps = readdirSync(products).filter((name) => name.endsWith(".app"));
+  if (apps.length !== 1) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved Debug products must contain exactly one host app.");
+  const appPath = join(products, apps[0]);
+  assertContainedArtifact(expectedRoot, appPath, "directory");
+  if (existsSync(expectedExport)) assertContainedArtifact(expectedRoot, expectedExport, "directory");
+  return { appPath, resultBundlePath: expectedResult };
+}
+function assertContainedArtifact(root, path, kind) {
+  const base = resolve(root); const absolute = resolve(path); const child = relative(base, absolute);
+  if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "A preserved artifact escaped its build root.");
+  let current = base;
+  const baseStat = lstatSync(base);
+  if (!baseStat.isDirectory() || baseStat.isSymbolicLink()) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved build root is unsafe.");
+  for (const component of child.split(sep)) {
+    current = join(current, component);
+    const info = lstatSync(current);
+    if (info.isSymbolicLink()) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "A preserved artifact contains a symbolic-link path.");
+  }
+  const info = lstatSync(absolute);
+  if ((kind === "directory" ? !info.isDirectory() : !info.isFile()) || (typeof process.getuid === "function" && info.uid !== process.getuid())) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "A preserved artifact has an invalid type or owner.");
+  if (!realpathSync(absolute).startsWith(`${realpathSync(base)}${sep}`)) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved artifact location is not trusted.");
+}
+function assertResumeWorkerInactive(build) {
+  throwIfBuildCancelled(build);
+  const workerPath = build.control?.cancelPath ? `${build.control.cancelPath}.worker.json` : "";
+  if (!workerPath || !existsSync(workerPath)) return;
+  let worker;
+  try { worker = JSON.parse(readFileSync(workerPath, "utf8")); } catch { throw resumeError("SWIFT_SIM_UNSAFE_BUILD_RECOVERY", "The preserved build worker identity is unreadable.", true); }
+  if (!completeOwnedWorkerProcessRecord(worker) || !["dead", "replaced"].includes(ownedWorkerProcessState(worker))) throw resumeError("SWIFT_SIM_UNSAFE_BUILD_RECOVERY", "An active or unverifiable worker still owns this build.", true);
+}
+async function inspectSignedDebugResume(build, { appPath, resultBundlePath, runtime }) {
+  const runCommand = runtime.runCommand || runBuffered;
+  const options = { timeoutMs: 30_000, cancelPath: build.control?.cancelPath || "" };
+  const command = async (tool, args) => {
+    const result = await runCommand(tool, args, options);
+    if (result?.cancellationError) throw result.cancellationError;
+    if (result?.code !== 0) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved signed app or Xcode build result could not be verified.");
+    return result;
+  };
+  await command("/usr/bin/codesign", ["--verify", "--deep", "--strict", appPath]);
+  const signature = await command("/usr/bin/codesign", ["-d", "--verbose=4", appPath]);
+  const team = `${signature.stdout || ""}\n${signature.stderr || ""}`.match(/^TeamIdentifier=(\S+)\s*$/m)?.[1];
+  if (!team || team !== build.app?.teamID) throw resumeError("LIVE_BUILD_RESUME_IDENTITY_MISMATCH", "The preserved app does not match the build's signing team.");
+  const summaryResult = await command("xcrun", ["xcresulttool", "get", "build-results", "--path", resultBundlePath, "--compact"]);
+  let summary;
+  try { summary = JSON.parse(summaryResult.stdout); } catch { throw resumeError("LIVE_BUILD_RESUME_RESULT_INVALID", "The preserved Xcode build summary is invalid."); }
+  const completedAt = Number(summary.endTime) * 1000;
+  if (summary.status !== "succeeded" || summary.errorCount !== 0 || summary.actionTitle !== `Build "${build.scheme}"` || summary.destination?.platform !== "iOS"
+    || !Number.isFinite(completedAt) || !Number.isFinite(Number(summary.startTime)) || Number(summary.startTime) <= 0 || summary.endTime < summary.startTime) throw resumeError("LIVE_BUILD_RESUME_RESULT_INVALID", "The result bundle does not prove a successful matching iOS build.");
+  const capture = (runtime.inspectLiveBuildResult || liveBuildCapture.inspectLiveBuildResult)({ resultBundle: resultBundlePath, appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+  const identity = capture.provenance?.binaryIdentity;
+  if (!identity || identity.bundle_id !== build.app?.bundleIdentifier || identity.bundle_version !== build.app?.version || identity.build_number !== build.app?.build
+    || !identity.executable_uuid || !identity.debug_dylib_uuid) throw resumeError("LIVE_BUILD_RESUME_IDENTITY_MISMATCH", "The preserved app does not match the exact recorded bundle, version, build and binary identity.");
+  const inputs = [...(capture.provenance.sourceFiles || []), ...(capture.provenance.projectFiles || []), ...(capture.provenance.appFingerprint || [])];
+  if (!inputs.length || inputs.some((file) => !Number.isFinite(file.mtimeMs) || file.mtimeMs > completedAt + 1
+    || (file.linkMtimeMs !== undefined && (!Number.isFinite(file.linkMtimeMs) || file.linkMtimeMs > completedAt + 1)))) throw resumeError("LIVE_BUILD_RESUME_SOURCE_CHANGED", "Source or project inputs changed after the preserved build completed. The compiled app was retained; a new baseline cannot be inferred.");
+  const debugImage = capture.provenance.appFingerprint?.find((file) => file.name.endsWith(".debug.dylib"))?.name;
+  if (!debugImage || basename(debugImage) !== debugImage) throw resumeError("LIVE_BUILD_RESUME_IDENTITY_MISMATCH", "The preserved Debug executable identity is unavailable.");
+  await verifyLiveBuildLinkerCompatibility([join(appPath, debugImage)], { runCommand, cancelPath: options.cancelPath });
+  return { version: 1, phase: "registration", appPath, resultBundlePath, completedAt, provenance: capture.provenance };
+}
+function resumeCaptureInputPaths(build) {
+  return [join(resolveTarget(build).path, "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved"),
+    join(build.artifacts.root, "DerivedData", "SourcePackages", "workspace-state.json")].filter((path) => existsSync(path));
+}
+function assertResumeProvenance(expected, actual) {
+  if (!expected || JSON.stringify(expected) !== JSON.stringify(actual)) throw resumeError("LIVE_BUILD_RESUME_SOURCE_CHANGED", "The preserved binary or compiler inputs changed during recovery. Nothing was published as ready.");
+}
+async function packageResumedDebugApp(appPath, exportPath, scheme, { runCommand, build, expectedProvenance }) {
+  const root = build.artifacts.root;
+  if (existsSync(exportPath)) assertContainedArtifact(root, exportPath, "directory");
+  else mkdirSync(exportPath, { mode: 0o700 });
+  const staging = join(exportPath, `.resume-${randomUUID()}`);
+  const payload = join(staging, "Payload");
+  const stagedIpa = join(staging, "ready.ipa");
+  const ipaPath = join(exportPath, `${safeName(scheme)}.ipa`);
+  // Reserve space only for bounded copy/package work, never the full-build floor.
+  const volume = statfsSync(exportPath);
+  if (Number(volume.bavail) * Number(volume.bsize) < preservedAppBytes(appPath) * 3 + 64 * 1024 * 1024) throw resumeError("BUILD_STORAGE_INSUFFICIENT", "Not enough space remains to package the preserved signed app. No new build was started.");
+  mkdirSync(payload, { recursive: true, mode: 0o700 });
+  try {
+    for (const args of [[appPath, join(payload, basename(appPath))], ["-c", "-k", "--sequesterRsrc", "--keepParent", payload, stagedIpa]]) {
+      throwIfBuildCancelled(build);
+      const result = await runCommand("/usr/bin/ditto", args, { timeoutMs: 120_000, cancelPath: build.control?.cancelPath || "" });
+      if (result?.cancellationError) throw result.cancellationError;
+      if (result?.code !== 0) throw annotateBuildFailure(new DeviceBuildError("The preserved signed app could not be packaged."), result);
+      if (args[0] === appPath) {
+        const copiedApp = join(payload, basename(appPath));
+        for (const file of expectedProvenance.appFingerprint) {
+          const path = join(copiedApp, file.name);
+          assertContainedArtifact(copiedApp, path, "file");
+          const info = lstatSync(path);
+          if (info.size !== file.size || info.size > 512 * 1024 * 1024 || createHash("sha256").update(readFileSync(path)).digest("hex") !== file.hash) throw resumeError("LIVE_BUILD_RESUME_SOURCE_CHANGED", "The app changed while its preserved install payload was copied. Nothing was published as ready.");
+        }
+        const verified = await runCommand("/usr/bin/codesign", ["--verify", "--deep", "--strict", copiedApp], { timeoutMs: 30_000, cancelPath: build.control?.cancelPath || "" });
+        if (verified?.cancellationError) throw verified.cancellationError;
+        if (verified?.code !== 0) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The copied Debug app failed signature verification before packaging.");
+      }
+    }
+    throwIfBuildCancelled(build);
+    assertContainedArtifact(staging, stagedIpa, "file");
+    renameSync(stagedIpa, ipaPath);
+    return ipaPath;
+  } finally { rmSync(staging, { recursive: true, force: true }); }
+}
+function preservedAppBytes(appPath) {
+  let count = 0; let bytes = 0;
+  const pending = [appPath];
+  while (pending.length) {
+    const path = pending.pop(); const info = lstatSync(path);
+    if (++count > 32_768) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved app exceeds bounded packaging limits.");
+    if (info.isDirectory()) for (const entry of readdirSync(path)) pending.push(join(path, entry));
+    else bytes += info.size;
+    if (bytes > 1024 ** 3) throw resumeError("LIVE_BUILD_RESUME_ARTIFACT_INVALID", "The preserved app exceeds bounded packaging limits.");
+  }
+  return bytes;
+}
+function resumeError(code, message, preserveBuildState = false) { return Object.assign(new DeviceBuildError(message), { code, ...(preserveBuildState ? { preserveBuildState: true } : {}) }); }
 
 export async function runDeviceBuild(build, {
   save,
@@ -130,9 +352,7 @@ export async function runDeviceBuild(build, {
           build.state = "building";
           saveBuild();
           const derivedDataPath = join(root, "DerivedData");
-          const destination = build.allowProvisioningUpdates
-            ? preferredPhysicalIOSDestination()
-            : "generic/platform=iOS";
+          const destination = signedDebugBuildDestination();
           log("Building the signed live-enabled Debug app.");
           await runLogged("xcodebuild", [
             ...targetArgs(target),
@@ -142,14 +362,7 @@ export async function runDeviceBuild(build, {
             "-destination", destination,
             "-derivedDataPath", derivedDataPath,
             "-resultBundlePath", resultBundlePath,
-            ...(build.allowProvisioningUpdates
-              ? [
-                  "-allowProvisioningUpdates",
-                  ...(destination === "generic/platform=iOS"
-                    ? []
-                    : ["-allowProvisioningDeviceRegistration"]),
-                ]
-              : []),
+            ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
             "build",
           ], log, {
             env: {
@@ -174,19 +387,23 @@ export async function runDeviceBuild(build, {
             { runCommand: runBuffered, cancelPath: build.control?.cancelPath || "" },
           );
           try {
-            const capture = await registerBuildResult({ resultBundle: resultBundlePath, appPath });
+            const checkpoint = await inspectSignedDebugResume(build, { appPath, resultBundlePath, runtime: {} });
+            build.liveReload.recovery = checkpoint;
+            saveBuild();
+            const capture = await registerBuildResult({ resultBundle: resultBundlePath, appPath, expectedProvenance: checkpoint.provenance, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
             build.liveReload = {
               eligible: true,
               engineReady: true,
               compilerReady: true,
               host: liveSession.host,
               capturedCompilations: capture.registered,
+              recovery: { ...checkpoint, phase: "registered" },
             };
             log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
           } catch (error) {
-            throw new DeviceBuildError(
-              `The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`
-            );
+            const failure = new DeviceBuildError(`The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`);
+            if (typeof error?.code === "string") failure.code = error.code;
+            throw failure;
           }
 
           build.state = "exporting";
@@ -194,6 +411,7 @@ export async function runDeviceBuild(build, {
           log("Packaging the signed Debug app as an installable IPA.");
           const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
           build.artifacts.ipaPath = ipaPath;
+          build.liveReload.recovery.phase = "packaged";
           build.app.name = displayNameFromIpa(ipaPath) || build.scheme || basename(ipaPath, ".ipa");
           build.state = "ready";
           saveBuild();
@@ -841,14 +1059,6 @@ function managedLiveBuildSettings(buildSettingArgs = []) {
     "OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -enable-implicit-dynamic -enable-private-imports",
     `OTHER_LDFLAGS=${linkerFlags} -Xlinker -interposable`,
   ];
-}
-
-function preferredPhysicalIOSDestination() {
-  const result = spawnSync("xcrun", ["xcdevice", "list", "--timeout", "3"], {
-    encoding: "utf8",
-    timeout: 5_000,
-  });
-  return physicalIOSDestination(result.status === 0 ? result.stdout : "");
 }
 
 export function physicalIOSDestination(output) {

@@ -214,6 +214,69 @@ test("CLI build owns temporary signal listeners and always detaches them", async
   assert.strictEqual(signals[1][2], signals[3][2]);
 });
 
+test("CLI resume publishes delivery only after finishing the preserved build and never starts a new build", async () => {
+  const events = [];
+  const h = harness({
+    async runBuild() { throw new Error("A resume must not build again"); },
+    async resumeBuild(value, options) {
+      events.push("resume");
+      assert.equal(options.readCurrent(), value);
+      assert.equal("nextBuildNumber" in options, false);
+      value.state = "ready";
+      options.save(value);
+    },
+  });
+  const value = { ...build("resume-me"), state: "failed" }; h.builds.push(value);
+  const ensure = h.delivery.ensure;
+  h.delivery.ensure = async (...args) => { events.push("delivery"); return ensure(...args); };
+  const runtime = createDeviceBuildRuntimeController(h.deps);
+  const result = await runtime.resumeCliBuild(value.id);
+  assert.equal(result.id, value.id);
+  assert.equal(result.state, "ready");
+  assert.deepEqual(events, ["resume", "delivery"]);
+  assert.equal(h.builds.length, 1);
+  assert.equal(runtime.activeTasks().length, 0);
+  assert.deepEqual(h.signals.map(([kind]) => kind), ["once", "once", "off", "off"]);
+});
+
+test("resume rejection and stale admission do not publish delivery or overwrite a newer build", async () => {
+  let deliveryCalls = 0;
+  const h = harness({
+    async resumeBuild() { throw Object.assign(new Error("A newer process finished this build"), { code: "BUILD_RESUME_STATE_CHANGED", preserveBuildState: true }); },
+  });
+  h.delivery.ensure = async () => { deliveryCalls++; throw new Error("Unexpected delivery"); };
+  const value = { ...build("stale-resume"), state: "failed" }; h.builds.push(value);
+  const runtime = createDeviceBuildRuntimeController(h.deps);
+  await assert.rejects(runtime.resumeCliBuild(value.id), { code: "BUILD_RESUME_STATE_CHANGED" });
+  assert.equal(h.saved.length, 0); assert.equal(deliveryCalls, 0);
+  value.state = "ready";
+  await assert.rejects(runtime.resumeCliBuild(value.id), /Only a failed/);
+  await assert.rejects(runtime.resumeCliBuild("missing"), /Unknown/);
+  assert.equal(h.saved.length, 0);
+});
+
+test("a failed resumed registration stays failed and cannot become a ready delivery", async () => {
+  const failure = Object.assign(new Error("Compilation receipt pending"), { code: "LIVE_REGISTRATION_PENDING" });
+  const h = harness({ async resumeBuild() { throw failure; } });
+  h.delivery.ensure = async () => { throw new Error("Must not publish"); };
+  const value = { ...build("resume-failed"), state: "failed" }; h.builds.push(value);
+  const runtime = createDeviceBuildRuntimeController(h.deps);
+  await assert.rejects(runtime.resumeCliBuild(value.id), failure);
+  assert.equal(value.state, "failed");
+  assert.ok(h.saved.every((item) => item.state === "failed"));
+});
+
+test("one controller cannot admit concurrent resumes of the same build", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const h = harness({ async resumeBuild(value) { await gate; value.state = "ready"; } });
+  const value = { ...build("resume-concurrent"), state: "failed" }; h.builds.push(value);
+  const runtime = createDeviceBuildRuntimeController(h.deps);
+  const first = runtime.resumeCliBuild(value.id);
+  await assert.rejects(runtime.resumeCliBuild(value.id), /active task/);
+  release(); await first;
+});
+
 test("delivery cleanup uses the injected clock, skips future jobs, and records outcomes", async () => {
   let releases = 0;
   const { deps, cleanupJobs, saved } = harness({

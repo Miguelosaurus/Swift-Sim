@@ -43,6 +43,7 @@ export function commandDeadline(command, args = [], options = {}) {
   if (nodeExecutable(executable) && swiftSimHelperScript(normalizedArgs[0])) {
     if (normalizedArgs[1] === "serve") return 0;
     if (normalizedArgs[1] === "build-device") return 60 * 60_000;
+    if (normalizedArgs[1] === "resume-device-build") return 10 * 60_000;
     return 5 * 60_000;
   }
   if (executable === "brew") {

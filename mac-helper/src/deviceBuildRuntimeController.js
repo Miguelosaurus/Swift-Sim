@@ -39,6 +39,7 @@ import { recordDeviceBuildFailure } from "./buildFailure.js";
  *   create(input: Record<string, unknown>): BuildRecord,
  *   save(build: BuildRecord): unknown,
  *   list(): BuildRecord[],
+ *   get?(id: string): BuildRecord | undefined | null,
  *   nextBuildNumber(app: unknown, current: unknown): string,
  *   buildStorageHistory?(): unknown[],
  *   listDeliveryReferenceCleanupJobs(): DeliveryCleanupJob[],
@@ -61,6 +62,7 @@ import { recordDeviceBuildFailure } from "./buildFailure.js";
  *   clock: Clock,
  *   capabilityExpiresAt(input: { ttlMinutes: number, deliveryExpiresAt: string, now: number }): string,
  *   runBuild(build: BuildRecord, options: { save(next: BuildRecord): unknown, nextBuildNumber(app: unknown, current: unknown): string, previousBuilds: unknown[] }): Promise<unknown>,
+ *   resumeBuild?(build: BuildRecord, options: { save(next: BuildRecord): unknown, readCurrent(): BuildRecord | undefined | null }): Promise<unknown>,
  *   requestCancellation(build: BuildRecord, reason: string): unknown,
  *   terminateRecordedWorker(build: BuildRecord): Promise<boolean>,
  *   signals: SignalRuntime,
@@ -90,6 +92,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
     createBuild,
     prepareDelivery,
     runCliBuild,
+    resumeCliBuild,
     startBuild,
     trackTask,
     recoverInterruptedBuilds,
@@ -205,13 +208,37 @@ export function createDeviceBuildRuntimeController(dependencies) {
 
   /** @param {BuildRecord} build */
   async function runCliBuild(build) {
+    return runCliOperation(build, () => runBuildPipeline(build));
+  }
+
+  /** @param {string} buildID */
+  async function resumeCliBuild(buildID) {
+    if (!dependencies.resumeBuild)
+      throw new Error("This helper cannot resume preserved Debug builds. Update Swift Sim first.");
+    const build =
+      dependencies.store.get?.(buildID) ||
+      dependencies.store.list().find((item) => item.id === buildID);
+    if (!build) throw new Error("Unknown device build id.");
+    if (build.state !== "failed")
+      throw new Error("Only a failed preserved Debug build can be resumed.");
+    if ([...activeTasks.values()].some((task) => task.build.id === buildID))
+      throw new Error("This device build already has an active task.");
+    return /** @type {Promise<BuildRecord>} */ (
+      trackInternal(`resume:${build.id}`, build, () =>
+        runCliOperation(build, () => runBuildPipeline(build, { resume: true })),
+      )
+    );
+  }
+
+  /** @param {BuildRecord} build @param {() => Promise<BuildRecord>} operation */
+  async function runCliOperation(build, operation) {
     const interrupt = () => {
       dependencies.requestCancellation(build, "Swift Sim device build was interrupted.");
     };
     dependencies.signals.once("SIGTERM", interrupt);
     dependencies.signals.once("SIGINT", interrupt);
     try {
-      await runBuildPipeline(build);
+      return await operation();
     } finally {
       dependencies.signals.off("SIGTERM", interrupt);
       dependencies.signals.off("SIGINT", interrupt);
@@ -309,14 +336,25 @@ export function createDeviceBuildRuntimeController(dependencies) {
     return runDeliveryCleanupSafely(() => drainDeliveryReferences());
   }
 
-  /** @param {BuildRecord} build */
-  async function runBuildPipeline(build) {
+  /** @param {BuildRecord} build @param {{ resume?: boolean }} [options] */
+  async function runBuildPipeline(build, { resume = false } = {}) {
     try {
-      await dependencies.runBuild(build, {
-        save: (next) => dependencies.store.save(next),
-        nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
-        previousBuilds: dependencies.store.buildStorageHistory?.() || [],
-      });
+      if (resume) {
+        if (!dependencies.resumeBuild)
+          throw new Error("Preserved Debug build resume is unavailable.");
+        await dependencies.resumeBuild(build, {
+          save: (next) => dependencies.store.save(next),
+          readCurrent: () =>
+            dependencies.store.get?.(build.id) ||
+            dependencies.store.list().find((item) => item.id === build.id),
+        });
+      } else {
+        await dependencies.runBuild(build, {
+          save: (next) => dependencies.store.save(next),
+          nextBuildNumber: (app, current) => dependencies.store.nextBuildNumber(app, current),
+          previousBuilds: dependencies.store.buildStorageHistory?.() || [],
+        });
+      }
       build.state = "delivering";
       buildLogs(build).push("Creating temporary install link.");
       dependencies.store.save(build);
@@ -326,6 +364,14 @@ export function createDeviceBuildRuntimeController(dependencies) {
       retainTerminalBuild(readyBuild);
       return readyBuild;
     } catch (error) {
+      if (
+        resume &&
+        error &&
+        typeof error === "object" &&
+        "preserveBuildState" in error &&
+        error.preserveBuildState === true
+      )
+        throw error;
       if (hasErrorCode(error, "SWIFT_SIM_BUILD_CANCELLED")) throw error;
       const failure = recordDeviceBuildFailure(build, error, (next) =>
         dependencies.store.save(next),

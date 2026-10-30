@@ -18,6 +18,7 @@ import {
   publicDeviceBuild,
   requestDeviceBuildCancellation,
   runDeviceBuild,
+  resumeDeviceBuild,
   terminateRecordedDeviceBuildWorker,
 } from "../src/deviceBuilder.js";
 import {
@@ -143,6 +144,7 @@ function initializeCompatibilityRuntime() {
     clock: runtime.clock,
     capabilityExpiresAt: buildCapabilityExpiresAt,
     runBuild: runDeviceBuild,
+    resumeBuild: resumeDeviceBuild,
     requestCancellation: requestDeviceBuildCancellation,
     terminateRecordedWorker: terminateRecordedDeviceBuildWorker,
     signals: {
@@ -184,6 +186,9 @@ async function main(argv) {
         const build = await deviceBuildRuntime.createBuild(values);
         await deviceBuildRuntime.runCliBuild(build);
         return projectDeviceBuild(build);
+      },
+      async resumeDeviceBuild({ buildId }) {
+        return projectDeviceBuild(await deviceBuildRuntime.resumeCliBuild(buildId));
       },
       async stopSession({ sessionId, token }) {
         const session = store.get(sessionId);

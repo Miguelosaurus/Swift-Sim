@@ -10,6 +10,8 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -24,7 +26,7 @@ import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 import { abortPendingLiveEngine } from "./liveEngineOwnershipPreload.js";
 import { buildLiveSessionDescriptor, publishLiveSessionDescriptor, readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
 import { machoUUID, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
-import { ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
+import { ensureDirectoryModeSync, NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 import { NodeCommandRunner } from "./infrastructure/nodeCommandRunner.js";
 import { fileURLToPath } from "node:url";
 import { readLocalEngineCandidate, validateLocalEngineAppMetadata } from "./liveEngineCandidate.js";
@@ -32,7 +34,8 @@ import { readLocalEngineCandidate, validateLocalEngineAppMetadata } from "./live
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 1;
 export const LIVE_ENGINE_CONTROL_TIMEOUT_MS = 750;
-export const LIVE_COMPILER_REGISTRATION_TIMEOUT_MS = 5_000;
+export const LIVE_COMPILER_REGISTRATION_TIMEOUT_MS = 30_000;
+export const LIVE_COMPILER_REGISTRATION_BUDGET_MS = 180_000;
 
 export const LIVE_REASON_CODES = Object.freeze({
   NO_CHANGE: "NO_CHANGE",
@@ -495,7 +498,7 @@ async function ensureLiveEngineInstalledUnlocked() {
 }
 
 export async function registerLiveBuildResult(options) {
-  return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));
+  return (options?.runtime?.lock || withLiveEngineLifecycleLock)(() => registerLiveBuildResultUnlocked(options));
 }
 
 export async function withLiveBuildSession(options, operation, runtime = {}) {
@@ -504,6 +507,7 @@ export async function withLiveBuildSession(options, operation, runtime = {}) {
   const start = runtime.start || startLiveReloadUnlocked;
   const register = runtime.register || registerLiveBuildResultUnlocked;
   return lock(async () => {
+    await runtime.beforeStart?.();
     const liveSession = await start(options);
     return operation({
       liveSession,
@@ -512,72 +516,143 @@ export async function withLiveBuildSession(options, operation, runtime = {}) {
   });
 }
 
-async function registerLiveBuildResultUnlocked({ resultBundle, appPath = "", projectPath = "", scheme = "", runtime = {} }) {
+export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath = "", scheme = "", runtime = {} }) {
   const path = resolve(resultBundle || "");
-  if (!existsSync(path)) {
-    throw new Error("The Xcode result bundle is missing.");
-  }
+  if (!resultBundle || !existsSync(path) || lstatSync(path).isSymbolicLink()) throw registrationError("LIVE_CAPTURE_RESULT_MISSING", "The preserved Xcode result bundle is missing or unsafe.");
   const log = runtime.buildLog ?? readXcodeBuildLog(path);
-  const control = typeof runtime.engineControl === "function"
-    ? runtime.engineControl
-    : engineControl;
-  const commands = [...new Set(frontendCommandLines(log))]
-    .map((command) => {
-      const tokens = splitShellCommand(command);
-      const executable = tokens.shift() || "";
-      if (!executable.endsWith("/swift-frontend")) return null;
-      return {
-        arguments: tokens,
-        working_directory: frontendWorkingDirectory(tokens),
-      };
-    })
-    .filter(Boolean);
-  let registered = 0;
-  const sources = new Set();
-  const compilationContexts = [];
-  for (const [index, command] of commands.entries()) {
-    const response = await control({
-      action: "register_compilations",
-      commands: [command],
-    }, { timeoutMs: LIVE_COMPILER_REGISTRATION_TIMEOUT_MS });
-    if (!response?.success) {
-      const context = compilerRegistrationContext(command, index, commands.length);
-      const detail = response?.error
-        ? `: ${response.error}`
-        : `: the engine response timed out or disconnected after ${LIVE_COMPILER_REGISTRATION_TIMEOUT_MS} ms`;
-      throw new Error(`Live compiler registration failed (${context})${detail}.`);
+  const commands = [...new Set(frontendCommandLines(log))].map((command) => {
+    const tokens = splitShellCommand(command); const executable = tokens.shift() || "";
+    if (!executable.endsWith("/swift-frontend")) return null;
+    return { arguments: tokens, working_directory: frontendWorkingDirectory(tokens) };
+  }).filter(Boolean);
+  if (!commands.length || commands.length > 1024) throw registrationError("LIVE_CAPTURE_COMMANDS_INVALID", "The result bundle does not contain a bounded complete Swift frontend compilation map.");
+  const compilations = commands.map(dynamicReplacementContext).filter(Boolean);
+  const sourcePaths = new Set(); const extraInputs = new Set(runtime.inputPaths || []);
+  for (const command of commands) {
+    for (let index = 0; index < command.arguments.length; index += 1) {
+      const arg = command.arguments[index];
+      if (arg.endsWith(".swift")) sourcePaths.add(resolveFrom(command.working_directory, arg));
+      if (arg === "-filelist" && command.arguments[index + 1]) {
+        const listPath = resolveFrom(command.working_directory, command.arguments[++index]);
+        registrationFileFingerprint(listPath, 16 * 1024 * 1024);
+        extraInputs.add(listPath);
+        for (const line of readFileSync(listPath, "utf8").split(/\r?\n/).filter(Boolean)) sourcePaths.add(resolveFrom(command.working_directory, line));
+      }
     }
-    registered += Number(response.data?.registered_count || 0);
-    for (const source of response.data?.sources || []) sources.add(source);
-    const context = dynamicReplacementContext(command);
-    if (context) compilationContexts.push(context);
   }
-  if (registered === 0) {
-    throw new Error(
-      "The build completed without capturable Swift frontend commands. Make a clean Debug build with EMIT_FRONTEND_COMMAND_LINES=YES."
-    );
-  }
-  const liveManifestPath = resolve(String(runtime.liveManifestPath || LIVE_MANIFEST));
+  if (!sourcePaths.size || sourcePaths.size > 8192) throw registrationError("LIVE_CAPTURE_SOURCES_INVALID", "The result bundle does not identify bounded Swift source inputs.");
   const binaryIdentity = appPath ? readBuiltLiveIdentity(appPath) : null;
-  const sourceBaselines = {};
-  if (binaryIdentity) {
-    for (const source of new Set(compilationContexts.flatMap((context) => context.sources || []))) {
-      if (!existsSync(source) || statSync(source).size > 2 * 1024 * 1024) continue;
-      sourceBaselines[resolve(source)] = createHash("sha256").update(readFileSync(source)).digest("hex");
-    }
+  let appFingerprint = [];
+  if (appPath) {
+    if (lstatSync(appPath).isSymbolicLink() || !lstatSync(appPath).isDirectory()) throw registrationError("LIVE_CAPTURE_APP_INVALID", "The preserved signed app is unsafe.");
+    const verify = runtime.verifySignature || ((value) => spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", value], { encoding: "utf8", timeout: 15_000 }).status === 0);
+    if (!verify(appPath)) throw registrationError("LIVE_CAPTURE_SIGNATURE_INVALID", "The preserved Debug app signature could not be verified.");
+    const info = JSON.parse(spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(appPath, "Info.plist")], { encoding: "utf8", timeout: 10_000 }).stdout);
+    appFingerprint = ["Info.plist", info.CFBundleExecutable, `${info.CFBundleExecutable}.debug.dylib`, "_CodeSignature/CodeResources"].map((name) => ({ name, ...registrationFileFingerprint(join(appPath, name), 512 * 1024 * 1024) }));
   }
-  mkdirSync(dirname(liveManifestPath), { recursive: true });
-  writeFileSync(liveManifestPath, `${JSON.stringify({
-    version: 1,
-    capturedAt: new Date().toISOString(),
-    compilations: compilationContexts,
-    ...(binaryIdentity ? { binaryIdentity, sourceBaselines, binding: { projectPath: resolve(projectPath), scheme: String(scheme), projectRoot: readJSONFile(ENGINE_SESSION)?.projectRoot || "" } } : {}),
-  }, null, 2)}\n`, { mode: 0o600 });
-  return { registered, sources: [...sources].sort() };
+  if (projectPath) {
+    const project = resolve(projectPath);
+    const container = ["project.pbxproj", "contents.xcworkspacedata"].includes(basename(project)) ? dirname(project) : project;
+    for (const input of [container.endsWith(".xcodeproj") ? join(container, "project.pbxproj") : container.endsWith(".xcworkspace") ? join(container, "contents.xcworkspacedata") : container,
+      join(container, "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved"), join(container, "xcshareddata", "swiftpm", "Package.resolved"), join(dirname(container), "Package.resolved")]) if (existsSync(input)) extraInputs.add(input);
+  }
+  let sourceBytes = 0;
+  const sourceFiles = [...sourcePaths].sort().map((source) => {
+    sourceBytes += statSync(source).size;
+    if (sourceBytes > 128 * 1024 * 1024) throw registrationError("LIVE_CAPTURE_SOURCE_LIMIT", "The bounded compiler source capture is too large.");
+    return { path: source, ...registrationSourceFingerprint(source, { projectPath, resultBundle: path, allowedRoots: runtime.allowedSourceRoots || [] }) };
+  });
+  const provenance = {
+    version: 1, resultBundle: { path, logDigest: registrationDigest(log) }, projectPath: projectPath ? resolve(projectPath) : "", scheme: String(scheme),
+    binaryIdentity, appFingerprint,
+    sourceFiles,
+    projectFiles: [...extraInputs].map((input) => resolve(input)).sort().map((input) => ({ path: input, ...registrationFileFingerprint(input, 16 * 1024 * 1024) })),
+  };
+  return { commands, compilations, provenance };
 }
 
+async function registerLiveBuildResultUnlocked(options) {
+  const { runtime = {}, expectedProvenance } = options;
+  const capture = inspectLiveBuildResult(options);
+  if (expectedProvenance && registrationDigest(expectedProvenance) !== registrationDigest(capture.provenance)) throw registrationError("LIVE_CAPTURE_PROVENANCE_CHANGED", "The preserved app, result bundle, project inputs or Swift sources changed. No compiler map was published.");
+  const control = runtime.engineControl || engineControl;
+  const clock = runtime.now || (() => Date.now());
+  const wait = runtime.wait || ((ms) => new Promise((done) => setTimeout(done, ms)));
+  const handshake = await control({ action: "compilation_registration_status" }, { timeoutMs: 5_000 });
+  const engine = handshake?.success ? handshake.data : null;
+  if (engine?.compilation_registration_protocol !== 1 || typeof engine.engine_instance_nonce !== "string") throw registrationError("LIVE_ENGINE_REGISTRATION_UPDATE_REQUIRED", "The local engine needs transactional compiler registration before this preserved build can resume. No rebuild was started.");
+  const payloadJSON = JSON.stringify(capture.commands);
+  if (Buffer.byteLength(payloadJSON) > 4 * 1024 * 1024) throw registrationError("LIVE_CAPTURE_COMMANDS_TOO_LARGE", "The bounded compiler registration payload is too large.");
+  const mapDigest = createHash("sha256").update(payloadJSON).digest("hex");
+  const provenanceDigest = registrationDigest(capture.provenance);
+  const engineNonce = engine.engine_instance_nonce;
+  if (engine.pending_registration && (engine.pending_registration.map_digest !== mapDigest || engine.pending_registration.provenance_digest !== provenanceDigest)) throw registrationError("LIVE_REGISTRATION_BUSY", "Another compiler map is still pending in this engine generation. Wait for its receipt before resuming this preserved build.");
+  const matchingOperation = engine.pending_registration || ((engine.current_registration?.map_digest === mapDigest && engine.current_registration?.provenance_digest === provenanceDigest) ? engine.current_registration : null);
+  const transactionDigest = registrationDigest([engineNonce, mapDigest, provenanceDigest, engine.activation_generation || 0]);
+  const generatedRequestId = `${transactionDigest.slice(0, 8)}-${transactionDigest.slice(8, 12)}-4${transactionDigest.slice(13, 16)}-a${transactionDigest.slice(17, 20)}-${transactionDigest.slice(20, 32)}`;
+  const requestId = matchingOperation?.registration_id || generatedRequestId;
+  const binding = { registration_id: requestId, map_digest: mapDigest, provenance_digest: provenanceDigest, expected_engine_nonce: engineNonce };
+  const deadline = clock() + LIVE_COMPILER_REGISTRATION_BUDGET_MS;
+  const submission = { action: "register_compilation_map", ...binding, payload_json: payloadJSON, expires_at_ms: deadline, command_count: capture.commands.length };
+  if (Buffer.byteLength(JSON.stringify(submission)) > 8 * 1024 * 1024 - 1) throw registrationError("LIVE_CAPTURE_COMMANDS_TOO_LARGE", "The bounded compiler registration envelope is too large.");
+  let response = await control(submission, { timeoutMs: LIVE_COMPILER_REGISTRATION_TIMEOUT_MS });
+  let lastState = "unknown";
+  while (true) {
+    const receipt = response?.success ? response.data : null;
+    if (receipt && (receipt.engine_instance_nonce !== engineNonce || receipt.registration_id !== requestId || receipt.map_digest !== mapDigest || receipt.provenance_digest !== provenanceDigest)) throw registrationError("LIVE_REGISTRATION_RECEIPT_MISMATCH", "The compiler map acknowledgement belongs to another engine or capture. No map was published.");
+    if (receipt?.state === "committed") {
+      if (receipt.current_registration_id !== requestId || receipt.command_count !== capture.commands.length || !Number.isSafeInteger(receipt.registered_count) || receipt.registered_count < 1 || !Array.isArray(receipt.sources)) throw registrationError("LIVE_REGISTRATION_RECEIPT_INVALID", "The compiler map acknowledgement is incomplete.");
+      const current = inspectLiveBuildResult(options);
+      if (registrationDigest(current.provenance) !== provenanceDigest) throw registrationError("LIVE_CAPTURE_PROVENANCE_CHANGED", "Build inputs changed while compiler registration completed. No map was published.");
+      const finalResponse = await control({ action: "compilation_registration_status", ...binding }, { timeoutMs: 5_000 });
+      const finalReceipt = finalResponse?.success ? finalResponse.data : null;
+      if (!finalReceipt || finalReceipt.state !== "committed" || finalReceipt.current_registration_id !== requestId
+        || finalReceipt.registration_id !== requestId || finalReceipt.map_digest !== mapDigest
+        || finalReceipt.provenance_digest !== provenanceDigest || finalReceipt.engine_instance_nonce !== engineNonce) throw registrationError("LIVE_REGISTRATION_SUPERSEDED", "The registered compiler map changed before local publication. Resume the preserved capture; no compiler readiness is claimed.");
+      const manifestPath = resolve(String(runtime.liveManifestPath || LIVE_MANIFEST));
+      const sourceBaselines = Object.fromEntries(capture.provenance.sourceFiles.map((source) => [source.path, source.hash]));
+      const fileStore = runtime.fileStore || new NodeAtomicFileStore();
+      await fileStore.writeJSON(manifestPath, {
+        version: 1, capturedAt: new Date(clock()).toISOString(), compilations: capture.compilations,
+        ...(capture.provenance.binaryIdentity ? { binaryIdentity: capture.provenance.binaryIdentity, sourceBaselines, binding: { projectPath: capture.provenance.projectPath, scheme: capture.provenance.scheme, projectRoot: projectRootFor(capture.provenance.projectPath) } } : {}),
+        registration: { requestId, mapDigest, provenanceDigest, engineNonce, commandCount: receipt.command_count },
+      }, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+      return { registered: receipt.registered_count, sources: [...new Set(receipt.sources)].sort(), provenance: capture.provenance, registration: { requestId, mapDigest, provenanceDigest, engineNonce } };
+    }
+    if (receipt?.state === "superseded") throw registrationError("LIVE_REGISTRATION_SUPERSEDED", "Another compiler map replaced this registration. Resume the preserved capture to qualify a new activation.");
+    if (receipt?.state === "failed" || receipt?.state === "cancelled") throw registrationError("LIVE_REGISTRATION_FAILED", `Transactional compiler registration ${receipt.state}; no compiler map was published.`);
+    if (response?.success === false && response.error !== "COMPILATION_REGISTRATION_BUSY") throw registrationError("LIVE_REGISTRATION_REJECTED", `Transactional compiler registration was rejected: ${String(response.error || "unknown").slice(0, 160)}.`);
+    lastState = receipt?.state || lastState;
+    if (clock() >= deadline) throw registrationError("LIVE_REGISTRATION_PENDING", `Compiler registration remains ${lastState} after its bounded wait. Resume this preserved build to query the same operation; no rebuild or successful compiler readiness is claimed.`);
+    await wait(250);
+    response = await control({ action: "compilation_registration_status", ...binding }, { timeoutMs: Math.min(5_000, Math.max(1, deadline - clock())) });
+  }
+}
+
+function registrationSourceFingerprint(path, { projectPath, resultBundle, allowedRoots }) {
+  const stats = lstatSync(path);
+  if (!stats.isSymbolicLink()) return registrationFileFingerprint(path, 16 * 1024 * 1024);
+  const canonicalPath = realpathSync(path);
+  const roots = [...allowedRoots, ...(projectPath ? [projectRootFor(projectPath)] : []), join(dirname(resultBundle), "DerivedData", "SourcePackages", "checkouts")];
+  const inside = roots.some((root) => {
+    if (!existsSync(root)) return false;
+    const canonicalRoot = realpathSync(root);
+    return canonicalPath.startsWith(`${canonicalRoot}/`) && resolve(path).startsWith(`${resolve(root)}/`);
+  });
+  if (!inside) throw registrationError("LIVE_CAPTURE_SOURCE_LINK_UNTRUSTED", "A Swift source link escapes its qualified project or package checkout.");
+  return { ...registrationFileFingerprint(canonicalPath, 16 * 1024 * 1024), canonicalPath, linkTarget: readlinkSync(path), linkMtimeMs: stats.mtimeMs };
+}
+
+function registrationFileFingerprint(path, maximum) {
+  const stats = lstatSync(path);
+  if (!stats.isFile() || stats.isSymbolicLink() || stats.size > maximum) throw Object.assign(registrationError("LIVE_CAPTURE_INPUT_INVALID", "A preserved build input is missing, unsafe or oversized."), { inputPath: path, inputReason: stats.isSymbolicLink() ? "symlink" : !stats.isFile() ? "not-file" : "size", inputSize: stats.size });
+  return { hash: createHash("sha256").update(readFileSync(path)).digest("hex"), size: stats.size, mtimeMs: stats.mtimeMs };
+}
+function registrationDigest(value) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+function registrationError(code, message) { return Object.assign(new Error(message), { code }); }
+
 function readBuiltLiveIdentity(appPath) {
-  const plist = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(appPath, "Info.plist")], { encoding: "utf8", maxBuffer: 1024 * 1024 });
+  const plist = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(appPath, "Info.plist")], { encoding: "utf8", maxBuffer: 1024 * 1024, timeout: 10_000 });
   if (plist.status !== 0) throw new Error("The signed Debug app metadata could not be read.");
   const info = JSON.parse(plist.stdout);
   const executable = String(info.CFBundleExecutable || "");
@@ -686,7 +761,7 @@ function readXcodeBuildLog(path) {
   const result = spawnSync(
     "xcrun",
     ["xcresulttool", "get", "log", "--path", path, "--type", "build", "--compact"],
-    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }
+    { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: 60_000 }
   );
   if (result.status !== 0) {
     throw new Error(String(result.stderr || "Unable to read the Xcode build log.").trim());
@@ -2175,22 +2250,29 @@ function decodeXMLAttribute(value) {
     .replaceAll("&amp;", "&");
 }
 
-async function engineControl(request, { timeoutMs = LIVE_ENGINE_CONTROL_TIMEOUT_MS } = {}) {
-  if (!existsSync(ENGINE_SOCKET)) return null;
+async function engineControl(request, { timeoutMs = LIVE_ENGINE_CONTROL_TIMEOUT_MS, socketPath = ENGINE_SOCKET } = {}) {
+  if (!existsSync(socketPath)) return null;
   return new Promise((resolveRequest) => {
-    const socket = createConnection({ path: ENGINE_SOCKET });
+    const socket = createConnection({ path: socketPath });
     let response = "";
+    let responseBytes = 0;
     let settled = false;
+    let absoluteDeadline;
     const finish = (value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(absoluteDeadline);
       socket.destroy();
       resolveRequest(value);
     };
+    socket.setEncoding("utf8");
+    absoluteDeadline = setTimeout(() => finish(null), Math.max(1, Number(timeoutMs) || LIVE_ENGINE_CONTROL_TIMEOUT_MS));
     socket.setTimeout(timeoutMs);
     socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
     socket.on("data", (chunk) => {
-      response += chunk.toString("utf8");
+      responseBytes += Buffer.byteLength(chunk);
+      if (responseBytes > 32 * 1024 * 1024) return finish(null);
+      response += chunk;
       if (!response.includes("\n")) return;
       try {
         finish(JSON.parse(response.split("\n")[0]));

@@ -26,3 +26,14 @@ which republishes an existing IPA. Verify with
 `swift-sim verify-device-build --build-id "<opaque-build-id>"` and report its
 `verified`, `different-version`, `not-installed`, or `unknown` state exactly.
 
+If a live-enabled Debug app already compiled and signed but compiler
+registration failed, preserve its artifacts and use
+`swift-sim resume-device-build --build-id <opaque-build-id>` with the matching
+transactional-registration engine. Resume validates provenance, queries the
+same registration operation, and finishes packaging without recompiling or
+incrementing its build number. Never patch `compilerReady`/`ready` manually,
+retry an ambiguous native application, or start another full build merely for
+a pending compiler receipt. Changed or unsafe preserved inputs stop recovery.
+The qualified local 0.5.1 engine supports this path; public setup still defaults
+to 0.4.0. Install creation uses generic iOS, independently of phone proximity.
+

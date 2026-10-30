@@ -52,7 +52,7 @@ applications are never retried.
 ## Asynchronous edits
 
 The reconnect SDK and prepared-delivery engine are a matching contract. The
-current engine 0.5.0 is a qualified local candidate; public setup still defaults
+current engine 0.5.1 is a qualified local candidate; public setup still defaults
 to 0.4.0. A reachable old engine, SDK, or helper must return an explicit update
 requirement. Complete one Debug SDK bootstrap when the matching candidate is
 activated; do not repeatedly rebuild because a device is temporarily absent.

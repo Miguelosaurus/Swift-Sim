@@ -27,6 +27,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Register complete live compilation maps transactionally with bounded receipt
+  recovery, and resume packaging a preserved signed Debug build without
+  recompiling. Install creation uses generic iOS even when provisioning updates
+  are enabled, so an unavailable paired phone cannot select its destination.
 - Recover cumulative live intent after a verified fresh Debug process even
   when the previous process lost its acknowledgement; preserve same-process
   ambiguity. Retain confirmed desired source and removals independently of

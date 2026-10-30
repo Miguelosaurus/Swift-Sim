@@ -10,10 +10,21 @@ import { recordDeviceBuildFailure } from "./buildFailure.js";
 import {
   requestDeviceBuildCancellation as requestDeviceBuildCancellationCore,
   runDeviceBuild as runDeviceBuildCore,
+  resumeDeviceBuild as resumeDeviceBuildCore,
   terminateRecordedDeviceBuildWorker as terminateRecordedDeviceBuildWorkerCore,
 } from "./deviceBuilderCore.js";
 
 export * from "./deviceBuilderCore.js";
+
+// Recovery reuses an already signed app; do not run the full validation,
+// provisioning, storage-floor or Xcode compilation pipeline again.
+export async function resumeDeviceBuild(build, options = {}) {
+  try { return await resumeDeviceBuildCore(build, options); }
+  catch (error) {
+    if (error?.preserveBuildState || error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
+    throw recordDeviceBuildFailure(build, error, options.save);
+  }
+}
 
 export async function runDeviceBuild(build, options = {}) {
   const save = () => options.save?.(build);

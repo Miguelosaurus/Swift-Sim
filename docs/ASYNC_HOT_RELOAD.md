@@ -11,7 +11,7 @@ navigate to the changed screen later to see the result.
 
 This workflow requires the matching reconnect SDK, prepared-delivery engine,
 and helper capability. The reviewed SDK is pinned in `Package.swift`. The
-engine implementation is a qualified **local 0.5.0 candidate**, not a published
+engine implementation is a qualified **local 0.5.1 candidate**, not a published
 binary release. The public installer still defaults to engine 0.4.0. An older
 engine/client/helper must report an explicit update requirement; reconnecting
 alone cannot add a missing protocol capability.

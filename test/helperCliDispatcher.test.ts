@@ -111,6 +111,7 @@ test("helper CLI extraction owns only the declared one-shot commands", async () 
     "serve",
     "start-session",
     "build-device",
+    "resume-device-build",
     "stop-session",
     "unknown",
   ]) {
@@ -374,6 +375,34 @@ test("helper bootstrap loads only the selected runtime after boundaries", async 
   assert.deepEqual(events, ["boundaries", "compatibility"]);
 });
 
+test("preserved Debug resume dispatch requires an existing build identity and forwards no build flags", async () => {
+  const calls: unknown[] = [];
+  const lines: string[] = [];
+  const services = {
+    async resumeDeviceBuild(input: unknown) {
+      calls.push(input);
+      return { id: "preserved-28", state: "ready" };
+    },
+  };
+  const dispatch = (args: string[]) =>
+    dispatchCompatibilityCommand({
+      argv: ["resume-device-build", ...args],
+      services,
+      defaultHost: "127.0.0.1",
+      defaultPort: 0,
+      writeLine: (line) => lines.push(line),
+    });
+  await assert.rejects(dispatch([]), /--build-id/);
+  await assert.rejects(
+    dispatch(["--build-id", "preserved-28", "--allow-provisioning-updates"]),
+    /Unknown option/,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(await dispatch(["--build-id", "preserved-28"]), true);
+  assert.deepEqual(calls, [{ buildId: "preserved-28" }]);
+  assert.deepEqual(JSON.parse(lines[0] || "{}"), { id: "preserved-28", state: "ready" });
+});
+
 test("remaining compatibility CLI parser delegates all declared commands and preserves output shapes", async () => {
   for (const command of [
     undefined,
@@ -382,6 +411,7 @@ test("remaining compatibility CLI parser delegates all declared commands and pre
     "companion-link",
     "setup-status",
     "build-device",
+    "resume-device-build",
     "stop-session",
   ]) {
     assert.equal(compatibilityCommandIsSupported(command), true, String(command));

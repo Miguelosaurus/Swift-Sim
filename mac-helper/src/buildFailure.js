@@ -3,6 +3,15 @@ const PRESERVED_CODES = new Set([
   "BUILD_STORAGE_UNAVAILABLE", "SIGNING_FAILED", "BUILD_INPUT_INVALID",
   "BUILD_FAILED", "LIVE_LINKER_INCOMPATIBLE", "LIVE_LINKER_INSPECTION_FAILED",
   "SWIFT_SIM_BUILD_CANCELLED", "SWIFT_SIM_UNSAFE_BUILD_RECOVERY",
+  "BUILD_RESUME_STATE_CHANGED", "LIVE_BUILD_RESUME_INELIGIBLE", "LIVE_BUILD_RESUME_ARTIFACT_INVALID",
+  "LIVE_BUILD_RESUME_IDENTITY_MISMATCH", "LIVE_BUILD_RESUME_RESULT_INVALID", "LIVE_BUILD_RESUME_SOURCE_CHANGED",
+  "LIVE_BUILD_RESUME_PROVENANCE_INVALID", "LIVE_BUILD_RESUME_ENGINE_UNAVAILABLE", "LIVE_BUILD_RESUME_REGISTRATION_INCOMPLETE",
+  "LIVE_CAPTURE_APP_INVALID", "LIVE_CAPTURE_COMMANDS_INVALID", "LIVE_CAPTURE_COMMANDS_TOO_LARGE",
+  "LIVE_CAPTURE_INPUT_INVALID", "LIVE_CAPTURE_PROVENANCE_CHANGED", "LIVE_CAPTURE_RESULT_MISSING",
+  "LIVE_CAPTURE_SIGNATURE_INVALID", "LIVE_CAPTURE_SOURCES_INVALID", "LIVE_ENGINE_REGISTRATION_UPDATE_REQUIRED",
+  "LIVE_CAPTURE_SOURCE_LINK_UNTRUSTED", "LIVE_CAPTURE_SOURCE_LIMIT", "LIVE_REGISTRATION_BUSY", "LIVE_REGISTRATION_SUPERSEDED",
+  "LIVE_REGISTRATION_FAILED", "LIVE_REGISTRATION_PENDING", "LIVE_REGISTRATION_RECEIPT_INVALID",
+  "LIVE_REGISTRATION_RECEIPT_MISMATCH", "LIVE_REGISTRATION_REJECTED",
 ]);
 
 /** @typedef {Error & { code: string, metadataPersistenceFailed?: boolean }} BuildFailure */
@@ -15,8 +24,7 @@ export function classifyBuildFailure(value) {
   const code = value && typeof value === "object" ? value.code : "";
   if (PRESERVED_CODES.has(code)) return code;
   const text = failureText(value);
-  const marker = text.match(/\[(BUILD_STORAGE_INSUFFICIENT|BUILD_STORAGE_UNAVAILABLE|SIGNING_FAILED|BUILD_INPUT_INVALID|LIVE_LINKER_INCOMPATIBLE|LIVE_LINKER_INSPECTION_FAILED)\]/);
-  if (marker) return marker[1];
+  for (const marker of text.matchAll(/\[([A-Z][A-Z0-9_]{1,79})\]/g)) if (PRESERVED_CODES.has(marker[1])) return marker[1];
   if (code === "ENOSPC" || /\bENOSPC\b|no space left on device|not enough (?:free |disk )?space|disk (?:is )?full/i.test(text)) return "BUILD_STORAGE_INSUFFICIENT";
   if (/command CodeSign failed|\bCodeSign[^\r\n]{0,200}\bfailed\b|code signing[^\r\n]{0,160}(?:error|failed|failure|not allowed)|error:[^\r\n]{0,200}(?:codesign|code signing|provisioning|signing certificate)|provisioning profile[^\r\n]{0,200}(?:not found|doesn't|does not|missing|expired)|no (?:signing|development) certificate|signing identity[^\r\n]{0,100}(?:missing|not found|invalid)|certificate (?:has expired|not found|is invalid)|errSecInternalComponent|following build commands failed:[\s\S]{0,1000}\bCodeSign\b/i.test(text)) return "SIGNING_FAILED";
   if (/\bprotocol (?:mismatch|incompatible)|version mismatch|outdated helper/i.test(text)) return "PROTOCOL_MISMATCH";
@@ -38,8 +46,22 @@ export function buildFailureNotice(value) {
     SWIFT_SIM_BUILD_CANCELLED: "The signed build was cancelled.",
     SWIFT_SIM_UNSAFE_BUILD_RECOVERY: "An interrupted build worker could not be verified safely. Resolve its ownership before starting another build.",
     BUILD_FAILED: "The signed build failed. Inspect the local build diagnostics before retrying.",
+    BUILD_RESUME_STATE_CHANGED: "The preserved build changed or another worker owns it. Read its current state before resuming.",
+    LIVE_BUILD_RESUME_INELIGIBLE: "This build is not eligible for preserved Debug recovery. Select the failed live-registration build.",
+    LIVE_BUILD_RESUME_ARTIFACT_INVALID: "The preserved signed Debug artifacts are missing or unsafe. No new build or installation was started.",
+    LIVE_BUILD_RESUME_IDENTITY_MISMATCH: "The preserved app does not match the expected signed build identity. No install was published.",
+    LIVE_BUILD_RESUME_RESULT_INVALID: "The preserved Xcode result does not prove a successful matching Debug build. No install was published.",
+    LIVE_BUILD_RESUME_SOURCE_CHANGED: "Build inputs changed after the preserved compilation. A fresh signed build is needed; none was started automatically.",
+    LIVE_BUILD_RESUME_PROVENANCE_INVALID: "The preserved build provenance could not be verified. No install was published.",
+    LIVE_BUILD_RESUME_ENGINE_UNAVAILABLE: "The matching private engine is unavailable. Restore it before resuming this existing build.",
+    LIVE_BUILD_RESUME_REGISTRATION_INCOMPLETE: "The preserved app still needs confirmed compiler registration. Resume the existing build after resolving the registration failure.",
+    LIVE_ENGINE_REGISTRATION_UPDATE_REQUIRED: "Activate the matching transactional-registration engine, then resume this preserved Debug build.",
+    LIVE_REGISTRATION_PENDING: "Compiler registration is unconfirmed. Resume the existing Debug build to query its matching operation; no rebuild is needed for a pending receipt.",
   };
-  return { code, message: messages[code] || messages.BUILD_FAILED };
+  const registrationMessage = code.startsWith("LIVE_CAPTURE_") || code.startsWith("LIVE_REGISTRATION_")
+    ? "The live compilation map could not be verified. Resolve the capture or registration failure before resuming this preserved Debug build. No successful compiler readiness is claimed."
+    : messages.BUILD_FAILED;
+  return { code, message: messages[code] || registrationMessage };
 }
 
 /** Preserve the original exception and add only an allowlisted error identity.

@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   classifySwiftSource,
   expandedSigningIdentities,
   LIVE_REASON_CODES,
+  registerLiveBuildResult,
   liveEngineSessionMatches,
   selectLiveApplicationBuildSettings,
   selectLiveScheme,
@@ -154,21 +157,22 @@ test("attribute-looking text in strings and comments does not change the surface
   assert.equal(result.reasonCode, LIVE_REASON_CODES.IMPLEMENTATION_ONLY);
 });
 
-test("engine-mutating live operations hold the lifecycle lock", () => {
-  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
-  assert.ok(source.includes(
-    "export async function registerLiveBuildResult(options) {\n"
-      + "  return withLiveEngineLifecycleLock(() => registerLiveBuildResultUnlocked(options));\n"
-      + "}",
-  ));
-  assert.ok(source.includes(
-    "export async function injectLiveSource(sourcePath, runtime = {}) {\n"
-      + "  if (typeof runtime.engineControl === \"function\") {\n"
-      + "    return injectLiveSourceUnlocked(sourcePath, runtime);\n"
-      + "  }\n"
-      + "  return withLiveEngineLifecycleLock(() => injectLiveSourceUnlocked(sourcePath, runtime));\n"
-      + "}",
-  ));
+test("compiler registration holds lifecycle admission through a rejected engine handshake", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-registration-lock-"));
+  const source = join(directory, "Card.swift");
+  const resultBundle = join(directory, "Build.xcresult");
+  const events = []; let locked = false;
+  try {
+    writeFileSync(source, 'struct Card { var body: String { "test" } }');
+    mkdirSync(resultBundle);
+    await assert.rejects(registerLiveBuildResult({ resultBundle, runtime: {
+      buildLog: { emittedOutput: `/toolchain/usr/bin/swift-frontend -frontend -c -primary-file ${source} -module-name Example -o ${directory}/Card.o` },
+      async lock(operation) { locked = true; events.push("lock"); try { return await operation(); } finally { locked = false; events.push("unlock"); } },
+      async engineControl() { assert.equal(locked, true); events.push("inspect"); return { success: true, data: { compilation_registration_protocol: 0 } }; },
+    } }), { code: "LIVE_ENGINE_REGISTRATION_UPDATE_REQUIRED" });
+    assert.deepEqual(events, ["lock", "inspect", "unlock"]);
+    assert.equal(locked, false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("multiline runtime availability changes require a rebuild", () => {

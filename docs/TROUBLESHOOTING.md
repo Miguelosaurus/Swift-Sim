@@ -104,6 +104,33 @@ Use `--workspace` for an `.xcworkspace` project.
 
 Report the exact Xcode signing error. Do not change the bundle identifier or signing team automatically.
 
+## A Signed Debug Build Stops During Live Compiler Registration
+
+Keep the failed build's signed app and Xcode result bundle. With the matching
+transactional-registration engine active, finish that existing build:
+
+```sh
+swift-sim resume-device-build --build-id "<opaque-build-id>"
+```
+
+This validates the preserved signature, app/build identity, successful Xcode
+result and unchanged source/project inputs. It then registers the complete
+compiler map and packages an install without compiling again or changing the
+build number. Only a matching committed registration receipt can establish
+compiler readiness. A timeout remains unconfirmed; resume queries the same
+operation within the current engine generation instead of inventing success.
+
+If preserved provenance is missing, changed or unsafe, recovery stops with a
+typed explanation. No new build or phone install starts automatically. Older
+captures can be adopted only when the successful result and conservative input
+timestamps verify their unchanged state; future builds retain a fingerprinted
+checkpoint before registration. This recovery requires the qualified local
+0.5.1 engine candidate, not the public 0.4.0 installer.
+
+Creating an install targets generic iOS even with provisioning updates enabled;
+it does not wait for a particular nearby phone. Installation verification is a
+separate operation.
+
 ## Remote Hot Reload Is Unavailable
 
 Run:

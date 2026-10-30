@@ -10,6 +10,7 @@ const COMMANDS = new Set([
   "companion-link",
   "setup-status",
   "build-device",
+  "resume-device-build",
   "stop-session",
 ]);
 
@@ -123,6 +124,17 @@ export async function dispatchCompatibilityCommand({
     const buildDevice = requiredBuildDeviceMethod(services);
     const { values } = parseArgs({ args, options: deviceBuildOptions() });
     writeLine(JSON.stringify(await buildDevice(valuesRecord(values)), null, 2));
+    return true;
+  }
+
+  if (command === "resume-device-build") {
+    const { values } = parseArgs({ args, options: { "build-id": { type: "string" } } });
+    const buildId = optionString(values, "build-id");
+    if (!buildId) throw new Error("Pass the preserved Debug build identity with --build-id.");
+    const resume = services.resumeDeviceBuild;
+    if (typeof resume !== "function")
+      throw new TypeError("Compatibility command services must provide resumeDeviceBuild.");
+    writeLine(JSON.stringify(await resume({ buildId }), null, 2));
     return true;
   }
 

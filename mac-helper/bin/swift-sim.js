@@ -81,6 +81,7 @@ async function main() {
 
   const helperCommands = new Set([
     "build-device",
+    "resume-device-build",
     "list-apps",
     "archive-app",
     "delete-app",
@@ -881,6 +882,7 @@ Usage:
   swift-sim doctor [--json]       Check install and optional Simulator setup
   swift-sim update                Update Homebrew and detected agent integrations
   swift-sim build-device ...      Build a signed iPhone install
+  swift-sim resume-device-build   Finish a preserved Debug build with --build-id
   swift-sim live-status ...       Check remote on-device hot reload readiness
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
