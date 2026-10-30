@@ -22,6 +22,7 @@ import { deliveryRuntimeHealth } from "../src/helperDeliveryReadiness.js";
 import { liveDeliveryService } from "../src/liveDeliveryService.js";
 import { classifyBuildFailure } from "../src/buildFailure.js";
 import { stageLocalEngineCandidate } from "../src/liveEngineCandidate.js";
+import { configureApnsProvider, disableApnsProvider, apnsConfigurationStatus } from "../src/apnsProvider.js";
 import { deviceBuildArtifactDoctorSection } from "../src/commands/deviceBuildArtifactDoctorProjection.js";
 
 const runtimeRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -52,6 +53,18 @@ async function main() {
   if (command === "setup") return setup(args);
   if (command === "doctor" || command === "status") return doctor(args);
   if (command === "update") return update();
+  if (command === "notifications") {
+    const [action = "status", ...options] = args;
+    if (action === "status") return console.log(JSON.stringify(apnsConfigurationStatus()));
+    if (action === "disable") return console.log(JSON.stringify(await disableApnsProvider()));
+    if (action !== "configure") throw new Error("Use notifications status, configure, or disable.");
+    const { values } = parseArgs({ args: options, options: {
+      "key-file": { type: "string" }, "key-id": { type: "string" }, "team-id": { type: "string" }, topic: { type: "string" },
+    } });
+    const result = await configureApnsProvider({ keyPath: values["key-file"], keyId: values["key-id"], teamId: values["team-id"], topic: values.topic });
+    console.log(JSON.stringify(result));
+    return;
+  }
   if (command === "live-status") return liveStatus(args);
   if (command === "live-delivery-status") {
     const { values } = parseArgs({ args, options: { request: { type: "string" } } });
@@ -881,6 +894,7 @@ Usage:
   swift-sim setup                 Configure the helper and detected coding agents
   swift-sim doctor [--json]       Check install and optional Simulator setup
   swift-sim update                Update Homebrew and detected agent integrations
+  swift-sim notifications ...    Configure or inspect Apple push delivery
   swift-sim build-device ...      Build a signed iPhone install
   swift-sim resume-device-build   Finish a preserved Debug build with --build-id
   swift-sim live-status ...       Check remote on-device hot reload readiness

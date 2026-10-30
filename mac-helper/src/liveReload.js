@@ -275,7 +275,7 @@ export async function inspectLiveReload(options = {}) {
 }
 
 export async function inspectLiveReloadWarm(options = {}) {
-  return withLiveEngineLifecycleLock(() => inspectLiveReloadWarmUnlocked(options));
+  return (options?.runtime?.lock || withLiveEngineLifecycleLock)(() => inspectLiveReloadWarmUnlocked(options));
 }
 
 async function inspectLiveReloadWarmUnlocked({ project = "", host = "", scheme = "", runtime = {} } = {}) {
@@ -516,6 +516,21 @@ export async function withLiveBuildSession(options, operation, runtime = {}) {
   });
 }
 
+/** Explicit, signed app opt-in only; URL schemes alone may be OAuth callbacks. */
+export function liveAppPresentation(info = {}) {
+  const targetAppName = String(info.CFBundleDisplayName || info.CFBundleName || "").replace(/[\x00-\x1f\x7f]/g, "").slice(0, 100);
+  const result = targetAppName ? { targetAppName } : {};
+  const value = info.SwiftSimLaunchURL;
+  if (typeof value !== "string" || value.length > 512 || /[\s\x00-\x1f\x7f]/.test(value)) return result;
+  try {
+    const url = new URL(value);
+    const scheme = url.protocol.slice(0, -1).toLowerCase();
+    const declared = (Array.isArray(info.CFBundleURLTypes) ? info.CFBundleURLTypes : []).flatMap((type) => Array.isArray(type?.CFBundleURLSchemes) ? type.CFBundleURLSchemes : []).map((item) => String(item).toLowerCase());
+    if (!declared.includes(scheme) || /^(https?|file|data|javascript|tel|sms|mailto|itms-services|swiftsim)$/.test(scheme) || url.username || url.password || url.search || url.hash) return result;
+    return { ...result, launchURL: url.href };
+  } catch { return result; }
+}
+
 export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath = "", scheme = "", runtime = {} }) {
   const path = resolve(resultBundle || "");
   if (!resultBundle || !existsSync(path) || lstatSync(path).isSymbolicLink()) throw registrationError("LIVE_CAPTURE_RESULT_MISSING", "The preserved Xcode result bundle is missing or unsafe.");
@@ -543,11 +558,13 @@ export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath
   if (!sourcePaths.size || sourcePaths.size > 8192) throw registrationError("LIVE_CAPTURE_SOURCES_INVALID", "The result bundle does not identify bounded Swift source inputs.");
   const binaryIdentity = appPath ? readBuiltLiveIdentity(appPath) : null;
   let appFingerprint = [];
+  let presentation = {};
   if (appPath) {
     if (lstatSync(appPath).isSymbolicLink() || !lstatSync(appPath).isDirectory()) throw registrationError("LIVE_CAPTURE_APP_INVALID", "The preserved signed app is unsafe.");
     const verify = runtime.verifySignature || ((value) => spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", value], { encoding: "utf8", timeout: 15_000 }).status === 0);
     if (!verify(appPath)) throw registrationError("LIVE_CAPTURE_SIGNATURE_INVALID", "The preserved Debug app signature could not be verified.");
     const info = JSON.parse(spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(appPath, "Info.plist")], { encoding: "utf8", timeout: 10_000 }).stdout);
+    presentation = liveAppPresentation(info);
     appFingerprint = ["Info.plist", info.CFBundleExecutable, `${info.CFBundleExecutable}.debug.dylib`, "_CodeSignature/CodeResources"].map((name) => ({ name, ...registrationFileFingerprint(join(appPath, name), 512 * 1024 * 1024) }));
   }
   if (projectPath) {
@@ -568,7 +585,7 @@ export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath
     sourceFiles,
     projectFiles: [...extraInputs].map((input) => resolve(input)).sort().map((input) => ({ path: input, ...registrationFileFingerprint(input, 16 * 1024 * 1024) })),
   };
-  return { commands, compilations, provenance };
+  return { commands, compilations, provenance, presentation };
 }
 
 async function registerLiveBuildResultUnlocked(options) {
@@ -613,11 +630,11 @@ async function registerLiveBuildResultUnlocked(options) {
       const sourceBaselines = Object.fromEntries(capture.provenance.sourceFiles.map((source) => [source.path, source.hash]));
       const fileStore = runtime.fileStore || new NodeAtomicFileStore();
       await fileStore.writeJSON(manifestPath, {
-        version: 1, capturedAt: new Date(clock()).toISOString(), compilations: capture.compilations,
+        version: 1, capturedAt: new Date(clock()).toISOString(), compilations: capture.compilations, presentation: capture.presentation,
         ...(capture.provenance.binaryIdentity ? { binaryIdentity: capture.provenance.binaryIdentity, sourceBaselines, binding: { projectPath: capture.provenance.projectPath, scheme: capture.provenance.scheme, projectRoot: projectRootFor(capture.provenance.projectPath) } } : {}),
         registration: { requestId, mapDigest, provenanceDigest, engineNonce, commandCount: receipt.command_count },
       }, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
-      return { registered: receipt.registered_count, sources: [...new Set(receipt.sources)].sort(), provenance: capture.provenance, registration: { requestId, mapDigest, provenanceDigest, engineNonce } };
+      return { registered: receipt.registered_count, sources: [...new Set(receipt.sources)].sort(), provenance: capture.provenance, presentation: capture.presentation, registration: { requestId, mapDigest, provenanceDigest, engineNonce } };
     }
     if (receipt?.state === "superseded") throw registrationError("LIVE_REGISTRATION_SUPERSEDED", "Another compiler map replaced this registration. Resume the preserved capture to qualify a new activation.");
     if (receipt?.state === "failed" || receipt?.state === "cancelled") throw registrationError("LIVE_REGISTRATION_FAILED", `Transactional compiler registration ${receipt.state}; no compiler map was published.`);

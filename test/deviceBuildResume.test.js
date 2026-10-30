@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { resumeDeviceBuild, signedDebugBuildDestination } from "../mac-helper/src/deviceBuilderCore.js";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
+const fixtureFileStore = new NodeAtomicFileStore();
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-resume-"));
@@ -26,7 +28,7 @@ function fixture() {
   const summary = { status: "succeeded", errorCount: 0, actionTitle: 'Build "Example"', startTime: stamp / 1000 - 10, endTime: stamp / 1000, destination: { platform: "iOS" } };
   const calls = []; const publications = [];
   let current = structuredClone(build); let registrationResult = { registered: 89 }; let afterRegister; let beforePackage; let beforeStart;
-  const fingerprint = (path) => ({ hash: createHash("sha256").update(readFileSync(path)).digest("hex"), size: lstatSync(path).size, mtimeMs: lstatSync(path).mtimeMs });
+  const fingerprint = (path) => ({ hash: createHash("sha256").update(fixtureFileStore.readTextSync(path)).digest("hex"), size: lstatSync(path).size, mtimeMs: lstatSync(path).mtimeMs });
   const inspect = () => ({ provenance: { version: 1, resultBundle: { path: resultBundle, logDigest: "fixture-log-digest" }, projectPath: join(project, "project.pbxproj"), scheme: "Example", binaryIdentity: identity,
     sourceFiles: [{ path: source, ...fingerprint(source) }], projectFiles: [{ path: join(project, "project.pbxproj"), ...fingerprint(join(project, "project.pbxproj")) }],
     appFingerprint: ["Info.plist", "DifferentExecutable", "DifferentExecutable.debug.dylib", "_CodeSignature/CodeResources"].map((name) => ({ name, ...fingerprint(join(app, name)) })) } });

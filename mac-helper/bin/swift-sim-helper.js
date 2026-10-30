@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -59,6 +59,12 @@ import { createDeviceBuildArtifactRetentionCompatibility } from "../src/deviceBu
 import { createSetupStatusService } from "../src/commands/setupStatusService.js";
 import { fetchRuntimeHealth } from "../src/runtimeHealth.js";
 import { liveDeliveryService } from "../src/liveDeliveryService.js";
+import { liveRuntimeLockManager } from "../src/liveEngineLifecycleLock.js";
+import { queuedLiveEngineControl } from "../src/liveReload.js";
+import { createActivityStore } from "../src/activityStore.js";
+import { createActivityService } from "../src/activityService.js";
+import { handleActivityRoutes } from "../src/http/activityRoutes.js";
+import { createRemoteLaunchVerifier, readQualifiedLaunchCapture } from "../src/remoteLaunchVerification.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 import { createDeviceBuildArtifactAuditCompatibility } from "../src/deviceBuildArtifactAuditCompatibility.js";
 import {
@@ -80,6 +86,7 @@ let adapter;
 let transports;
 let sessionRuntime;
 let deviceBuildRuntime;
+let remoteLaunchVerifier;
 let setupStatusRuntime;
 let clock;
 let compatibilityRuntimeInitialized = false;
@@ -206,6 +213,39 @@ async function main(argv) {
 }
 
 async function serve({ host, port, deviceBuildsOnly = false }) {
+  const activity = deviceBuildsOnly ? null : createActivityService({
+    store: createActivityStore({ lockManager: liveRuntimeLockManager }),
+    getPairing: () => {
+      const pairing = pairingStore.current();
+      return { epoch: createHash("sha256").update(pairing.token).digest("hex"), installationId: pairing.installationID };
+    },
+    listBuilds: () => deviceBuildStore.list(),
+    listLiveDeliveries: () => liveDeliveryService().queue.list(),
+  });
+  remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
+    listBuilds: () => deviceBuildStore.list(),
+    readCapture: () => readQualifiedLaunchCapture(join(homedir(), ".swift-sim", "live", "compilations.json")),
+    inspectClient: async (capture) => {
+      const status = await queuedLiveEngineControl({ action: "status" }, { timeoutMs: 1_200 });
+      if (!status?.success || status.data?.has_connected_client !== true) return { status, registration: null };
+      const binding = capture.registration;
+      const registration = await queuedLiveEngineControl({ action: "compilation_registration_status", registration_id: binding.requestId, map_digest: binding.mapDigest, provenance_digest: binding.provenanceDigest, expected_engine_nonce: binding.engineNonce }, { timeoutMs: 1_200 });
+      return { status, registration };
+    },
+    saveConfirmation: (buildID, proof) => deviceBuildStore.saveLaunchConfirmation(buildID, proof),
+    now: () => clock.now().getTime(),
+  });
+  let activityTurn;
+  let activityStopping = false;
+  const reconcileActivity = () => {
+    if (activityStopping || !activity) return Promise.resolve();
+    activityTurn ||= (async () => {
+      try { await remoteLaunchVerifier?.runOnce(); }
+      catch { console.error("Remote launch confirmation is unavailable; prior evidence is retained."); }
+      if (!activityStopping) await activity.runOnce();
+    })().finally(() => { activityTurn = null; });
+    return activityTurn;
+  };
   const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
     listBuilds: () => deviceBuildStore.list(),
     verifyBuild: (build) => verifyDeviceBuild(build),
@@ -228,6 +268,12 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
     reconcileLiveDeliveries: () => liveDeliveryService().runOnce(),
     stopLiveDeliveries: () => liveDeliveryService().stop(),
+    reconcileActivity: activity ? reconcileActivity : undefined,
+    stopActivity: activity ? async () => {
+      activityStopping = true;
+      await Promise.all([activity.stop(), remoteLaunchVerifier?.stop()]);
+      await activityTurn?.catch(() => {});
+    } : undefined,
     activeBuildTasks: () => deviceBuildRuntime.activeTasks(),
     cancelBuild: (build, reason) => deviceBuildRuntime.cancelBuild(build, reason),
     listSessions: () => (typeof store.list === "function" ? store.list() : []),
@@ -342,6 +388,8 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         return notFound(res, "Not found.");
       }
 
+      if (activity && await handleActivityRoutes({ req, res, url, service: activity, authorize: pairingTokenMatches, privateHelper: !deviceBuildsOnly })) return;
+
       if (await handleHelperControlRoutes({ req, res, url, service: helperControlService })) return;
 
       if (await handleSessionRoutes({ req, res, url, service: sessionRouteService })) return;
@@ -370,7 +418,13 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   await lifecycle.wait();
 }
 
-function verifyDeviceBuild(build) {
+async function verifyDeviceBuild(build) {
+  try { await remoteLaunchVerifier?.runOnce(); } catch { /* Device inventory remains available without the live engine. */ }
+  const current = deviceBuildStore.get(build.id);
+  if (current?.installation?.state === "launch-confirmed") {
+    const installation = current.installation;
+    return { state: "launch-confirmed", source: "live-client", verifiedAt: installation.verifiedAt, launchConfirmedAt: installation.launchConfirmedAt, lastSeenAt: installation.lastSeenAt, devices: [] };
+  }
   return deviceInventory.verifyApp(build.app.bundleIdentifier, {
     version: build.app.version,
     build: build.app.build,

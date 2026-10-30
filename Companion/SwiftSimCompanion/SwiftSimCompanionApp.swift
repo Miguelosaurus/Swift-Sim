@@ -4,6 +4,7 @@ import Security
 
 @main
 struct SwiftSimCompanionApp: App {
+    @UIApplicationDelegateAdaptor(CompanionNotificationDelegate.self) private var notificationDelegate
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var sessionStore: SessionStore
     @State private var pairingAlert: PairingAlert?
@@ -19,6 +20,7 @@ struct SwiftSimCompanionApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(sessionStore)
+                .environmentObject(sessionStore.activity)
                 .onOpenURL { url in
                     if PairingInvite(url: url) != nil {
                         _ = sessionStore.open(url)
@@ -59,7 +61,15 @@ struct SwiftSimCompanionApp: App {
                         )
                     }
                 }
+                .task {
+                    sessionStore.activity.connect(to: sessionStore.pairedMac)
+                    sessionStore.activity.setActive(scenePhase == .active)
+                }
+                .onChange(of: sessionStore.pairedMac) { _, mac in
+                    sessionStore.activity.connect(to: mac)
+                }
                 .onChange(of: scenePhase) { _, phase in
+                    sessionStore.activity.setActive(phase == .active)
                     guard phase == .active else { return }
                     Task { await sessionStore.refreshAppState() }
                 }

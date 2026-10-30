@@ -4,6 +4,7 @@ struct LibraryActionNotice: Equatable {
     enum Kind: Equatable {
         case success
         case error
+        case information
     }
 
     let message: String
@@ -12,6 +13,8 @@ struct LibraryActionNotice: Equatable {
 
 @MainActor
 final class SessionStore: ObservableObject {
+    let activity = ActivityCenter()
+
     @Published var currentSession: SimulatorSession?
     @Published var currentDeviceBuild: DeviceBuildSession?
     @Published var isConnected = false
@@ -56,6 +59,11 @@ final class SessionStore: ObservableObject {
         loadRecentSessions()
         loadManagedApps()
         loadPairedMac()
+        activity.onOpenEvent = { [weak self] event in await self?.openActivityEvent(event) }
+        activity.onForegroundEvent = { [weak self] event in
+            let kind: LibraryActionNotice.Kind = event.isAttention ? .error : event.kind == "queued" ? .information : .success
+            self?.showLibraryAction(event.message.isEmpty ? event.title : "\(event.title). \(event.message)", kind: kind, dismissAfter: 7)
+        }
         Task { await refreshHelperStatus() }
     }
 
@@ -246,6 +254,19 @@ final class SessionStore: ObservableObject {
         simulatorCheck = .checking("Checking (recent.displayName)")
         upsertRecentSession(recent.touch())
         Task { await refresh() }
+    }
+
+    private func openActivityEvent(_ event: ActivityEvent) async {
+        guard let expectedMac = pairedMac, let buildID = event.buildId else { return }
+        let revision = pairingRevision
+        await refreshHelperStatus()
+        guard Self.pairingResponseIsCurrent(current: pairedMac, expected: expectedMac, currentRevision: pairingRevision, expectedRevision: revision),
+              let build = managedApps.filter({ $0.ownerPairingID == expectedMac.id }).flatMap(\.builds).first(where: { $0.id == buildID }) else {
+            activity.isPresented = true
+            showLibraryAction("This build is no longer available from the connected Mac.", kind: .error)
+            return
+        }
+        reopen(build)
     }
 
     func closeCurrentSession() {
@@ -465,7 +486,7 @@ final class SessionStore: ObservableObject {
             return
         }
         installRequestSnapshot = nil
-        deviceBuildActionMessage = "Install opened. Swift Sim will verify it when your Mac can reach this iPhone."
+        deviceBuildActionMessage = "Install opened. Swift Sim can confirm it through an Apple device connection or when this exact Debug build launches over the private connection."
     }
 
     func syncCurrentBuildInstallRequested() async {
@@ -2008,6 +2029,9 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
     let installRequestedAt: Date?
     let verifiedAt: Date?
     let verifiedDevices: [VerifiedDevice]
+    let installationSource: String?
+    let launchConfirmedAt: Date?
+    let lastSeenAt: Date?
     let lastOpened: Date
 
     var session: DeviceBuildSession {
@@ -2051,6 +2075,9 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         installRequestedAt = Self.parse(status.installation?.requestedAt)
         verifiedAt = Self.parse(status.installation?.verifiedAt)
         verifiedDevices = status.installation?.devices ?? []
+        installationSource = status.installation?.source
+        launchConfirmedAt = Self.parse(status.installation?.launchConfirmedAt)
+        lastSeenAt = Self.parse(status.installation?.lastSeenAt)
         lastOpened = Date()
     }
 
@@ -2071,6 +2098,9 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         installRequestedAt = nil
         verifiedAt = nil
         verifiedDevices = []
+        installationSource = nil
+        launchConfirmedAt = nil
+        lastSeenAt = nil
         lastOpened = Date()
     }
 
@@ -2091,6 +2121,9 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         installRequestedAt = nil
         verifiedAt = nil
         verifiedDevices = []
+        installationSource = nil
+        launchConfirmedAt = nil
+        lastSeenAt = nil
         lastOpened = legacy.lastOpened
     }
 
@@ -2108,11 +2141,14 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
             state: state,
             createdAt: createdAt,
             expiresAt: expiresAt,
-            installationState: installationState == "verified" ? "verified" : "requested",
+            installationState: ["verified", "launch-confirmed"].contains(installationState) ? installationState : "requested",
             installRequestedAt: Date(),
             verifiedAt: verifiedAt,
             verifiedDevices: verifiedDevices,
-            lastOpened: Date()
+            lastOpened: Date(),
+            installationSource: installationSource,
+            launchConfirmedAt: launchConfirmedAt,
+            lastSeenAt: lastSeenAt
         )
     }
 
@@ -2133,7 +2169,10 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         installRequestedAt: Date?,
         verifiedAt: Date?,
         verifiedDevices: [VerifiedDevice],
-        lastOpened: Date
+        lastOpened: Date,
+        installationSource: String? = nil,
+        launchConfirmedAt: Date? = nil,
+        lastSeenAt: Date? = nil
     ) {
         self.id = id
         self.token = token
@@ -2151,6 +2190,9 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         self.installRequestedAt = installRequestedAt
         self.verifiedAt = verifiedAt
         self.verifiedDevices = verifiedDevices
+        self.installationSource = installationSource
+        self.launchConfirmedAt = launchConfirmedAt
+        self.lastSeenAt = lastSeenAt
         self.lastOpened = lastOpened
     }
 
@@ -2168,6 +2210,7 @@ enum InstallationState: Equatable {
     case unknown
     case requested
     case verified
+    case launchConfirmed
     case differentVersion
     case notInstalled
 
@@ -2175,6 +2218,7 @@ enum InstallationState: Equatable {
         switch serverValue {
         case "requested": self = .requested
         case "verified": self = .verified
+        case "launch-confirmed": self = .launchConfirmed
         case "different-version": self = .differentVersion
         case "not-installed": self = .notInstalled
         default: self = .unknown
@@ -2219,10 +2263,13 @@ struct DeviceBuildStatus: Decodable, Equatable {
             delivery: delivery,
             preserveData: preserveData,
             installation: DeviceBuildInstallation(
-                state: installation?.state == "verified" ? "verified" : "requested",
+                state: ["verified", "launch-confirmed"].contains(installation?.state ?? "") ? installation!.state : "requested",
                 requestedAt: ISO8601DateFormatter().string(from: Date()),
                 verifiedAt: installation?.verifiedAt ?? "",
-                devices: installation?.devices ?? []
+                devices: installation?.devices ?? [],
+                source: installation?.source,
+                launchConfirmedAt: installation?.launchConfirmedAt,
+                lastSeenAt: installation?.lastSeenAt
             ),
             links: links
         )
@@ -2251,7 +2298,10 @@ struct DeviceBuildStatus: Decodable, Equatable {
             state: build.installationState,
             requestedAt: build.installRequestedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
             verifiedAt: build.verifiedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
-            devices: build.verifiedDevices
+            devices: build.verifiedDevices,
+            source: build.installationSource,
+            launchConfirmedAt: build.launchConfirmedAt.map { ISO8601DateFormatter().string(from: $0) },
+            lastSeenAt: build.lastSeenAt.map { ISO8601DateFormatter().string(from: $0) }
         )
         links = nil
     }
@@ -2323,6 +2373,19 @@ struct DeviceBuildInstallation: Decodable, Equatable {
     let requestedAt: String
     let verifiedAt: String
     let devices: [VerifiedDevice]
+    let source: String?
+    let launchConfirmedAt: String?
+    let lastSeenAt: String?
+
+    init(state: String, requestedAt: String, verifiedAt: String, devices: [VerifiedDevice], source: String? = nil, launchConfirmedAt: String? = nil, lastSeenAt: String? = nil) {
+        self.state = state
+        self.requestedAt = requestedAt
+        self.verifiedAt = verifiedAt
+        self.devices = devices
+        self.source = source
+        self.launchConfirmedAt = launchConfirmedAt
+        self.lastSeenAt = lastSeenAt
+    }
 }
 
 struct VerifiedDevice: Codable, Equatable {
@@ -2552,7 +2615,7 @@ private extension URL {
     }
 }
 
-private enum SwiftSimISO8601 {
+enum SwiftSimISO8601 {
     static func date(from value: String?) -> Date? {
         guard let value, !value.isEmpty else { return nil }
         let fractional = ISO8601DateFormatter()

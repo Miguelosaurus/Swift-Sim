@@ -64,6 +64,72 @@ test("device-build-only lifecycle skips installation reconciliation but keeps cl
   assert.equal(harness.intervals[0].unrefCalls, 1);
 });
 
+test("private activity worker starts immediately, repeats, and drains before resources close", async () => {
+  const activityDrain = deferred();
+  let reconciliations = 0;
+  let stops = 0;
+  const harness = createHarness({
+    reconcileActivity: async () => { reconciliations += 1; },
+    stopActivity: () => { stops += 1; return activityDrain.promise; },
+  });
+  const lifecycle = harness.lifecycle();
+  await lifecycle.prepare();
+  await lifecycle.start(() => {});
+  assert.equal(reconciliations, 1);
+  const timer = harness.intervals.find(({ intervalMs }) => intervalMs === 5_000);
+  assert.ok(timer);
+  assert.equal(timer.unrefCalls, 1);
+  timer.callback();
+  await tick();
+  assert.equal(reconciliations, 2);
+
+  lifecycle.shutdown();
+  lifecycle.shutdown();
+  harness.finishServerClose();
+  await tick();
+  assert.equal(stops, 1);
+  assert.ok(harness.clearedIntervals.includes(timer));
+  assert.equal(harness.resourceCloseCalls, 0);
+  assert.deepEqual(harness.exits, []);
+  activityDrain.resolve();
+  await tick();
+  assert.equal(harness.resourceCloseCalls, 1);
+  assert.deepEqual(harness.exits, [0]);
+});
+
+test("public build gateway never starts the supplied activity worker", async () => {
+  let reconciliations = 0;
+  const harness = createHarness({
+    deviceBuildsOnly: true,
+    reconcileActivity: async () => { reconciliations += 1; },
+  });
+  const lifecycle = harness.lifecycle();
+  await lifecycle.prepare();
+  await lifecycle.start(() => {});
+  for (const timer of harness.intervals) timer.callback();
+  await tick();
+  assert.equal(reconciliations, 0);
+  assert.equal(harness.intervals.some(({ intervalMs }) => intervalMs === 5_000), false);
+});
+
+test("activity reconciliation failure is bounded and later turns remain scheduled", async () => {
+  let calls = 0;
+  const harness = createHarness({
+    reconcileActivity: async () => {
+      calls += 1;
+      throw new Error("private token and source path must not escape");
+    },
+  });
+  const lifecycle = harness.lifecycle();
+  await lifecycle.prepare();
+  await lifecycle.start(() => {});
+  await tick();
+  harness.intervals.find(({ intervalMs }) => intervalMs === 5_000).callback();
+  await tick();
+  assert.equal(calls, 2);
+  assert.deepEqual(harness.errors, Array(2).fill("Activity reconciliation failed; saved updates are preserved."));
+});
+
 test("reconciliation failures are reported without rejecting service startup", async () => {
   const harness = createHarness({
     reconcileRequestedBuilds: async () => {
@@ -211,6 +277,8 @@ function createHarness({
   deviceBuildsOnly = false,
   listenError = null,
   reconcileRequestedBuilds = null,
+  reconcileActivity = undefined,
+  stopActivity = undefined,
   activeBuildTasks = () => [],
   sessions = [],
   stopSession = async () => {},
@@ -326,6 +394,8 @@ function createHarness({
             reconcileCalls += 1;
             events.push("reconcile");
           }),
+        reconcileActivity,
+        stopActivity,
         activeBuildTasks,
         cancelBuild(build, reason) {
           cancellations.push([build, reason]);

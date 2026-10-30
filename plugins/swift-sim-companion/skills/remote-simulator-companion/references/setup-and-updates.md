@@ -37,3 +37,12 @@ an app cold-launches or that a patch compiled, applied, refreshed, and advanced
 the runtime revision. Complete [first-time live integration](live-project-integration.md)
 before the warm loop. Never run doctor or setup before every warm edit. The
 helper stays bound to localhost; never publish port 8887.
+
+
+Optional alerts are configured with `swift-sim notifications configure --key-file
+<private-local-p8> --key-id <APNs-key-id> --team-id <team-id> --topic
+<companion-bundle-id>`. Use an Apple Push Notification service signing key, not an
+App Store Connect API key. `notifications status` reports configuration without
+credentials; `notifications disable` stops new sends. The signed Companion needs
+the matching push entitlement/profile and explicit notification permission.
+The inbox works without APNs; APNs acceptance alone does not prove display.

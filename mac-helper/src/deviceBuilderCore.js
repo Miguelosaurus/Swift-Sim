@@ -57,7 +57,7 @@ export async function resumeDeviceBuild(build, { save, logger = () => {}, readCu
       assertCurrent(true);
       const current = inspect({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
       assertResumeProvenance(checkpoint.provenance, current.provenance);
-      build.liveReload = { ...build.liveReload, engineReady: true, compilerReady: true, host: liveSession.host, capturedCompilations: capture.registered, recovery: { ...checkpoint, phase: "registered", attemptId } };
+      build.liveReload = { ...build.liveReload, engineReady: true, compilerReady: true, host: liveSession.host, capturedCompilations: capture.registered, presentation: capture.presentation, recovery: { ...checkpoint, phase: "registered", attemptId } };
       build.state = "exporting";
       saveBuild();
       log("Packaging the preserved signed Debug app; no compilation or installation is performed.");
@@ -397,6 +397,7 @@ export async function runDeviceBuild(build, {
               compilerReady: true,
               host: liveSession.host,
               capturedCompilations: capture.registered,
+              presentation: capture.presentation,
               recovery: { ...checkpoint, phase: "registered" },
             };
             log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
@@ -1139,6 +1140,9 @@ function publicInstallation(installation = {}) {
     state: installation.state || "unknown",
     requestedAt: installation.requestedAt || "",
     verifiedAt: installation.verifiedAt || "",
+    ...(["apple-device", "live-client"].includes(installation.source) ? { source: installation.source } : {}),
+    ...(installation.launchConfirmedAt ? { launchConfirmedAt: installation.launchConfirmedAt } : {}),
+    ...(installation.lastSeenAt ? { lastSeenAt: installation.lastSeenAt } : {}),
     devices: (installation.devices || []).map((device) => ({
       name: device.name || "iPhone",
       state: device.state || "unknown",

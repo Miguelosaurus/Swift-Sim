@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deliverChange } from "../mac-helper/src/changeDelivery.js";
-import { deliveryEnvelope } from "../mac-helper/src/changeDeliveryContract.js";
+import { deliveryEnvelope, validateDeliveryEnvelope } from "../mac-helper/src/changeDeliveryContract.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,4 +81,22 @@ test("the queued bytes are the same immutable bytes classified before asynchrono
     assert.equal(result.outcome, "queued");
     assert.equal(observed.beforeSource, HOT[0].beforeSource); assert.equal(observed.afterSource, HOT[0].afterSource);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("queued guidance is additive for older clients and rejects malformed typed fields", () => {
+  const pending = deliveryEnvelope({
+    outcome: "queued", message: "Waiting for the app.",
+    delivery: { kind: "pending", requestId: "request-guidance-contract", state: "waiting-for-foreground", expiresAt: "2026-11-01T00:00:00Z" },
+  });
+  assert.equal(validateDeliveryEnvelope(pending).valid, true);
+  const fields = { prepared: true, normalWaiting: true, guidanceCode: "OPEN_TARGET_APP", requiredAppState: "foreground-ready" };
+  const typed = { ...pending, delivery: { ...pending.delivery, ...fields } };
+  assert.equal(validateDeliveryEnvelope(typed).valid, true);
+  for (const guidanceCode of ["OPEN_TARGET_APP", "PREPARING_UPDATE", "WAIT_FOR_APPLICATION", "WAIT_FOR_REFRESH"]) {
+    assert.equal(validateDeliveryEnvelope({ ...typed, delivery: { ...typed.delivery, guidanceCode } }).valid, true);
+  }
+  for (const invalid of [{ prepared: "true" }, { normalWaiting: 1 }, { guidanceCode: "REBUILD_NOW" }, { requiredAppState: "background" }]) {
+    assert.equal(validateDeliveryEnvelope({ ...typed, delivery: { ...typed.delivery, ...invalid } }).valid, false, JSON.stringify(invalid));
+  }
 });

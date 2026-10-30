@@ -279,3 +279,8 @@ phone edit remains a separate acceptance step.
 - [Agent Workflows](AGENT_WORKFLOWS.md)
 - [Security](SECURITY.md)
 - [Documentation Guide](README.md)
+
+Optional [activity notifications](NOTIFICATIONS.md) add an inbox and per-Mac
+alerts. The inbox needs no Apple push key; OS alerts require APNs credentials and
+a push-enabled signed Companion. Inspect configuration with
+`swift-sim notifications status`.

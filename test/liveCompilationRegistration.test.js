@@ -1,13 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import { chmodSync } from "node:fs";
 import { once } from "node:events";
 import { inspectLiveBuildResult, registerLiveBuildResult, queuedLiveEngineControl, LIVE_COMPILER_REGISTRATION_TIMEOUT_MS, LIVE_COMPILER_REGISTRATION_BUDGET_MS } from "../mac-helper/src/liveReload.js";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
+const fixtureFileStore = new NodeAtomicFileStore();
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 function engineFixture() {
@@ -61,7 +63,7 @@ function fixture({ commands = 1, sources = 1, engine = engineFixture() } = {}) {
   const emittedOutput = Array.from({ length: commands }, (_, index) => `/usr/bin/swift-frontend -frontend -c -module-name Fixture${index} -sdk /tmp/iPhoneOS.sdk -target arm64-apple-ios16.0 ${sourcePaths.join(" ")} -file-compilation-dir ${root}`).join("\n");
   const liveManifestPath = join(root, "compilations.json");
   const options = { resultBundle, projectPath, scheme: "Fixture", runtime: { buildLog: { emittedOutput }, liveManifestPath, engineControl: engine.control, now: engine.now, wait: engine.wait, lock: (operation) => operation() } };
-  return { root, options, sourcePaths, engine, manifest: () => JSON.parse(readFileSync(liveManifestPath, "utf8")), cleanup() { rmSync(root, { recursive: true, force: true }); } };
+  return { root, options, sourcePaths, engine, manifest: () => JSON.parse(fixtureFileStore.readTextSync(liveManifestPath)), cleanup() { rmSync(root, { recursive: true, force: true }); } };
 }
 
 test("a large dependency map registers once and publishes only after its current complete receipt", async () => {

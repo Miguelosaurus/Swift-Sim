@@ -614,7 +614,12 @@ function normalizeInstallation(installation = {}) {
     state: installation.state || "unknown",
     requestedAt: installation.requestedAt || "",
     verifiedAt: installation.verifiedAt || "",
-    updatedAt: installation.updatedAt || installation.verifiedAt || installation.requestedAt || "",
+    ...(["apple-device", "live-client"].includes(installation.source) ? { source: installation.source } : {}),
+    ...(validInstallationDate(installation.launchConfirmedAt) ? { launchConfirmedAt: installation.launchConfirmedAt } : {}),
+    ...(validInstallationDate(installation.lastSeenAt) ? { lastSeenAt: installation.lastSeenAt } : {}),
+    ...(/^[a-f0-9]{64}$/.test(installation.launchFingerprint || "") ? { launchFingerprint: installation.launchFingerprint } : {}),
+    ...(/^[a-f0-9]{64}$/.test(installation.launchProcessFingerprint || "") ? { launchProcessFingerprint: installation.launchProcessFingerprint } : {}),
+    updatedAt: installation.updatedAt || installation.lastSeenAt || installation.verifiedAt || installation.requestedAt || "",
     verificationDeadlineAt: installation.verificationDeadlineAt || "",
     devices: Array.isArray(installation.devices) ? installation.devices : [],
   };
@@ -623,17 +628,28 @@ function normalizeInstallation(installation = {}) {
 function newerInstallation(first = {}, second = {}) {
   const a = normalizeInstallation(first);
   const b = normalizeInstallation(second);
-  const aTime = finiteDate(a.updatedAt);
-  const bTime = finiteDate(b.updatedAt);
-  if (aTime !== bTime) return aTime > bTime ? a : b;
+  const aParsed = Date.parse(a.updatedAt || "");
+  const bParsed = Date.parse(b.updatedAt || "");
+  const aTime = Number.isFinite(aParsed) ? aParsed : -Infinity;
+  const bTime = Number.isFinite(bParsed) ? bParsed : -Infinity;
+  const rank = { unknown: 0, requested: 1, "different-version": 2, "launch-confirmed": 3, verified: 4 };
+  const chooseA = (Number.isFinite(aTime) ? aTime : -Infinity) > (Number.isFinite(bTime) ? bTime : -Infinity)
+    || (aTime === bTime && (rank[a.state] || 0) > (rank[b.state] || 0));
+  const latest = chooseA ? a : b;
+  const launch = Date.parse(a.lastSeenAt || "") > Date.parse(b.lastSeenAt || "") ? a : b.lastSeenAt ? b : a;
+  if (!launch.launchConfirmedAt) return latest;
+  // Ordinary build saves cannot erase helper-owned launch history, including
+  // a newer unknown observation from an unreachable/different phone.
+  return {
+    ...latest,
+    ...(latest.state === "verified" ? {} : { state: "launch-confirmed", source: "live-client" }),
+    launchConfirmedAt: launch.launchConfirmedAt, lastSeenAt: launch.lastSeenAt,
+    launchFingerprint: launch.launchFingerprint, launchProcessFingerprint: launch.launchProcessFingerprint,
+  };
+}
 
-  // Equal or missing observation times use state rank only as a deterministic
-  // tie-breaker. A newer different-version observation therefore supersedes an
-  // older verified observation instead of being treated as inferior forever.
-  const rank = { unknown: 0, requested: 1, "different-version": 2, verified: 3 };
-  const aRank = rank[a.state] ?? 1;
-  const bRank = rank[b.state] ?? 1;
-  return aRank > bRank ? a : b;
+function validInstallationDate(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : "";
 }
 
 function finiteDate(value) {

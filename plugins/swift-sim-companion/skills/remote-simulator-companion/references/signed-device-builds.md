@@ -37,3 +37,12 @@ a pending compiler receipt. Changed or unsafe preserved inputs stop recovery.
 The qualified local 0.5.1 engine supports this path; public setup still defaults
 to 0.4.0. Install creation uses generic iOS, independently of phone proximity.
 
+
+
+The Companion activity inbox can report a ready build even when its install link
+was not transferred through chat. Optional APNs alerts require local setup and
+notification permission. A push or tap never proves installation. Private SDK
+observations can report **Installed & launched — last confirmed** for an exact
+Debug binary across networks over Tailscale. This is historical evidence from a
+live client, not per-Companion-phone attestation or current reachability; nearby
+Apple device inventory remains a separate verification source.

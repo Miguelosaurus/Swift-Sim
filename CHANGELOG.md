@@ -6,6 +6,15 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Durable Companion activity inbox and per-Mac notification preferences, with
+  optional direct APNs delivery for ready builds, queued edits and attention.
+  Authenticated taps refresh current state; cancelled or superseded work cannot
+  produce a pending alert. APNs acceptance does not claim display or application.
+- Exact Debug build launch history from the private live client, including across
+  networks over Tailscale, without requiring nearby Apple device inventory.
+- Debug-only host-app hot reload feedback tied to native request and refresh
+  receipts. Updated SDK dependency to immutable revision `43966021a3782af65ecc9e594c7e7a7e3cbf409e`.
+
 - Asynchronous live-delivery candidate: immutable durable intents, offline
   dynamic-replacement preparation, native reconnect/receipt fences, live-only
   mode, and explicit queue status. Requires the matching local engine/SDK

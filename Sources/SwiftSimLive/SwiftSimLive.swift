@@ -32,11 +32,18 @@ private final class SwiftSimLiveObserver: ObservableObject {
 }
 
 private struct SwiftSimLiveModifier: ViewModifier {
+    // Subscribe to delivery feedback before the root observer opens readiness.
+    @ObservedObject private var feedback = SwiftSimDeliveryFeedbackObserver.shared
     @ObservedObject private var observer = SwiftSimLiveObserver.shared
 
     func body(content: Content) -> some View {
         AnyView(content)
             .id(observer.revision)
+            .overlay(alignment: .top) {
+                if let state = feedback.presentation {
+                    SwiftSimDeliveryFeedbackBanner(state: state)
+                }
+            }
     }
 }
 #endif

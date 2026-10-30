@@ -18,6 +18,7 @@ const INSTALLATION_STATES = new Set([
   "requested",
   "not-installed",
   "different-version",
+  "launch-confirmed",
   "verified",
 ]);
 
@@ -121,6 +122,9 @@ function isInstallation(value) {
     hasString(value, "verifiedAt") &&
     hasString(value, "updatedAt") &&
     hasString(value, "verificationDeadlineAt") &&
+    (value.source === undefined || value.source === "apple-device" || value.source === "live-client") &&
+    ["launchConfirmedAt", "lastSeenAt", "launchFingerprint", "launchProcessFingerprint"].every((key) => value[key] === undefined || typeof value[key] === "string") &&
+    (value.state !== "launch-confirmed" || (value.source === "live-client" && typeof value.launchConfirmedAt === "string" && Number.isFinite(Date.parse(value.launchConfirmedAt)) && typeof value.lastSeenAt === "string" && Number.isFinite(Date.parse(value.lastSeenAt)))) &&
     Array.isArray(value.devices) &&
     value.devices.every(isInstallationDevice)
   );

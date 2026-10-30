@@ -43,6 +43,8 @@ const SHUTDOWN_BUILD_REASON = "Swift Sim helper is shutting down.";
  *   reconcileRequestedBuilds(): Promise<unknown>,
  *   reconcileLiveDeliveries?: (() => Promise<unknown>) | undefined,
  *   stopLiveDeliveries?: (() => Promise<unknown>) | undefined,
+ *   reconcileActivity?: (() => Promise<unknown>) | undefined,
+ *   stopActivity?: (() => Promise<unknown>) | undefined,
  *   activeBuildTasks(): ActiveBuildTask[],
  *   cancelBuild(build: unknown, reason: string): unknown,
  *   listSessions(): ActiveSession[],
@@ -81,6 +83,8 @@ export function createHelperServiceLifecycle(dependencies) {
   let keepAliveTimer;
   /** @type {TimerHandle | undefined} */
   let liveDeliveryTimer;
+  /** @type {TimerHandle | undefined} */
+  let activityTimer;
 
   return Object.freeze({
     async prepare() {
@@ -135,6 +139,20 @@ export function createHelperServiceLifecycle(dependencies) {
           liveDeliveryTimer = resolved.runtime.scheduleInterval(reconcileLive, 1_000);
           liveDeliveryTimer.unref?.();
         }
+        if (resolved.reconcileActivity) {
+          const reconcileActivity = () => {
+            void resolved
+              .reconcileActivity?.()
+              .catch(() =>
+                resolved.reportError(
+                  "Activity reconciliation failed; saved updates are preserved.",
+                ),
+              );
+          };
+          reconcileActivity();
+          activityTimer = resolved.runtime.scheduleInterval(reconcileActivity, 5_000);
+          activityTimer.unref?.();
+        }
       }
       deliveryCleanupTimer = resolved.runtime.scheduleInterval(() => {
         void resolved.scheduleDeliveryCleanup();
@@ -168,6 +186,7 @@ export function createHelperServiceLifecycle(dependencies) {
     if (deliveryCleanupTimer) resolved.runtime.clearInterval(deliveryCleanupTimer);
     if (keepAliveTimer) resolved.runtime.clearInterval(keepAliveTimer);
     if (liveDeliveryTimer) resolved.runtime.clearInterval(liveDeliveryTimer);
+    if (activityTimer) resolved.runtime.clearInterval(activityTimer);
 
     for (const { build } of resolved.activeBuildTasks()) {
       resolved.cancelBuild(build, SHUTDOWN_BUILD_REASON);
@@ -201,6 +220,7 @@ export function createHelperServiceLifecycle(dependencies) {
     const buildTasks = resolved.activeBuildTasks().map(({ promise }) => promise);
     void Promise.allSettled([
       ...(resolved.stopLiveDeliveries ? [resolved.stopLiveDeliveries()] : []),
+      ...(resolved.stopActivity ? [resolved.stopActivity()] : []),
       ...sessions.map((session) => resolved.stopSession(session.id)),
       ...buildTasks,
     ]).finally(() => {

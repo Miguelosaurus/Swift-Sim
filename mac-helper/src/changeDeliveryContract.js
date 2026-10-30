@@ -87,6 +87,10 @@ export function validateDeliveryEnvelope(value) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/.test(value.delivery?.requestId || "")) errors.push("queued requires an opaque request identity.");
     if (!["queued", "waiting-for-device", "waiting-for-foreground", "compiling", "applying", "applied"].includes(value.delivery?.state)) errors.push("queued requires an incomplete delivery state.");
     if (typeof value.delivery?.expiresAt !== "string" || !Number.isFinite(Date.parse(value.delivery.expiresAt))) errors.push("queued requires an expiry.");
+    if (value.delivery?.prepared !== undefined && typeof value.delivery.prepared !== "boolean") errors.push("queued prepared must be a boolean.");
+    if (value.delivery?.normalWaiting !== undefined && typeof value.delivery.normalWaiting !== "boolean") errors.push("queued normalWaiting must be a boolean.");
+    if (value.delivery?.guidanceCode !== undefined && !["OPEN_TARGET_APP", "PREPARING_UPDATE", "WAIT_FOR_APPLICATION", "WAIT_FOR_REFRESH"].includes(value.delivery.guidanceCode)) errors.push("queued guidanceCode is invalid.");
+    if (value.delivery?.requiredAppState !== undefined && value.delivery.requiredAppState !== "foreground-ready") errors.push("queued requiredAppState is invalid.");
   }
   if (["no-change", "needs-user-action", "failed"].includes(value.outcome) && value.delivery !== undefined) {
     errors.push(`${value.outcome} must not include delivery.`);

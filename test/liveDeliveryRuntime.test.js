@@ -211,6 +211,85 @@ test("offline intent compiles once, waits durably and applies after foreground w
   } finally { f.cleanup(); }
 });
 
+test("typed guidance distinguishes normal preparation and foreground waiting without claiming application", async () => {
+  const f = fixture();
+  let releasePreparation;
+  let preparationStarted;
+  const entered = new Promise((resolve) => { preparationStarted = resolve; });
+  const preparation = new Promise((resolve) => { releasePreparation = resolve; });
+  try {
+    const prepare = f.adapter.prepare;
+    f.adapter.prepare = async (record) => { preparationStarted(); await preparation; return prepare(record); };
+    const initial = await f.service.enqueue({ requestId: "request-guidance-0001", files: f.files() });
+    assert.equal(initial.outcome, "queued");
+    assert.equal(initial.delivery.prepared, false);
+    assert.equal(initial.delivery.normalWaiting, true);
+    assert.equal(initial.delivery.guidanceCode, "PREPARING_UPDATE");
+    assert.equal(initial.delivery.requiredAppState, "foreground-ready");
+    const turn = f.service.runOnce();
+    await entered;
+    const compiling = f.service.status(initial.delivery.requestId);
+    assert.equal(compiling.delivery.state, "compiling");
+    assert.equal(compiling.delivery.prepared, false);
+    assert.equal(compiling.delivery.normalWaiting, true);
+    assert.equal(compiling.delivery.guidanceCode, "PREPARING_UPDATE");
+    assert.equal(f.calls.apply.length, 0);
+    releasePreparation();
+    await turn;
+    const offline = f.service.status(initial.delivery.requestId);
+    assert.equal(offline.delivery.state, "waiting-for-device");
+    assert.equal(offline.delivery.prepared, true);
+    assert.equal(offline.delivery.normalWaiting, true);
+    assert.equal(offline.delivery.guidanceCode, "OPEN_TARGET_APP");
+    assert.match(offline.message, /allow a few seconds/);
+    assert.doesNotMatch(offline.message, /10 seconds|ten seconds|rebuild|restart|retry/i);
+
+    f.state.connected = true;
+    await f.service.runOnce();
+    const background = f.service.status(initial.delivery.requestId);
+    assert.equal(background.outcome, "queued");
+    assert.equal(background.delivery.state, "waiting-for-foreground");
+    assert.equal(background.delivery.guidanceCode, "OPEN_TARGET_APP");
+    assert.equal(background.delivery.normalWaiting, true);
+    assert.equal(background.delivery.requiredAppState, "foreground-ready");
+    assert.equal(background.delivery.revision, undefined);
+    assert.equal(f.calls.prepare.length, 1);
+    assert.equal(f.calls.apply.length, 0);
+  } finally { releasePreparation(); f.cleanup(); }
+});
+
+test("native admission has distinct waiting guidance until the matching application returns", async () => {
+  const f = fixture();
+  let releaseApplication;
+  let applicationStarted;
+  const entered = new Promise((resolve) => { applicationStarted = resolve; });
+  const application = new Promise((resolve) => { releaseApplication = resolve; });
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    const apply = f.adapter.apply;
+    f.adapter.apply = async (record) => { applicationStarted(); await application; return apply(record); };
+    await f.service.enqueue({ requestId: "request-guidance-apply", files: f.files() });
+    await f.service.runOnce();
+    const turn = f.service.runOnce();
+    await entered;
+    const applying = f.service.status("request-guidance-apply");
+    assert.equal(applying.outcome, "queued");
+    assert.equal(applying.delivery.state, "applying");
+    assert.equal(applying.delivery.prepared, true);
+    assert.equal(applying.delivery.normalWaiting, false);
+    assert.equal(applying.delivery.guidanceCode, "WAIT_FOR_APPLICATION");
+    assert.equal(applying.delivery.revision, undefined);
+    assert.equal(f.queue.get("request-guidance-apply").proof, null);
+    releaseApplication();
+    await turn;
+    const refreshed = f.service.status("request-guidance-apply");
+    assert.equal(refreshed.outcome, "hot-reloaded");
+    assert.equal(refreshed.delivery.revision, 1);
+    assert.equal(refreshed.delivery.guidanceCode, undefined);
+    assert.equal(f.calls.apply.length, 1);
+  } finally { releaseApplication(); f.cleanup(); }
+});
+
 test("foreground delivery depends on global app readiness, not which screen is visible", async () => {
   const f = fixture();
   try {
@@ -336,6 +415,11 @@ test("an applied edit remains pending until its correlated refresh is proven", a
     await f.service.runOnce(); await f.service.runOnce();
     const pending = f.service.status("request-refresh-0001");
     assert.equal(pending.outcome, "queued"); assert.equal(pending.delivery.state, "applied");
+    assert.equal(pending.delivery.prepared, true);
+    assert.equal(pending.delivery.normalWaiting, false);
+    assert.equal(pending.delivery.guidanceCode, "WAIT_FOR_REFRESH");
+    assert.equal(pending.delivery.revision, undefined);
+    assert.match(pending.message, /refresh acknowledgement is still pending/);
     await f.runtime().runOnce();
     assert.equal(f.service.status("request-refresh-0001").outcome, "hot-reloaded");
     assert.equal(f.calls.apply.length, 1);

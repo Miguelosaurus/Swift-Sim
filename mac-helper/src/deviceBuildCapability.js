@@ -101,6 +101,9 @@ export function publicCapabilityDeviceBuild(build, capability = build) {
       state: installation.state || "unknown",
       requestedAt: installation.requestedAt || "",
       verifiedAt: installation.verifiedAt || "",
+      ...(installation.source === "live-client" || installation.source === "apple-device" ? { source: installation.source } : {}),
+      ...(installation.launchConfirmedAt ? { launchConfirmedAt: installation.launchConfirmedAt } : {}),
+      ...(installation.lastSeenAt ? { lastSeenAt: installation.lastSeenAt } : {}),
       devices: [],
     },
   };

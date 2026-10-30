@@ -94,6 +94,15 @@ Tailnet.
 
 ## First use, drift, and lazy references
 
+Ordinary waiting is not a reconnect failure. Requesting a change from ChatGPT
+on the same iPhone backgrounds the target app. Submit once, report its typed
+`normalWaiting`/`guidanceCode`, and let the user return to the target app when
+ready. Application can take a few seconds after foreground reconnection; never
+promise a fixed ten-second deadline. Do not ask the user to keep the app open
+while composing the request, select a screen, resend, restart, rebuild, or poll
+unchanged status endlessly. A push notification or tap does not prove applied
+or refreshed; use the matching request's native receipt and revision.
+
 For first-time hot reload, follow [live project integration](references/live-project-integration.md)
 through signed Debug install, cold launch, connection, and one proven edit.
 Setup readiness and a connected engine do not prove a successful hot reload.

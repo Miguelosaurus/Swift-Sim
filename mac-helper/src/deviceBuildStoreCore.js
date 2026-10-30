@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import { runRequiredBuildValidation } from "./buildValidation.js";
 import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
+import { launchBuildMatches, normalizedLaunchProof } from "./remoteLaunchVerification.js";
 
 export const MAX_DEVICE_BUILD_LOG_LINES = 500;
 export const MAX_DEVICE_BUILD_LOG_BYTES = 64 * 1024;
@@ -140,7 +141,7 @@ export class DeviceBuildStore {
       const build = state.builds.get(id);
       if (!build) return null;
       build.installation = normalizeInstallation(build.installation);
-      build.installation.state = build.installation.state === "verified" ? "verified" : "requested";
+      build.installation.state = ["verified", "launch-confirmed"].includes(build.installation.state) ? build.installation.state : "requested";
       build.installation.requestedAt = new Date().toISOString();
       build.installation.verificationDeadlineAt = new Date(
         Date.now() + 15 * 60 * 1000,
@@ -188,7 +189,10 @@ export class DeviceBuildStore {
       const build = state.builds.get(id);
       if (!build) return null;
       const previous = normalizeInstallation(build.installation);
-      const reportedState = verification.state || "unknown";
+      const reportedState = ["verified", "unknown", "different-version", "not-installed"].includes(verification.state) ? verification.state : "unknown";
+      // Device management may reach a different phone. It cannot erase the
+      // exact build previously reported by the private live app connection.
+      if (previous.launchConfirmedAt && reportedState !== "verified") return build;
       const nextState =
         reportedState === "unknown" && ACTIVE_INSTALL_OBSERVATION_STATES.has(previous.state)
           ? previous.state
@@ -196,6 +200,7 @@ export class DeviceBuildStore {
       build.installation = {
         ...previous,
         state: nextState,
+        ...(reportedState === "verified" ? { source: "apple-device" } : {}),
         verifiedAt:
           reportedState === "verified"
             ? verification.verifiedAt || new Date().toISOString()
@@ -203,6 +208,33 @@ export class DeviceBuildStore {
         updatedAt: new Date().toISOString(),
         verificationDeadlineAt: reportedState === "verified" ? "" : previous.verificationDeadlineAt,
         devices: Array.isArray(verification.devices) ? verification.devices : [],
+      };
+      touchBuild(build);
+      return build;
+    });
+  }
+
+  saveLaunchConfirmation(id, observation) {
+    const proof = normalizedLaunchProof(observation);
+    // This is a helper-owned observation API, never a request-body handler.
+    if (!proof || proof.observedAt > Date.now() + 5_000) return null;
+    return this.withTransaction((state) => {
+      const build = state.builds.get(id);
+      if (!launchBuildMatches(build, proof)) return null;
+      const previous = normalizeInstallation(build.installation);
+      const lastSeen = Date.parse(previous.lastSeenAt || "");
+      if (previous.launchFingerprint === proof.fingerprint || (Number.isFinite(lastSeen) && proof.observedAt <= lastSeen)) return null;
+      const observedAt = new Date(proof.observedAt).toISOString();
+      build.installation = {
+        ...previous,
+        state: previous.state === "verified" ? "verified" : "launch-confirmed",
+        source: previous.state === "verified" ? "apple-device" : "live-client",
+        launchConfirmedAt: previous.launchConfirmedAt || observedAt,
+        lastSeenAt: observedAt,
+        launchFingerprint: proof.fingerprint,
+        launchProcessFingerprint: proof.processFingerprint,
+        updatedAt: observedAt,
+        verificationDeadlineAt: "",
       };
       touchBuild(build);
       return build;
@@ -534,7 +566,12 @@ function normalizeInstallation(installation = {}) {
     state: installation.state || "unknown",
     requestedAt: installation.requestedAt || "",
     verifiedAt: installation.verifiedAt || "",
-    updatedAt: installation.updatedAt || installation.verifiedAt || installation.requestedAt || "",
+    ...(["apple-device", "live-client"].includes(installation.source) ? { source: installation.source } : {}),
+    ...(validInstallationDate(installation.launchConfirmedAt) ? { launchConfirmedAt: installation.launchConfirmedAt } : {}),
+    ...(validInstallationDate(installation.lastSeenAt) ? { lastSeenAt: installation.lastSeenAt } : {}),
+    ...(/^[a-f0-9]{64}$/.test(installation.launchFingerprint || "") ? { launchFingerprint: installation.launchFingerprint } : {}),
+    ...(/^[a-f0-9]{64}$/.test(installation.launchProcessFingerprint || "") ? { launchProcessFingerprint: installation.launchProcessFingerprint } : {}),
+    updatedAt: installation.updatedAt || installation.lastSeenAt || installation.verifiedAt || installation.requestedAt || "",
     verificationDeadlineAt: installation.verificationDeadlineAt || "",
     devices: Array.isArray(installation.devices) ? installation.devices : [],
   };
@@ -543,7 +580,28 @@ function normalizeInstallation(installation = {}) {
 function newerInstallation(first = {}, second = {}) {
   const a = normalizeInstallation(first);
   const b = normalizeInstallation(second);
-  return Date.parse(a.updatedAt || "") > Date.parse(b.updatedAt || "") ? a : b;
+  const aParsed = Date.parse(a.updatedAt || "");
+  const bParsed = Date.parse(b.updatedAt || "");
+  const aTime = Number.isFinite(aParsed) ? aParsed : -Infinity;
+  const bTime = Number.isFinite(bParsed) ? bParsed : -Infinity;
+  const rank = { unknown: 0, requested: 1, "different-version": 2, "launch-confirmed": 3, verified: 4 };
+  const chooseA = (Number.isFinite(aTime) ? aTime : -Infinity) > (Number.isFinite(bTime) ? bTime : -Infinity)
+    || (aTime === bTime && (rank[a.state] || 0) > (rank[b.state] || 0));
+  const latest = chooseA ? a : b;
+  const launch = Date.parse(a.lastSeenAt || "") > Date.parse(b.lastSeenAt || "") ? a : b.lastSeenAt ? b : a;
+  if (!launch.launchConfirmedAt) return latest;
+  // Ordinary build saves cannot erase helper-owned launch history, including
+  // a newer unknown observation from an unreachable/different phone.
+  return {
+    ...latest,
+    ...(latest.state === "verified" ? {} : { state: "launch-confirmed", source: "live-client" }),
+    launchConfirmedAt: launch.launchConfirmedAt, lastSeenAt: launch.lastSeenAt,
+    launchFingerprint: launch.launchFingerprint, launchProcessFingerprint: launch.launchProcessFingerprint,
+  };
+}
+
+function validInstallationDate(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : "";
 }
 
 function mergeLogs(first = [], second = []) {

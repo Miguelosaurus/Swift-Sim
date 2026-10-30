@@ -187,7 +187,16 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
 export function projectLiveDelivery(record) {
   const state = record.state;
   if (state === "refreshed") return deliveryEnvelope({ outcome: "hot-reloaded", message: "Hot reloaded successfully. The running Debug app acknowledged this edit and refreshed.", delivery: { kind: "live", requestId: record.requestId, revision: record.proof.revision }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
-  if (INCOMPLETE.has(state)) return deliveryEnvelope({ outcome: "queued", message: state === "applied" ? "The edit was applied; its refresh acknowledgement is still pending." : "The edit is queued. Swift Sim will apply it when the matching Debug app reconnects and can run.", reasonCode: record.reasonCode || "LIVE_DELIVERY_PENDING", delivery: { kind: "pending", requestId: record.requestId, state, expiresAt: new Date(record.expiresAt).toISOString() }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
+  if (INCOMPLETE.has(state)) {
+    const prepared = Boolean(record.preparedPatch);
+    const normalWaiting = ["queued", "compiling", "waiting-for-device", "waiting-for-foreground"].includes(state);
+    const guidanceCode = state === "applied" ? "WAIT_FOR_REFRESH" : state === "applying" ? "WAIT_FOR_APPLICATION" : prepared ? "OPEN_TARGET_APP" : "PREPARING_UPDATE";
+    const message = state === "applied" ? "The edit was applied; its matching refresh acknowledgement is still pending."
+      : state === "applying" ? "Swift Sim is applying this request and waiting for its matching native acknowledgement."
+      : prepared ? "The update is ready and waiting for the target Debug app. Open it when ready and allow a few seconds for foreground reconnection and application. Waiting while you use another app or are offline is normal."
+      : "The edit is queued and can be prepared while you use other apps. Return to the target Debug app when ready; application requires it to reconnect in the foreground.";
+    return deliveryEnvelope({ outcome: "queued", message, reasonCode: record.reasonCode || "LIVE_DELIVERY_PENDING", delivery: { kind: "pending", requestId: record.requestId, state, prepared, normalWaiting, guidanceCode, requiredAppState: "foreground-ready", expiresAt: new Date(record.expiresAt).toISOString() }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
+  }
   const code = safeCode(record.reasonCode, state === "uncertain" ? "QUEUE_APPLY_UNCONFIRMED" : `QUEUE_${String(state).toUpperCase()}`);
   const message = state === "uncertain" ? "The edit's application could not be confirmed. Swift Sim will reconcile a matching receipt without applying it again." : "The queued edit did not complete. No successful hot reload is claimed.";
   return deliveryEnvelope({ outcome: "failed", message, reasonCode: code, error: { code, message }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });

@@ -30,6 +30,7 @@ export const INSTALLATION_STATES = [
   "requested",
   "not-installed",
   "different-version",
+  "launch-confirmed",
   "verified",
 ] as const;
 export type InstallationState = (typeof INSTALLATION_STATES)[number];
@@ -64,6 +65,11 @@ export interface DeviceBuildInstallation {
   verifiedAt: string;
   updatedAt: string;
   verificationDeadlineAt: string;
+  source?: "apple-device" | "live-client";
+  launchConfirmedAt?: string;
+  lastSeenAt?: string;
+  launchFingerprint?: string;
+  launchProcessFingerprint?: string;
   devices: readonly InstallationDevice[];
 }
 
@@ -189,7 +195,16 @@ export interface PublicDeviceBuildProjection {
   signing: Pick<DeviceBuildSigning, "method" | "deviceInstallable" | "updateSafe" | "warnings">;
   delivery: DeviceBuildDelivery;
   preserveData: boolean;
-  installation: Pick<DeviceBuildInstallation, "state" | "requestedAt" | "verifiedAt" | "devices">;
+  installation: Pick<
+    DeviceBuildInstallation,
+    | "state"
+    | "requestedAt"
+    | "verifiedAt"
+    | "devices"
+    | "source"
+    | "launchConfirmedAt"
+    | "lastSeenAt"
+  >;
   links: { universalLink: string; customScheme: string; installURL: string };
 }
 
@@ -246,6 +261,18 @@ const isInstallation: Validator<DeviceBuildInstallation> = (
   hasStringValue(value, "verifiedAt") &&
   hasStringValue(value, "updatedAt") &&
   hasStringValue(value, "verificationDeadlineAt") &&
+  (value.source === undefined ||
+    value.source === "apple-device" ||
+    value.source === "live-client") &&
+  ["launchConfirmedAt", "lastSeenAt", "launchFingerprint", "launchProcessFingerprint"].every(
+    (key) => value[key] === undefined || typeof value[key] === "string",
+  ) &&
+  (value.state !== "launch-confirmed" ||
+    (value.source === "live-client" &&
+      typeof value.launchConfirmedAt === "string" &&
+      Number.isFinite(Date.parse(value.launchConfirmedAt)) &&
+      typeof value.lastSeenAt === "string" &&
+      Number.isFinite(Date.parse(value.lastSeenAt)))) &&
   Array.isArray(value.devices) &&
   value.devices.every(isInstallationDevice);
 

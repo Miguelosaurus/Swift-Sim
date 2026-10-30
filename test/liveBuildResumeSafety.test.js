@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { resumeDeviceBuild } from "../mac-helper/src/deviceBuilderCore.js";
 import { inspectLiveBuildResult } from "../mac-helper/src/liveReload.js";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
+const fixtureFileStore = new NodeAtomicFileStore();
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-resume-safety-"));
@@ -28,7 +30,7 @@ function fixture() {
   const summary = { status: "succeeded", errorCount: 0, actionTitle: 'Build "Example"', startTime: stamp / 1000 - 10, endTime: stamp / 1000, destination: { platform: "iOS" } };
   let current = structuredClone(build); let onAdmit = () => {}; let onRegister = () => {};
   const events = []; const saved = [];
-  const fingerprint = (path) => ({ hash: createHash("sha256").update(readFileSync(path)).digest("hex"), size: lstatSync(path).size, mtimeMs: lstatSync(path).mtimeMs });
+  const fingerprint = (path) => ({ hash: createHash("sha256").update(fixtureFileStore.readTextSync(path)).digest("hex"), size: lstatSync(path).size, mtimeMs: lstatSync(path).mtimeMs });
   const inspect = () => ({ provenance: { version: 1, binaryIdentity: identity, sourceFiles: [{ path: source, ...fingerprint(source) }], projectFiles: [lock, join(project, "project.pbxproj")].map((path) => ({ path, ...fingerprint(path) })), appFingerprint: ["Info.plist", "Example", "Example.debug.dylib", "_CodeSignature/CodeResources"].map((name) => ({ name, ...fingerprint(join(app, name)) })) } });
   const runtime = { buildRootBase: base, inspectLiveBuildResult: inspect,
     async withLiveBuildSession(_input, operation, hooks) { onAdmit(); await hooks.beforeStart(); events.push("engine"); return operation({ liveSession: { started: true, host: "fixture" }, async registerLiveBuildResult() { events.push("register"); onRegister(); return { registered: 89 }; } }); },

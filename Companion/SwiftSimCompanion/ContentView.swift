@@ -4,6 +4,7 @@ import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var sessionStore: SessionStore
+    @EnvironmentObject private var activity: ActivityCenter
 
     var body: some View {
         ZStack {
@@ -31,6 +32,10 @@ struct ContentView: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: sessionStore.libraryActionNotice)
+        .sheet(item: $activity.presentation) { _ in
+            ActivityInboxView()
+                .environmentObject(activity)
+        }
         .sheet(isPresented: $sessionStore.isMacSettingsPresented) {
             MacSettingsSheet()
                 .environmentObject(sessionStore)
@@ -40,6 +45,7 @@ struct ContentView: View {
 
 private struct HomeView: View {
     @EnvironmentObject private var sessionStore: SessionStore
+    @EnvironmentObject private var activity: ActivityCenter
     @AppStorage("swiftSim.homeMode") private var homeMode = HomeMode.installs.rawValue
     @State private var searchText = ""
     @State private var showingPasteLink = false
@@ -98,12 +104,32 @@ private struct HomeView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Swift Sim")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-            Text(selectedMode == .installs ? "iPhone apps and version history" : "Simulator previews from your Mac")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Swift Sim")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                Text(selectedMode == .installs ? "iPhone apps and version history" : "Simulator previews from your Mac")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Button { activity.isPresented = true } label: {
+                Image(systemName: "bell")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 46, height: 46)
+                    .background(.thinMaterial, in: Circle())
+                    .overlay(alignment: .topTrailing) {
+                        if activity.unreadCount > 0 {
+                            Text(activity.unreadCount > 9 ? "9+" : String(activity.unreadCount))
+                                .font(.caption2.bold())
+                                .foregroundStyle(.white)
+                                .padding(4)
+                                .background(.blue, in: Capsule())
+                        }
+                    }
+            }
+            .accessibilityLabel(activity.unreadCount > 0 ? "Activity, \(activity.unreadCount) unread" : "Activity")
+            .accessibilityIdentifier("activityInboxButton")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -613,7 +639,7 @@ private struct ManagedAppDetailView: View {
                     sessionStore.reopen(latest)
                 } label: {
                     HStack(spacing: 14) {
-                        Image(systemName: latest.installationStatus == .verified ? "checkmark.circle.fill" : "iphone.and.arrow.forward")
+                        Image(systemName: [InstallationState.verified, .launchConfirmed].contains(latest.installationStatus) ? "checkmark.circle.fill" : "iphone.and.arrow.forward")
                             .font(.system(size: 25, weight: .semibold))
                             .foregroundStyle(statusColor)
                             .frame(width: 46, height: 46)
@@ -739,6 +765,7 @@ private struct ManagedAppDetailView: View {
         if app.latestBuild?.isPreparing == true { return "Building current code" }
         if app.latestBuild?.state == "failed" { return "Build needs attention" }
         switch app.latestBuild?.installationStatus {
+        case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed on iPhone"
         case .requested: return "Install opened"
         case .differentVersion: return "Update available"
@@ -752,7 +779,7 @@ private struct ManagedAppDetailView: View {
         if app.latestBuild?.isPreparing == true { return "hammer.circle.fill" }
         if app.latestBuild?.state == "failed" { return "exclamationmark.triangle.fill" }
         switch app.latestBuild?.installationStatus {
-        case .verified: return "checkmark.circle.fill"
+        case .verified, .launchConfirmed: return "checkmark.circle.fill"
         case .differentVersion: return "arrow.triangle.2.circlepath.circle.fill"
         case .notInstalled: return "iphone.and.arrow.forward"
         default: return "clock.arrow.circlepath"
@@ -764,7 +791,7 @@ private struct ManagedAppDetailView: View {
         if app.latestBuild?.isPreparing == true { return .blue }
         if app.latestBuild?.state == "failed" { return .orange }
         switch app.latestBuild?.installationStatus {
-        case .verified: return .green
+        case .verified, .launchConfirmed: return .green
         case .requested, .differentVersion, .notInstalled: return .blue
         default: return .blue
         }
@@ -774,6 +801,7 @@ private struct ManagedAppDetailView: View {
         if build.isPreparing { return "Building current code" }
         if build.state == "failed" { return "Build failed — open for details" }
         switch build.installationStatus {
+        case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed"
         case .requested: return "Install opened"
         case .differentVersion: return "Update available"
@@ -827,7 +855,7 @@ private struct BuildHistoryRow: View {
         if build.isPreparing { return "hammer.circle.fill" }
         if build.state == "failed" { return "exclamationmark.triangle.fill" }
         switch build.installationStatus {
-        case .verified: return "checkmark.circle.fill"
+        case .verified, .launchConfirmed: return "checkmark.circle.fill"
         case .requested: return "arrow.down.circle.fill"
         case .differentVersion: return "arrow.triangle.2.circlepath.circle.fill"
         case .notInstalled: return "iphone.and.arrow.forward"
@@ -839,7 +867,7 @@ private struct BuildHistoryRow: View {
         if build.isPreparing { return .blue }
         if build.state == "failed" { return .orange }
         switch build.installationStatus {
-        case .verified: return .green
+        case .verified, .launchConfirmed: return .green
         case .requested, .differentVersion, .notInstalled: return .blue
         default: return build.isLinkActive ? .blue : .secondary
         }
@@ -849,6 +877,7 @@ private struct BuildHistoryRow: View {
         if build.isPreparing { return "Building" }
         if build.state == "failed" { return "Failed" }
         switch build.installationStatus {
+        case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed"
         case .requested: return "Install opened"
         case .differentVersion: return "Update available"
@@ -1301,6 +1330,7 @@ private struct DeviceBuildView: View {
 
     private var installStatusTitle: String {
         switch installationStatus {
+        case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed"
         case .requested: return "Install opened"
         case .differentVersion: return "Update available"
@@ -1322,13 +1352,19 @@ private struct DeviceBuildView: View {
 
     private var installStatusDetail: String {
         switch installationStatus {
+        case .launchConfirmed:
+            let seen = status?.installation?.lastSeenAt ?? status?.installation?.launchConfirmedAt
+            if let date = SwiftSimISO8601.date(from: seen) {
+                return "This exact Debug build launched successfully. Last confirmed \(date.formatted(date: .abbreviated, time: .shortened))."
+            }
+            return "This exact Debug build reported a successful launch over the private connection."
         case .verified:
             if let installedVersionLabel, let name = verifiedDevice?.name, !name.isEmpty {
                 return "\(installedVersionLabel) is installed on \(name)."
             }
             return "This version is installed on your iPhone."
         case .requested:
-            return "iOS opened the install prompt. Swift Sim will mark this Installed when a reachable Mac can verify the exact version."
+            return "iOS opened the install prompt. A reachable Apple device connection or an exact-build launch report can confirm the installation."
         case .differentVersion:
             if let installedVersionLabel {
                 return "\(installedVersionLabel) is installed. This link has Version \(conciseVersionLabel)."
@@ -1353,7 +1389,7 @@ private struct DeviceBuildView: View {
 
     private var installStatusSymbol: String {
         switch installationStatus {
-        case .verified: return "checkmark.circle.fill"
+        case .verified, .launchConfirmed: return "checkmark.circle.fill"
         case .requested: return "arrow.down.circle.fill"
         case .differentVersion: return "arrow.triangle.2.circlepath.circle.fill"
         case .notInstalled: return "iphone.and.arrow.forward"
@@ -1365,7 +1401,7 @@ private struct DeviceBuildView: View {
 
     private var installStatusColor: Color {
         switch installationStatus {
-        case .verified: return .green
+        case .verified, .launchConfirmed: return .green
         case .requested, .differentVersion, .notInstalled: return .blue
         case .unknown: break
         }
@@ -1453,6 +1489,7 @@ private struct ManagedAppRow: View {
 
     private var statusLabel: String {
         switch app.latestBuild?.installationStatus {
+        case .launchConfirmed: "Installed & launched"
         case .verified: "Installed"
         case .requested: "Install opened"
         case .differentVersion: "Update available"
@@ -1463,7 +1500,7 @@ private struct ManagedAppRow: View {
 
     private var appAccent: Color {
         switch app.latestBuild?.installationStatus {
-        case .verified: .green
+        case .verified, .launchConfirmed: .green
         case .requested, .differentVersion, .notInstalled: .blue
         default: .blue
         }
@@ -1594,12 +1631,24 @@ private struct LibraryActionBanner: View {
     let dismiss: () -> Void
 
     private var accent: Color {
-        notice.kind == .success ? .green : .red
+        switch notice.kind {
+        case .success: .green
+        case .error: .red
+        case .information: .blue
+        }
+    }
+
+    private var symbol: String {
+        switch notice.kind {
+        case .success: "checkmark.circle.fill"
+        case .error: "exclamationmark.triangle.fill"
+        case .information: "clock"
+        }
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: notice.kind == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+            Image(systemName: symbol)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(accent)
 

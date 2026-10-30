@@ -43,3 +43,5 @@ Public procedures use a controlled, direct style:
 - Do not report **Installed** until helper and device verification proves the exact version.
 
 Code identifiers, commands, API routes, Apple terms, and product names are technical terms. Do not simplify or rename them.
+
+- [Activity and notifications](NOTIFICATIONS.md): inbox, optional push, app handoff and remote launch history.

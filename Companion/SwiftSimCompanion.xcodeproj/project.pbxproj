@@ -17,6 +17,9 @@
 		000000000000000000000108 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000210 /* PrivacyInfo.xcprivacy */; };
 		000000000000000000000109 /* InstallationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000211 /* InstallationStateTests.swift */; };
 		00000000000000000000010A /* SwiftSimLatestRequestProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000212 /* SwiftSimLatestRequestProtocol.m */; };
+		00000000000000000000010B /* ActivityCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000213 /* ActivityCenter.swift */; };
+		00000000000000000000010C /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000214 /* ActivityView.swift */; };
+		00000000000000000000010D /* ActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000215 /* ActivityTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +37,9 @@
 		000000000000000000000210 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		000000000000000000000211 /* InstallationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallationStateTests.swift; sourceTree = "<group>"; };
 		000000000000000000000212 /* SwiftSimLatestRequestProtocol.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SwiftSimLatestRequestProtocol.m; sourceTree = "<group>"; };
+		000000000000000000000213 /* ActivityCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityCenter.swift; sourceTree = "<group>"; };
+		000000000000000000000214 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
+		000000000000000000000215 /* ActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,6 +89,8 @@
 				000000000000000000000204 /* SimulatorWebView.swift */,
 				000000000000000000000208 /* SimulatorStreamView.swift */,
 				000000000000000000000205 /* SessionStore.swift */,
+				000000000000000000000214 /* ActivityView.swift */,
+				000000000000000000000213 /* ActivityCenter.swift */,
 				000000000000000000000206 /* Info.plist */,
 				000000000000000000000207 /* SwiftSimCompanion.entitlements */,
 				000000000000000000000209 /* Assets.xcassets */,
@@ -104,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000211 /* InstallationStateTests.swift */,
+				000000000000000000000215 /* ActivityTests.swift */,
 			);
 			path = SwiftSimCompanionTests;
 			sourceTree = "<group>";
@@ -208,6 +217,8 @@
 				000000000000000000000104 /* SimulatorWebView.swift in Sources */,
 				000000000000000000000106 /* SimulatorStreamView.swift in Sources */,
 				000000000000000000000105 /* SessionStore.swift in Sources */,
+				00000000000000000000010C /* ActivityView.swift in Sources */,
+				00000000000000000000010B /* ActivityCenter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -216,6 +227,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000109 /* InstallationStateTests.swift in Sources */,
+				00000000000000000000010D /* ActivityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -354,6 +366,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SwiftSimCompanion/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Swift Sim";
+				SWIFT_SIM_APNS_ENVIRONMENT = development;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.6.1;
@@ -378,6 +391,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SwiftSimCompanion/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Swift Sim";
+				SWIFT_SIM_APNS_ENVIRONMENT = production;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.6.1;

@@ -120,13 +120,14 @@ test("classifier-first routing avoids live inspection for no-change and structur
 
 test("valid warm readiness uses only the engine status seam", async () => {
   const descriptor = { schemaVersion: 1, protocolVersion: "1", generation: 1, project: { path: "/tmp/Example.xcodeproj/project.pbxproj", root: "/tmp", scheme: "Example", availableSchemes: ["Example"], packageConfigured: true, interposableConfigured: true }, liveHost: "100.64.0.10", tailnet: { privateForwardConfigured: true, userspace: true }, engine: { sessionNonce: "engine-one", version: "0.4.0" }, compilerCapture: { path: "/tmp/compilations.json", missing: true }, configurationFingerprints: {} };
-  let statusCalls = 0; let deepCalls = 0;
+  let statusCalls = 0; let deepCalls = 0; let lockCalls = 0; let lockHeld = false;
   const result = await inspectLiveReloadWarm({ project: descriptor.project.path, scheme: "Example", runtime: {
+    lock: async (operation) => { lockCalls += 1; lockHeld = true; try { return await operation(); } finally { lockHeld = false; } },
     readDescriptor: () => ({ valid: true, descriptor }),
-    engineControl: async () => { statusCalls += 1; return { success: true, data: { watching_directories: ["/tmp"], has_connected_client: true, captured_compilations: 2, injection_state: "Ready" } }; },
+    engineControl: async () => { assert.equal(lockHeld, true); statusCalls += 1; return { success: true, data: { watching_directories: ["/tmp"], has_connected_client: true, captured_compilations: 2, injection_state: "Ready" } }; },
     deepInspect: async () => { deepCalls += 1; return { ready: false }; },
   } });
-  assert.equal(result.ready, true); assert.equal(result.readinessMode, "warm"); assert.equal(statusCalls, 1); assert.equal(deepCalls, 0);
+  assert.equal(result.ready, true); assert.equal(result.readinessMode, "warm"); assert.equal(statusCalls, 1); assert.equal(deepCalls, 0); assert.equal(lockCalls, 1); assert.equal(lockHeld, false);
 });
 
 

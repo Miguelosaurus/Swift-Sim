@@ -159,3 +159,6 @@ The repository is the source of truth for the helper, CLI, agent integrations, i
 Read [Contributing](CONTRIBUTING.md) before opening a pull request. Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through the private process in [Security Policy](SECURITY.md).
 
 Swift Sim is open source under the [Apache License 2.0](LICENSE).
+
+Activity updates and optional iPhone alerts cover ready builds, queued edits and
+confirmed results. See [notifications setup and proof limits](docs/NOTIFICATIONS.md).

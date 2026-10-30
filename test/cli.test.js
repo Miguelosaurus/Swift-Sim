@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -99,8 +100,9 @@ test("setup installs the bundled Codex marketplace and plugin", () => {
   try {
     const setup = spawnSync(process.execPath, [cli.pathname, "setup", "--skip-service", "--json"], {
       encoding: "utf8",
+      timeout: 20_000,
       env: {
-        ...process.env,
+        ...isolatedCliEnvironment(directory),
         FAKE_CODEX_STATE: join(directory, "state"),
         SWIFT_SIM_CODEX_COMMAND: fakeCodex,
         SWIFT_SIM_DISABLE_CURSOR: "1",
@@ -132,8 +134,9 @@ test("doctor reports stale Codex and Claude integrations", () => {
 
     const doctor = spawnSync(process.execPath, [cli.pathname, "doctor", "--json"], {
       encoding: "utf8",
+      timeout: 20_000,
       env: {
-        ...process.env,
+        ...isolatedCliEnvironment(directory),
         FAKE_CODEX_STATE: codexState,
         FAKE_CLAUDE_STATE: claudeState,
         FAKE_CODEX_PLUGIN_VERSION: "0.1.0",
@@ -163,8 +166,9 @@ test("setup installs the bundled Cursor skill", () => {
   try {
     const setup = spawnSync(process.execPath, [cli.pathname, "setup", "--skip-service", "--json"], {
       encoding: "utf8",
+      timeout: 20_000,
       env: {
-        ...process.env,
+        ...isolatedCliEnvironment(directory),
         SWIFT_SIM_CURSOR_COMMAND: "/usr/bin/true",
         SWIFT_SIM_CURSOR_SKILL_HOME: directory,
         SWIFT_SIM_DISABLE_CODEX: "1",
@@ -193,8 +197,9 @@ test("setup installs the bundled Claude Code marketplace and plugin", () => {
   try {
     const setup = spawnSync(process.execPath, [cli.pathname, "setup", "--skip-service", "--json"], {
       encoding: "utf8",
+      timeout: 20_000,
       env: {
-        ...process.env,
+        ...isolatedCliEnvironment(directory),
         FAKE_CLAUDE_STATE: join(directory, "state"),
         SWIFT_SIM_CLAUDE_COMMAND: fakeClaude,
         SWIFT_SIM_DISABLE_CODEX: "1",
@@ -219,8 +224,9 @@ test("setup installs the bundled OpenCode skill", () => {
   try {
     const setup = spawnSync(process.execPath, [cli.pathname, "setup", "--skip-service", "--json"], {
       encoding: "utf8",
+      timeout: 20_000,
       env: {
-        ...process.env,
+        ...isolatedCliEnvironment(directory),
         SWIFT_SIM_OPENCODE_COMMAND: "/usr/bin/true",
         SWIFT_SIM_OPENCODE_CONFIG_HOME: directory,
         SWIFT_SIM_DISABLE_CODEX: "1",
@@ -244,4 +250,44 @@ test("setup installs the bundled OpenCode skill", () => {
 
 function readJSON(path) {
   return JSON.parse(readFileSync(new URL(path, import.meta.url)));
+}
+
+
+test("notification CLI configures private credentials, reports sanitized state and disables sends", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-notifications-cli-"));
+  try {
+    const env = isolatedCliEnvironment(directory);
+    const keyPath = join(directory, "AuthKey-fixture.p8");
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    writeFileSync(keyPath, privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+    const run = (...args) => spawnSync(process.execPath, [cli.pathname, "notifications", ...args], { encoding: "utf8", env, timeout: 20_000 });
+    const initial = run("status");
+    assert.equal(initial.status, 0, initial.stderr);
+    assert.deepEqual(JSON.parse(initial.stdout), { configured: false, reason: "APNS_NOT_CONFIGURED" });
+    const configure = run("configure", "--key-file", keyPath, "--key-id", "ABCDEFGHIJ", "--team-id", "KLMNOPQRST", "--topic", "dev.fixture.Companion");
+    assert.equal(configure.status, 0, configure.stderr);
+    assert.equal(JSON.parse(configure.stdout).configured, true);
+    const status = run("status");
+    assert.equal(status.status, 0, status.stderr);
+    assert.deepEqual(JSON.parse(status.stdout), { configured: true });
+    assert.doesNotMatch(configure.stdout + status.stdout, /BEGIN PRIVATE KEY|AuthKey-fixture|ABCDEFGHIJ|KLMNOPQRST|dev.fixture.Companion/);
+    const disable = run("disable");
+    assert.equal(disable.status, 0, disable.stderr);
+    assert.deepEqual(JSON.parse(disable.stdout), { configured: false, reason: "APNS_DISABLED" });
+    assert.deepEqual(JSON.parse(run("status").stdout), { configured: false, reason: "APNS_DISABLED" });
+    assert.equal(run("configure", "--unknown", "secret").status, 1);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function isolatedCliEnvironment(directory) {
+  const isolatedHome = join(directory, "home");
+  const engine = join(isolatedHome, ".swift-sim", "engine");
+  const executableDirectory = join(engine, "InjectionNext.app", "Contents", "MacOS");
+  mkdirSync(executableDirectory, { recursive: true });
+  writeFileSync(join(executableDirectory, "InjectionNext"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  writeFileSync(join(engine, "manifest.json"), JSON.stringify({ version: "0.4.0", sha256: "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696" }), { mode: 0o600 });
+  const fixture = new URL("./fixtures/cli-isolation-preload.js", import.meta.url).href;
+  return { ...process.env, HOME: isolatedHome, XDG_CONFIG_HOME: join(directory, "config"), NODE_OPTIONS: `--import=${fixture}` };
 }

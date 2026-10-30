@@ -63,6 +63,18 @@ screenshot, or unrelated last-patch report is insufficient. Agents report the
 queued state and let the helper continue; they do not repeatedly inject the
 same edit or ask the user to keep a specific screen open.
 
+If the user requests an edit from ChatGPT on the same iPhone, the target app is
+naturally backgrounded. That is an ordinary wait, not evidence of broken
+reconnection. Submission and preparation remain independent of foreground
+execution. Return to the target app when ready and allow a few seconds for its
+connection and root to become ready; no specific screen is required and no
+fixed ten-second deadline is promised.
+
+Pending schema-2 status adds `prepared`, `normalWaiting`, `guidanceCode` and
+`requiredAppState`. `OPEN_TARGET_APP` is an informational handoff, while
+`WAIT_FOR_APPLICATION` and `WAIT_FOR_REFRESH` describe operations already past
+admission. Queued notifications and taps never establish successful application.
+
 ## Recovery and compatibility
 
 The helper owns queue processing after the requesting CLI exits. Mac sleep,
@@ -141,3 +153,6 @@ return, network interruption / return, helper restart with the app open, and
 termination / relaunch with queued work. Each scenario needs current-request
 compile/apply/refresh/revision proof and the visible change plus its proven
 removal. Local harnesses do not substitute for those phone observations.
+
+See [Activity and notifications](NOTIFICATIONS.md) for the inbox, optional APNs
+setup, explicit app-launch opt-in, Debug feedback and remote launch proof limits.
