@@ -677,6 +677,13 @@ export async function queuedLiveEngineControl(request, options = {}) {
   return engineControl(request, options);
 }
 
+export function validateQueuedLivePatchCoverage(record) {
+  if (classifyEditSet({ files: record.files.map((file) => ({ ...file, kind: "swift", status: "modified" })) }).route !== "hot-reload") throw Object.assign(new Error("The queued snapshot is not an implementation-only edit."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
+  for (const file of record.files) {
+    if (!generateDynamicReplacementSource({ source: file.afterSource, beforeSource: file.beforeSource, sourcePath: file.path, moduleName: "SwiftSimCoverageValidation" })) throw unsupportedReplacement();
+  }
+}
+
 export function prepareQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, "queued-artifacts") } = {}) {
   if (classifyEditSet({ files: record.files.map((file) => ({ ...file, kind: "swift", status: "modified" })) }).route !== "hot-reload") throw Object.assign(new Error("The queued snapshot is not an implementation-only edit."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
   ensureDirectoryModeSync(artifactRoot, 0o700);
@@ -687,6 +694,7 @@ export function prepareQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, 
   if (existsSync(path)) {
     const stats = lstatSync(path);
     if (!stats.isFile() || stats.isSymbolicLink() || (stats.mode & 0o077) !== 0 || previous?.key !== key || previous.requestId !== record.requestId || previous.snapshotDigest !== record.snapshotDigest) throw Object.assign(new Error("The queued artifact cannot be reused safely."), { code: "PATCH_ARTIFACT_INVALID" });
+    validateQueuedLivePatchCoverage(record);
     return { path, mode: "swift-dynamic-replacement-bundle" };
   }
   const entries = readdirSync(artifactRoot);

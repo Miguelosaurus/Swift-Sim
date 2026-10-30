@@ -68,11 +68,12 @@ Install**. Do not expose paths, device identifiers, signing identities,
 Tailnet names, ports, archives, or raw logs. Explain `needs-user-action` only
 with its returned action; do not mention `no-change`. Use `--verbose-json` only
 for an explicit diagnostic request.
+
+## Safety and lane boundaries
+
 When a signed build includes `rebuildReason`, explain that bounded file/member
 reason too. Distinguish existing storage/signature changes from current live
 compiler support limits; unsupported does not mean universally impossible.
-
-## Safety and lane boundaries
 
 Remote replacement is Debug-only and private-Tailnet-only. Compatible intent
 can be queued while the phone is locked, offline, on another app, or the Debug

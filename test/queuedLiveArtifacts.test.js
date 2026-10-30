@@ -17,6 +17,7 @@ function scenario(mode) {
   const script = `
     import fs from 'node:fs';
     import { syncBuiltinESMExports } from 'node:module';
+    import { createHash } from 'node:crypto';
     import { join,dirname } from 'node:path';
     import { NodeAtomicFileStore } from ${JSON.stringify(fileStoreModule)};
     const root=${JSON.stringify(root)};const mode=${JSON.stringify(mode)};const store=new NodeAtomicFileStore();
@@ -24,12 +25,19 @@ function scenario(mode) {
     const {prepareQueuedLivePatch,prepareQueuedLivePatchAsync,cleanupQueuedLiveArtifacts}=await import(${JSON.stringify(liveModule)});
     const live=join(root,'.swift-sim','live');fs.mkdirSync(live,{recursive:true,mode:0o700});
     const source=join(root,'Card.swift');
-    const before=mode==='worker-unsupported'?'class Probe { func sync() -> Int { 1 }; func asyncValue() async -> Int { 1 } }':'import SwiftUI\\nstruct Card: View { var body: some View { Text("old") } }';
-    const after=mode==='worker-unsupported'?before.replaceAll('{ 1 }','{ let local = 2; return local }'):before.replace('"old"','"new"');
+    const incomplete=['worker-unsupported','cached-incomplete'].includes(mode);
+    const before=incomplete?'class Probe { func sync() -> Int { 1 }; func asyncValue() async -> Int { 1 } }':'import SwiftUI\\nstruct Card: View { var body: some View { Text("old") } }';
+    const after=incomplete?before.replaceAll('{ 1 }','{ let local = 2; return local }'):before.replace('"old"','"new"');
     fs.writeFileSync(source,'struct Card { var unrelatedStoredState = 42 }');
     fs.writeFileSync(join(live,'compilations.json'),JSON.stringify({version:1,compilations:[{moduleName:'Fixture',sources:[source],workingDirectory:root,compilerArguments:[]}]}),{mode:0o600});
     const artifactRoot=join(live,'queued-artifacts');fs.mkdirSync(artifactRoot,{recursive:true,mode:0o700});
     const record={requestId:'fixture-request-one',snapshotDigest:'a'.repeat(64),scope:{binaryIdentity:'fixture-binary'},expiresAt:1000,files:[{path:source,beforeSource:before,afterSource:after}]};
+    if(mode==='cached-incomplete'){
+      const key=createHash('sha256').update(JSON.stringify([record.requestId,record.snapshotDigest,record.scope.binaryIdentity])).digest('hex');
+      const path=join(artifactRoot,'eval_injection_swift_sim_dynamic_'+key+'.dylib');
+      fs.writeFileSync(path,'legacy incomplete patch',{mode:0o600});
+      fs.writeFileSync(path+'.json',JSON.stringify({version:1,key,requestId:record.requestId,snapshotDigest:record.snapshotDigest,binaryIdentity:record.scope.binaryIdentity,expiresAt:1000}),{mode:0o600});
+    }
     if(mode==='quota'){const fd=fs.openSync(join(artifactRoot,'unrelated-existing-artifact'),'w');fs.ftruncateSync(fd,129*1024*1024);fs.closeSync(fd);}
     const count=()=>fs.existsSync(${JSON.stringify(counter)})?store.readTextSync(${JSON.stringify(counter)}).trim().split('\\n').length:0;
     let result;
@@ -87,4 +95,8 @@ test("insufficient patch volume headroom rejects allocation before compiler work
 
 test("async compiler worker preserves unsupported-mechanism reason before any partial compilation", () => {
   assert.deepEqual(scenario("worker-unsupported"), { code: "QUEUED_MECHANISM_UNSUPPORTED", compileCount: 0 });
+});
+
+test("cached legacy partial artifacts cannot bypass complete-replacement validation", () => {
+  assert.deepEqual(scenario("cached-incomplete"), { code: "QUEUED_MECHANISM_UNSUPPORTED", compileCount: 0 });
 });

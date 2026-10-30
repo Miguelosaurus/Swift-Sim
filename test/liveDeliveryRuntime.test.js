@@ -14,6 +14,19 @@ const firstEdit = original.replace('first: String { "old" }', 'first: String { "
 const secondEdit = firstEdit.replace('second: String { "old" }', 'second: String { "new" }');
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
+test("an older prepared artifact is revalidated before the applying barrier", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    f.adapter.validatePrepared = () => { throw Object.assign(new Error("legacy partial"), { code: "QUEUED_MECHANISM_UNSUPPORTED" }); };
+    const pending = await f.service.enqueue({ files: f.files() });
+    await f.service.runOnce(); await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.service.status(pending.delivery.requestId).reasonCode, "QUEUED_MECHANISM_UNSUPPORTED");
+    assert.equal(f.queue.get(pending.delivery.requestId).state, "failed");
+    assert.equal(f.calls.prepare.length, 1); assert.equal(f.calls.apply.length, 0);
+  } finally { f.cleanup(); }
+});
+
 test("unsupported complete replacement reports its actual limit without applying or retrying", async () => {
   const f = fixture();
   try {

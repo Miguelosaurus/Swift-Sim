@@ -34,6 +34,9 @@ could be omitted while supported methods produced a nonempty patch. The
 candidate rejects an incomplete representation before compilation/application;
 it never reports a supported subset as the complete logical update. The bounded
 compiler worker preserves an explicit `QUEUED_MECHANISM_UNSUPPORTED` result.
+Cached artifacts and previously prepared journal records without the current
+coverage/snapshot stamp are revalidated before admission; a legacy partial
+bundle cannot bypass the new completeness checks after an update.
 
 | Captured file | Classification | Replacement source generation |
 | --- | --- | --- |

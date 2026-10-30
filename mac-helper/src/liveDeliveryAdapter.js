@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { canonicalProjectPath } from "./liveSessionDescriptor.js";
 import { normalizedLiveBinaryIdentity, liveBinaryMatches } from "./liveBinaryIdentity.js";
-import { prepareQueuedLivePatchAsync, cleanupQueuedLiveArtifacts, queuedLiveEngineControl } from "./liveReload.js";
+import { prepareQueuedLivePatchAsync, cleanupQueuedLiveArtifacts, queuedLiveEngineControl, validateQueuedLivePatchCoverage, CLASSIFIER_VERSION } from "./liveReload.js";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 
 const LIVE_ROOT = join(homedir(), ".swift-sim", "live");
@@ -92,6 +92,9 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
   return Object.freeze({
     withLock: lock,
     cleanup: cleanupQueuedLiveArtifacts,
+    validatePrepared(record) {
+      if (!/^[a-f0-9]{64}$/.test(record.snapshotDigest || "") || record.preparedPatch?.coverageVersion !== CLASSIFIER_VERSION || record.preparedPatch?.sourceSnapshotDigest !== record.snapshotDigest) validateQueuedLivePatchCoverage(record);
+    },
     async binding({ project, scheme }) {
       const manifest = capture(); const scope = scopeFor(manifest);
       if ((project && canonicalProjectPath(project) !== scope.project) || (scheme && scheme !== scope.scheme)) throw deliveryError("LIVE_PROJECT_MISMATCH", "The live build belongs to a different project or scheme. Select the intended Debug integration; no rebuild was started.");
@@ -106,7 +109,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       const response = await control({ action: "prepare_dylib", path: raw.path }, { timeoutMs: 30_000 });
       const digest = response?.success ? response.data?.patch_digest : "";
       if (!/^[0-9a-f]{64}$/.test(digest) || hash(readFileSync(raw.path)) !== digest) throw deliveryError("PATCH_SIGNING_FAILED", "The queued patch could not be signed and verified. No app build or install was started.");
-      return { path: raw.path, patchDigest: digest, mode: raw.mode };
+      return { path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest };
     },
     async apply(record, observed, { cancellationSignal } = {}) {
       let result = await control(request(record, observed), { timeoutMs: 2_000 });

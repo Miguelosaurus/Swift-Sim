@@ -139,6 +139,11 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           }
           return { processed: true, requestId: record.requestId };
         }
+        try { await adapter.validatePrepared?.(record); }
+        catch (error) {
+          await queue.transition(record.requestId, { claimToken, state: "failed", reasonCode: safeCode(error?.code, "PATCH_ARTIFACT_INVALID") });
+          return { processed: true, requestId: record.requestId };
+        }
         // Recheck immediately before persisting the applying barrier. A client
         // reconnect or new executable cannot inherit a predecessor's mutation.
         const current = await adapter.inspect(record);
