@@ -97,3 +97,22 @@ No engine binary replacement is required; local qualified engine 0.5.1 remains.
 Separate Zenics evidence established build 28 installed and an existing queued
 revision applied after returning to the app. Force-quit restoration remains an
 unaccepted physical gate. The improvements here do not upgrade that proof.
+
+## Local activation completion
+
+Feature commit `e78228df4e6c898e2757a6dd3213d707f0174912` was pushed directly
+to Swift-Sim `main`. The native fork's reviewed ancestry was fast-forwarded to
+`43966021a3782af65ecc9e594c7e7a7e3cbf409e` on its `main`, without rewriting history
+or publishing an engine release. No PR remains for this work.
+
+The committed compiled helper was activated through the owned-process runtime
+reconciliation path. Health advertises both new capabilities. Live smoke checks:
+unauthenticated activity **401**, paired activity **200**, matching Mac identity,
+and the existing public install gateway activity endpoint **404**. APNs status
+remains explicitly **APNS_NOT_CONFIGURED**.
+
+Codex plugin `0.6.1+codex.20261030.1` is installed and enabled; all **12** packaged
+files match the installed cache. Engine **0.5.1** and its process were preserved,
+as was the existing install delivery process. The journal retains **7** requests,
+**3** confirmed records and **1** desired-state lane. No phone rebuild,
+installation, uninstall, simulator erase or app-data mutation was performed.
