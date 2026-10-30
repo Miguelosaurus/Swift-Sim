@@ -36,6 +36,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Preserve explicitly selected manual signing profiles and certificates during
+  IPA export, including push-enabled OTA updates without an Xcode account.
+
 - Register complete live compilation maps transactionally with bounded receipt
   recovery, and resume packaging a preserved signed Debug build without
   recompiling. Install creation uses generic iOS even when provisioning updates

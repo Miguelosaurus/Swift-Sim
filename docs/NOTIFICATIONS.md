@@ -60,6 +60,14 @@ The topic must match the Companion bundle ID. The Xcode build setting
 `SWIFT_SIM_APNS_ENVIRONMENT` selects development for Debug and production for
 Release; its entitlement and API-environment mapping must match the installed
 provisioning profile. Enable Notifications in the Companion for the paired Mac.
+When push is enabled for an existing App ID, regenerate the signing profile
+before the next signed update: older profiles do not contain its push
+entitlement. For direct OTA builds without a signed-in Xcode account, install a
+matching ad hoc profile and distribution identity, then pass explicit
+`CODE_SIGN_STYLE=Manual`, `PROVISIONING_PROFILE_SPECIFIER` and
+`CODE_SIGN_IDENTITY` build settings. Swift Sim preserves those selections during
+archive and export.
+
 Do not paste the key or device token into a chat. Configuration remains in the
 Mac's private `~/.swift-sim/notifications` directory. Disable new sends with
 `swift-sim notifications disable`.

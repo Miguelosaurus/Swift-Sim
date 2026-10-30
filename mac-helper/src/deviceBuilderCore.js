@@ -455,7 +455,7 @@ export async function runDeviceBuild(build, {
     saveBuild();
     log("Exporting signed IPA.");
     const exportOptionsPath = join(root, "ExportOptions.plist");
-    writeFileSync(exportOptionsPath, exportOptionsPlist(build), "utf8");
+    writeFileSync(exportOptionsPath, exportOptionsPlist(build, settings), "utf8");
     await runLogged("xcodebuild", [
       "-exportArchive",
       "-archivePath", archivePath,
@@ -1016,7 +1016,16 @@ function appendBoundedOutput(current, addition, maxCharacters = 1_000_000) {
   return combined.length <= maxCharacters ? combined : combined.slice(-maxCharacters);
 }
 
-function exportOptionsPlist(build) {
+export function exportOptionsPlist(build, resolvedSettings = {}) {
+  const overrides = Object.fromEntries((build.buildSettings || []).filter((value) => typeof value === "string" && value.includes("=")).map((value) => { const separator = value.indexOf("="); return [value.slice(0, separator), value.slice(separator + 1)]; }));
+  const settings = { ...overrides, ...resolvedSettings };
+  const manual = String(settings.CODE_SIGN_STYLE || build.signing?.style || "").toLowerCase() === "manual";
+  const profile = settings.PROVISIONING_PROFILE_SPECIFIER || settings.PROVISIONING_PROFILE || "";
+  if (manual && (!profile || !build.app.bundleIdentifier)) throw new DeviceBuildError("Manual signing requires a provisioning profile and the exact app bundle identifier before export.");
+  const certificate = settings.EXPANDED_CODE_SIGN_IDENTITY || settings.CODE_SIGN_IDENTITY || "";
+  const manualOptions = manual ? `<key>provisioningProfiles</key>
+  <dict><key>${escapeXml(build.app.bundleIdentifier)}</key><string>${escapeXml(profile)}</string></dict>
+  ${certificate ? `<key>signingCertificate</key><string>${escapeXml(certificate)}</string>` : ""}` : "";
   const teamID = build.app.teamID ? `<key>teamID</key>\n  <string>${escapeXml(build.app.teamID)}</string>` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1025,7 +1034,8 @@ function exportOptionsPlist(build) {
   <key>method</key>
   <string>${escapeXml(build.exportMethod || "development")}</string>
   <key>signingStyle</key>
-  <string>automatic</string>
+  <string>${manual ? "manual" : "automatic"}</string>
+  ${manualOptions}
   <key>stripSwiftSymbols</key>
   <true/>
   <key>compileBitcode</key>
