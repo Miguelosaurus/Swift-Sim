@@ -1,9 +1,9 @@
 # Local binding classifier qualification — 2026-10-30
 
-Status: candidate implementation; physical application/refresh and baseline
-restore are pending. The installed helper/CLI remain on reviewed main while this
-candidate is held in the task checkout. No permissive cutover is authorized by
-the compiler or host-native results alone.
+Status: physical application, root refresh and baseline restoration qualified on
+2026-10-30. The same exact signed Debug binary/process acknowledged revisions
+0 → 1 → 2 without a new installation. Compiler and host-native checks were
+completed before the separate physical acceptance below.
 
 ## Reconciled agent feedback
 
@@ -94,9 +94,10 @@ Logs: `/tmp/swift-sim-local-scopes-final-reviewed-gate.log` and
 `/tmp/swift-sim-local-scopes-final-extra-compiled.log`.
 
 The subsequent checkpoint only clarifies packaged guidance and records these
-results. Candidate Codex integration `0.6.1+codex.20261030.2` is prepared but is
-not installed; the production checkout remains on `3919e39` while the physical
-gate below is pending. No new signed Companion build is required by this change.
+results. The production checkout stayed on `3919e39` and Codex integration
+`0.6.1+codex.20261030.1` until the separate physical gate below passed.
+The matching integration update is `0.6.1+codex.20261030.2`.
+No new signed Companion build is required by this change.
 
 ## Physical boundary and retained failed attempt
 
@@ -109,13 +110,39 @@ policy rejection; the candidate worker now preserves recognized typed causes.
 The candidate was then exercised in a separate qualification queue using the
 existing exact signed Debug capture and normal native identity/revision gates.
 Its temporary ContentView edit contains the binding forms above and changes the
-Library tab label to `Library ✓`. The patch compiled and was prepared, but is
+Library tab label to `Library ✓`. The patch compiled and was prepared while
 waiting for the phone. The app's source file on disk remains byte-identical to
 the original; immutable snapshots hold the temporary test.
 
-Before enabling the candidate or updating its packaged instructions, require a
-matching applied replacement, root refresh, increased revision and a separately
-proven restoration of the original label. Preserve every valid failed physical
-attempt. Neither an APNs receipt, generated source, compiled patch nor the native
-host test closes this physical gate. Private queue/artifact receipts remain in
-the ignored `.build/local-declaration-proof-20261030/` qualification directory.
+Acceptance required a matching applied replacement, root refresh, increased
+revision and a separately proven restoration of the original label. Every valid
+failed attempt remains preserved. Neither APNs acceptance, generated source,
+compiled patch nor the native host test substituted for this physical gate.
+Private queue/artifact receipts remain in the ignored
+`.build/local-declaration-proof-20261030/` qualification directory.
+
+## Physical acceptance — 2026-10-30 21:02 UTC
+
+After the user returned to Zenics, the qualification queue rebound to the
+authenticated current process. Its first patch reached **applied and refreshed
+at revision 1**, from baseline 0. The production adapter required a matching
+request/digest, exact binary and process identity, nonzero native replacements,
+refresh acknowledgement and increased root revision before persisting this
+proof. An auxiliary receipt read immediately afterward found the client briefly
+unavailable. That unsuccessful read was retained; no mutation was retried and
+the already-verified application was not manufactured from that read.
+
+The separately queued original-source restoration then completed in the **same
+binary and same process**, from baseline 1 to **revision 2**. Its captured native
+report records **one replacement, applied true and refresh acknowledged true**.
+Both application proofs are retained in the private qualification journal; the
+restore report was captured during the actual operation. These are physical
+Debug application/refresh results, not a visual assertion from a screenshot.
+
+The app's source remains byte-identical to the qualified original. The isolated
+test's desired state was revoked through the ordinary API, leaving an empty
+revocation tombstone so the temporary label cannot be restored on a later
+launch. The original failed compatibility attempt and auxiliary read failure
+remain in evidence. This closes the scoped implementation-local binding gate;
+it does not enable imports, additive declarations or unsupported async forms,
+or establish general restart/offline-persistence acceptance.
