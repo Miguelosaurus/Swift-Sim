@@ -22,6 +22,31 @@ export function readQualifiedLaunchCapture(path) {
   return capture;
 }
 
+// One bounded observation cache per helper reader. Recheck private path metadata
+// on every call; retain a full-file digest so even non-projected drift fences
+// an in-flight native observation. No cached view authorizes a store mutation.
+export function createQualifiedLaunchCaptureReader(path) {
+  let cached;
+  function version() {
+    const directory = lstatSync(dirname(path)); const file = lstatSync(path);
+    if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o077)
+      || !file.isFile() || file.isSymbolicLink() || file.nlink !== 1 || (file.mode & 0o077)
+      || file.size > 8 * 1024 * 1024
+      || (process.getuid && (file.uid !== process.getuid() || directory.uid !== process.getuid()))) throw invalidCapture();
+    return [file.dev, file.ino, file.size, file.mtimeMs, file.ctimeMs, file.mode, file.uid].join(":");
+  }
+  return () => {
+    const current = version();
+    if (cached?.version === current) return structuredClone(cached.value);
+    const full = readQualifiedLaunchCapture(path);
+    if (version() !== current) throw invalidCapture();
+    const { version: schema, binaryIdentity, binding, sourceBaselines, registration } = full;
+    const value = { version: schema, binaryIdentity, binding, sourceBaselines, registration, observationDigest: hash(full) };
+    cached = { version: current, value };
+    return structuredClone(value);
+  };
+}
+
 export function createRemoteLaunchVerifier({ listBuilds, readCapture, inspectClient, saveConfirmation, now = () => Date.now() } = {}) {
   for (const dependency of [listBuilds, readCapture, inspectClient, saveConfirmation, now]) if (typeof dependency !== "function") throw new TypeError("Remote launch verification requires explicit trusted observation dependencies.");
   let running;

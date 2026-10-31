@@ -64,7 +64,7 @@ import { queuedLiveEngineControl } from "../src/liveReload.js";
 import { createActivityStore } from "../src/activityStore.js";
 import { createActivityService } from "../src/activityService.js";
 import { handleActivityRoutes } from "../src/http/activityRoutes.js";
-import { createRemoteLaunchVerifier, readQualifiedLaunchCapture } from "../src/remoteLaunchVerification.js";
+import { createRemoteLaunchVerifier, createQualifiedLaunchCaptureReader } from "../src/remoteLaunchVerification.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 import { createDeviceBuildArtifactAuditCompatibility } from "../src/deviceBuildArtifactAuditCompatibility.js";
 import {
@@ -224,7 +224,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   });
   remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
     listBuilds: () => deviceBuildStore.list(),
-    readCapture: () => readQualifiedLaunchCapture(join(homedir(), ".swift-sim", "live", "compilations.json")),
+    readCapture: createQualifiedLaunchCaptureReader(join(homedir(), ".swift-sim", "live", "compilations.json")),
     inspectClient: async (capture) => {
       const status = await queuedLiveEngineControl({ action: "status" }, { timeoutMs: 1_200 });
       if (!status?.success || status.data?.has_connected_client !== true) return { status, registration: null };

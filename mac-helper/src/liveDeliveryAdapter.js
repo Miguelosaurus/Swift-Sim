@@ -12,16 +12,28 @@ const LIVE_ROOT = join(homedir(), ".swift-sim", "live");
 const REQUIRED_CAPABILITIES = ["prepared-delivery-v1", "receipt-v1", "replacement-proof-v2"];
 
 export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "compilations.json"), control = queuedLiveEngineControl, compile = prepareQueuedLivePatchAsync, lock = withLiveEngineLifecycleLock, now = () => Date.now(), wait = (ms) => new Promise((done) => setTimeout(done, ms)) } = {}) {
-  function capture() {
-    let value;
+  let inspectionCache;
+  function captureVersion() {
+    const stats = lstatSync(manifestPath);
+    if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1 || (stats.mode & 0o077) !== 0 || stats.size > 8 * 1024 * 1024 || (process.getuid && stats.uid !== process.getuid())) throw new Error();
+    return [stats.dev, stats.ino, stats.size, stats.mtimeMs, stats.ctimeMs, stats.mode, stats.uid].join(":");
+  }
+  function capture(inspection = false) {
     try {
-      const stats = lstatSync(manifestPath);
-      if (!stats.isFile() || stats.isSymbolicLink() || (stats.mode & 0o077) !== 0 || stats.size > 8 * 1024 * 1024 || (process.getuid && stats.uid !== process.getuid())) throw new Error();
-      value = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const version = captureVersion();
+      if (inspection && inspectionCache?.version === version) return inspectionCache.value;
+      const value = JSON.parse(readFileSync(manifestPath, "utf8"));
       normalizedLiveBinaryIdentity(value.binaryIdentity);
       if (!value.binding?.projectPath || !value.binding.scheme || !value.binding.projectRoot || !value.sourceBaselines) throw new Error();
+      if (captureVersion() !== version) throw new Error();
+      // Observation only; explicit delivery binding always reads full authority.
+      if (inspection) {
+        const projected = { binaryIdentity: value.binaryIdentity, binding: value.binding };
+        inspectionCache = { version, value: projected };
+        return projected;
+      }
+      return value;
     } catch { throw deliveryError("LIVE_BINARY_PROVENANCE_REQUIRED", "This Debug installation needs the updated live SDK and exact build provenance before edits can be queued. Complete its one-time Debug bootstrap; no rebuild was started."); }
-    return value;
   }
   function scopeFor(manifest, sessionIdentity = "pending-client") {
     const identity = normalizedLiveBinaryIdentity(manifest.binaryIdentity);
@@ -33,7 +45,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     };
   }
   async function inspect(record) {
-    const manifest = capture();
+    const manifest = capture(true);
     const expectedScope = scopeFor(manifest);
     if (!["project", "scheme", "appIdentity", "binaryIdentity"].every((key) => record.scope[key] === expectedScope[key])) return { engineAvailable: false, matchesBinary: false };
     const response = await control({ action: "status" });

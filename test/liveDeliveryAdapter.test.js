@@ -5,6 +5,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLiveDeliveryAdapter } from "../mac-helper/src/liveDeliveryAdapter.js";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { replacementCoverageDigest } from "../mac-helper/src/replacementProof.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -206,5 +207,26 @@ test("v3 no-effect retry cannot discard uncertain or mismatched callback coverag
       f.setResult({ success: true, data: { state: "rejected-no-effect", report: { ...report, ...mutation } } });
       assert.equal(await f.adapter.apply(f.record, observed), null, JSON.stringify(mutation));
     }
+  } finally { f.cleanup(); }
+});
+
+
+test("inspection cache observes native status every turn and never masks capture changes or permissions", async () => {
+  const f = await fixture();
+  try {
+    const prior = f.calls.filter(c => c.action === "status").length;
+    for (let i = 0; i < 30; i++) await f.adapter.inspect(f.record);
+    assert.equal(f.calls.filter(c => c.action === "status").length - prior, 30);
+    f.status.has_connected_client = false;
+    assert.equal((await f.adapter.inspect(f.record)).connected, false);
+    chmodSync(f.manifestPath, 0o644);
+    await assert.rejects(f.adapter.inspect(f.record), { code: "LIVE_BINARY_PROVENANCE_REQUIRED" });
+    chmodSync(f.manifestPath, 0o600);
+    const manifest = new NodeAtomicFileStore().readJSONSync(f.manifestPath);
+    manifest.binaryIdentity = { ...identity, build_number: "999" };
+    writeFileSync(f.manifestPath, JSON.stringify(manifest));
+    assert.equal((await f.adapter.inspect(f.record)).matchesBinary, false);
+    manifest.sourceBaselines = null; writeFileSync(f.manifestPath, JSON.stringify(manifest));
+    await assert.rejects(f.adapter.binding({}), { code: "LIVE_BINARY_PROVENANCE_REQUIRED" });
   } finally { f.cleanup(); }
 });

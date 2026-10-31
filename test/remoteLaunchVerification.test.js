@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { DeviceBuildStore } from "../mac-helper/src/deviceBuildStore.js";
 import { DeviceBuildStore as CoreStore } from "../mac-helper/src/deviceBuildStoreCore.js";
-import { createRemoteLaunchVerifier, readQualifiedLaunchCapture } from "../mac-helper/src/remoteLaunchVerification.js";
+import { createRemoteLaunchVerifier, readQualifiedLaunchCapture, createQualifiedLaunchCaptureReader } from "../mac-helper/src/remoteLaunchVerification.js";
 import { publicDeviceBuild } from "../mac-helper/src/deviceBuilderCore.js";
 
 const fixtureFiles = new NodeAtomicFileStore();
@@ -166,4 +166,41 @@ test("qualified capture reads reject public permissions, links and corrupted pro
     writeFileSync(path, JSON.stringify(f.capture)); const before = fixtureFiles.readTextSync(path);
     assert.throws(() => readQualifiedLaunchCapture(path)); assert.deepEqual(fixtureFiles.readTextSync(path), before);
   } finally { f.cleanup(); }
+});
+
+
+test("qualified observation cache stays compact, detached and invalidates on all capture drift", () => {
+  const f = fixture(); const path = join(f.root, "cached-capture.json");
+  try {
+    const full = { ...f.capture, compilations: [{ arguments: ["x".repeat(1024 * 1024)] }] };
+    writeFileSync(path, JSON.stringify(full), { mode: 0o600 });
+    const read = createQualifiedLaunchCaptureReader(path); const first = read();
+    assert.equal(first.compilations, undefined); assert(JSON.stringify(first).length < 16_384);
+    first.registration.mapDigest = "caller mutation";
+    for (let i = 0; i < 30; i++) assert.equal(read().registration.mapDigest, f.capture.registration.mapDigest);
+    full.compilations[0].arguments[0] = "other arguments";
+    writeFileSync(path, JSON.stringify(full));
+    assert.notEqual(read().observationDigest, first.observationDigest, "non-projected file drift still fences native verification");
+    chmodSync(path, 0o644); assert.throws(read); chmodSync(path, 0o600);
+    const alias = join(f.root, "capture-hardlink.json"); linkSync(path, alias); assert.throws(read); unlinkSync(alias);
+    full.sourceBaselines[Object.keys(full.sourceBaselines)[0]] = "corrupt";
+    writeFileSync(path, JSON.stringify(full)); assert.throws(read);
+  } finally { f.cleanup(); }
+});
+
+test("cached capture reader preserves launch confirmation and rejects drift during native inspection", async () => {
+  for (const drift of [false, true]) {
+    const f = fixture(); const path = join(f.root, "observed-capture.json");
+    try {
+      const full = { ...f.capture, compilations: [{ arguments: ["original arguments"] }] };
+      writeFileSync(path, JSON.stringify(full), { mode: 0o600 });
+      const service = createRemoteLaunchVerifier({ ...f.options, readCapture: createQualifiedLaunchCaptureReader(path),
+        inspectClient: async () => {
+          if (drift) { full.compilations[0].arguments[0] = "changed arguments"; writeFileSync(path, JSON.stringify(full)); }
+          return structuredClone(f.native);
+        } });
+      assert.equal((await service.runOnce()).changed, !drift);
+      assert.equal(f.saves(), drift ? 0 : 1);
+    } finally { f.cleanup(); }
+  }
 });
