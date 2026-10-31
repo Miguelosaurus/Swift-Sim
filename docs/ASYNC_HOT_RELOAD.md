@@ -11,7 +11,7 @@ navigate to the changed screen later to see the result.
 
 This workflow requires the matching reconnect SDK, prepared-delivery engine,
 and helper capability. The reviewed SDK is pinned in `Package.swift`. The
-engine implementation is a qualified **local 0.5.1 candidate**, not a published
+engine implementation is a qualified **local 0.5.2 candidate**, not a published
 binary release. The public installer still defaults to engine 0.4.0. An older
 engine/client/helper must report an explicit update requirement; reconnecting
 alone cannot add a missing protocol capability.
@@ -21,6 +21,30 @@ explicit archive checksum, preserves owner-only configuration, and verifies
 the app signature before installation. No background updater or public
 candidate download is implied. First bootstrap requires one new signed Debug
 SDK installation; subsequent compatible edits do not reinstall the app.
+
+## Complete replacement coverage
+
+The local engine advertises complete receipt protocol 3 and the Debug SDK
+advertises `replacement-proof-v3`. This needs one matching signed Debug SDK
+update. Each prepared request binds a bounded canonical coverage digest to its
+immutable source and signed artifact. Swift replacements have exact counts;
+Objective-C callbacks separately prove the exact class-owned selector, ABI,
+changed implementation, generated alias and loaded patch image. A nonempty
+dylib or matching total cannot hide a missing changed member.
+
+Success requires matching request, patch/coverage digests, attempt, binary and
+process, complete native evidence, refresh acknowledgement and increased root
+revision. Private journals retain the bounded coverage receipt; compact user
+status exposes no runtime addresses or source details. New aliases are unique
+per generation, including restoration. Any unproven effect after loading stays
+uncertain; it is never converted into a safe retry. Suspended tasks and escaped
+closures retain their original generation. They are not migrated by refresh.
+
+The [mixed Swift/UIKit phone qualification](evidence/CALLBACK_RECEIPTS_V3_PHONE_2026_10_30.md)
+verified seven Swift replacements and one exact UIKit callback, followed by
+restoration in the same installed Debug binary and process through normal delivery.
+This is per-member replacement and refresh evidence; it does not claim every
+application method was independently invoked or every lifecycle scenario passed.
 
 ## Request and status
 
@@ -44,8 +68,9 @@ Local constants, mutable variables and pattern bindings inside an existing
 implementation belong to that body, rather than the object's stored layout.
 Stored properties, signatures and nominal declarations retain rebuild fences.
 The live compiler must represent every changed implementation in one complete
-replacement; unsupported async or unrecognized member forms reject the whole
-patch before application with `QUEUED_MECHANISM_UNSUPPORTED`. That is a current
+replacement. Whole supported async/throws bodies, generic members, accessors
+and UIKit callbacks use compiler-backed syntax generation. Unrecognized forms
+reject the whole patch before application with `QUEUED_MECHANISM_UNSUPPORTED`. That is a current
 compiler-support limit, not a claim that all such changes are impossible.
 
 Signed-build outcomes may include an optional `rebuildReason` explaining the

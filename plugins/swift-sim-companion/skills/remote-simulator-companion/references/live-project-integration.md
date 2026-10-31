@@ -38,12 +38,13 @@ branch. Never force a different linker for every project or change Release.
 
 Implementation bodies, SwiftUI layout/modifier changes, computed helpers,
 generic/parameterized functions, accessors, actor/extension members, UIKit
-callbacks, and supported interposition can be live. Imports, added helper/type declarations,
+callbacks, and qualified replacement can be live. Imports, added helper/type declarations,
 stored state, signatures, macros, resources, packages, build settings,
 Info.plist, capabilities, entitlements, signing, and mixed edits rebuild.
 Implementation-local bindings do not change existing-instance storage. The live
-compiler still needs complete support for every changed member. An unsupported
-async/unrecognized implementation rejects the entire prepared patch; it cannot
+compiler represents whole callable bodies, including supported async/throws,
+generic, accessor and callback forms. Exact signature/isolation and all-member
+coverage are required. An unsupported implementation rejects the entire patch; it cannot
 be silently skipped while other members are reported applied.
 
 Require current-request compile/load proof, `applied: true` where applicable,
@@ -56,7 +57,7 @@ applications are never retried.
 ## Asynchronous edits
 
 The reconnect SDK and prepared-delivery engine are a matching contract. The
-current engine 0.5.1 is a qualified local candidate; public setup still defaults
+current engine 0.5.2 is a qualified local candidate; public setup still defaults
 to 0.4.0. A reachable old engine, SDK, or helper must return an explicit update
 requirement. Complete one Debug SDK bootstrap when the matching candidate is
 activated; do not repeatedly rebuild because a device is temporarily absent.
@@ -86,3 +87,14 @@ device-local patch cache or guaranteed suppression of stale startup frames.
 Use `live-desired-revoke --project <project> --scheme <scheme>` (or
 `--workspace`) only when the user wants to stop restoration for that Debug
 binary. Revocation cannot unload a patch from the current process.
+
+## Complete mixed replacement receipts
+
+The local 0.5.2 engine negotiates `replacement-proof-v3`. Its matching Debug SDK
+requires one signed bootstrap update. Swift replacement totals remain honest;
+Objective-C callbacks carry separate exact class/selector/ABI and loaded-image
+implementation evidence. Every changed member must be covered, with the same
+request, signed digest, claim attempt, binary/process, refresh ACK and increased
+revision. Old receipt-v2 installations require an explicit update for this path.
+Generated callback aliases are unique for each patch and restoration. Stored
+layout, signatures, imports and additive declarations keep their rebuild fences.

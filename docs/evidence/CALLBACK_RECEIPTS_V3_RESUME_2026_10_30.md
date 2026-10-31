@@ -1,5 +1,10 @@
 # Callback receipts v3 — restart handoff
 
+**Resumed and qualified:** the matching SDK/engine, complete normal delivery,
+and eight-member iPhone application/restoration are now verified. See the
+[completed qualification](CALLBACK_RECEIPTS_V3_PHONE_2026_10_30.md). The remainder
+of this file preserves the historical pause checkpoint and its then-open gates.
+
 Status: **paused at Miguel's request before any installed engine/helper or phone
 bootstrap update**. Resume in this Codex chat. This is an incomplete feature
 checkpoint, not normal-delivery activation or full Swift/UIKit phone acceptance.

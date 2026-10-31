@@ -2468,17 +2468,25 @@ async function stopLiveEngine() {
   if (existsSync(ENGINE_PID)) {
     const pid = Number(readFileSync(ENGINE_PID, "utf8").trim());
     if (Number.isInteger(pid) && pid > 1) {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // A stale PID file is harmless.
-      }
-      await delay(300);
+      await stopLiveEngineProcess(pid);
     }
   }
   rmSync(ENGINE_PID, { force: true });
   rmSync(ENGINE_SESSION, { force: true });
   rmSync(ENGINE_SOCKET, { force: true });
+}
+
+export async function stopLiveEngineProcess(pid, { kill = (target, signal) => process.kill(target, signal), wait = delay,
+  now = () => Date.now(), timeoutMs = 2_000 } = {}) {
+  try { kill(pid, "SIGTERM"); }
+  catch (error) { if (error?.code === "ESRCH") return; throw error; }
+  const deadline = now() + timeoutMs;
+  while (true) {
+    try { kill(pid, 0); }
+    catch (error) { if (error?.code === "ESRCH") return; throw error; }
+    if (now() >= deadline) throw Object.assign(new Error("The prior live engine has not exited. Its ownership records and installation were preserved; no replacement engine was started."), { code: "LIVE_ENGINE_STOP_UNCONFIRMED" });
+    await wait(50);
+  }
 }
 
 function resolveSigningIdentity(projectPath) {

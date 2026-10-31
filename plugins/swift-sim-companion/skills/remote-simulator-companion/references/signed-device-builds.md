@@ -34,7 +34,7 @@ same registration operation, and finishes packaging without recompiling or
 incrementing its build number. Never patch `compilerReady`/`ready` manually,
 retry an ambiguous native application, or start another full build merely for
 a pending compiler receipt. Changed or unsafe preserved inputs stop recovery.
-The qualified local 0.5.1 engine supports this path; public setup still defaults
+The qualified local 0.5.2 engine supports this path; public setup still defaults
 to 0.4.0. Install creation uses generic iOS, independently of phone proximity.
 
 

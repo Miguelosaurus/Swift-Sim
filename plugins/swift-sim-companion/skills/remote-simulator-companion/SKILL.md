@@ -86,7 +86,10 @@ firewall. Keep bundle identifier, signing team, entitlements, and app-data
 identity for signed fallbacks; never uninstall first.
 
 Implementation bodies, SwiftUI layout/modifier changes, computed helpers,
-supported accessors, UIKit callbacks, and supported interposition can be live.
+supported accessors, whole async/throwing bodies, and UIKit callbacks can be live.
+The matching receipt-v3 SDK proves every Swift replacement and exact callback
+class/selector/implementation mapping. Existing suspended tasks keep their old
+code generation; a root refresh does not migrate them.
 Local `let`/`var` and pattern bindings inside existing implementation bodies are
 implementation edits. Existing-instance stored layout remains fixed. A queued
 compiler must represent every changed implementation; unsupported forms reject
