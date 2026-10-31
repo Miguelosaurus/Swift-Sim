@@ -238,3 +238,51 @@ Private metrics, copied-catalog benchmarks, finite sampler and ownership notes
 are in `.build/helper-memory-round3/` in the task checkout. Full check log:
 `/tmp/swift-sim-memory-round3-check.log`. The cold-start peak can still exceed
 steady idle memory, and larger real workloads can legitimately use more RAM.
+
+## October 31: purpose-specific background read views
+
+Source commit `fdebd81` removes two remaining full-catalog copies without
+changing timers or public API schemas. Notification discovery now projects its
+required fields inside the store's existing locked read, before detached
+cloning. It retains the last diagnostic line used by failure classification,
+app launch identity/action fields and all retained build IDs. Keeping IDs past
+the first 500 avoids falsely classifying an older retained build as removed.
+
+Install verification applies its existing eligibility selector inside that same
+read boundary and copies only active candidates. The coordinator checks the
+same selector again before verification; active candidates retain their full
+records, ordering and deadline semantics. Legacy and SQLite stores both use
+their existing routed `readOnly` transaction. No persistent state is migrated.
+
+Forty notification-input reads against identical private copies of the real
+catalog produced identical notification event hashes. The detached input fell
+from **3,780,921 bytes to 34,789 bytes (99.1% less)**. Median read latency fell
+from **4.72 ms to 2.80 ms**, and p95 from **5.94 ms to 4.45 ms**. Kernel footprint
+after the same workload and ten-second idle delay fell from **121.0 MiB to
+58.8 MiB**. Those isolated process measurements are not a whole-helper limit.
+
+Full gates passed: **1,269 source tests, 720 compiled tests and two hermetic
+tests**, plus package archive installation checks. The final affected files
+also passed fresh architecture, syntax, types, formatting and lint checks.
+Focused source and compiled checks exercise notification event parity,
+launch-action parity, older retained build existence, active candidate order
+and time-dependent eligibility. No newly displayed phone push was used as
+proof; notification delivery semantics and polling intervals are unchanged.
+
+The old helper's 24 physical-footprint samples had a **146.6 MiB median**, with
+**130.1–149.3 MiB range**. The updated helper was installed only after confirming
+no active builds, streams or live claims. The whole-helper after measurement
+uses the same finite sampler after startup warm-up, without forced GC or heap
+limits. Cold-start memory remains separate from the controlled workload.
+
+The replacement's 24 samples had a **90.5 MiB median**, a **38.2% reduction**
+from this pass's baseline. Its range was **72.5–224.4 MiB**, including an early
+high reading; the cold-start peak was about 254 MB. This is a bounded actual
+physical-footprint result, not an allocation-only claim or a universal ceiling.
+
+All six previously listed workflow files remained byte-identical. The helper
+remains running to provide normal hot reload and notifications. Temporary
+benchmark children and samplers are finite task resources; no watcher, login
+item, phone install or native-engine change was introduced. Private benchmark
+inputs, metrics and lifecycle notes are retained under
+`.build/helper-memory-round4/`. Check log: `/tmp/swift-sim-memory-round4-check.log`.
