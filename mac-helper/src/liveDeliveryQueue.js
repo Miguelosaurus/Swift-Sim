@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "./infrastructure/nodeLockManager.js";
+import { verifyReplacementProofReceipt } from "./replacementProof.js";
 
 export const LIVE_DELIVERY_QUEUE_SCHEMA = 1;
 export const LIVE_DELIVERY_STATES = Object.freeze([
@@ -513,6 +514,7 @@ function assertJournalPublicationCapacity(journal, time) {
   let receiptReserve = 0;
   for (const record of candidates) {
     receiptReserve += 1024 + 2 * Buffer.byteLength(JSON.stringify({ requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, patchDigest: record.preparedPatch?.patchDigest || "0".repeat(64) }));
+    if (record.preparedPatch?.replacementProof) receiptReserve += 2 * 65_536;
   }
   for (const record of lanes.values()) {
     const previous = projected.desiredStates.find((item) => sameBinaryScope(item.scope, record.scope));
@@ -592,6 +594,9 @@ function validateProof(record, proof, refreshed) {
     || !Number.isSafeInteger(proof.revision) || proof.revision <= record.baselineRevision
     || (refreshed && proof.refreshed !== true)
     || (record.preparedPatch.patchDigest && proof.patchDigest !== record.preparedPatch.patchDigest)) throw queueError("QUEUE_PROOF_INVALID");
+  if (record.preparedPatch.replacementProof && (Buffer.byteLength(JSON.stringify(proof.replacementCoverage || {})) > 65_536
+    || !verifyReplacementProofReceipt({ expected: record.preparedPatch.replacementProof, report: proof.replacementCoverage,
+      attemptId: record.applyClaimToken || record.claim?.token }))) throw queueError("QUEUE_PROOF_INVALID");
 }
 function validateJournal(journal) {
   if (!journal || journal.schemaVersion !== 1 || !Number.isSafeInteger(journal.nextSequence)

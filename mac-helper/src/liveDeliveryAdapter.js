@@ -101,6 +101,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       patchDigest: record.preparedPatch.patchDigest, applied: true,
       refreshed: report.refreshed === true && report.refresh_acknowledged === true,
       revision: report.root_revision,
+      ...(expectedCoverage ? { replacementCoverage: privateCoverageReceipt(report) } : {}),
     };
   }
   return Object.freeze({
@@ -159,3 +160,11 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
 
 function hash(value) { return createHash("sha256").update(value).digest("hex"); }
 function deliveryError(code, message) { return Object.assign(new Error(message), { code }); }
+function privateCoverageReceipt(report) {
+  const fields = ["replacement_proof_version", "coverage_digest", "attempt_id", "expected_swift_replacements", "dynamic_replacements",
+    "objc_replacements", "represented_replacements", "complete_replacement_coverage"];
+  const callbackFields = ["class_name", "selector", "replacement_selector", "type_encoding", "verified", "owns_selector",
+    "implementation_matches", "encoding_matches", "implementation_in_patch", "previous_implementation_changed"];
+  return { ...Object.fromEntries(fields.map(key => [key, report[key]])),
+    objc_callback_proofs: report.objc_callback_proofs.map(callback => Object.fromEntries(callbackFields.map(key => [key, callback[key]]))) };
+}

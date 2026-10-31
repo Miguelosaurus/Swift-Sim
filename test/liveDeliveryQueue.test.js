@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { createLiveDeliveryQueue } from "../mac-helper/src/liveDeliveryQueue.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../mac-helper/src/infrastructure/nodeLockManager.js";
+import { replacementCoverageDigest } from "../mac-helper/src/replacementProof.js";
 
 const scope = { project: "fixture-project", scheme: "Example", appIdentity: "app-signing-identity", binaryIdentity: "binary-uuid", sessionIdentity: "process-epoch" };
 const sources = [{ path: "Card.swift", beforeSource: 'struct Card { var title: String { "old" } }', afterSource: 'struct Card { var title: String { "new" } }' }];
@@ -36,6 +37,27 @@ async function begin(f, requestId = "request-1", currentRevision = 0) {
   return claim.claim.token;
 }
 function proof(requestId = "request-1", revision = 1, refreshed = true) { return { requestId, sessionIdentity: scope.sessionIdentity, binaryIdentity: scope.binaryIdentity, applied: true, refreshed, revision, patchDigest: requestId }; }
+
+test("v3 complete coverage is durable across reopen and rejects missing or contradictory evidence", async () => {
+  const f = fixture();
+  try {
+    await queued(f);
+    const compilation = await f.queue.claimNext({ scope, currentRevision: 0, workerId: "compiler" });
+    const expected = { version: 3, swift_replacements: 1, objc_callbacks: [] };
+    await f.queue.transition("request-1", { claimToken: compilation.claim.token, state: "waiting-for-device",
+      preparedPatch: { path: "private-artifact", patchDigest: "request-1", replacementProof: expected } });
+    const token = await begin(f);
+    const evidence = { replacement_proof_version: 3, attempt_id: token, coverage_digest: replacementCoverageDigest(expected),
+      expected_swift_replacements: 1, dynamic_replacements: 1, objc_replacements: 0, represented_replacements: 1,
+      complete_replacement_coverage: true, objc_callback_proofs: [] };
+    await assert.rejects(f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() }), { code: "QUEUE_PROOF_INVALID" });
+    await assert.rejects(f.queue.transition("request-1", { claimToken: token, state: "refreshed",
+      proof: { ...proof(), replacementCoverage: { ...evidence, dynamic_replacements: 2 } } }), { code: "QUEUE_PROOF_INVALID" });
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: { ...proof(), replacementCoverage: evidence } });
+    assert.deepEqual(f.reopen().get("request-1").proof.replacementCoverage, evidence);
+    assert.deepEqual(f.reopen().desiredStates()[0].proof.replacementCoverage, evidence);
+  } finally { f.cleanup(); }
+});
 
 test("queue reads do not initialize state; immutable snapshots survive reopen privately", async () => {
   const f = fixture();
