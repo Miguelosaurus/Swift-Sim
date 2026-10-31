@@ -88,3 +88,8 @@ behavior remain unconfirmed. Its scoped delivery generation
 `2026-11-01T00:38:10.408Z`. Earlier live capabilities were preserved.
 Local synthetic tap snapshots and lifecycle receipts are under
 `.build/install-tap-investigation/`.
+
+The user subsequently confirmed that build 22 installed on the first try. This
+is user-reported installation evidence; that handoff originated in the previous
+Companion, so the widened tap target now installed in build 22 is still awaiting
+its next physical-device install action.
