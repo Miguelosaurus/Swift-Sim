@@ -14,6 +14,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   let stopping = false;
   const cancellation = new AbortController();
   let lastCleanup = -Infinity;
+  let work = { phase: "idle" };
 
   async function enqueue({ files, project = "", scheme = "", host = "", requestId } = {}) {
     const binding = await adapter.binding({ project, scheme, host });
@@ -43,7 +44,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
       }
     }
     const record = await queue.enqueue({ ...(requestId ? { requestId } : {}), scope, files: snapshots, baselineRevision: previous?.proof?.revision || binding.revision || 0 });
-    return projectLiveDelivery(record);
+    return projectLiveDelivery(record, queue.readiness?.(record));
   }
 
   function status(requestId) {
@@ -56,15 +57,16 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
       if (!record) throw new Error("The live delivery replacement is missing.");
     }
     if ((record.state === "superseded" && record.reasonCode === "QUEUE_NET_NO_CHANGE") || record.restorationNoChange) return deliveryEnvelope({ outcome: "no-change", message: "The queued edits cancel each other; the fresh Debug process already contains that baseline." });
-    const result = projectLiveDelivery(record);
+    const result = projectLiveDelivery(record, queue.readiness?.(record));
     if (visited.size && result.delivery) result.delivery.supersededRequestId = requestId;
     return result;
   }
 
   function runOnce() {
     if (stopping) return Promise.resolve({ processed: false });
-    if (running) return running;
-    running = tick().finally(() => { running = null; });
+    const heartbeat = queue.observeWorker?.({ workerId, ...work }).catch(() => {});
+    if (running) { const active = running; return heartbeat ? heartbeat.then(() => active) : active; }
+    running = Promise.resolve(heartbeat).then(tick).finally(() => { running = null; });
     return running;
   }
 
@@ -95,8 +97,23 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
       for (const first of lanes.values()) {
         if (stopping) break;
         let observed;
-        try { observed = await adapter.inspect(first); } catch { continue; }
-        if (!observed?.engineAvailable) continue;
+        try { observed = await adapter.inspect(first); }
+        catch (error) {
+          const code = error?.code === "LIVE_BINARY_PROVENANCE_REQUIRED" ? "LIVE_CAPTURE_UNAVAILABLE" : "LIVE_ENGINE_UNAVAILABLE";
+          await queue.observeWorker?.({ workerId, scope: first.scope, code }).catch(() => {});
+          continue;
+        }
+        const code = observed.captureMatches === false ? "LIVE_CAPTURE_MISMATCH"
+          : !observed.engineAvailable ? (observed.engineReachable ? "LIVE_ENGINE_UPDATE_REQUIRED" : "LIVE_ENGINE_UNAVAILABLE")
+          : !first.preparedPatch && observed.compilerReady === false ? "LIVE_COMPILER_CONTEXT_UNAVAILABLE"
+          : !first.preparedPatch && observed.signingReady === false ? "LIVE_SIGNING_UNAVAILABLE"
+          : first.preparedPatch?.replacementProof && !observed.completeEngine ? "LIVE_ENGINE_UPDATE_REQUIRED"
+          : observed.completeEngine && observed.clientPresent && observed.completeClient === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
+          : observed.clientPresent && observed.supportsReceipts === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
+          : observed.clientPresent && !observed.matchesBinary ? "LIVE_TARGET_APP_MISMATCH"
+          : "LIVE_READY";
+        await queue.observeWorker?.({ workerId, scope: first.scope, code, engineReachable: observed.engineReachable === true || observed.engineAvailable === true }).catch(() => {});
+        if (code !== "LIVE_READY" && !["LIVE_COMPILER_CONTEXT_UNAVAILABLE", "LIVE_SIGNING_UNAVAILABLE"].includes(code)) continue;
         const matched = observed.matchesBinary === true;
         let scope = first.scope;
         if (matched && observed.scope?.sessionIdentity !== first.scope.sessionIdentity) {
@@ -128,6 +145,13 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
         }
         const canApply = matched && observed.connected === true && observed.foreground === true && observed.rootReady === true;
         const waitingState = matched && observed.connected ? "waiting-for-foreground" : "waiting-for-device";
+        // A compiler/signing fault cannot prevent reconciliation or application
+        // of bytes already prepared and verified for this exact request.
+        if (code !== "LIVE_READY") {
+          const next = records.find((record) => sameScope(record.scope, scope) && INCOMPLETE.has(record.state)
+            && !["applying", "applied"].includes(record.state) && !record.claim && (!record.preparedPatch || canApply));
+          if (!next?.preparedPatch) continue;
+        }
         if (!records.some((record) => sameScope(record.scope, scope) && INCOMPLETE.has(record.state)
           && !["applying", "applied"].includes(record.state) && !record.claim
           && (!record.preparedPatch || canApply || record.state !== waitingState))) continue;
@@ -135,6 +159,9 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
         if (!record) continue;
         const claimToken = record.claim.token;
         if (!record.preparedPatch) {
+          // This phase is bounded diagnostic metadata, never a lease extension.
+          work = { phase: "compiling", activeRequestId: record.requestId, phaseDeadlineAt: now() + 180_000 };
+          await queue.observeWorker?.({ workerId, ...work }).catch(() => {});
           try {
             const preparedPatch = await adapter.prepare(record, { cancellationSignal: cancellation.signal });
             await queue.transition(record.requestId, { claimToken, state: matched && observed.connected && (!observed.foreground || !observed.rootReady) ? "waiting-for-foreground" : "waiting-for-device", preparedPatch });
@@ -145,6 +172,9 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
             }
             const code = safeCode(error?.code, "PATCH_COMPILE_FAILED");
             await queue.transition(record.requestId, { claimToken, state: "failed", reasonCode: code });
+          } finally {
+            work = { phase: "idle" };
+            await queue.observeWorker?.({ workerId, ...work }).catch(() => {});
           }
           return { processed: true, requestId: record.requestId };
         }
@@ -189,6 +219,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   async function stop() {
     stopping = true; cancellation.abort();
     if (running) await running.catch(() => {});
+    await queue.observeWorker?.({ workerId, active: false }).catch(() => {});
   }
   async function revokeDesired({ project = "", scheme = "" } = {}) {
     const binding = await adapter.binding({ project, scheme });
@@ -198,18 +229,20 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   return Object.freeze({ enqueue, status, runOnce, stop, revokeDesired, queue });
 }
 
-export function projectLiveDelivery(record) {
+export function projectLiveDelivery(record, readiness) {
   const state = record.state;
   if (state === "refreshed") return deliveryEnvelope({ outcome: "hot-reloaded", message: "Hot reloaded successfully. The running Debug app acknowledged this edit and refreshed.", delivery: { kind: "live", requestId: record.requestId, revision: record.proof.revision }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
   if (INCOMPLETE.has(state)) {
     const prepared = Boolean(record.preparedPatch);
-    const normalWaiting = ["queued", "compiling", "waiting-for-device", "waiting-for-foreground"].includes(state);
-    const guidanceCode = state === "applied" ? "WAIT_FOR_REFRESH" : state === "applying" ? "WAIT_FOR_APPLICATION" : prepared ? "OPEN_TARGET_APP" : "PREPARING_UPDATE";
-    const message = state === "applied" ? "The edit was applied; its matching refresh acknowledgement is still pending."
+    const readinessFault = readiness && !["LIVE_READY", "LIVE_PREPARING", "LIVE_READINESS_CHECKING"].includes(readiness.code);
+    const normalWaiting = !readinessFault && ["queued", "compiling", "waiting-for-device", "waiting-for-foreground"].includes(state);
+    const guidanceCode = readinessFault ? (["LIVE_CAPTURE_MISMATCH", "LIVE_TARGET_APP_MISMATCH"].includes(readiness.code) ? "CHECK_MATCHING_BUILD" : "CHECK_MAC") : state === "applied" ? "WAIT_FOR_REFRESH" : state === "applying" ? "WAIT_FOR_APPLICATION" : prepared ? "OPEN_TARGET_APP" : "PREPARING_UPDATE";
+    const message = readinessFault ? readinessMessage(readiness.code)
+      : state === "applied" ? "The edit was applied; its matching refresh acknowledgement is still pending."
       : state === "applying" ? "Swift Sim is applying this request and waiting for its matching native acknowledgement."
       : prepared ? "The update is ready and waiting for the target Debug app. Open it when ready and allow a few seconds for foreground reconnection and application. Waiting while you use another app or are offline is normal."
       : "The edit is queued and can be prepared while you use other apps. Return to the target Debug app when ready; application requires it to reconnect in the foreground.";
-    return deliveryEnvelope({ outcome: "queued", message, reasonCode: record.reasonCode || "LIVE_DELIVERY_PENDING", delivery: { kind: "pending", requestId: record.requestId, state, prepared, normalWaiting, guidanceCode, requiredAppState: "foreground-ready", expiresAt: new Date(record.expiresAt).toISOString() }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
+    return deliveryEnvelope({ outcome: "queued", message, reasonCode: readinessFault ? readiness.code : record.reasonCode || "LIVE_DELIVERY_PENDING", delivery: { kind: "pending", requestId: record.requestId, state, prepared, normalWaiting, guidanceCode, ...(readiness ? { readiness } : {}), requiredAppState: "foreground-ready", expiresAt: new Date(record.expiresAt).toISOString() }, timing: { totalMs: Math.max(0, record.updatedAt - record.createdAt) } });
   }
   const code = safeCode(record.reasonCode, state === "uncertain" ? "QUEUE_APPLY_UNCONFIRMED" : `QUEUE_${String(state).toUpperCase()}`);
   const message = state === "uncertain" ? "The edit's application could not be confirmed. Swift Sim will reconcile a matching receipt without applying it again."
@@ -222,3 +255,16 @@ export function projectLiveDelivery(record) {
 function sameBinary(a, b) { return ["project", "scheme", "appIdentity", "binaryIdentity"].every((key) => a?.[key] === b?.[key]); }
 function sameScope(a, b) { return sameBinary(a, b) && a?.sessionIdentity === b?.sessionIdentity; }
 function safeCode(value, fallback) { return /^[A-Z][A-Z0-9_]{1,79}$/.test(value || "") ? value : fallback; }
+
+function readinessMessage(code) {
+  if (code === "LIVE_CAPTURE_UNAVAILABLE") return "The Mac cannot read the qualified build capture for this request. Check Swift Sim live status and restore the matching build capture on the Mac. Prepared bytes alone cannot authorize delivery; the request is preserved. Do not submit it again.";
+  if (code === "LIVE_CAPTURE_MISMATCH") return "This request belongs to a different Debug build than the Mac's current compiler capture. Check the matching build on the Mac; opening the phone app alone cannot resolve this. The request is preserved; do not submit it again.";
+  if (code === "LIVE_TARGET_APP_MISMATCH") return "A different Debug app or version is connected. Open the exact Debug build for this request. No patch was applied to the other app; do not submit the request again.";
+  if (code === "LIVE_COMPILER_CONTEXT_UNAVAILABLE") return "The Mac is missing the qualified compiler context for this Debug build. Check Swift Sim live status and restore its existing build context on the Mac. The request is preserved; do not rebuild or submit again automatically.";
+  if (code === "LIVE_SIGNING_UNAVAILABLE") return "The Mac's hot reload signing is not ready. Check Swift Sim live status and signing on the Mac. The request is preserved; opening the phone app will not fix signing. Do not submit it again.";
+  if (code === "LIVE_ENGINE_UPDATE_REQUIRED" || code === "LIVE_CLIENT_UPDATE_REQUIRED") return "The live engine and Debug app need matching hot reload support. Check Swift Sim live status on the Mac before updating the required component. The request is preserved; do not submit it again.";
+  if (code === "LIVE_WORKER_UNAVAILABLE") return "The delivery worker's heartbeat is absent or stale. Check that the Swift Sim helper is running on the Mac. The request is preserved; waiting for the phone alone will not resolve this. Do not submit it again.";
+  if (code === "LIVE_ENGINE_OBSERVATION_STALE") return "The delivery worker has not checked the live engine recently. Check Swift Sim live status on the Mac; engine readiness is currently unconfirmed. The request is preserved; do not submit it again.";
+  if (code === "LIVE_READINESS_UNAVAILABLE") return "Swift Sim could not read its delivery readiness diagnostics. Check the helper and live status on the Mac. Delivery is unconfirmed; do not submit this request again.";
+  return "The Mac's live engine is unavailable or unreachable. Check Swift Sim live status and restore the engine on the Mac. The request is preserved; opening the phone app alone will not resolve this. Do not submit it again.";
+}

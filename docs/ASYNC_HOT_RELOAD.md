@@ -115,6 +115,39 @@ Pending schema-2 status adds `prepared`, `normalWaiting`, `guidanceCode` and
 `WAIT_FOR_APPLICATION` and `WAIT_FOR_REFRESH` describe operations already past
 admission. Queued notifications and taps never establish successful application.
 
+Pending status also includes bounded `delivery.readiness` diagnostics. Its
+`code`, `heartbeatAgeMs`, `observationAgeMs`, and optional
+`lastEngineReachableAgeMs` describe the delivery worker and its latest engine
+check; they never establish application. A missing/stale worker heartbeat,
+unreachable engine, missing compiler/signing context, outdated capability, or
+mismatched build produces `normalWaiting: false` with `CHECK_MAC` or
+`CHECK_MATCHING_BUILD` guidance. Do not tell the user to keep reopening the phone
+for a Mac-side fault, submit the edit again, or start an automatic rebuild.
+Check `swift-sim live-status` on the Mac and restore the required existing
+component/context. A stopped and a crashed engine are both reported as
+unavailable unless independently distinguished; heartbeat absence is not proof
+of a particular crash cause.
+
+The worker writes an owner-only metadata sidecar, separate from source intent,
+at most once per ten-second heartbeat/check interval or immediately when a
+readiness code changes. CLI status can therefore detect missing processing
+after reboot or helper exit. A new intent gets a five-second initial check
+grace period; heartbeat/engine checks older than thirty seconds are stale.
+During an explicitly reported compilation phase (bounded to three minutes), a
+fresh worker heartbeat reports `LIVE_PREPARING` while preserving the actual
+older engine-observation age. This advisory phase does not extend a mutation
+claim lease.
+A missing or invalid qualified capture reports `LIVE_CAPTURE_UNAVAILABLE`,
+including for a prepared patch: saved signed bytes cannot replace the build
+authority needed to inspect and apply it. This differs from an available engine
+reporting no compiler contexts; already-prepared work may bypass that compiler
+limitation while retaining exact capture and receipt checks.
+Disconnected/backgrounded phone waiting remains normal when the Mac is ready.
+Historical matching native success remains success even if the helper later
+stops. Diagnostics cannot grant a claim, retry an admitted mutation, restore a
+capture, start an engine, or replace receipt proof.
+
+
 ## Recovery and compatibility
 
 The helper owns queue processing after the requesting CLI exits. Mac sleep,

@@ -49,6 +49,7 @@ struct ActivityEvent: Identifiable, Codable, Equatable {
     let revision: Int?
     let targetAppName: String?
     let launchURL: String?
+    let presentationOnly: Bool?
 
     var supportedLaunchURL: URL? {
         guard let launchURL, launchURL.count <= 512, let url = URL(string: launchURL),
@@ -64,8 +65,12 @@ struct ActivityEvent: Identifiable, Codable, Equatable {
     var isMeaningful: Bool {
         // Retained history can expire while an unrelated current install opens.
         // Keep that state in the inbox without presenting it as a new action.
-        !["expired", "superseded", "unavailable"].contains(state)
+        presentationOnly != true && !["expired", "superseded", "unavailable"].contains(state)
             && ["queued", "build-ready", "attention", "live-applied", "launch-confirmed"].contains(kind)
+    }
+    func hasSameOccurrence(as other: ActivityEvent) -> Bool {
+        id == other.id && kind == other.kind && state == other.state
+            && revision == other.revision && launchURL == other.launchURL
     }
     var symbol: String {
         switch kind {
@@ -85,7 +90,7 @@ struct ActivityEvent: Identifiable, Codable, Equatable {
         }
         switch kind {
         case "build-ready": return "Ready to install"
-        case "live-applied": return "Applied and refreshed"
+        case "live-applied": return "Applied successfully"
         case "attention": return "Needs attention"
         case "launch-confirmed": return "Installed & launched"
         default:
@@ -195,6 +200,9 @@ final class ActivityCenter: ObservableObject {
         self.notifications.$deviceToken.dropFirst().sink { [weak self] _ in
             Task { @MainActor in await self?.synchronizeRegistration() }
         }.store(in: &subscriptions)
+        self.notifications.$diagnostics.dropFirst().sink { [weak self] _ in
+            Task { @MainActor in await self?.synchronizeRegistration() }
+        }.store(in: &subscriptions)
         self.notifications.$pendingTap.compactMap { $0 }.sink { [weak self] _ in
             Task { @MainActor in await self?.handlePendingTap() }
         }.store(in: &subscriptions)
@@ -282,16 +290,24 @@ final class ActivityCenter: ObservableObject {
             guard feed.isValid, feed.cursor >= cache.cursor else { throw URLError(.cannotParseResponse) }
             guard isCurrent(mac, expected) else { return }
             let previousCursor = cache.cursor
-            var merged = Dictionary(uniqueKeysWithValues: cache.events.map { ($0.id, $0) })
+            let previousEvents = Dictionary(uniqueKeysWithValues: cache.events.map { ($0.id, $0) })
+            var merged = previousEvents
             for event in feed.events { merged[event.id] = event }
             cache.events = merged.values.sorted { $0.sequence < $1.sequence }.suffix(200).map { $0 }
             cache.cursor = max(cache.cursor, feed.cursor)
+            let previousInstallationID = cache.installationId
             cache.installationId = feed.installationId
+            if previousInstallationID != feed.installationId {
+                Task { await synchronizeRegistration() }
+            }
             if !cache.hasSynced { cache.readCursor = cache.cursor }
             cache.hasSynced = true
             providerStatus = feed.notificationStatus
             errorMessage = nil
-            if baselineReceived, let event = feed.events.last(where: { $0.sequence > previousCursor && $0.isMeaningful }) {
+            if baselineReceived, let event = feed.events.last(where: { event in
+                event.sequence > previousCursor && event.isMeaningful
+                    && !(previousEvents[event.id]?.hasSameOccurrence(as: event) ?? false)
+            }) {
                 onForegroundEvent?(event)
             }
             baselineReceived = true
@@ -327,6 +343,11 @@ final class ActivityCenter: ObservableObject {
             var body: [String: Any] = ["deviceId": deviceId, "environment": Self.pushEnvironment, "preferences": ["queued": preferences.queued, "buildReady": preferences.buildReady, "attention": preferences.attention, "hotReload": preferences.hotReload, "launchConfirmed": preferences.launchConfirmed]]
             if notifications.authorization == .denied { body["token"] = "" }
             else if let token = notifications.deviceToken { body["token"] = token }
+            if let diagnostics = notifications.diagnostics?.scoped(to: cache.installationId),
+               let encoded = try? JSONEncoder().encode(diagnostics),
+               let value = try? JSONSerialization.jsonObject(with: encoded) {
+                body["diagnostics"] = value
+            }
             do {
                 let data = try await request(url: mac.baseURL.appending(path: "api/activity/device"), method: "POST", body: JSONSerialization.data(withJSONObject: body), mac: mac)
                 guard isCurrent(mac, expected) else { continue }
@@ -344,8 +365,10 @@ final class ActivityCenter: ObservableObject {
         publishCache()
     }
 
-    func open(_ event: ActivityEvent) async {
-        guard cache.events.contains(where: { $0.id == event.id }) else { return }
+    func open(_ requestedEvent: ActivityEvent) async {
+        // A row can stay on screen while its build expires or is removed.
+        // Route using the current authenticated event, never that stale row.
+        guard let event = cache.events.first(where: { $0.id == requestedEvent.id }) else { return }
         cache.readCursor = max(cache.readCursor, event.sequence)
         publishCache()
         if event.buildId != nil && !["queued", "live-applied"].contains(event.kind) {
@@ -438,10 +461,49 @@ final class CompanionNotifications: ObservableObject {
     @Published private(set) var foregroundUpdate: ActivityPushTarget?
     @Published private(set) var authorization: UNAuthorizationStatus = .notDetermined
     @Published private(set) var registrationMessage: String?
+    @Published private(set) var deliveryMessage: String?
+    @Published private(set) var diagnostics: CompanionNotificationDiagnostics?
+    private let defaults: UserDefaults
+    private let now: () -> Date
+    private var observations: CompanionPushObservations
+    private static let observationsKey = "swiftSim.notificationObservations.v1"
+
+    init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
+        self.defaults = defaults
+        self.now = now
+        if let data = defaults.data(forKey: Self.observationsKey), data.count < 2048,
+           let saved = try? JSONDecoder().decode(CompanionPushObservations.self, from: data), saved.isValid {
+            observations = saved
+        } else {
+            observations = CompanionPushObservations()
+        }
+    }
 
     func refreshAuthorization() async {
-        authorization = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        recordPresentation(authorization: settings.authorizationStatus, alerts: settings.alertSetting, style: settings.alertStyle, scheduled: settings.scheduledDeliverySetting)
         if [.authorized, .provisional, .ephemeral].contains(authorization) { UIApplication.shared.registerForRemoteNotifications() }
+    }
+    func recordPresentation(authorization: UNAuthorizationStatus, alerts: UNNotificationSetting, style: UNAlertStyle, scheduled: UNNotificationSetting) {
+        self.authorization = authorization
+        deliveryMessage = Self.deliveryMessage(authorization: authorization, alerts: alerts, style: style, scheduled: scheduled)
+        diagnostics = CompanionNotificationDiagnostics(authorization: Self.authorizationValue(authorization), alerts: Self.settingValue(alerts), alertStyle: Self.styleValue(style), scheduledDelivery: Self.settingValue(scheduled), observedAt: now().ISO8601Format(), lastForegroundReceipt: observations.lastForegroundReceipt, lastTap: observations.lastTap)
+    }
+    static func deliveryMessage(authorization: UNAuthorizationStatus, alerts: UNNotificationSetting, style: UNAlertStyle, scheduled: UNNotificationSetting) -> String? {
+        if authorization == .provisional {
+            return "Notifications are delivered quietly. Choose immediate alerts in iPhone Settings to see banners."
+        }
+        guard [.authorized, .ephemeral].contains(authorization) else { return nil }
+        if alerts == .disabled {
+            return "Notification alerts are off in iPhone Settings. Updates still appear in Swift Sim."
+        }
+        if style == .none {
+            return "Notification banners are off in iPhone Settings. Updates may still appear in Notification Center."
+        }
+        if scheduled == .enabled {
+            return "Scheduled Summary may delay alerts. Choose immediate delivery in iPhone Settings for timely updates."
+        }
+        return "iPhone Settings allow alerts. Focus, connectivity and iOS scheduling can still delay them."
     }
     func requestPermission() async {
         do { _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) }
@@ -456,9 +518,76 @@ final class CompanionNotifications: ObservableObject {
         registrationMessage = "This build could not register for push. Install a push-enabled Swift Sim build and try again."
     }
     func received(_ target: ActivityPushTarget, foreground: Bool) {
+        let observation = CompanionPushObservation(eventId: target.eventId, macID: target.macID, observedAt: now().ISO8601Format())
+        if observation.isValid {
+            if foreground { observations.lastForegroundReceipt = observation }
+            else { observations.lastTap = observation }
+            if let encoded = try? JSONEncoder().encode(observations), encoded.count < 2048 {
+                defaults.set(encoded, forKey: Self.observationsKey)
+            }
+            if var current = diagnostics {
+                current.lastForegroundReceipt = observations.lastForegroundReceipt
+                current.lastTap = observations.lastTap
+                diagnostics = current
+            }
+        }
         if foreground { foregroundUpdate = target } else { pendingTap = target }
     }
     func clearTap(_ target: ActivityPushTarget) { if pendingTap == target { pendingTap = nil } }
+    private static func authorizationValue(_ value: UNAuthorizationStatus) -> String {
+        switch value {
+        case .authorized: return "authorized"
+        case .provisional: return "provisional"
+        case .ephemeral: return "ephemeral"
+        case .denied: return "denied"
+        default: return "not-determined"
+        }
+    }
+    private static func settingValue(_ value: UNNotificationSetting) -> String {
+        switch value {
+        case .enabled: return "enabled"
+        case .disabled: return "disabled"
+        default: return "unsupported"
+        }
+    }
+    private static func styleValue(_ value: UNAlertStyle) -> String {
+        switch value {
+        case .banner: return "banner"
+        case .alert: return "alert"
+        default: return "none"
+        }
+    }
+}
+
+struct CompanionPushObservation: Codable, Equatable {
+    let eventId: String
+    let macID: String
+    let observedAt: String
+    var isValid: Bool { eventId.count == 64 && eventId.allSatisfy { "0123456789abcdef".contains($0) } && ActivityEvent.validID(macID) && observedAt.count <= 64 && SwiftSimISO8601.date(from: observedAt) != nil }
+}
+
+private struct CompanionPushObservations: Codable {
+    var lastForegroundReceipt: CompanionPushObservation?
+    var lastTap: CompanionPushObservation?
+    var isValid: Bool { (lastForegroundReceipt?.isValid ?? true) && (lastTap?.isValid ?? true) }
+}
+
+struct CompanionNotificationDiagnostics: Codable, Equatable {
+    var schemaVersion = 1
+    let authorization: String
+    let alerts: String
+    let alertStyle: String
+    let scheduledDelivery: String
+    let observedAt: String
+    var lastForegroundReceipt: CompanionPushObservation?
+    var lastTap: CompanionPushObservation?
+
+    func scoped(to installationID: String?) -> Self {
+        var result = self
+        if result.lastForegroundReceipt?.macID != installationID { result.lastForegroundReceipt = nil }
+        if result.lastTap?.macID != installationID { result.lastTap = nil }
+        return result
+    }
 }
 
 final class CompanionNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {

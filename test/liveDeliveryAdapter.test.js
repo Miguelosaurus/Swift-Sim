@@ -230,3 +230,31 @@ test("inspection cache observes native status every turn and never masks capture
     await assert.rejects(f.adapter.binding({}), { code: "LIVE_BINARY_PROVENANCE_REQUIRED" });
   } finally { f.cleanup(); }
 });
+
+
+test("inspection exposes qualified capture, compiler and signing readiness separately from phone absence", async () => {
+  const f = await fixture();
+  try {
+    f.status.has_connected_client = false;
+    f.status.codesigning_identity_configured = false;
+    f.status.captured_compilations = 0;
+    let observed = await f.adapter.inspect(f.record);
+    assert.equal(observed.engineReachable, true); assert.equal(observed.engineAvailable, true);
+    assert.equal(observed.captureMatches, true); assert.equal(observed.connected, false);
+    assert.equal(observed.signingReady, false); assert.equal(observed.compilerReady, false);
+    f.status.codesigning_identity_configured = true; f.status.captured_compilations = 861;
+    observed = await f.adapter.inspect(f.record);
+    assert.equal(observed.signingReady, true); assert.equal(observed.compilerReady, true);
+    observed = await f.adapter.inspect({ ...f.record, scope: { ...f.record.scope, binaryIdentity: "different-binary" } });
+    assert.equal(observed.captureMatches, false);
+  } finally { f.cleanup(); }
+});
+
+
+test("a prepared patch still requires the qualified capture to be readable", async () => {
+  const f = await fixture();
+  try {
+    rmSync(f.manifestPath);
+    await assert.rejects(f.adapter.inspect(f.record), { code: "LIVE_BINARY_PROVENANCE_REQUIRED" });
+  } finally { f.cleanup(); }
+});

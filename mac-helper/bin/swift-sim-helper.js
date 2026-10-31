@@ -62,7 +62,7 @@ import { liveDeliveryService } from "../src/liveDeliveryService.js";
 import { liveRuntimeLockManager } from "../src/liveEngineLifecycleLock.js";
 import { queuedLiveEngineControl } from "../src/liveReload.js";
 import { createActivityStore } from "../src/activityStore.js";
-import { createActivityService, activityBuildView } from "../src/activityService.js";
+import { createActivityService, activityBuildView, activityLiveDeliveryView } from "../src/activityService.js";
 import { handleActivityRoutes } from "../src/http/activityRoutes.js";
 import { createRemoteLaunchVerifier, createQualifiedLaunchCaptureReader } from "../src/remoteLaunchVerification.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
@@ -220,7 +220,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       return { epoch: createHash("sha256").update(pairing.token).digest("hex"), installationId: pairing.installationID };
     },
     listBuilds: () => deviceBuildStore.readOnly(activityBuildView),
-    listLiveDeliveries: () => liveDeliveryService().queue.pollingSnapshot().records,
+    listLiveDeliveries: () => activityLiveDeliveryView(liveDeliveryService().queue),
   });
   remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
     listBuilds: () => deviceBuildStore.list(),

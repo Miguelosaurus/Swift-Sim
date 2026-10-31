@@ -39,6 +39,36 @@ export interface PendingDelivery {
     | "applying"
     | "applied";
   expiresAt: string;
+  prepared?: boolean;
+  normalWaiting?: boolean;
+  guidanceCode?:
+    | "OPEN_TARGET_APP"
+    | "PREPARING_UPDATE"
+    | "WAIT_FOR_APPLICATION"
+    | "WAIT_FOR_REFRESH"
+    | "CHECK_MAC"
+    | "CHECK_MATCHING_BUILD";
+  requiredAppState?: "foreground-ready";
+  readiness?: {
+    code:
+      | "LIVE_READY"
+      | "LIVE_PREPARING"
+      | "LIVE_READINESS_CHECKING"
+      | "LIVE_WORKER_UNAVAILABLE"
+      | "LIVE_ENGINE_OBSERVATION_STALE"
+      | "LIVE_ENGINE_UNAVAILABLE"
+      | "LIVE_ENGINE_UPDATE_REQUIRED"
+      | "LIVE_CLIENT_UPDATE_REQUIRED"
+      | "LIVE_CAPTURE_MISMATCH"
+      | "LIVE_CAPTURE_UNAVAILABLE"
+      | "LIVE_TARGET_APP_MISMATCH"
+      | "LIVE_COMPILER_CONTEXT_UNAVAILABLE"
+      | "LIVE_SIGNING_UNAVAILABLE"
+      | "LIVE_READINESS_UNAVAILABLE";
+    heartbeatAgeMs?: number;
+    observationAgeMs?: number;
+    lastEngineReachableAgeMs?: number;
+  };
   supersededRequestId?: string;
 }
 

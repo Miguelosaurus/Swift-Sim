@@ -263,18 +263,18 @@ test("notification CLI configures private credentials, reports sanitized state a
     const run = (...args) => spawnSync(process.execPath, [cli.pathname, "notifications", ...args], { encoding: "utf8", env, timeout: 20_000 });
     const initial = run("status");
     assert.equal(initial.status, 0, initial.stderr);
-    assert.deepEqual(JSON.parse(initial.stdout), { configured: false, reason: "APNS_NOT_CONFIGURED" });
+    assert.deepEqual(JSON.parse(initial.stdout), { configured: false, reason: "APNS_NOT_CONFIGURED", delivery: { schemaVersion: 1, devices: [], recentAlerts: [] } });
     const configure = run("configure", "--key-file", keyPath, "--key-id", "ABCDEFGHIJ", "--team-id", "KLMNOPQRST", "--topic", "dev.fixture.Companion");
     assert.equal(configure.status, 0, configure.stderr);
     assert.equal(JSON.parse(configure.stdout).configured, true);
     const status = run("status");
     assert.equal(status.status, 0, status.stderr);
-    assert.deepEqual(JSON.parse(status.stdout), { configured: true });
+    assert.deepEqual(JSON.parse(status.stdout), { configured: true, delivery: { schemaVersion: 1, devices: [], recentAlerts: [] } });
     assert.doesNotMatch(configure.stdout + status.stdout, /BEGIN PRIVATE KEY|AuthKey-fixture|ABCDEFGHIJ|KLMNOPQRST|dev.fixture.Companion/);
     const disable = run("disable");
     assert.equal(disable.status, 0, disable.stderr);
     assert.deepEqual(JSON.parse(disable.stdout), { configured: false, reason: "APNS_DISABLED" });
-    assert.deepEqual(JSON.parse(run("status").stdout), { configured: false, reason: "APNS_DISABLED" });
+    assert.deepEqual(JSON.parse(run("status").stdout), { configured: false, reason: "APNS_DISABLED", delivery: { schemaVersion: 1, devices: [], recentAlerts: [] } });
     assert.equal(run("configure", "--unknown", "secret").status, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });

@@ -62,7 +62,8 @@ export async function handleActivityRoutes({
         typeof body !== "object" ||
         Array.isArray(body) ||
         Object.keys(body).some(
-          (key) => !["deviceId", "token", "environment", "preferences"].includes(key),
+          (key) =>
+            !["deviceId", "token", "environment", "preferences", "diagnostics"].includes(key),
         )
       )
         throw new Error("Invalid notification registration.");

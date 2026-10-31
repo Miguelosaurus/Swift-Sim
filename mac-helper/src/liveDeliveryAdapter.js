@@ -47,7 +47,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
   async function inspect(record) {
     const manifest = capture(true);
     const expectedScope = scopeFor(manifest);
-    if (!["project", "scheme", "appIdentity", "binaryIdentity"].every((key) => record.scope[key] === expectedScope[key])) return { engineAvailable: false, matchesBinary: false };
+    if (!["project", "scheme", "appIdentity", "binaryIdentity"].every((key) => record.scope[key] === expectedScope[key])) return { engineAvailable: false, matchesBinary: false, captureMatches: false };
     const response = await control({ action: "status" });
     const data = response?.success ? response.data : null;
     const capabilities = Array.isArray(data?.client_capabilities) ? data.client_capabilities : [];
@@ -59,6 +59,9 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     const matchesBinary = liveBinaryMatches(manifest.binaryIdentity, client) && typeof client?.process_nonce === "string" && client.process_nonce.length >= 8;
     const revisionValid = Number.isSafeInteger(client?.root_revision) && client.root_revision >= 0;
     return {
+      captureMatches: true,
+      signingReady: data ? data.codesigning_identity_configured === true : undefined,
+      compilerReady: data ? Number(data.captured_compilations || 0) > 0 : undefined,
       engineAvailable: Boolean(data && engineSupports),
       engineReachable: Boolean(data),
       completeEngine,

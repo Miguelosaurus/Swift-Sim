@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "./infrastructure/nodeLockManager.js";
+import { createLiveDeliveryReadiness } from "./liveDeliveryReadiness.js";
 import { verifyReplacementProofReceipt } from "./replacementProof.js";
 
 export const LIVE_DELIVERY_QUEUE_SCHEMA = 1;
@@ -30,6 +31,8 @@ export function createLiveDeliveryQueue({
   const journalPath = join(root, "queue.json");
   let locks = lockManager;
   let pollingCache;
+  const readinessStore = createLiveDeliveryReadiness({ rootPath: root, fileStore, lockManager, identity, now,
+    keyForScope: (scope) => digest(normalizeBinaryScope(scope)) });
 
   function pollingVersion() {
     assertPrivatePath(root, "directory");
@@ -82,6 +85,9 @@ export function createLiveDeliveryQueue({
   return Object.freeze({
     rootPath: root,
     limits: LIMITS,
+    observeWorker: readinessStore.observeWorker,
+    readiness: readinessStore.readiness,
+    readinessSnapshot: readinessStore.readinessSnapshot,
     // Source-free discovery only. Every mutation still reads and validates the
     // authoritative journal under its lock; no cached snapshot grants a claim.
     pollingSnapshot() {

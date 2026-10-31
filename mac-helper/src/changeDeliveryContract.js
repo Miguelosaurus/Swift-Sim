@@ -92,7 +92,14 @@ export function validateDeliveryEnvelope(value) {
     if (typeof value.delivery?.expiresAt !== "string" || !Number.isFinite(Date.parse(value.delivery.expiresAt))) errors.push("queued requires an expiry.");
     if (value.delivery?.prepared !== undefined && typeof value.delivery.prepared !== "boolean") errors.push("queued prepared must be a boolean.");
     if (value.delivery?.normalWaiting !== undefined && typeof value.delivery.normalWaiting !== "boolean") errors.push("queued normalWaiting must be a boolean.");
-    if (value.delivery?.guidanceCode !== undefined && !["OPEN_TARGET_APP", "PREPARING_UPDATE", "WAIT_FOR_APPLICATION", "WAIT_FOR_REFRESH"].includes(value.delivery.guidanceCode)) errors.push("queued guidanceCode is invalid.");
+    if (value.delivery?.guidanceCode !== undefined && !["OPEN_TARGET_APP", "PREPARING_UPDATE", "WAIT_FOR_APPLICATION", "WAIT_FOR_REFRESH", "CHECK_MAC", "CHECK_MATCHING_BUILD"].includes(value.delivery.guidanceCode)) errors.push("queued guidanceCode is invalid.");
+    if (value.delivery?.readiness !== undefined) {
+      const readiness = value.delivery.readiness;
+      const codes = ["LIVE_READY", "LIVE_PREPARING", "LIVE_READINESS_CHECKING", "LIVE_WORKER_UNAVAILABLE", "LIVE_ENGINE_OBSERVATION_STALE", "LIVE_ENGINE_UNAVAILABLE", "LIVE_ENGINE_UPDATE_REQUIRED", "LIVE_CLIENT_UPDATE_REQUIRED", "LIVE_CAPTURE_MISMATCH", "LIVE_CAPTURE_UNAVAILABLE", "LIVE_TARGET_APP_MISMATCH", "LIVE_COMPILER_CONTEXT_UNAVAILABLE", "LIVE_SIGNING_UNAVAILABLE", "LIVE_READINESS_UNAVAILABLE"];
+      if (!readiness || typeof readiness !== "object" || Array.isArray(readiness) || !codes.includes(readiness.code)
+        || Object.keys(readiness).some((key) => !["code", "heartbeatAgeMs", "observationAgeMs", "lastEngineReachableAgeMs"].includes(key))
+        || ["heartbeatAgeMs", "observationAgeMs", "lastEngineReachableAgeMs"].some((key) => readiness[key] !== undefined && (!Number.isSafeInteger(readiness[key]) || readiness[key] < 0))) errors.push("queued readiness is invalid.");
+    }
     if (value.delivery?.requiredAppState !== undefined && value.delivery.requiredAppState !== "foreground-ready") errors.push("queued requiredAppState is invalid.");
   }
   if (["no-change", "needs-user-action", "failed"].includes(value.outcome) && value.delivery !== undefined) {

@@ -525,10 +525,9 @@ export function liveAppPresentation(info = {}) {
   } catch { return result; }
 }
 
-export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath = "", scheme = "", runtime = {} }) {
-  const path = resolve(resultBundle || "");
-  if (!resultBundle || !existsSync(path) || lstatSync(path).isSymbolicLink()) throw registrationError("LIVE_CAPTURE_RESULT_MISSING", "The preserved Xcode result bundle is missing or unsafe.");
-  const log = runtime.buildLog ?? readXcodeBuildLog(path);
+// Shared by normal result-bundle capture and bounded operator recovery of
+// preserved Xcode activity records. Parsing grants no registration authority.
+export function capturedFrontendCompilationMap(log) {
   const commands = [...new Set(frontendCommandLines(log))].map((command) => {
     const tokens = splitShellCommand(command); const executable = tokens.shift() || "";
     if (!executable.endsWith("/swift-frontend")) return null;
@@ -536,6 +535,14 @@ export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath
   }).filter(Boolean);
   if (!commands.length || commands.length > 1024) throw registrationError("LIVE_CAPTURE_COMMANDS_INVALID", "The result bundle does not contain a bounded complete Swift frontend compilation map.");
   const compilations = commands.map(dynamicReplacementContext).filter(Boolean);
+  return { commands, compilations };
+}
+
+export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath = "", scheme = "", runtime = {} }) {
+  const path = resolve(resultBundle || "");
+  if (!resultBundle || !existsSync(path) || lstatSync(path).isSymbolicLink()) throw registrationError("LIVE_CAPTURE_RESULT_MISSING", "The preserved Xcode result bundle is missing or unsafe.");
+  const log = runtime.buildLog ?? readXcodeBuildLog(path);
+  const { commands, compilations } = capturedFrontendCompilationMap(log);
   const sourcePaths = new Set(); const extraInputs = new Set(runtime.inputPaths || []);
   for (const command of commands) {
     for (let index = 0; index < command.arguments.length; index += 1) {

@@ -172,10 +172,23 @@ test("queued guidance is additive for older clients and rejects malformed typed 
   const fields = { prepared: true, normalWaiting: true, guidanceCode: "OPEN_TARGET_APP", requiredAppState: "foreground-ready" };
   const typed = { ...pending, delivery: { ...pending.delivery, ...fields } };
   assert.equal(validateDeliveryEnvelope(typed).valid, true);
-  for (const guidanceCode of ["OPEN_TARGET_APP", "PREPARING_UPDATE", "WAIT_FOR_APPLICATION", "WAIT_FOR_REFRESH"]) {
+  for (const guidanceCode of ["OPEN_TARGET_APP", "PREPARING_UPDATE", "WAIT_FOR_APPLICATION", "WAIT_FOR_REFRESH", "CHECK_MAC", "CHECK_MATCHING_BUILD"]) {
     assert.equal(validateDeliveryEnvelope({ ...typed, delivery: { ...typed.delivery, guidanceCode } }).valid, true);
   }
   for (const invalid of [{ prepared: "true" }, { normalWaiting: 1 }, { guidanceCode: "REBUILD_NOW" }, { requiredAppState: "background" }]) {
     assert.equal(validateDeliveryEnvelope({ ...typed, delivery: { ...typed.delivery, ...invalid } }).valid, false, JSON.stringify(invalid));
+  }
+});
+
+
+test("queued readiness accepts bounded advisory ages and rejects raw or malformed diagnostics", () => {
+  const pending = deliveryEnvelope({ outcome: "queued", message: "Check the Mac.", delivery: {
+    kind: "pending", requestId: "request-readiness-contract", state: "queued", expiresAt: "2026-11-01T00:00:00Z",
+    normalWaiting: false, guidanceCode: "CHECK_MAC", readiness: { code: "LIVE_ENGINE_UNAVAILABLE", heartbeatAgeMs: 100, observationAgeMs: 100, lastEngineReachableAgeMs: 30_000 },
+  } });
+  assert.equal(validateDeliveryEnvelope(pending).valid, true);
+  assert.equal(validateDeliveryEnvelope({ ...pending, delivery: { ...pending.delivery, readiness: { code: "LIVE_CAPTURE_UNAVAILABLE" } } }).valid, true);
+  for (const readiness of [null, [], { code: "unknown" }, { code: "LIVE_READY", heartbeatAgeMs: -1 }, { code: "LIVE_READY", observationAgeMs: "1" }, { code: "LIVE_READY", pid: 123 }, { code: "LIVE_READY", path: "/private/path" }]) {
+    assert.equal(validateDeliveryEnvelope({ ...pending, delivery: { ...pending.delivery, readiness } }).valid, false);
   }
 });

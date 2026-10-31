@@ -537,6 +537,7 @@ private struct ManagedAppDetailView: View {
     @EnvironmentObject private var sessionStore: SessionStore
     let app: ManagedApp
     @State private var showingDeleteConfirmation = false
+    @State private var showingBuildConfirmation = false
 
     var body: some View {
         ZStack {
@@ -671,7 +672,7 @@ private struct ManagedAppDetailView: View {
     private var buildCurrentSourceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                Task { await sessionStore.buildCurrentSource(for: app) }
+                showingBuildConfirmation = true
             } label: {
                 HStack(spacing: 14) {
                     Group {
@@ -712,6 +713,14 @@ private struct ManagedAppDetailView: View {
             }
             .buttonStyle(.plain)
             .disabled(sessionStore.isStartingCurrentSourceBuild)
+            .alert("Build a New Version?", isPresented: $showingBuildConfirmation) {
+                Button("Start Build") {
+                    Task { await sessionStore.buildCurrentSource(for: app) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your Mac will compile and sign \(app.displayName.swiftSimDisplayName) using the code currently on it, including uncommitted changes. This is a full build, not a hot reload, and may take several minutes. Swift Sim will create an install update; nothing is installed on your iPhone until you approve it.")
+            }
             .accessibilityHint("Works remotely through your private Mac connection and builds uncommitted changes without pulling or switching branches")
 
             if let message = sessionStore.buildCurrentSourceMessage {

@@ -18,7 +18,7 @@ test("private feed and device routes preserve bounded opaque API shapes", async 
   const feed = await f.run(request("GET", "/api/activity?after=42&deviceId=fixture"));
   assert.equal(feed.res.status, 200); assert.equal(feed.res.headers["cache-control"], "no-store");
   assert.deepEqual(f.calls[0], ["feed", { after: 42, deviceId: "fixture" }]);
-  const body = { deviceId: "11111111-1111-4111-8111-111111111111", environment: "sandbox", preferences: { queued: true } };
+  const body = { deviceId: "11111111-1111-4111-8111-111111111111", environment: "sandbox", preferences: { queued: true }, diagnostics: { schemaVersion: 1, authorization: "authorized", alerts: "enabled", alertStyle: "banner", scheduledDelivery: "disabled", observedAt: "2026-10-31T19:00:00.000Z" } };
   assert.equal((await f.run(request("POST", "/api/activity/device", JSON.stringify(body)))).res.status, 200);
   assert.deepEqual(f.calls[1], ["register", body]);
   assert.equal((await f.run(request("DELETE", `/api/activity/device/${body.deviceId}`))).res.status, 200);

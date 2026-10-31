@@ -114,6 +114,17 @@ while composing the request, select a screen, resend, restart, rebuild, or poll
 unchanged status endlessly. A push notification or tap does not prove applied
 or refreshed; use the matching request's native receipt and revision.
 
+Treat `normalWaiting: false` with `CHECK_MAC` or `CHECK_MATCHING_BUILD` as an
+actionable delivery fault, not ordinary phone backgrounding. Inspect
+`delivery.readiness.code` and its heartbeat/engine-observation ages, then check
+`swift-sim live-status` on the Mac. An absent engine, stale worker heartbeat,
+missing compiler/signing context, incompatible capability, or mismatched build
+will not be fixed just by opening the phone app. Preserve the opaque request
+and source snapshots; do not resubmit or automatically rebuild. A fresh
+heartbeat during `LIVE_PREPARING` keeps a long compilation distinguishable from
+an absent helper without claiming a newer engine check or successful apply.
+
+
 For first-time hot reload, follow [live project integration](references/live-project-integration.md)
 through signed Debug install, cold launch, connection, and one proven edit.
 Setup readiness and a connected engine do not prove a successful hot reload.

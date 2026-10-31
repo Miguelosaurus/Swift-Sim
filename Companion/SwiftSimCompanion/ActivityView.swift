@@ -50,7 +50,8 @@ struct ActivityInboxView: View {
                 ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) { Button("Mark read") { activity.markAllRead() }.disabled(activity.unreadCount == 0) }
             }
-            .refreshable { await activity.refresh() }
+            .refreshable { await activity.refresh(fromBeginning: true) }
+            .task { await activity.refresh(fromBeginning: true) }
             .sheet(item: $activity.selectedEvent) { event in
                 ActivityEventDetailView(event: event)
             }
@@ -99,10 +100,10 @@ private struct ActivityEventDetailView: View {
                 }
                 if event.canApplyQueuedChange {
                     Section {
-                        Text("Open \(event.targetAppName ?? "the matching Debug app") to apply this queued change. This may take a few seconds once it reconnects. No new install is needed.")
+                        Text("Open \(event.targetAppName ?? "your app") to apply your latest changes. No install needed.")
                             .foregroundStyle(.secondary)
                         if let url = event.supportedLaunchURL {
-                            Button("Open \(event.targetAppName ?? "app")") { openURL(url) }
+                            Button("Open \(event.targetAppName ?? "your app")") { openURL(url) }
                         }
                     }
                 }
@@ -133,15 +134,16 @@ private struct ActivityNotificationSettingsView: View {
                         .accessibilityIdentifier("enableActivityNotificationsButton")
                 }
                 if let message = notifications.registrationMessage { Text(message).font(.footnote).foregroundStyle(.secondary) }
+                if let message = notifications.deliveryMessage { Text(message).font(.footnote).foregroundStyle(.secondary) }
             } footer: {
                 Text("Queued edits, build-ready, applied hot reloads and actionable alerts are on by default. You control permission in iPhone Settings.")
             }
             Section {
-                Toggle("Hot reload queued", isOn: preference(\.queued))
-                Toggle("New build ready", isOn: preference(\.buildReady))
+                Toggle("Changes ready to apply", isOn: preference(\.queued))
+                Toggle("Build ready to install", isOn: preference(\.buildReady))
                 Toggle("Needs attention", isOn: preference(\.attention))
-                Toggle("Hot reload applied", isOn: preference(\.hotReload))
-                Toggle("Install confirmed by launch", isOn: preference(\.launchConfirmed))
+                Toggle("Changes applied", isOn: preference(\.hotReload))
+                Toggle("App opened successfully", isOn: preference(\.launchConfirmed))
             } header: { Text("Updates") } footer: {
                 Text("Compilation progress and routine reconnects don’t send alerts. While Swift Sim is open, updates appear in the app without an extra notification banner.")
             }

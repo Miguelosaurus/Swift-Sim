@@ -47,13 +47,18 @@ export function createActivityStore({ rootPath = join(homedir(), ".swift-sim", "
   }
   return Object.freeze({
     snapshot: () => structuredClone(read()),
+    notificationDiagnostics() {
+      const value = read();
+      return { schemaVersion: 1, devices: value.devices.map((device) => ({ enabled: device.enabled, preferences: device.preferences, ...(device.diagnostics ? { diagnostics: device.diagnostics } : {}) })),
+        recentAlerts: value.events.filter((event) => ["build-ready", "live-applied", "attention"].includes(event.kind) || event.lastPushState).slice(-20).map((event) => ({ eventId: event.id, kind: event.kind, ...(event.buildId ? { buildId: event.buildId } : {}), ...(event.requestId ? { requestId: event.requestId } : {}), acceptance: event.lastPushState || "unconfirmed", pendingAttempts: value.jobs.filter((job) => job.eventId === event.id).length, ...(event.lastPushAt ? { observedAt: event.lastPushAt } : {}) })) };
+    },
     feed({ after = 0, deviceId, epoch } = {}) {
       if (!Number.isSafeInteger(after) || after < 0) throw failure("ACTIVITY_CURSOR_INVALID");
       const value = read();
       const matching = value.events.filter((event) => event.sequence > after);
       const events = matching.slice(-200).map(publicEvent);
       const device = value.epoch === epoch ? value.devices.find((item) => item.id === deviceId) : null;
-      return { schemaVersion: 1, events, cursor: value.nextSequence - 1, truncated: matching.length > 200, ...(device ? { preferences: device.preferences } : {}) };
+      return { schemaVersion: 1, events, cursor: value.nextSequence - 1, truncated: matching.length > 200, ...(device ? { preferences: device.preferences, ...(device.diagnostics ? { diagnostics: device.diagnostics } : {}) } : {}) };
     },
     async sync({ entries, observations, epoch, providerGeneration = "unconfigured", notifyReady = false, isCurrent } = {}) {
       return mutate((journal, time) => {
@@ -63,6 +68,18 @@ export function createActivityStore({ rootPath = join(homedir(), ".swift-sim", "
           const event = normalizeEvent(input, time);
           const existing = journal.events.find((item) => item.id === event.id);
           if (existing && ["kind", "state", "title", "message", "revision", "launchURL"].every((key) => existing[key] === event[key])) continue;
+          // Presentation changes refresh the inbox without replaying an occurrence
+          // or discarding an alert already waiting to be sent.
+          const sameOccurrence = existing && ["kind", "state", "revision", "launchURL"].every((key) => existing[key] === event[key]);
+          if (sameOccurrence) {
+            existing.title = event.title; existing.message = event.message;
+            delete existing.targetAppName;
+            if (event.targetAppName) existing.targetAppName = event.targetAppName;
+            existing.updatedAt = new Date(time).toISOString(); existing.presentationOnly = true;
+            // Keep the cursor stable too: older Companions announce every new
+            // sequence and cannot understand the presentation-only marker.
+            continue;
+          }
           journal.events = journal.events.filter((item) => item.id !== event.id);
           journal.jobs = journal.jobs.filter((item) => item.eventId !== event.id);
           if (event.kind === "live-applied") { journal.jobs = journal.jobs.filter((job) => job.collapseId !== event.cohortId); journal.quietCohorts = journal.quietCohorts.filter((item) => item.collapseId !== event.cohortId); }
@@ -87,16 +104,20 @@ export function createActivityStore({ rootPath = join(homedir(), ".swift-sim", "
     async registerDevice(input, { epoch, providerGeneration = "unconfigured", isCurrent } = {}) {
       if (!uuid(input?.deviceId) || !["sandbox", "production"].includes(input?.environment) || (input.token !== undefined && input.token !== "" && !validDeviceToken(input.token))) throw failure("ACTIVITY_DEVICE_INVALID");
       const preferences = normalizePreferences(input.preferences);
+      const diagnostics = input.diagnostics === undefined ? undefined : normalizeDiagnostics(input.diagnostics);
       return mutate((journal, time) => {
         context(journal, epoch, providerGeneration, isCurrent);
         const existing = journal.devices.find((item) => item.id === input.deviceId);
         if (!existing && journal.devices.length >= MAX_DEVICES) throw failure("ACTIVITY_DEVICE_LIMIT");
         const token = input.token === undefined ? existing?.token || "" : String(input.token).toLowerCase();
         const mergedPreferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, ...existing?.preferences || {}, ...preferences };
-        if (existing && existing.token === token && existing.environment === input.environment && JSON.stringify(existing.preferences) === JSON.stringify(mergedPreferences)) return { registered: true, preferences: mergedPreferences };
+        if (existing && existing.token === token && existing.environment === input.environment && JSON.stringify(existing.preferences) === JSON.stringify(mergedPreferences)) {
+          if (diagnostics) existing.diagnostics = diagnostics;
+          return { registered: true, preferences: mergedPreferences };
+        }
         journal.devices = journal.devices.filter((item) => item.id !== input.deviceId);
         journal.jobs = journal.jobs.filter((job) => job.deviceId !== input.deviceId);
-        journal.devices.push({ id: input.deviceId, revision: newId(), epoch, token, environment: input.environment, preferences: mergedPreferences, enabled: Boolean(token), registeredAt: time });
+        journal.devices.push({ id: input.deviceId, revision: newId(), epoch, token, environment: input.environment, preferences: mergedPreferences, enabled: Boolean(token), registeredAt: time, ...((diagnostics || existing?.diagnostics) ? { diagnostics: diagnostics || existing.diagnostics } : {}) });
         return { registered: true, preferences: mergedPreferences };
       });
     },
@@ -140,7 +161,7 @@ export function createActivityStore({ rootPath = join(homedir(), ".swift-sim", "
           job.nextAttemptAt = time + Math.max(1000, Math.min(Number(outcome.retryAfterMs) || 30_000 * 2 ** (job.attempts - 1), 15 * 60_000));
           job.state = "pending"; job.claim = null;
         } else {
-          if (event) event.lastPushState = outcome.state === "accepted" ? "accepted" : "not-accepted";
+          if (event) { event.lastPushState = outcome.state === "accepted" ? "accepted" : "not-accepted"; event.lastPushAt = new Date(time).toISOString(); }
           journal.jobs = journal.jobs.filter((item) => item.id !== id);
         }
         return true;
@@ -157,7 +178,9 @@ function normalizeEvent(value, time) {
 function publicEvent(value) {
   return { id: value.id, sequence: value.sequence, kind: value.kind, title: value.title, message: value.message, state: value.state, createdAt: value.createdAt,
     ...(value.updatedAt ? { updatedAt: value.updatedAt } : {}), ...(value.buildId ? { buildId: value.buildId } : {}), ...(value.requestId ? { requestId: value.requestId } : {}),
-    ...(value.revision ? { revision: value.revision } : {}), ...(value.targetAppName ? { targetAppName: value.targetAppName } : {}), ...(value.launchURL ? { launchURL: value.launchURL } : {}) };
+    ...(value.presentationOnly ? { presentationOnly: true } : {}),
+    ...(value.revision ? { revision: value.revision } : {}), ...(value.targetAppName ? { targetAppName: value.targetAppName } : {}), ...(value.launchURL ? { launchURL: value.launchURL } : {}),
+    ...(value.lastPushState ? { pushStatus: { state: value.lastPushState, ...(value.lastPushAt ? { observedAt: value.lastPushAt } : {}) } } : {}) };
 }
 export function activityEventId(value) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 export function safeActivityLaunchURL(value) {
@@ -172,6 +195,20 @@ function normalizePreferences(value = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !(Object.hasOwn(DEFAULT_NOTIFICATION_PREFERENCES, key)) || typeof value[key] !== "boolean")) throw failure("ACTIVITY_PREFERENCES_INVALID");
   return value;
 }
+function normalizeDiagnostics(value) {
+  const fields = ["schemaVersion", "authorization", "alerts", "alertStyle", "scheduledDelivery", "observedAt", "lastForegroundReceipt", "lastTap"];
+  const date = (input) => typeof input === "string" && input.length <= 64 && /^\d{4}-\d\d-\d\dT/.test(input) && Number.isFinite(Date.parse(input));
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !fields.includes(key)) || value.schemaVersion !== 1
+    || !["authorized", "provisional", "ephemeral", "denied", "not-determined"].includes(value.authorization)
+    || !["enabled", "disabled", "unsupported"].includes(value.alerts) || !["banner", "alert", "none"].includes(value.alertStyle)
+    || !["enabled", "disabled", "unsupported"].includes(value.scheduledDelivery) || !date(value.observedAt)) throw failure("ACTIVITY_DIAGNOSTICS_INVALID");
+  for (const key of ["lastForegroundReceipt", "lastTap"]) {
+    const receipt = value[key];
+    if (receipt !== undefined && (!receipt || typeof receipt !== "object" || Array.isArray(receipt) || Object.keys(receipt).some((field) => !["eventId", "macID", "observedAt"].includes(field)) || !/^[a-f0-9]{64}$/.test(receipt.eventId || "") || !opaque(receipt.macID) || !date(receipt.observedAt))) throw failure("ACTIVITY_DIAGNOSTICS_INVALID");
+  }
+  return { schemaVersion: 1, authorization: value.authorization, alerts: value.alerts, alertStyle: value.alertStyle, scheduledDelivery: value.scheduledDelivery, observedAt: new Date(value.observedAt).toISOString(),
+    ...Object.fromEntries(["lastForegroundReceipt", "lastTap"].filter((key) => value[key]).map((key) => [key, { eventId: value[key].eventId, macID: value[key].macID, observedAt: new Date(value[key].observedAt).toISOString() }])) };
+}
 function prune(journal, time) {
   journal.quietCohorts = (journal.quietCohorts || []).filter((item) => item.expiresAt > time).slice(-1000);
   journal.events = journal.events.filter((event) => event.time + EVENT_TTL > time).slice(-MAX_EVENTS);
@@ -182,9 +219,13 @@ function validateJournal(value) {
   if (!value || value.schemaVersion !== 1 || !Number.isSafeInteger(value.nextSequence) || value.nextSequence < 1 || typeof value.initialized !== "boolean" || typeof value.epoch !== "string" || typeof value.providerGeneration !== "string" || !Array.isArray(value.events) || value.events.length > MAX_EVENTS || !Array.isArray(value.devices) || value.devices.length > MAX_DEVICES || !Array.isArray(value.jobs) || value.jobs.length > MAX_JOBS || !value.observations || typeof value.observations !== "object" || Array.isArray(value.observations) || Object.keys(value.observations).length > 2000) throw failure("ACTIVITY_STORE_INVALID");
   if (value.quietCohorts !== undefined && (!Array.isArray(value.quietCohorts) || value.quietCohorts.length > 1000 || value.quietCohorts.some((item) => !uuid(item.deviceId) || !/^[a-f0-9]{64}$/.test(item.collapseId || "") || !Number.isSafeInteger(item.expiresAt)))) throw failure("ACTIVITY_STORE_INVALID");
   let sequence = 0; const ids = new Set();
-  for (const event of value.events) { normalizeEvent(event, Number.MAX_SAFE_INTEGER); if (!Number.isSafeInteger(event.sequence) || event.sequence <= sequence || ids.has(event.id)) throw failure("ACTIVITY_STORE_INVALID"); sequence = event.sequence; ids.add(event.id); }
+  for (const event of value.events) { normalizeEvent(event, Number.MAX_SAFE_INTEGER); if (!Number.isSafeInteger(event.sequence) || event.sequence <= sequence || ids.has(event.id) || (event.lastPushState !== undefined && !["accepted", "not-accepted"].includes(event.lastPushState)) || (event.lastPushAt !== undefined && (typeof event.lastPushAt !== "string" || event.lastPushAt.length > 64 || !Number.isFinite(Date.parse(event.lastPushAt))))) throw failure("ACTIVITY_STORE_INVALID"); sequence = event.sequence; ids.add(event.id); }
   if (value.nextSequence <= sequence) throw failure("ACTIVITY_STORE_INVALID");
-  for (const device of value.devices) if (!uuid(device.id) || !uuid(device.revision) || !validEpoch(device.epoch) || typeof device.token !== "string" || (device.token && !validDeviceToken(device.token)) || !["sandbox", "production"].includes(device.environment) || typeof device.enabled !== "boolean" || !Number.isSafeInteger(device.registeredAt)) throw failure("ACTIVITY_STORE_INVALID"); else normalizePreferences(device.preferences);
+  for (const device of value.devices) {
+    if (!uuid(device.id) || !uuid(device.revision) || !validEpoch(device.epoch) || typeof device.token !== "string" || (device.token && !validDeviceToken(device.token)) || !["sandbox", "production"].includes(device.environment) || typeof device.enabled !== "boolean" || !Number.isSafeInteger(device.registeredAt)) throw failure("ACTIVITY_STORE_INVALID");
+    normalizePreferences(device.preferences);
+    if (device.diagnostics !== undefined) normalizeDiagnostics(device.diagnostics);
+  }
   for (const job of value.jobs) if (!uuid(job.id) || !uuid(job.deviceId) || !uuid(job.registrationRevision) || !validEpoch(job.epoch) || !/^[a-f0-9]{64}$/.test(job.eventId) || !Number.isSafeInteger(job.attempts) || job.attempts < 0 || job.attempts >= 6 || !Number.isSafeInteger(job.nextAttemptAt) || !Number.isSafeInteger(job.expiresAt) || !["pending", "sending"].includes(job.state) || (job.claim && (!uuid(job.claim.token) || !Number.isSafeInteger(job.claim.expiresAt)))) throw failure("ACTIVITY_STORE_INVALID");
 }
 function assertPrivate(path, kind) {

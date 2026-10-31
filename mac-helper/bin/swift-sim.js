@@ -23,6 +23,7 @@ import { liveDeliveryService } from "../src/liveDeliveryService.js";
 import { classifyBuildFailure } from "../src/buildFailure.js";
 import { stageLocalEngineCandidate } from "../src/liveEngineCandidate.js";
 import { configureApnsProvider, disableApnsProvider, apnsConfigurationStatus } from "../src/apnsProvider.js";
+import { createActivityStore } from "../src/activityStore.js";
 import { deviceBuildArtifactDoctorSection } from "../src/commands/deviceBuildArtifactDoctorProjection.js";
 
 const runtimeRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -55,7 +56,7 @@ async function main() {
   if (command === "update") return update();
   if (command === "notifications") {
     const [action = "status", ...options] = args;
-    if (action === "status") return console.log(JSON.stringify(apnsConfigurationStatus()));
+    if (action === "status") return console.log(JSON.stringify({ ...apnsConfigurationStatus(), delivery: createActivityStore().notificationDiagnostics() }));
     if (action === "disable") return console.log(JSON.stringify(await disableApnsProvider()));
     if (action !== "configure") throw new Error("Use notifications status, configure, or disable.");
     const { values } = parseArgs({ args: options, options: {

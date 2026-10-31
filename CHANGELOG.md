@@ -44,6 +44,15 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Use app-focused notification copy for successful changes, ready installs,
+  waiting updates and failures. Refresh wording without replaying old alerts or
+  dropping pending sends. Report APNs acceptance separately from phone receipt.
+- Confirm before Build Current Code starts a full signed build; explain that it
+  includes uncommitted Mac changes and still requires iPhone install approval.
+- Make stopped/unreachable live engines and stale delivery-worker heartbeats
+  actionable in queued status, while preserving normal offline phone waiting
+  and native receipt requirements.
+
 - Keep expired, superseded and unavailable history updates out of foreground
   popups so an older build cannot show a misleading error during a new install.
   Their actual status remains visible in history and build details.

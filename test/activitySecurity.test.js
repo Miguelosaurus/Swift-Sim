@@ -112,8 +112,8 @@ for (const revocation of ["pairing", "subscription", "preferences", "registratio
       } }]);
       if (revocation === "source-expiry") f.advance(2000);
       gate.resolve(); await sending;
-      assert.deepEqual(transmitted, revocation === "applied" ? ["Update applied"] : []);
-      assert.equal(transmitted.includes("Hot reload queued"), false);
+      assert.deepEqual(transmitted, revocation === "applied" ? ["Changes applied"] : []);
+      assert.equal(transmitted.includes("Ready to apply"), false);
     } finally { gate.resolve(); if (sending) await sending.catch(() => {}); await f.service.stop(); f.cleanup(); }
   });
 }

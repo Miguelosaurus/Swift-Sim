@@ -660,3 +660,157 @@ test("stopping after the applying barrier preserves uncertainty instead of reope
     assert.notEqual(f.service.status("request-stop-apply-0001").outcome, "hot-reloaded");
   } finally { f.cleanup(); }
 });
+
+
+test("stopped or unreachable engine is actionable across CLI instances without compiling or resubmitting", async () => {
+  const f = fixture();
+  try {
+    const pending = await f.service.enqueue({ requestId: "request-engine-missing", files: f.files() });
+    f.state.engineAvailable = false;
+    await f.service.runOnce();
+    const status = f.runtime().status(pending.delivery.requestId);
+    assert.equal(status.outcome, "queued");
+    assert.equal(status.reasonCode, "LIVE_ENGINE_UNAVAILABLE");
+    assert.equal(status.delivery.normalWaiting, false);
+    assert.equal(status.delivery.guidanceCode, "CHECK_MAC");
+    assert.equal(status.delivery.readiness.heartbeatAgeMs, 0);
+    assert.match(status.message, /opening the phone app alone will not resolve/);
+    assert.equal(f.calls.prepare.length, 0); assert.equal(f.calls.apply.length, 0);
+    assert.equal(f.queue.get(pending.delivery.requestId).state, "queued");
+    f.state.engineAvailable = true;
+    await f.service.runOnce();
+    assert.equal(f.service.status(pending.delivery.requestId).delivery.normalWaiting, true);
+    assert.equal(f.calls.prepare.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test("engine inspection errors, mismatched captures, missing signing and missing compiler context do not silently wait", async () => {
+  for (const [observation, expected] of [
+    [{ captureMatches: false, engineAvailable: false }, "LIVE_CAPTURE_MISMATCH"],
+    [{ engineAvailable: false, engineReachable: true }, "LIVE_ENGINE_UPDATE_REQUIRED"],
+    [{ compilerReady: false }, "LIVE_COMPILER_CONTEXT_UNAVAILABLE"],
+    [{ signingReady: false }, "LIVE_SIGNING_UNAVAILABLE"],
+    [{ clientPresent: true, supportsReceipts: false }, "LIVE_CLIENT_UPDATE_REQUIRED"],
+    [{ clientPresent: true, matchesBinary: false }, "LIVE_TARGET_APP_MISMATCH"],
+    [null, "LIVE_ENGINE_UNAVAILABLE"],
+  ]) {
+    const f = fixture();
+    try {
+      const pending = await f.service.enqueue({ files: f.files() });
+      if (observation) Object.assign(f.state, observation);
+      else f.adapter.inspect = async () => { throw new Error("private path must not escape"); };
+      await f.service.runOnce();
+      const result = f.service.status(pending.delivery.requestId);
+      assert.equal(result.reasonCode, expected);
+      assert.equal(result.delivery.normalWaiting, false);
+      assert.equal(f.calls.prepare.length, 0); assert.equal(f.calls.apply.length, 0);
+      assert.doesNotMatch(JSON.stringify(result), /private path|fixture-project|fixture-worker/);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("missing or stale worker heartbeat is actionable while ordinary phone absence stays normal", async () => {
+  const f = fixture();
+  try {
+    const pending = await f.service.enqueue({ files: f.files() });
+    assert.equal(pending.delivery.readiness.code, "LIVE_READINESS_CHECKING");
+    f.advance(5001);
+    assert.equal(f.service.status(pending.delivery.requestId).reasonCode, "LIVE_WORKER_UNAVAILABLE");
+    await f.service.runOnce();
+    let result = f.service.status(pending.delivery.requestId);
+    assert.equal(result.delivery.normalWaiting, true);
+    assert.equal(result.delivery.guidanceCode, "OPEN_TARGET_APP");
+    f.advance(30_001);
+    result = f.runtime().status(pending.delivery.requestId);
+    assert.equal(result.reasonCode, "LIVE_WORKER_UNAVAILABLE");
+    assert.equal(result.delivery.readiness.heartbeatAgeMs, 30_001);
+    await f.service.runOnce();
+    assert.equal(f.service.status(pending.delivery.requestId).delivery.normalWaiting, true);
+    await f.service.stop();
+    assert.equal(f.service.status(pending.delivery.requestId).reasonCode, "LIVE_WORKER_UNAVAILABLE");
+  } finally { f.cleanup(); }
+});
+
+test("fresh heartbeat during a long coalesced compile retains honest observation ages without false helper failure", async () => {
+  const f = fixture();
+  let release;
+  try {
+    const prepare = f.adapter.prepare;
+    let started;
+    const ready = new Promise(resolve => { started = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    f.adapter.prepare = async record => { started(); await gate; return prepare(record); };
+    const pending = await f.service.enqueue({ files: f.files() });
+    const turn = f.service.runOnce();
+    await ready;
+    f.advance(80_000);
+    const pulse = f.service.runOnce();
+    // Let the small advisory write finish without waiting for the compiler.
+    for (let i = 0; i < 100 && f.service.status(pending.delivery.requestId).delivery.readiness.heartbeatAgeMs !== 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    const status = f.service.status(pending.delivery.requestId);
+    assert.equal(status.delivery.readiness.code, "LIVE_PREPARING");
+    assert.equal(status.delivery.normalWaiting, true);
+    assert.equal(status.delivery.readiness.heartbeatAgeMs, 0);
+    assert.equal(status.delivery.readiness.observationAgeMs, 80_000);
+    assert.equal(f.calls.apply.length, 0);
+    release(); await Promise.all([turn, pulse]);
+    assert.equal(f.calls.prepare.length, 1);
+  } finally { release?.(); f.cleanup(); }
+});
+
+test("readiness expiry cannot erase a proven native success", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    const pending = await f.service.enqueue({ files: f.files() });
+    await f.service.runOnce(); await f.service.runOnce();
+    f.advance(60_000);
+    assert.equal(f.service.status(pending.delivery.requestId).outcome, "hot-reloaded");
+    assert.equal(f.calls.apply.length, 1);
+  } finally { f.cleanup(); }
+});
+
+
+test("missing compiler context cannot block an already prepared request or a lost native receipt", async () => {
+  const f = fixture();
+  try {
+    const first = await f.service.enqueue({ requestId: "request-prepared-before-context-loss", files: f.files() });
+    await f.service.runOnce();
+    await f.service.enqueue({ requestId: "request-unprepared-after-context-loss", files: f.files(firstEdit, secondEdit) });
+    f.state.compilerReady = false;
+    await f.service.runOnce();
+    assert.equal(f.service.status(first.delivery.requestId).delivery.normalWaiting, true);
+    assert.equal(f.service.status("request-unprepared-after-context-loss").reasonCode, "LIVE_COMPILER_CONTEXT_UNAVAILABLE");
+    f.state.connected = true; f.state.foreground = true;
+    const apply = f.adapter.apply;
+    f.adapter.apply = async record => { await apply(record); return null; };
+    await f.service.runOnce();
+    assert.equal(f.queue.get(first.delivery.requestId).state, "uncertain");
+    await f.service.runOnce();
+    assert.equal(f.service.status(first.delivery.requestId).outcome, "hot-reloaded");
+    assert.equal(f.calls.apply.length, 1); assert.equal(f.calls.prepare.length, 1);
+  } finally { f.cleanup(); }
+});
+
+
+test("prepared bytes do not mask a missing or invalid qualified capture as ordinary phone waiting", async () => {
+  const f = fixture();
+  try {
+    const pending = await f.service.enqueue({ requestId: "request-prepared-capture-missing", files: f.files() });
+    await f.service.runOnce();
+    assert.equal(f.service.status(pending.delivery.requestId).delivery.prepared, true);
+    f.adapter.inspect = async () => { throw Object.assign(new Error("private capture missing or invalid"), { code: "LIVE_BINARY_PROVENANCE_REQUIRED" }); };
+    f.state.connected = true; f.state.foreground = true;
+    await f.service.runOnce();
+    const status = f.runtime().status(pending.delivery.requestId);
+    assert.equal(status.outcome, "queued");
+    assert.equal(status.reasonCode, "LIVE_CAPTURE_UNAVAILABLE");
+    assert.equal(status.delivery.readiness.code, "LIVE_CAPTURE_UNAVAILABLE");
+    assert.equal(status.delivery.prepared, true);
+    assert.equal(status.delivery.normalWaiting, false);
+    assert.equal(status.delivery.guidanceCode, "CHECK_MAC");
+    assert.match(status.message, /restore the matching build capture/);
+    assert.equal(f.calls.prepare.length, 1); assert.equal(f.calls.apply.length, 0);
+    assert.equal(f.queue.get(pending.delivery.requestId).state, "waiting-for-device");
+  } finally { f.cleanup(); }
+});

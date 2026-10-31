@@ -5,7 +5,7 @@ import { chmodSync, lstatSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createActivityStore, activityEventId } from "../mac-helper/src/activityStore.js";
-import { createActivityService, activitySnapshotEvents, activityBuildView } from "../mac-helper/src/activityService.js";
+import { createActivityService, activitySnapshotEvents, activityBuildView, activityLiveDeliveryView } from "../mac-helper/src/activityService.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../mac-helper/src/infrastructure/nodeLockManager.js";
 
@@ -34,6 +34,113 @@ function fixture() {
 }
 function applied(record) { return { ...record, state: "refreshed", proof: { requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, patchDigest: record.preparedPatch.patchDigest, applied: true, refreshed: true, revision: 1 } }; }
 
+test("known Mac faults replace misleading open-app alerts and remain deduplicated", async () => {
+  const f = fixture(); try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    const waiting = { ...f.live("mac-paused", "waiting-for-device"), targetAppName: "Zenics" };
+    f.setLive([waiting]); await f.service.refresh();
+    assert.equal(f.store.snapshot().jobs.length, 1);
+    const blocked = { ...waiting, readiness: { code: "LIVE_ENGINE_UNAVAILABLE", changedAt: f.now(), heartbeatAgeMs: 0 } };
+    f.setLive([blocked]); await f.service.refresh(); f.advance(); await f.service.runOnce();
+    assert.equal(f.sent.length, 1);
+    assert.equal(f.sent[0].payload.aps.alert.title, "Zenics — Update needs your Mac");
+    assert.doesNotMatch(f.sent[0].payload.aps.alert.body, /Open Zenics/);
+    assert.equal(f.service.feed().events[0].launchURL, undefined);
+    f.advance(5000); f.setLive([{ ...blocked, readiness: { ...blocked.readiness, heartbeatAgeMs: 5000 } }]); await f.service.runOnce();
+    assert.equal(f.sent.length, 1);
+    f.setLive([{ ...waiting, readiness: { code: "LIVE_READY" } }]); await f.service.runOnce();
+    f.advance(5000); await f.service.runOnce();
+    assert.equal(f.sent[1].payload.aps.alert.title, "Zenics — Ready to apply");
+  } finally { f.cleanup(); }
+});
+
+test("activity reads readiness once for all pending records without altering cached queue views", () => {
+  const f = fixture(); try {
+    const pending = f.live("pending"); const success = applied(f.live("success")); const records = [pending, success]; let reads = 0;
+    const view = activityLiveDeliveryView({ pollingSnapshot: () => ({ records }), readinessSnapshot(input) { reads++; assert.deepEqual(input, [pending]); return new Map([[pending.requestId, { code: "LIVE_CAPTURE_UNAVAILABLE", changedAt: f.now() }]]); } });
+    assert.equal(reads, 1); assert.equal(pending.readiness, undefined); assert.equal(view[1], success);
+    assert.equal(activitySnapshotEvents({ liveDeliveries: view, now: f.now() }).entries.find((event) => event.requestId === "pending").kind, "attention");
+    assert.equal(activitySnapshotEvents({ liveDeliveries: view, now: f.now() }).entries.find((event) => event.requestId === "success").kind, "live-applied");
+  } finally { f.cleanup(); }
+});
+
+test("device diagnostics preserve pending alert authority and never imply background presentation", async () => {
+  const f = fixture(); try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    f.setBuilds([f.build()]); await f.service.refresh();
+    const before = f.store.snapshot();
+    const diagnostics = { schemaVersion: 1, authorization: "authorized", alerts: "enabled", alertStyle: "banner", scheduledDelivery: "disabled", observedAt: new Date(f.now()).toISOString(), lastTap: { eventId: before.events[0].id, macID: "test-mac", observedAt: new Date(f.now()).toISOString() } };
+    await f.service.registerDevice({ deviceId: DEVICE, environment: "sandbox", preferences: {}, diagnostics });
+    const after = f.store.snapshot();
+    assert.equal(after.devices[0].revision, before.devices[0].revision);
+    assert.equal(after.devices[0].registeredAt, before.devices[0].registeredAt);
+    assert.deepEqual(after.jobs, before.jobs);
+    assert.deepEqual(f.service.feed({ deviceId: DEVICE }).diagnostics, diagnostics);
+    assert.equal(f.service.feed({ deviceId: "another-device" }).diagnostics, undefined);
+    await f.service.runOnce();
+    const report = f.store.notificationDiagnostics();
+    assert.equal(report.recentAlerts[0].acceptance, "accepted");
+    assert.equal(report.recentAlerts[0].observedAt, new Date(f.now()).toISOString());
+    assert.equal(report.recentAlerts[0].pendingAttempts, 0);
+    assert.equal(report.devices[0].diagnostics.lastForegroundReceipt, undefined);
+    assert.doesNotMatch(JSON.stringify(report), new RegExp(`${TOKEN}|${DEVICE}|provider-one|sandbox|secret|delivered|displayed`));
+    assert.equal(f.service.feed().events[0].pushStatus.state, "accepted");
+  } finally { f.cleanup(); }
+});
+
+test("diagnostics reject unknown, private, unbounded and malformed evidence without changing registrations", async () => {
+  const f = fixture(); try {
+    await f.service.runOnce(); await f.register();
+    const valid = { schemaVersion: 1, authorization: "authorized", alerts: "enabled", alertStyle: "banner", scheduledDelivery: "disabled", observedAt: new Date(f.now()).toISOString() };
+    const before = f.store.snapshot();
+    for (const diagnostics of [{ ...valid, token: TOKEN }, { ...valid, authorization: "displayed" }, { ...valid, observedAt: "/Users/private" }, { ...valid, lastTap: { eventId: "x".repeat(500), macID: "test-mac", observedAt: valid.observedAt } }, { ...valid, lastForegroundReceipt: { eventId: sha("event"), macID: "test-mac", observedAt: valid.observedAt, privatePath: "/Users/private" } }]) {
+      await assert.rejects(f.service.registerDevice({ deviceId: DEVICE, environment: "sandbox", preferences: {}, diagnostics }), /ACTIVITY_DIAGNOSTICS_INVALID/);
+    }
+    assert.deepEqual(f.store.snapshot(), before);
+  } finally { f.cleanup(); }
+});
+
+test("presentation updates refresh accepted history without replaying pushes", async () => {
+  const f = fixture(); try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    const record = { ...applied(f.live()), targetAppName: "Zenics" };
+    f.setLive([record]); await f.service.runOnce();
+    assert.equal(f.sent[0].payload.aps.alert.title, "Zenics updated");
+    assert.match(f.sent[0].payload.aps.alert.body, /applied successfully/);
+    const before = f.store.snapshot().events[0];
+    const entry = activitySnapshotEvents({ liveDeliveries: [record], now: f.now() }).entries[0];
+    f.advance();
+    // A source timestamp can advance for unrelated installation metadata.
+    await f.store.sync({ entries: [{ ...entry, time: f.now(), title: "Zenics changes applied", message: "Your latest changes are ready to try." }], observations: {}, epoch: sha("pairing-one"), providerGeneration: "provider-one", notifyReady: true });
+    const after = f.store.snapshot();
+    assert.equal(after.jobs.length, 0);
+    assert.equal(after.events[0].lastPushState, "accepted");
+    assert.equal(after.events[0].time, before.time);
+    assert.equal(after.events[0].sequence, before.sequence);
+    assert.equal(f.service.feed().events[0].presentationOnly, true);
+    assert.equal(f.service.feed({ after: before.sequence }).events.length, 0);
+    await f.service.runOnce(); assert.equal(f.sent.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test("copy refresh preserves pending delivery and uses the new copy; genuine transitions still alert", async () => {
+  const f = fixture(); try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    const context = { epoch: sha("pairing-one"), providerGeneration: "provider-one", notifyReady: true };
+    const entry = activitySnapshotEvents({ builds: [{ ...f.build(), app: { name: "Zenics" } }], now: f.now() }).entries[0];
+    await f.store.sync({ ...context, entries: [{ ...entry, title: "Old build copy" }], observations: {} });
+    const job = f.store.snapshot().jobs[0];
+    await f.store.sync({ ...context, entries: [entry], observations: {} });
+    assert.deepEqual(f.store.snapshot().jobs[0], job);
+    const claim = await f.store.claimNext(context);
+    assert.equal(claim.event.title, "Zenics — Ready to install");
+    await f.store.settle(claim.job.id, claim.job.claim.token, { state: "accepted" }, context);
+    f.advance();
+    await f.store.sync({ ...context, entries: [{ ...entry, kind: "attention", state: "failed", time: f.now(), title: "Zenics — Build couldn't finish" }], observations: {} });
+    assert.equal(f.store.snapshot().jobs.length, 1);
+  } finally { f.cleanup(); }
+});
+
 test("initial history fills the inbox without pushes; later ready transition is durable and deduplicated", async () => {
   const f = fixture(); try {
     f.setBuilds([f.build("historical")]); await f.register(); await f.service.runOnce();
@@ -56,15 +163,15 @@ test("build alerts identify their app without replaying unchanged generic histor
     const failed = { ...f.build("larply-attempt", "failed"), app: { name: "Larply" }, logs: ["[BUILD_SIGNING_FAILED]"] };
     f.setBuilds([ready, failed]); await f.service.runOnce();
     f.advance(1000); await f.service.runOnce();
-    assert.deepEqual(f.sent.map((input) => input.payload.aps.alert.title).sort(), ["Larply — Build needs attention", "Swift Sim — New build ready"]);
+    assert.deepEqual(f.sent.map((input) => input.payload.aps.alert.title).sort(), ["Larply — Build couldn't finish", "Swift Sim — Ready to install"]);
     assert.equal(f.service.feed().events.find((event) => event.buildId === "larply-attempt").targetAppName, "Larply");
 
     const generic = { ...ready, app: {} };
     const previous = activitySnapshotEvents({ builds: [generic], now: f.now() }).observations;
-    assert.equal(activitySnapshotEvents({ builds: [ready], previous, now: f.now() }).entries.length, 0);
-    for (const name of ["/Users/private/project", "Bearer secret", "https://private.example", "token=secret", "Bad\nName", "x".repeat(61)]) {
+    assert.equal(activitySnapshotEvents({ builds: [ready], previous, now: f.now() }).entries.length, 1);
+    for (const name of ["/Users/private/project", "Bearer secret", "https://private.example", "token=secret", "Bad\nName", "Bad\u0000Name", "x".repeat(61)]) {
       const event = activitySnapshotEvents({ builds: [{ ...ready, app: { name } }], now: f.now() }).entries[0];
-      assert.equal(event.title, "New build ready");
+      assert.equal(event.title, "Ready to install");
       assert.equal(event.targetAppName, undefined);
     }
   } finally { f.cleanup(); }
@@ -78,7 +185,7 @@ test("queued/prepared/unconfirmed live work cannot notify successful application
     const wrong = applied(record); wrong.proof.requestId = "another-request";
     f.setLive([wrong]); await f.service.runOnce(); assert.equal(f.sent.length, 0);
     f.advance(); f.setLive([{ ...applied(record), updatedAt: f.now() }]); await f.service.runOnce();
-    assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.aps.alert.title, "Update applied");
+    assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.aps.alert.title, "Changes applied");
     assert.equal(f.service.feed().events.length, 1); assert.equal(f.service.feed().events[0].state, "refreshed");
   } finally { f.cleanup(); }
 });
@@ -88,7 +195,7 @@ test("proven hot reload alerts default on while launch alerts remain inbox-only"
     await f.service.runOnce(); await f.register(); f.advance();
     f.setLive([applied(f.live())]); const build = f.build(); build.installation = { state: "launch-confirmed", launchConfirmedAt: new Date(f.now()).toISOString() };
     f.setBuilds([build]); await f.service.runOnce(); assert.equal(f.sent.length, 2); // Build ready and proven hot reload.
-    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title).sort(), ["New build ready", "Update applied"]);
+    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title).sort(), ["Changes applied", "Ready to install"]);
     assert.equal(f.service.feed().events.filter((e) => e.kind === "launch-confirmed").length, 1);
     const events = activitySnapshotEvents({ builds: [{ ...build, installation: { state: "requested" } }], now: f.now() }).entries;
     assert.equal(events.some((e) => e.kind === "launch-confirmed"), false);
@@ -153,11 +260,11 @@ test("prepared waiting alerts delay and collapse per app, without treating ordin
     const first = { ...f.live("waiting-first", "waiting-for-device"), targetAppName: "Zenics" };
     f.setLive([first]); await f.service.runOnce(); assert.equal(f.sent.length, 0);
     assert.equal(f.service.feed().events[0].kind, "queued");
-    assert.match(f.service.feed().events[0].message, /Open Zenics.*few seconds/);
+    assert.match(f.service.feed().events[0].message, /Open Zenics.*No install needed/);
     f.advance(4000); const second = { ...f.live("waiting-second", "waiting-for-foreground"), targetAppName: "Zenics" };
     f.setLive([first, second]); await f.service.runOnce(); assert.equal(f.sent.length, 0);
     f.advance(5000); await f.service.runOnce(); assert.equal(f.sent.length, 1);
-    assert.equal(f.sent[0].payload.aps.alert.title, "Hot reload queued");
+    assert.equal(f.sent[0].payload.aps.alert.title, "Zenics — Ready to apply");
     assert.equal(f.sent[0].payload.requestId, "waiting-second");
     f.advance(); f.setLive([first, second, f.live("waiting-third", "waiting-for-device")]); await f.service.runOnce(); f.advance(5000); await f.service.runOnce();
     assert.equal(f.sent.length, 1);
@@ -171,7 +278,7 @@ test("foreground success cancels a delayed queued alert and building states neve
     f.setLive([request]); f.setBuilds([f.build("compiling-build", "building")]); await f.service.runOnce();
     f.advance(2000); f.setLive([{ ...applied(request), updatedAt: f.now() }]); await f.service.runOnce();
     f.advance(5000); await f.service.runOnce();
-    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title), ["Update applied"]);
+    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title), ["Changes applied"]);
     assert.equal(f.store.snapshot().jobs.length, 0);
   } finally { f.cleanup(); }
 });
@@ -195,7 +302,7 @@ test("queued terminal transitions cancel undispatched alerts and taps read the c
       assert.equal(f.service.feed().events[0].state, state);
       assert.equal(f.store.snapshot().jobs.some((job) => job.eventId === f.service.feed().events[0].id && state !== "failed"), false);
       f.advance(5000); await f.service.runOnce();
-      assert.equal(f.sent.some((send) => send.payload.aps.alert.title === "Hot reload queued"), false);
+      assert.equal(f.sent.some((send) => send.payload.aps.alert.title === "Ready to apply"), false);
     } finally { f.cleanup(); }
   }
 });
@@ -266,7 +373,7 @@ test("an explicit hot reload opt-out survives helper restart and enabling never 
     assert.equal(f.store.snapshot().devices[0].preferences.hotReload, false);
     await f.register({ hotReload: true }); await f.service.runOnce(); assert.equal(f.sent.length, 0);
     f.advance(); f.setLive([applied(f.live("next-request"))]); await f.service.runOnce();
-    assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.aps.alert.title, "Update applied");
+    assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.aps.alert.title, "Changes applied");
   } finally { f.cleanup(); }
 });
 

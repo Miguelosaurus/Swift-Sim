@@ -838,3 +838,102 @@ test("split offline requests cannot exceed eventual cumulative recovery source l
     assert.equal(f.queue.get("large-pending").state, "queued");
   } finally { f.cleanup(); }
 });
+
+
+test("readiness heartbeat is bounded, private and separate from source journal writes", async () => {
+  const f = fixture();
+  try {
+    const record = await queued(f);
+    const journal = f.fileStore.readTextSync(join(f.rootPath, "queue.json"));
+    const writes = []; const write = f.fileStore.writeJSON.bind(f.fileStore);
+    f.fileStore.writeJSON = async (path, ...args) => { writes.push(path); return write(path, ...args); };
+    await f.queue.observeWorker({ workerId: "worker-one", scope, code: "LIVE_READY", engineReachable: true });
+    for (let i = 0; i < 30; i++) await f.queue.observeWorker({ workerId: "worker-one", scope, code: "LIVE_READY", engineReachable: true });
+    assert.equal(writes.length, 1);
+    f.tick(10_000);
+    await f.queue.observeWorker({ workerId: "worker-one", scope, code: "LIVE_READY", engineReachable: true });
+    assert.equal(writes.length, 2);
+    assert.ok(writes.every(path => path.endsWith("readiness.json")));
+    assert.equal(f.fileStore.readTextSync(join(f.rootPath, "queue.json")), journal);
+    assert.equal(lstatSync(join(f.rootPath, "readiness.json")).mode & 0o777, 0o600);
+    assert.equal(f.reopen().readiness(record).code, "LIVE_READY");
+    const encoded = f.fileStore.readTextSync(join(f.rootPath, "readiness.json"));
+    assert.ok(Buffer.byteLength(encoded) < 1024);
+    assert.doesNotMatch(encoded, /beforeSource|afterSource|fixture-project|Card.swift/);
+    await f.queue.observeWorker({ workerId: "worker-two" });
+    await f.queue.observeWorker({ workerId: "worker-one", active: false });
+    assert.notEqual(f.reopen().readiness(record).code, "LIVE_WORKER_UNAVAILABLE");
+  } finally { f.cleanup(); }
+});
+
+test("unsafe or corrupt readiness is reported without replacing source journal or granting success", async () => {
+  const f = fixture();
+  try {
+    const record = await queued(f);
+    await f.queue.observeWorker({ workerId: "worker", scope, code: "LIVE_READY", engineReachable: true });
+    const journal = f.fileStore.readTextSync(join(f.rootPath, "queue.json"));
+    const path = join(f.rootPath, "readiness.json");
+    chmodSync(path, 0o644);
+    assert.equal(f.queue.readiness(record).code, "LIVE_READINESS_UNAVAILABLE");
+    chmodSync(path, 0o600); writeFileSync(path, "malformed");
+    assert.equal(f.reopen().readiness(record).code, "LIVE_READINESS_UNAVAILABLE");
+    await assert.rejects(f.queue.observeWorker({ workerId: "worker" }), /QUEUE_READINESS_INVALID/);
+    assert.equal(f.fileStore.readTextSync(join(f.rootPath, "queue.json")), journal);
+  } finally { f.cleanup(); }
+});
+
+test("batched activity diagnostics read metadata once and preserve fault onset time", async () => {
+  const f = fixture();
+  try {
+    const record = await queued(f);
+    await f.queue.observeWorker({ workerId: "worker", scope, code: "LIVE_READY", engineReachable: true });
+    const consumer = f.reopen(); let reads = 0; const read = f.fileStore.readJSONSync.bind(f.fileStore);
+    f.fileStore.readJSONSync = (path) => { assert.ok(path.endsWith("readiness.json")); reads++; return read(path); };
+    const records = Array.from({ length: 256 }, (_, index) => ({ ...record, requestId: `view-${index}` }));
+    assert.equal(consumer.readinessSnapshot(records).size, 256);
+    assert.equal(reads, 1);
+    f.tick(30_001);
+    const stale = consumer.readinessSnapshot(records).get("view-0");
+    assert.equal(stale.code, "LIVE_WORKER_UNAVAILABLE");
+    assert.equal(stale.changedAt, 31_000);
+    f.tick(1000);
+    assert.equal(consumer.readinessSnapshot(records).get("view-0").changedAt, stale.changedAt);
+    assert.equal(reads, 1);
+  } finally { f.cleanup(); }
+});
+
+
+test("bounded preparing phase outlives a claim deadline without extending mutation authority", async () => {
+  const f = fixture();
+  try {
+    await queued(f);
+    const claimed = await f.queue.claimNext({ scope, currentRevision: 0, workerId: "worker" });
+    const phaseDeadlineAt = 181_000;
+    await f.queue.observeWorker({ workerId: "worker", scope, code: "LIVE_READY", engineReachable: true,
+      phase: "compiling", activeRequestId: claimed.requestId, phaseDeadlineAt });
+    f.tick(140_000);
+    await f.queue.observeWorker({ workerId: "worker", phase: "compiling", activeRequestId: claimed.requestId, phaseDeadlineAt });
+    const status = f.reopen().readiness(f.queue.get(claimed.requestId));
+    assert.equal(status.code, "LIVE_PREPARING");
+    assert.equal(status.heartbeatAgeMs, 0); assert.equal(status.observationAgeMs, 140_000);
+    assert.equal(f.queue.get(claimed.requestId).claim.expiresAt, claimed.claim.expiresAt);
+    await f.queue.observeWorker({ workerId: "worker" });
+    assert.equal(f.reopen().readiness(f.queue.get(claimed.requestId)).code, "LIVE_ENGINE_OBSERVATION_STALE");
+    f.tick(30_001);
+    assert.equal(f.reopen().readiness(f.queue.get(claimed.requestId)).code, "LIVE_WORKER_UNAVAILABLE");
+  } finally { f.cleanup(); }
+});
+
+
+test("readiness cannot claim unbounded preparation or a future heartbeat", async () => {
+  const f = fixture();
+  try {
+    const record = await queued(f);
+    await assert.rejects(f.queue.observeWorker({ workerId: "worker", phase: "compiling", activeRequestId: record.requestId, phaseDeadlineAt: 181_001 }), /QUEUE_READINESS_INVALID/);
+    await f.queue.observeWorker({ workerId: "worker", scope, code: "LIVE_READY", engineReachable: true });
+    const path = join(f.rootPath, "readiness.json");
+    const value = f.fileStore.readJSONSync(path); value.heartbeatAt += 1;
+    await f.fileStore.writeJSON(path, value, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+    assert.equal(f.reopen().readiness(record).code, "LIVE_READINESS_UNAVAILABLE");
+  } finally { f.cleanup(); }
+});

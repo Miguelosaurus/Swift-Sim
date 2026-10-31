@@ -10,8 +10,13 @@ settings. Older activity stays collapsed until you choose to expand it.
 
 A ready build can therefore appear without transferring its install link through
 chat. The phone fetches its install information through the authenticated helper.
-Build notifications include a safe app display name when available, so a failed
-build for one project is distinguishable from a successful update for another.
+Build and hot reload notifications include a safe app display name when available.
+For example: **Zenics updated** / **Your changes were applied successfully.
+They're ready to try.**, and **Zenics — Ready to install** / **Your new version
+is ready. Open Swift Sim to install it.** Technical diagnostics stay in the build
+details. Copy changes update existing activity without sending old alerts again or
+advancing its unread cursor. Opening or refreshing the inbox fetches current
+wording. The Companion also suppresses presentation-only foreground banners.
 Push payloads contain opaque event identifiers and bounded display text, not
 install capabilities, pairing credentials or diagnostic logs. A notification tap
 refreshes the current authenticated feed and checks the Mac installation identity
@@ -23,9 +28,12 @@ stale app handoff. Initial history and enabling alerts do not replay old pushes.
 You can submit an edit while using ChatGPT or another app on the same iPhone.
 The matching Debug app needs to return to the foreground and report root readiness
 before the Mac applies it. No particular screen is required. A prepared update
-waiting for the app can produce: **Hot reload queued — open the target app to
-apply. This may take a few seconds.** There is no guaranteed countdown.
+waiting for the app can produce: **Zenics — Ready to apply** / **Open Zenics
+to apply your latest changes. No install needed.** There is no guaranteed countdown.
 
+Known Mac-side engine or build-capture faults replace that instruction with
+an app-named attention alert directing you to the Mac. A heartbeat or engine
+fault never becomes a successful update or a prompt to reinstall automatically.
 The activity item provides a clear return-to-app instruction. An app may opt in
 to a direct Open App button by adding `SwiftSimLaunchURL` to its signed Info.plist.
 It must use a declared custom URL scheme, with no credentials, query or fragment.
@@ -80,6 +88,15 @@ The Mac sends directly to Apple's fixed TLS APNs endpoints. It must be awake and
 have network access; the phone can receive Apple's alert on another network
 without reaching the Mac. Fetching fresh private activity/build information and
 applying hot reload still require a route to the Mac, normally Tailscale.
+`swift-sim notifications status` separates provider configuration, registered
+preferences, pending attempts and recent APNs acceptance. New outcomes include an
+acceptance timestamp; older accepted events have no invented timestamp. The
+updated Companion reports its notification permission, banner and Scheduled
+Summary settings, plus its latest observed foreground receipt and notification
+tap for this paired Mac. A tap is not installation proof. Missing callbacks do
+not establish non-delivery: iOS does not run this app for every background alert.
+Diagnostics updates preserve pending alert claims and registration history.
+
 An APNs 200 means Apple accepted the alert, not that iOS displayed it. Permission,
 Focus, connectivity and iOS scheduling can prevent or delay display. This
 implementation has been qualified with a production APNs key and signed physical
