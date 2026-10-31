@@ -9,6 +9,7 @@ import { completeOwnedWorkerProcessRecord, ownedWorkerProcessState, prepareOwned
 import * as liveBuildCapture from "./liveReload.js";
 import { verifyLiveBuildLinkerCompatibility } from "./liveBuildLinkerCompatibility.js";
 import { annotateBuildFailure, recordDeviceBuildFailure } from "./buildFailure.js";
+import { appDisplayNameFromSettings, archivedAppDisplayName, builtAppDisplayName } from "./deviceBuildDisplayName.js";
 import {
   selectedTargetHasLivePackage,
   selectedXcodeApplicationTarget,
@@ -67,7 +68,7 @@ export async function resumeDeviceBuild(build, { save, logger = () => {}, readCu
       assertResumeProvenance(checkpoint.provenance, finalCapture.provenance);
       assertContainedArtifact(build.artifacts.root, ipaPath, "file");
       build.artifacts.ipaPath = ipaPath;
-      build.app.name = displayNameFromIpa(ipaPath) || build.scheme;
+      build.app.name = builtAppDisplayName(checkpoint.appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme);
       build.liveReload.recovery.phase = "packaged";
       build.state = "ready";
       saveBuild();
@@ -320,6 +321,7 @@ export async function runDeviceBuild(build, {
       ? [...buildSettingArgs, ...managedLiveBuildSettings(buildSettingArgs)]
       : buildSettingArgs;
     build.app.bundleIdentifier = resolvedIdentity.bundleIdentifier;
+    build.app.name = appDisplayNameFromSettings(settings, build.app.name || build.scheme);
     build.app.version = settings.MARKETING_VERSION || "";
     build.app.build = settings.CURRENT_PROJECT_VERSION || "";
     build.app.teamID = resolvedIdentity.teamID;
@@ -413,7 +415,7 @@ export async function runDeviceBuild(build, {
           const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
           build.artifacts.ipaPath = ipaPath;
           build.liveReload.recovery.phase = "packaged";
-          build.app.name = displayNameFromIpa(ipaPath) || build.scheme || basename(ipaPath, ".ipa");
+          build.app.name = builtAppDisplayName(appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme);
           build.state = "ready";
           saveBuild();
           log("Build is ready to install and hot reload.");
@@ -467,7 +469,7 @@ export async function runDeviceBuild(build, {
     const ipaPath = findIpa(exportPath);
     if (!ipaPath) throw new DeviceBuildError("Xcode export finished, but no IPA was produced.");
     build.artifacts.ipaPath = ipaPath;
-    build.app.name = displayNameFromIpa(ipaPath) || build.scheme || basename(ipaPath, ".ipa");
+    build.app.name = archivedAppDisplayName(archivePath, settings, build.app.name || displayNameFromIpa(ipaPath) || build.scheme);
 
     build.state = "ready";
     saveBuild();

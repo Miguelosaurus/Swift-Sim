@@ -44,6 +44,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Read build display names from the packaged app instead of preferring internal
+  target names or IPA filenames.
 - Use app-focused notification copy for successful changes, ready installs,
   waiting updates and failures. Refresh wording without replaying old alerts or
   dropping pending sends. Report APNs acceptance separately from phone receipt.

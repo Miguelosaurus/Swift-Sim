@@ -11,6 +11,9 @@ settings. Older activity stays collapsed until you choose to expand it.
 A ready build can therefore appear without transferring its install link through
 chat. The phone fetches its install information through the authenticated helper.
 Build and hot reload notifications include a safe app display name when available.
+New builds read the compiled app's display name, with its bundle name and known
+build name as fallbacks; the IPA filename is no longer preferred. This read
+happens during packaging, not during idle notification polling.
 For example: **Zenics updated** / **Your changes were applied successfully.
 They're ready to try.**, and **Zenics — Ready to install** / **Your new version
 is ready. Open Swift Sim to install it.** Technical diagnostics stay in the build
