@@ -545,7 +545,7 @@ final class SessionStore: ObservableObject {
                 currentRevision: deviceBuildViewRevision,
                 expectedRevision: viewRevision
             ) {
-                deviceBuildActionMessage = "Install opened. Swift Sim will verify it when your Mac reconnects."
+                deviceBuildActionMessage = "Install requested. Swift Sim will verify it when your Mac reconnects."
             }
             return
         }

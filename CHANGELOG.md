@@ -4,6 +4,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Make the entire visible install/link button tappable, add pull-to-refresh to
+  the app library, and describe installer handoff as a request rather than proof
+  that iOS displayed its prompt.
+
 - Correct implementation-local binding classification, preserve storage and
   nominal-type fences, reject incomplete queued replacement bundles, and explain
   the specific file/member that needs a signed build. Device qualification is

@@ -4,6 +4,8 @@ Swift Sim organizes signed builds by app. The home screen shows the app icon,
 latest version and build number, and its current build/install status on separate
 lines. Apps are ordered by their most recent build. Failed or running builds
 remain visibly distinct from versions ready to install.
+Pull down on the home screen to refresh saved app metadata and icons from the
+paired Mac without opening individual app cards.
 
 An app's page puts its latest build first, followed by Build Current Code and
 recent history. The four previous builds are expanded; older builds stay available

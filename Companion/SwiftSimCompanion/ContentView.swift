@@ -104,6 +104,7 @@ private struct HomeView: View {
                 .presentationDetents([.height(360), .medium])
                 .presentationDragIndicator(.visible)
         }
+        .refreshable { await sessionStore.refreshHelperStatus() }
     }
 
     private var header: some View {
@@ -786,7 +787,7 @@ private struct ManagedAppDetailView: View {
         switch app.latestBuild?.installationStatus {
         case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed on iPhone"
-        case .requested: return "Install opened"
+        case .requested: return "Install requested"
         case .differentVersion: return "Update available"
         case .notInstalled: return "Ready to install"
         default: return "Latest version saved"
@@ -822,7 +823,7 @@ private struct ManagedAppDetailView: View {
         switch build.installationStatus {
         case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed"
-        case .requested: return "Install opened"
+        case .requested: return "Install requested"
         case .differentVersion: return "Update available"
         case .notInstalled: return "Ready to install"
         case .unknown: return build.isLinkActive ? "Ready to install" : "Install link expired"
@@ -908,7 +909,7 @@ private struct BuildHistoryRow: View {
         switch build.installationStatus {
         case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed"
-        case .requested: return "Install opened"
+        case .requested: return "Install requested"
         case .differentVersion: return "Update available"
         case .notInstalled: return "Ready to install"
         default: return build.isLinkActive ? "Ready to install" : "Link expired"
@@ -1185,6 +1186,7 @@ private struct DeviceBuildView: View {
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
                     .frame(height: 58)
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: !sessionStore.isRenewingDeviceBuildLink)
@@ -1201,10 +1203,12 @@ private struct DeviceBuildView: View {
                         .font(.headline.weight(.bold))
                         .frame(maxWidth: .infinity)
                         .frame(height: 58)
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .liquidGlassCapsule(tint: canInstall ? Color.green.opacity(0.2) : Color.gray.opacity(0.12), interactive: canInstall)
                 .disabled(!canInstall || sessionStore.isStartingInstallation)
+                .accessibilityIdentifier("installBuildButton")
             }
 
             if let message = sessionStore.deviceBuildActionMessage {
@@ -1353,7 +1357,7 @@ private struct DeviceBuildView: View {
         switch installationStatus {
         case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed"
-        case .requested: return "Install opened"
+        case .requested: return "Install requested"
         case .differentVersion: return "Update available"
         case .notInstalled: return "Ready to install"
         case .unknown: break
@@ -1385,7 +1389,7 @@ private struct DeviceBuildView: View {
             }
             return "This version is installed on your iPhone."
         case .requested:
-            return "iOS opened the install prompt. A reachable Apple device connection or an exact-build launch report can confirm the installation."
+            return "The install request was sent to iOS. Approve its prompt when it appears. Installation is confirmed separately."
         case .differentVersion:
             if let installedVersionLabel {
                 return "\(installedVersionLabel) is installed. This link has Version \(conciseVersionLabel)."
