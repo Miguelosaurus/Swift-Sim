@@ -53,8 +53,8 @@ test("v3 normalization rejects ambiguous shape, coercions and oversized member s
   invalid({ version: 3, swift_replacements: 0, objc_callbacks: [] }, "empty logical update has no coverage");
   invalid({ ...expected(), swift_replacements: 512 }, "total represented count exceeds 512");
   invalid({ version: 3, swift_replacements: 0, objc_callbacks: Array.from({ length: 257 }, (_, i) => ({ ...callback, class_name: `Callback${i}` })) });
-  invalid({ version: 3, swift_replacements: 0, objc_callbacks: Array.from({ length: 8 }, (_, i) => ({
-    ...callback, class_name: `Callback${i}` + "A".repeat(1000), type_encoding: "v".repeat(1024),
+  invalid({ version: 3, swift_replacements: 0, objc_callbacks: Array.from({ length: 9 }, (_, i) => ({
+    ...callback, class_name: `Callback${i}` + "A".repeat(1000), type_encoding: "v".repeat(512),
   })) }, "individually bounded callbacks must also fit the 12 KiB canonical wire budget");
 });
 
@@ -65,13 +65,23 @@ test("callback mappings reject target aliases, invalid selectors and hidden fiel
     { ...callback, class_name: "Class\0Hidden" }, { ...callback, class_name: "../Class" },
     { ...callback, selector: "method\nname:" }, { ...callback, type_encoding: "" },
     { ...callback, type_encoding: "v24@0:8@16\u0000ignored" },
-    { ...callback, class_name: "A".repeat(1025) }, { ...callback, type_encoding: "v".repeat(1025) },
+    { ...callback, class_name: "A".repeat(1025) }, { ...callback, type_encoding: "v".repeat(513) },
+    { ...callback, selector: "a".repeat(256) + ":" },
+    ...["a::", ":a:", "a:1:", "a:.:", "1a:"].map(selector => ({ ...callback, selector })),
   ]) invalid({ ...expected(), objc_callbacks: [altered] });
   invalid({ ...expected(), objc_callbacks: [callback, { ...callback }] }, "duplicate original selector");
   invalid({ ...expected(), objc_callbacks: [callback, { ...callback, selector: callback.replacement_selector,
     replacement_selector: "__swiftSim_second:" }] }, "replacement alias cannot become another original target");
   invalid({ ...expected(), objc_callbacks: [callback, { ...callback, selector: "anotherOriginal:" }] },
     "two originals cannot share a replacement alias");
+});
+
+test("v3 field and total-count boundaries remain usable", () => {
+  const bounded = { ...callback, class_name: "A".repeat(1024), selector: "a".repeat(255) + ":",
+    replacement_selector: "b".repeat(255) + ":", type_encoding: "v".repeat(512) };
+  assert.deepEqual(normalizeReplacementProof({ version: 3, swift_replacements: 511, objc_callbacks: [bounded] }),
+    { version: 3, swift_replacements: 511, objc_callbacks: [bounded] });
+  assert.equal(normalizeReplacementProof({ version: 3, swift_replacements: 512, objc_callbacks: [] }).swift_replacements, 512);
 });
 
 test("complete mixed, Swift-only and Objective-C-only receipts retain honest counts", () => {
