@@ -32,13 +32,10 @@ export function createDeviceInstallationReconciliationCoordinator(dependencies) 
       if (running) return;
       running = true;
       try {
-        const requested = dependencies.listBuilds().filter((build) => {
-          return (
-            build.state === "ready" &&
-            installationVerificationIsActive(build.installation, dependencies.nowMs) &&
-            Boolean(build.app?.bundleIdentifier)
-          );
-        });
+        const requested = installationVerificationCandidates(
+          dependencies.listBuilds(),
+          dependencies.nowMs,
+        );
         for (const build of requested) {
           try {
             const verification = await dependencies.verifyBuild(build);
@@ -57,6 +54,20 @@ export function createDeviceInstallationReconciliationCoordinator(dependencies) 
       }
     },
   });
+}
+
+/**
+ * Select before detached cloning when called inside an authoritative store read.
+ * @param {Iterable<DeviceBuildRecord>} builds
+ * @param {() => number} nowMs
+ */
+export function installationVerificationCandidates(builds, nowMs) {
+  return [...builds].filter(
+    (build) =>
+      build.state === "ready" &&
+      installationVerificationIsActive(build.installation, nowMs) &&
+      Boolean(build.app?.bundleIdentifier),
+  );
 }
 
 /**

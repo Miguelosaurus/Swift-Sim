@@ -29,7 +29,7 @@ import {
 import { buildCompanionLinks, buildPairingLinks, publicSession } from "../src/links.js";
 import { externalRequestBase } from "../src/requestOrigin.js";
 import { claimDeviceVerification } from "../src/deviceVerificationGate.js";
-import { createDeviceInstallationReconciliationCoordinator } from "../src/http/deviceInstallationReconciliationCoordinator.js";
+import { createDeviceInstallationReconciliationCoordinator, installationVerificationCandidates } from "../src/http/deviceInstallationReconciliationCoordinator.js";
 import { createHelperServiceLifecycle } from "../src/http/helperServiceLifecycle.js";
 import { createDeviceAppApplicationService } from "../src/http/deviceAppApplicationService.js";
 import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
@@ -62,7 +62,7 @@ import { liveDeliveryService } from "../src/liveDeliveryService.js";
 import { liveRuntimeLockManager } from "../src/liveEngineLifecycleLock.js";
 import { queuedLiveEngineControl } from "../src/liveReload.js";
 import { createActivityStore } from "../src/activityStore.js";
-import { createActivityService } from "../src/activityService.js";
+import { createActivityService, activityBuildView } from "../src/activityService.js";
 import { handleActivityRoutes } from "../src/http/activityRoutes.js";
 import { createRemoteLaunchVerifier, createQualifiedLaunchCaptureReader } from "../src/remoteLaunchVerification.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
@@ -219,7 +219,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       const pairing = pairingStore.current();
       return { epoch: createHash("sha256").update(pairing.token).digest("hex"), installationId: pairing.installationID };
     },
-    listBuilds: () => deviceBuildStore.list(),
+    listBuilds: () => deviceBuildStore.readOnly(activityBuildView),
     listLiveDeliveries: () => liveDeliveryService().queue.pollingSnapshot().records,
   });
   remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
@@ -247,7 +247,8 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     return activityTurn;
   };
   const deviceInstallationReconciler = createDeviceInstallationReconciliationCoordinator({
-    listBuilds: () => deviceBuildStore.list(),
+    listBuilds: () => deviceBuildStore.readOnly(state => installationVerificationCandidates(
+      [...state.builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))), () => clock.now().getTime())),
     verifyBuild: (build) => verifyDeviceBuild(build),
     saveVerification: (buildID, verification) => deviceBuildStore.saveVerification(buildID, verification),
     nowMs: () => clock.now().getTime(),

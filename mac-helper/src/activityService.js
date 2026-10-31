@@ -84,6 +84,24 @@ export function createActivityService({ store, provider = createApnsProvider(), 
   });
 }
 
+// Execute inside the store's existing locked read, before detached cloning.
+// Notifications need neither historical log bodies nor compiler source maps.
+export function activityBuildView(state) {
+  return [...state.builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(build => ({
+    id: build.id, state: build.state, createdAt: build.createdAt, updatedAt: build.updatedAt,
+    configuration: build.configuration, remoteBaseUrl: build.remoteBaseUrl,
+    tokenExpiredAt: build.tokenExpiredAt, expiresAt: build.expiresAt,
+    app: { name: build.app?.name, bundleIdentifier: build.app?.bundleIdentifier, version: build.app?.version, build: build.app?.build },
+    artifacts: { ipaPath: build.artifacts?.ipaPath },
+    logs: build.logs?.length ? [build.logs.at(-1)] : [],
+    installation: { state: build.installation?.state, launchConfirmedAt: build.installation?.launchConfirmedAt, lastSeenAt: build.installation?.lastSeenAt, verifiedAt: build.installation?.verifiedAt },
+    liveReload: { eligible: build.liveReload?.eligible, presentation: { targetAppName: build.liveReload?.presentation?.targetAppName, launchURL: build.liveReload?.presentation?.launchURL },
+      recovery: { provenance: { projectPath: build.liveReload?.recovery?.provenance?.projectPath,
+        scheme: build.liveReload?.recovery?.provenance?.scheme,
+        binaryIdentity: build.liveReload?.recovery?.provenance?.binaryIdentity } } },
+  }));
+}
+
 export function activitySnapshotEvents({ builds = [], liveDeliveries = [], previous = {}, knownEvents = [], now = Date.now() } = {}) {
   const entries = []; const observations = {};
   function add(key, event) {

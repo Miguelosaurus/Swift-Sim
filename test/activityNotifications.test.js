@@ -5,7 +5,7 @@ import { chmodSync, lstatSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createActivityStore, activityEventId } from "../mac-helper/src/activityStore.js";
-import { createActivityService, activitySnapshotEvents } from "../mac-helper/src/activityService.js";
+import { createActivityService, activitySnapshotEvents, activityBuildView } from "../mac-helper/src/activityService.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { NodeLockManager } from "../mac-helper/src/infrastructure/nodeLockManager.js";
 
@@ -241,6 +241,9 @@ test("queued app launch action requires explicit opt-in and exact project, bundl
     const identity = { bundle_id: "example.debug", bundle_version: "1.0", build_number: "2", executable_uuid: "11111111-1111-4111-8111-111111111111", debug_dylib_uuid: "22222222-2222-4222-8222-222222222222" };
     const build = { ...f.build(), configuration: "Debug", app: { bundleIdentifier: identity.bundle_id, version: identity.bundle_version, build: identity.build_number }, liveReload: { eligible: true, compilerReady: true, recovery: { provenance: { projectPath: "/private/project/Test.xcodeproj", scheme: "Test", binaryIdentity: identity } }, presentation: { targetAppName: "Test App", launchURL: "example-debug://open" } } };
     const record = { ...f.live("launch-action", "waiting-for-device"), scope: { project: "/private/project/Test.xcodeproj/project.pbxproj", scheme: "Test", appIdentity: activityEventId([identity.bundle_id, identity.bundle_version, identity.build_number]), binaryIdentity: `${identity.executable_uuid}:${identity.debug_dylib_uuid}`, sessionIdentity: "process-one" } };
+    const projected = activityBuildView({ builds: new Map([[build.id, build]]) });
+    const observation = { liveDeliveries: [record], now: Date.now() };
+    assert.deepEqual(activitySnapshotEvents({ ...observation, builds: projected }), activitySnapshotEvents({ ...observation, builds: [build] }));
     f.setBuilds([build]); f.setLive([record]); await f.service.runOnce();
     const queued = () => f.service.feed().events.find((event) => event.requestId === record.requestId);
     assert.equal(queued().launchURL, "example-debug://open"); assert.equal(queued().targetAppName, "Test App");
@@ -265,4 +268,25 @@ test("an explicit hot reload opt-out survives helper restart and enabling never 
     f.advance(); f.setLive([applied(f.live("next-request"))]); await f.service.runOnce();
     assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.aps.alert.title, "Update applied");
   } finally { f.cleanup(); }
+});
+
+
+test("compact activity build view preserves all events and older retained-build existence", () => {
+  const now = Date.now();
+  const rows = Array.from({ length: 510 }, (_, i) => ({
+    id: `build-${i}`, state: ["queued", "ready", "failed", "exporting"][i % 4],
+    createdAt: new Date(now - i * 1000).toISOString(), updatedAt: new Date(now - i * 1000).toISOString(),
+    app: { name: "Example", bundleIdentifier: "com.example", version: "1", build: "1" },
+    configuration: "Debug", remoteBaseUrl: "https://example.test", expiresAt: new Date(now + 60_000).toISOString(),
+    artifacts: { ipaPath: "/private/app.ipa" }, logs: ["unused diagnostic".repeat(1000), "[CODESIGN_FAILED] last diagnostic"],
+    installation: { state: "launch-confirmed", launchConfirmedAt: new Date(now - 1000).toISOString() },
+    liveReload: { eligible: true, presentation: { targetAppName: "Example", launchURL: "example://" }, recovery: { provenance: {
+      projectPath: "/tmp/Example.xcodeproj", scheme: "Example", sourceFiles: [{ source: "not for notification discovery".repeat(1000) }],
+    } } },
+  }));
+  const compact = activityBuildView({ builds: new Map(rows.map(r => [r.id, r])) });
+  assert.equal(compact.length, 510, "older retained builds still resolve existing activity");
+  assert(JSON.stringify(compact).length < JSON.stringify(rows).length / 10);
+  const knownEvents = [{ id: "old-event", buildId: "build-509", kind: "build-ready" }];
+  assert.deepEqual(activitySnapshotEvents({ builds: compact, knownEvents, now }), activitySnapshotEvents({ builds: rows, knownEvents, now }));
 });

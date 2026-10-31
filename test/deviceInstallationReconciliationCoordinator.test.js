@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDeviceInstallationReconciliationCoordinator } from "../mac-helper/src/http/deviceInstallationReconciliationCoordinator.js";
+import {
+  createDeviceInstallationReconciliationCoordinator,
+  installationVerificationCandidates,
+} from "../mac-helper/src/http/deviceInstallationReconciliationCoordinator.js";
 
 const NOW = Date.parse("2026-08-10T18:00:00.000Z");
 
@@ -313,4 +316,27 @@ test("validates every dependency at construction", () => {
       new RegExp(`requires ${name}`),
     );
   }
+});
+
+test("pre-clone verification selection preserves order and time-dependent eligibility", () => {
+  const rows = [
+    build({ id: "active-first" }),
+    build({
+      id: "expired",
+      installation: { verificationDeadlineAt: new Date(NOW - 1).toISOString() },
+    }),
+    build({ id: "failed", state: "failed" }),
+    build({ id: "no-app", app: { bundleIdentifier: "" } }),
+    build({ id: "active-last", installation: { state: "not-installed" } }),
+  ];
+  const before = structuredClone(rows);
+  assert.deepEqual(
+    installationVerificationCandidates(rows.values(), () => NOW).map((r) => r.id),
+    ["active-first", "active-last"],
+  );
+  assert.deepEqual(
+    installationVerificationCandidates(rows.values(), () => NOW + 60_000),
+    [],
+  );
+  assert.deepEqual(rows, before);
 });
