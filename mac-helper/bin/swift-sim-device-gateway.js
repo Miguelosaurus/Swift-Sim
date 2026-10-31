@@ -19,6 +19,7 @@ import {
   defaultBoundaryStateRoot,
 } from "../src/http/phase4BoundaryStoreFactory.js";
 import { sanitizePublicBuildLogs } from "../src/publicBuildLogs.js";
+import { readBuildIcon } from "../src/deviceBuildIcon.js";
 
 const { values } = parseArgs({
   options: {
@@ -105,7 +106,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    const artifactMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/);
+    const artifactMatch = url.pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest|icon)$/);
     if (artifactMatch && req.method === "GET") {
       const [, buildID, artifact] = artifactMatch;
       const resolved = authorizedBuild(buildID, url.searchParams.get("token"));
@@ -115,6 +116,17 @@ const server = createServer(async (req, res) => {
       }
       if (resolved.build.state !== "ready") {
         return badRequest(res, 409, "This build is not ready or is no longer available.");
+      }
+      if (artifact === "icon") {
+        const bytes = readBuildIcon(resolved.build);
+        if (!bytes) return notFound(res, "App icon is unavailable.");
+        res.writeHead(200, {
+          "content-type": "image/png",
+          "content-length": bytes.length,
+          "cache-control": "private, no-store",
+          "x-content-type-options": "nosniff",
+        });
+        return res.end(bytes);
       }
       const remoteBaseURL = resolved.capability.remoteBaseUrl || `${url.protocol}//${url.host}`;
       if (artifact === "manifest") {

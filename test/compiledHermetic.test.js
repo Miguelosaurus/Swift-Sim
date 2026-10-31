@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { DeviceBuildStore } from "../mac-helper/src/deviceBuildStore.js";
 import test from "node:test";
 
 const compiledOrSourceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -16,6 +18,52 @@ const distRoot = isSourceTree ? join(packageRoot, "dist") : compiledOrSourceRoot
 const cli = join(distRoot, "mac-helper", "bin", "swift-sim-entry.js");
 const helper = join(distRoot, "mac-helper", "bin", "swift-sim-helper-entry.js");
 const gateway = join(distRoot, "mac-helper", "bin", "swift-sim-device-gateway.js");
+
+test("real public gateway serves digest-bound icons only for live build capabilities", async () => {
+  const home = mkdtempSync(join(tmpdir(), "swift-sim-gateway-icon-"));
+  const stateRoot = join(home, ".swift-sim");
+  mkdirSync(stateRoot);
+  const store = new DeviceBuildStore({ path: join(stateRoot, "device-builds.json"), maintenance: false });
+  const build = store.create({ scheme: "Icon Example" });
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const icon = join(stateRoot, "device-builds", build.id, "app-icon.png");
+  mkdirSync(dirname(icon), { recursive: true });
+  writeFileSync(icon, png);
+  build.state = "ready";
+  build.expiresAt = new Date(Date.now() + 60_000).toISOString();
+  build.app.iconDigest = createHash("sha256").update(png).digest("hex");
+  build.capabilities = [
+    { token: "previous-live", expiresAt: build.expiresAt },
+    { token: "previous-expired", expiresAt: new Date(0).toISOString() },
+  ];
+  store.save(build);
+  const expired = store.create({ scheme: "Expired" });
+  expired.state = "ready";
+  expired.expiresAt = new Date(0).toISOString();
+  store.save(expired);
+  const port = await availablePort();
+  let child;
+  try {
+    child = await startGateway({ ...process.env, HOME: home }, port,
+      isSourceTree ? join(compiledOrSourceRoot, "mac-helper", "bin", "swift-sim-device-gateway.js") : gateway);
+    const url = `http://127.0.0.1:${port}/api/device-builds/${build.id}/artifact/icon`;
+    for (const token of [build.token, "previous-live"]) {
+      const response = await fetch(`${url}?token=${token}`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "image/png");
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
+    }
+    assert.equal((await fetch(url)).status, 401);
+    assert.equal((await fetch(`${url}?token=unrelated-build`)).status, 401);
+    assert.equal((await fetch(`${url}?token=previous-expired`)).status, 401);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/device-builds/${expired.id}/artifact/icon?token=${expired.token}`)).status, 410);
+    writeFileSync(icon, Buffer.from("tampered"));
+    assert.equal((await fetch(`${url}?token=${build.token}`)).status, 404);
+  } finally {
+    if (child) await stopHelper(child);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 test("compiled runtime works without the source tree", async () => {
   if (isSourceTree) return;
@@ -163,8 +211,8 @@ async function startHelper(env, port) {
   throw new Error(`Hermetic compiled helper did not become healthy: ${errorOutput}`);
 }
 
-async function startGateway(env, port) {
-  const child = spawn(process.execPath, [gateway, "--host", "127.0.0.1", "--port", String(port)], {
+async function startGateway(env, port, entry = gateway) {
+  const child = spawn(process.execPath, [entry, "--host", "127.0.0.1", "--port", String(port)], {
     env,
     stdio: ["ignore", "ignore", "pipe"],
   });
