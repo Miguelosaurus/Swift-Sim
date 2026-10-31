@@ -9,6 +9,44 @@ test("device build capability service validates dependencies", () => {
   );
 });
 
+test("icon reads require pairing or a current exact build capability without exposing artifact paths", async () => {
+  let reads = 0;
+  const bytes = Buffer.from("fixture PNG bytes");
+  const make = (options = {}) =>
+    createDeviceBuildCapabilityApplicationService(
+      dependencies({
+        readIcon: () => {
+          reads++;
+          return bytes;
+        },
+        ...options,
+      }),
+    );
+  const input = {
+    operation: "artifact",
+    artifact: "icon",
+    buildID: "build-1",
+    request: { headers: {} },
+    url: new URL("https://fixture.example/api/device-builds/build-1/artifact/icon"),
+  };
+  assert.equal((await make().execute(input)).kind, "unauthorized");
+  assert.equal(reads, 0);
+  const paired = await make({ pairingTokenMatches: () => true }).execute(input);
+  assert.equal(paired.kind, "bytes");
+  assert.deepEqual(paired.body, bytes);
+  input.url.searchParams.set("token", "cap-token");
+  assert.equal((await make().execute(input)).kind, "bytes");
+  const expired = { ...readyBuild(), expiresAt: "2000-01-01T00:00:00Z" };
+  const count = reads;
+  assert.equal((await make({ getBuild: () => expired }).execute(input)).status, 410);
+  assert.equal(reads, count);
+  assert.equal(
+    (await make({ getBuild: () => expired, pairingTokenMatches: () => true }).execute(input)).kind,
+    "bytes",
+  );
+  assert.equal((await make({ readIcon: () => null }).execute(input)).kind, "not-found");
+});
+
 test("unknown unpaired build is unauthorized without probing capability details", async () => {
   let verified = false;
   const service = createDeviceBuildCapabilityApplicationService(dependencies({

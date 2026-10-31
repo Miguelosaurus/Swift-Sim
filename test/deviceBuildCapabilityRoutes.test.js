@@ -42,6 +42,11 @@ test("device build capability matrix declares mixed and capability-only routes",
       exposure: "public-delivery",
       authorization: "build-capability",
     },
+    {
+      route: "GET /api/device-builds/:id/artifact/icon",
+      exposure: "public-delivery-or-private-helper",
+      authorization: "build-capability-or-paired-mac",
+    },
     { route: "GET /d/:id", exposure: "public-delivery", authorization: "build-capability" },
   ]);
 });
@@ -54,24 +59,28 @@ for (const [method, pathname, operation, artifact] of [
   ["POST", "/api/device-builds/build-1/verify", "verify", undefined],
   ["GET", "/api/device-builds/build-1/artifact/ipa", "artifact", "ipa"],
   ["GET", "/api/device-builds/build-1/artifact/manifest", "artifact", "manifest"],
+  ["GET", "/api/device-builds/build-1/artifact/icon", "artifact", "icon"],
   ["GET", "/d/build-1", "install-page", undefined],
 ]) {
   test(`${method} ${pathname} delegates once and completes`, async () => {
     let calls = 0;
     let received;
     const response = recorder();
-    assert.equal(await handleDeviceBuildCapabilityRoutes({
-      req: request(method),
-      res: response,
-      url: new URL(`http://127.0.0.1${pathname}`),
-      service: {
-        execute: async (input) => {
-          calls += 1;
-          received = input;
-          return { kind: "json", status: 200, body: {} };
+    assert.equal(
+      await handleDeviceBuildCapabilityRoutes({
+        req: request(method),
+        res: response,
+        url: new URL(`http://127.0.0.1${pathname}`),
+        service: {
+          execute: async (input) => {
+            calls += 1;
+            received = input;
+            return { kind: "json", status: 200, body: {} };
+          },
         },
-      },
-    }), true);
+      }),
+      true,
+    );
     assert.equal(calls, 1);
     assert.equal(received.operation, operation);
     assert.equal(received.buildID, "build-1");
@@ -89,12 +98,20 @@ test("private start route and unsupported methods fall through without service a
     ["POST", "/d/build-1"],
     ["POST", "/api/device-builds/build-1/artifact/ipa"],
   ]) {
-    assert.equal(await handleDeviceBuildCapabilityRoutes({
-      req: request(method),
-      res: recorder(),
-      url: new URL(`http://127.0.0.1${pathname}`),
-      service: { execute: async () => { throw new Error("touched"); } },
-    }), false, `${method} ${pathname}`);
+    assert.equal(
+      await handleDeviceBuildCapabilityRoutes({
+        req: request(method),
+        res: recorder(),
+        url: new URL(`http://127.0.0.1${pathname}`),
+        service: {
+          execute: async () => {
+            throw new Error("touched");
+          },
+        },
+      }),
+      false,
+      `${method} ${pathname}`,
+    );
   }
 });
 

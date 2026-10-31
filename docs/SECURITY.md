@@ -67,7 +67,7 @@ Pairing and sessions use different random tokens:
 
 - pairing token: authorizes helper setup inspection, token rotation, and session creation
 - session token: authorizes one session's status, media, logs, links, and controls
-- device-build token: authorizes one build's status, logs, install manifest, and IPA download
+- device-build token: authorizes one build's status, logs, install manifest, IPA download, and that build's small app-icon thumbnail
 
 Tokens appear in URLs because iOS deep links need to carry the session credential. Treat the entire link as a secret.
 
@@ -83,6 +83,12 @@ Do not put real links in:
 Pairing tokens rotate when the app relinks through the helper's rotate route.
 
 Session tokens do not currently expire automatically. They remain valid in the stored session record across helper restarts. Stopping a session ends its tracked stream, but V1 does not yet provide a per-session record-deletion route; do not describe Stop as complete token revocation.
+
+App-icon reads use the same exact build scope. A valid build capability can read
+only its digest-matched bounded PNG; paired Mac authorization can read it privately
+after install-link expiry. Icon requests cannot upload, mutate builds or access
+arbitrary files. The phone rejects cross-origin redirects and verifies the digest
+before caching or displaying an icon.
 
 Device-build install pages and their delivery tunnel expire after two hours by default. Callers may shorten that window to as little as five minutes. The local IPA file remains on the Mac under `~/.swift-sim/device-builds/` until deleted. A paired companion may ask the private Mac helper to generate a new link for that saved IPA. The public delivery gateway cannot renew links.
 

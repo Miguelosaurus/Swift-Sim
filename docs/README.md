@@ -5,6 +5,7 @@ Use this page to find the correct document for your task.
 ## Get Started
 
 - [Setup](SETUP.md): install Swift Sim, prepare signing, and build the first app
+- [App library](APP_LIBRARY.md): icons, build status and concise version history
 - [Asynchronous Hot Reload](ASYNC_HOT_RELOAD.md): queue requests, reconnect, capability requirements and iOS limits
 - [Agent Workflows](AGENT_WORKFLOWS.md): use Swift Sim with Codex, Cursor, Claude Code, or OpenCode
 - [Troubleshooting](TROUBLESHOOTING.md): recover from a reported problem

@@ -14,6 +14,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Real app icons in the library, app history and install screens, extracted during
+  packaging and cached as bounded thumbnails for offline use.
+- Clearer version/build and status rows, Debug/Release history labels, and recent
+  builds first with older history collapsed. Latest build precedes full rebuild.
+
 - Durable Companion activity inbox and per-Mac notification preferences, with
   optional direct APNs delivery for ready builds, queued edits and attention.
   Authenticated taps refresh current state; cancelled or superseded work cannot

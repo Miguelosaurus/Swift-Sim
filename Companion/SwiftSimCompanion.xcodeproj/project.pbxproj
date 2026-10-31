@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00000000000000000000010E /* AppIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000216 /* AppIcon.swift */; };
 		000000000000000000000101 /* SwiftSimCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000201 /* SwiftSimCompanionApp.swift */; };
 		000000000000000000000102 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000202 /* ContentView.swift */; };
 		000000000000000000000103 /* SimulatorSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000203 /* SimulatorSessionView.swift */; };
@@ -23,6 +24,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		000000000000000000000216 /* AppIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIcon.swift; sourceTree = "<group>"; };
 		000000000000000000000001 /* SwiftSimCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwiftSimCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000002 /* SwiftSimCompanionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftSimCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000201 /* SwiftSimCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftSimCompanionApp.swift; sourceTree = "<group>"; };
@@ -91,6 +93,7 @@
 				000000000000000000000205 /* SessionStore.swift */,
 				000000000000000000000214 /* ActivityView.swift */,
 				000000000000000000000213 /* ActivityCenter.swift */,
+				000000000000000000000216 /* AppIcon.swift */,
 				000000000000000000000206 /* Info.plist */,
 				000000000000000000000207 /* SwiftSimCompanion.entitlements */,
 				000000000000000000000209 /* Assets.xcassets */,
@@ -219,6 +222,7 @@
 				000000000000000000000105 /* SessionStore.swift in Sources */,
 				00000000000000000000010C /* ActivityView.swift in Sources */,
 				00000000000000000000010B /* ActivityCenter.swift in Sources */,
+				00000000000000000000010E /* AppIcon.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

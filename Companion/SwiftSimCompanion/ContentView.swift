@@ -62,7 +62,10 @@ private struct HomeView: View {
 
     private var filteredApps: [ManagedApp] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let apps = sessionStore.managedApps.filter { $0.isArchived == showingArchivedApps }
+        let apps = sessionStore.managedApps.filter { $0.isArchived == showingArchivedApps }.sorted {
+            let first = $0.latestBuild?.createdAt ?? .distantPast; let second = $1.latestBuild?.createdAt ?? .distantPast
+            return first == second ? $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending : first > second
+        }
         guard !query.isEmpty else { return apps }
         return apps.filter {
             $0.displayName.localizedCaseInsensitiveContains(query)
@@ -538,6 +541,7 @@ private struct ManagedAppDetailView: View {
     let app: ManagedApp
     @State private var showingDeleteConfirmation = false
     @State private var showingBuildConfirmation = false
+    @State private var showingOlderBuilds = false
 
     var body: some View {
         ZStack {
@@ -547,8 +551,8 @@ private struct ManagedAppDetailView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     topBar
                     appHeader
-                    buildCurrentSourceSection
                     latestBuildSection
+                    buildCurrentSourceSection
                     if app.builds.count > 1 {
                         buildHistorySection
                     }
@@ -614,7 +618,7 @@ private struct ManagedAppDetailView: View {
 
     private var appHeader: some View {
         HStack(alignment: .center, spacing: 16) {
-            AppBadge(text: app.initials, isEmpty: false, accent: statusColor)
+            AppBadge(text: app.initials, isEmpty: false, accent: statusColor, icon: sessionStore.iconReference(for: app))
                 .frame(width: 72, height: 72)
 
             VStack(alignment: .leading, spacing: 5) {
@@ -632,7 +636,7 @@ private struct ManagedAppDetailView: View {
 
     private var latestBuildSection: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text("Latest Version")
+            Text("Latest Build")
                 .font(.title3.weight(.bold))
 
             if let latest = app.latestBuild {
@@ -750,7 +754,7 @@ private struct ManagedAppDetailView: View {
     private var buildHistorySection: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
-                Text("Previous Versions")
+                Text("Previous Builds")
                     .font(.title3.weight(.bold))
                 Spacer()
                 Text("\(max(app.builds.count - 1, 0))")
@@ -758,15 +762,21 @@ private struct ManagedAppDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(app.builds.filter { $0.id != app.latestBuild?.id }.sorted { $0.createdAt > $1.createdAt }) { build in
-                Button {
-                    sessionStore.reopen(build)
-                } label: {
-                    BuildHistoryRow(build: build, isCurrent: build.id == app.latestBuild?.id)
+            let previous = app.builds.filter { $0.id != app.latestBuild?.id }.sorted { $0.createdAt > $1.createdAt }
+            ForEach(previous.prefix(4)) { build in historyButton(build) }
+            if previous.count > 4 {
+                DisclosureGroup("Older builds (\(previous.count - 4))", isExpanded: $showingOlderBuilds) {
+                    ForEach(previous.dropFirst(4)) { build in historyButton(build) }
                 }
-                .buttonStyle(.plain)
+                .font(.callout.weight(.semibold))
+                .tint(.secondary)
             }
         }
+    }
+
+    private func historyButton(_ build: ManagedBuild) -> some View {
+        Button { sessionStore.reopen(build) } label: { BuildHistoryRow(build: build, isCurrent: false) }
+            .buttonStyle(.plain)
     }
 
     private var statusText: String {
@@ -834,17 +844,27 @@ private struct BuildHistoryRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(build.versionLabel)
+                    Text(build.buildNumber.isEmpty ? "Build" : "Build \(build.buildNumber)")
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if let configuration = build.configuration, ["debug", "release"].contains(configuration.lowercased()) {
+                        Text(configuration.capitalized)
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(.quaternary, in: Capsule())
+                    }
                     if isCurrent {
                         Text("LATEST")
                             .font(.system(size: 9, weight: .heavy))
                             .foregroundStyle(.blue)
                     }
                 }
+                if !build.version.isEmpty {
+                    Text("Version \(build.version)").font(.caption).foregroundStyle(.secondary)
+                }
                 Text(build.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
@@ -979,7 +999,7 @@ private struct DeviceBuildView: View {
 
     private var buildHero: some View {
         HStack(spacing: 16) {
-            AppBadge(text: appInitials, isEmpty: false)
+            AppBadge(text: appInitials, isEmpty: false, icon: currentManagedBuild.flatMap { sessionStore.iconReference(for: $0) })
                 .frame(width: 74, height: 74)
 
             VStack(alignment: .leading, spacing: 7) {
@@ -1447,11 +1467,12 @@ private struct SessionRow: View {
 }
 
 private struct ManagedAppRow: View {
+    @EnvironmentObject private var sessionStore: SessionStore
     let app: ManagedApp
 
     var body: some View {
         HStack(spacing: 14) {
-            AppBadge(text: app.initials, isEmpty: false, accent: appAccent)
+            AppBadge(text: app.initials, isEmpty: false, accent: appAccent, icon: sessionStore.iconReference(for: app))
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(app.displayName.swiftSimDisplayName)
@@ -1459,15 +1480,16 @@ private struct ManagedAppRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(appAccent)
-                        .frame(width: 7, height: 7)
-                    Text("\(statusLabel) - \(app.latestBuild?.versionLabel ?? "Version unavailable")")
-                        .lineLimit(1)
+                Text(app.latestBuild?.versionLabel ?? "Version unavailable")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Circle().fill(appAccent).frame(width: 6, height: 6)
+                    Text(statusLabel)
                 }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(appAccent)
             }
 
             Spacer()
@@ -1475,7 +1497,7 @@ private struct ManagedAppRow: View {
             VStack(alignment: .trailing, spacing: 5) {
                 Text("\(app.builds.count)")
                     .font(.headline.weight(.bold))
-                Text(app.builds.count == 1 ? "version" : "versions")
+                Text(app.builds.count == 1 ? "build" : "builds")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -1488,22 +1510,14 @@ private struct ManagedAppRow: View {
         .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
     }
 
-    private var statusLabel: String {
-        switch app.latestBuild?.installationStatus {
-        case .launchConfirmed: "Installed & launched"
-        case .verified: "Installed"
-        case .requested: "Install opened"
-        case .differentVersion: "Update available"
-        case .notInstalled: "Ready to install"
-        default: app.latestBuild?.isLinkActive == true ? "Ready to install" : "Version history"
-        }
-    }
+    private var statusLabel: String { app.latestBuild?.libraryStatusText ?? "No builds yet" }
 
     private var appAccent: Color {
+        if app.latestBuild?.state == "failed" { return .orange }
         switch app.latestBuild?.installationStatus {
-        case .verified, .launchConfirmed: .green
-        case .requested, .differentVersion, .notInstalled: .blue
-        default: .blue
+        case .verified, .launchConfirmed: return .green
+        case .requested, .differentVersion, .notInstalled: return .blue
+        default: return .blue
         }
     }
 }
@@ -1677,6 +1691,9 @@ private struct AppBadge: View {
     let isEmpty: Bool
     var symbol = "terminal.fill"
     var accent: Color = .blue
+    var icon: AppIconReference? = nil
+    @State private var image: UIImage?
+    @State private var loadedDigest: String?
 
     var body: some View {
         ZStack {
@@ -1689,7 +1706,10 @@ private struct AppBadge: View {
                     )
                 )
 
-            if let text {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill().frame(width: 70, height: 70)
+                    .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+            } else if let text {
                 Text(text)
                     .font(.system(size: 23, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
@@ -1701,6 +1721,13 @@ private struct AppBadge: View {
         }
         .frame(width: 70, height: 70)
         .accessibilityHidden(true)
+        .task(id: icon) {
+            guard let icon else { image = nil; loadedDigest = nil; return }
+            guard loadedDigest != icon.digest || image == nil else { return }
+            image = nil
+            guard let data = await AppIconCache.shared.data(for: icon), !Task.isCancelled else { return }
+            image = AppIconCache.image(from: data); loadedDigest = icon.digest
+        }
     }
 }
 

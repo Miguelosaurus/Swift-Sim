@@ -476,6 +476,21 @@ final class SessionStore: ObservableObject {
 
     var currentBuildIsInstalled: Bool { currentBuildInstallationState.isInstalled }
 
+    func iconReference(for build: ManagedBuild) -> AppIconReference? {
+        guard let base = URL(string: build.baseURLString) else { return nil }
+        let owner = managedApps.first(where: { $0.id == build.appID })?.ownerPairingID
+        let mac = pairedMac.flatMap { owner == $0.id ? $0 : nil }
+        return AppIconReference(digest: build.iconDigest, buildID: build.id, baseURL: base, token: build.token, pairedMac: mac)
+    }
+
+    func iconReference(for app: ManagedApp) -> AppIconReference? {
+        for build in app.builds.sorted(by: { $0.createdAt > $1.createdAt }) {
+            if let reference = iconReference(for: build) { return reference }
+        }
+        return nil
+    }
+
+
     @discardableResult
     func beginCurrentBuildInstall() -> UUID? {
         guard !isStartingInstallation, !currentBuildIsInstalled,
@@ -2092,6 +2107,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
     let verifiedDevices: [VerifiedDevice]
     let installationSource: String?
     let installationUpdatedAt: Date?
+    let iconDigest: String?
+    let configuration: String?
     let launchConfirmedAt: Date?
     let lastSeenAt: Date?
     let lastOpened: Date
@@ -2114,9 +2131,20 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         !["ready", "failed"].contains(state)
     }
 
+    var libraryStatusText: String {
+        if state == "failed" { return "Build failed" }
+        if isPreparing { return state == "exporting" ? "Signing build" : "Building" }
+        switch installationStatus {
+        case .verified, .launchConfirmed: return "Installed"
+        case .requested: return "Install requested"
+        case .differentVersion: return "Update available"
+        case .notInstalled, .unknown: return isLinkActive ? "Ready to install" : "Install link expired"
+        }
+    }
+
     var versionLabel: String {
         let versionText = version.isEmpty ? "Unversioned" : "Version \(version)"
-        return buildNumber.isEmpty ? versionText : "\(versionText) (\(buildNumber))"
+        return buildNumber.isEmpty ? versionText : "\(versionText) • Build \(buildNumber)"
     }
 
     init(session: DeviceBuildSession, status: DeviceBuildStatus) {
@@ -2139,6 +2167,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         verifiedAt = Self.parse(status.installation?.verifiedAt)
         verifiedDevices = status.installation?.devices ?? []
         installationSource = status.installation?.source
+        configuration = status.configuration
+        iconDigest = status.app.iconDigest
         installationUpdatedAt = Self.parse(status.installation?.updatedAt)
         launchConfirmedAt = Self.parse(status.installation?.launchConfirmedAt)
         lastSeenAt = Self.parse(status.installation?.lastSeenAt)
@@ -2163,6 +2193,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         verifiedAt = nil
         verifiedDevices = []
         installationSource = nil
+        configuration = nil
+        iconDigest = nil
         installationUpdatedAt = nil
         launchConfirmedAt = nil
         lastSeenAt = nil
@@ -2187,6 +2219,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         verifiedAt = nil
         verifiedDevices = []
         installationSource = nil
+        configuration = nil
+        iconDigest = nil
         installationUpdatedAt = nil
         launchConfirmedAt = nil
         lastSeenAt = nil
@@ -2214,6 +2248,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
             lastOpened: Date(),
             installationSource: installationSource,
             installationUpdatedAt: installationUpdatedAt,
+            iconDigest: iconDigest,
+            configuration: configuration,
             launchConfirmedAt: launchConfirmedAt,
             lastSeenAt: lastSeenAt
         )
@@ -2239,6 +2275,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         lastOpened: Date,
         installationSource: String? = nil,
         installationUpdatedAt: Date? = nil,
+        iconDigest: String? = nil,
+        configuration: String? = nil,
         launchConfirmedAt: Date? = nil,
         lastSeenAt: Date? = nil
     ) {
@@ -2260,6 +2298,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         self.verifiedDevices = verifiedDevices
         self.installationSource = installationSource
         self.installationUpdatedAt = installationUpdatedAt
+        self.iconDigest = iconDigest
+        self.configuration = configuration
         self.launchConfirmedAt = launchConfirmedAt
         self.lastSeenAt = lastSeenAt
         self.lastOpened = lastOpened
@@ -2353,7 +2393,7 @@ struct DeviceBuildStatus: Decodable, Equatable {
         updatedAt = createdAt
         expiresAt = build.expiresAt.map { ISO8601DateFormatter().string(from: $0) } ?? ""
         state = build.state
-        configuration = nil
+        configuration = build.configuration
         liveReload = nil
         app = DeviceBuildApp(
             identity: build.appID,
@@ -2361,7 +2401,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
             bundleIdentifier: build.bundleIdentifier,
             version: build.version,
             build: build.buildNumber,
-            teamID: build.teamID
+            teamID: build.teamID,
+            iconDigest: build.iconDigest
         )
         signing = DeviceBuildSigning(method: "development", deviceInstallable: true, updateSafe: "same-bundle-update", warnings: [])
         delivery = nil
@@ -2426,6 +2467,7 @@ struct DeviceBuildApp: Decodable, Equatable {
     let version: String
     let build: String
     let teamID: String
+    let iconDigest: String?
 }
 
 struct DeviceBuildSigning: Decodable, Equatable {

@@ -31,6 +31,11 @@ export const deviceBuildCapabilityAuthorizationMatrix = Object.freeze([
   ),
   route("GET /api/device-builds/:id/artifact/ipa", "public-delivery", "build-capability"),
   route("GET /api/device-builds/:id/artifact/manifest", "public-delivery", "build-capability"),
+  route(
+    "GET /api/device-builds/:id/artifact/icon",
+    "public-delivery-or-private-helper",
+    "build-capability-or-paired-mac",
+  ),
   route("GET /d/:id", "public-delivery", "build-capability"),
 ]);
 
@@ -59,6 +64,15 @@ export async function handleDeviceBuildCapabilityRoutes({ req, res, url, service
       outcome.contentType || "text/plain; charset=utf-8",
       outcome.headers || {},
     );
+  } else if (outcome.kind === "bytes" && outcome.body instanceof Uint8Array) {
+    res.writeHead(200, {
+      "content-type": "image/png",
+      "content-length": outcome.body.byteLength,
+      "cache-control": "private, no-store",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+    });
+    res.end(outcome.body);
   } else if (outcome.kind === "file") {
     serveFile(res, outcome.path || "", {
       contentType: outcome.contentType || "application/octet-stream",
@@ -76,7 +90,9 @@ function matchRoute(method, pathname) {
   if (method === "GET") {
     const page = pathname.match(/^\/d\/([^/]+)$/);
     if (page?.[1]) return { operation: "install-page", buildID: page[1] };
-    const artifact = pathname.match(/^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest)$/);
+    const artifact = pathname.match(
+      /^\/api\/device-builds\/([^/]+)\/artifact\/(ipa|manifest|icon)$/,
+    );
     if (artifact?.[1] && artifact[2]) {
       return { operation: "artifact", buildID: artifact[1], artifact: artifact[2] };
     }

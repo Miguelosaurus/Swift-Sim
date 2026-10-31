@@ -10,6 +10,7 @@ import * as liveBuildCapture from "./liveReload.js";
 import { verifyLiveBuildLinkerCompatibility } from "./liveBuildLinkerCompatibility.js";
 import { annotateBuildFailure, recordDeviceBuildFailure } from "./buildFailure.js";
 import { appDisplayNameFromSettings, archivedAppDisplayName, builtAppDisplayName } from "./deviceBuildDisplayName.js";
+import { captureBuildIcon } from "./deviceBuildIcon.js";
 import {
   selectedTargetHasLivePackage,
   selectedXcodeApplicationTarget,
@@ -69,6 +70,7 @@ export async function resumeDeviceBuild(build, { save, logger = () => {}, readCu
       assertContainedArtifact(build.artifacts.root, ipaPath, "file");
       build.artifacts.ipaPath = ipaPath;
       build.app.name = builtAppDisplayName(checkpoint.appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
+      await captureAppIcon(build, checkpoint.appPath);
       build.liveReload.recovery.phase = "packaged";
       build.state = "ready";
       saveBuild();
@@ -416,6 +418,7 @@ export async function runDeviceBuild(build, {
           build.artifacts.ipaPath = ipaPath;
           build.liveReload.recovery.phase = "packaged";
           build.app.name = builtAppDisplayName(appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
+          await captureAppIcon(build, appPath);
           build.state = "ready";
           saveBuild();
           log("Build is ready to install and hot reload.");
@@ -470,6 +473,8 @@ export async function runDeviceBuild(build, {
     if (!ipaPath) throw new DeviceBuildError("Xcode export finished, but no IPA was produced.");
     build.artifacts.ipaPath = ipaPath;
     build.app.name = archivedAppDisplayName(archivePath, settings, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
+    const product = settings.FULL_PRODUCT_NAME || settings.WRAPPER_NAME;
+    if (typeof product === "string" && basename(product) === product) await captureAppIcon(build, join(archivePath, "Products", "Applications", product));
 
     build.state = "ready";
     saveBuild();
@@ -1132,6 +1137,14 @@ function readBuiltAppInfo(path) {
   const result = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", path], { encoding: "utf8", timeout: 2000, maxBuffer: 1024 * 1024 });
   if (result.status !== 0) return null;
   return JSON.parse(result.stdout);
+}
+
+async function captureAppIcon(build, appPath) {
+  const captured = await captureBuildIcon(build, appPath, { readInfo: readBuiltAppInfo,
+    reserve: (path) => writeFileSync(path, "", { flag: "wx", mode: 0o600 }), publish: renameSync, discard: (path) => rmSync(path), convert: async (source, destination) =>
+    (await runBuffered("/usr/bin/sips", ["-s", "format", "png", "-Z", "128", source, "--out", destination], { timeoutMs: 5000, cancelPath: build.control?.cancelPath || "" })).code === 0 });
+  throwIfBuildCancelled(build);
+  return captured;
 }
 
 function displayNameFromIpa(ipaPath) {

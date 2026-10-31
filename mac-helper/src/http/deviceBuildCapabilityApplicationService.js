@@ -7,6 +7,7 @@ import {
   publicCapabilityDeviceBuild,
 } from "../deviceBuildCapability.js";
 import { sanitizePublicBuildLogs } from "../publicBuildLogs.js";
+import { readBuildIcon } from "../deviceBuildIcon.js";
 
 /**
  * @typedef {Record<string, unknown> & {
@@ -36,6 +37,7 @@ import { sanitizePublicBuildLogs } from "../publicBuildLogs.js";
  *   buildManifest(build: BuildRecord, remoteBaseUrl: string): string,
  *   renderInstallPage(build: BuildRecord): string,
  *   now(): number,
+ *   readIcon?(build: BuildRecord): Buffer | null,
  *   shadowObserver?: unknown,
  * }} DeviceBuildCapabilityDependencies
  * @typedef {{ shadowObserver: object, observe: Function, snapshot: BuildRecord }} PreparedBuildObservation
@@ -55,7 +57,9 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
       if (!build) return pairedMac ? notFound("Unknown device build.") : unauthorized();
 
       const capability = capabilityForTokens(build, requestTokens(input.request, input.url));
-      const capabilityOnly = input.operation === "artifact" || input.operation === "install-page";
+      const capabilityOnly =
+        (input.operation === "artifact" && input.artifact !== "icon") ||
+        input.operation === "install-page";
       const usePairedMac = pairedMac && !capabilityOnly;
       if (!usePairedMac && !capability) return unauthorized();
 
@@ -128,6 +132,12 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
         );
       }
       if (input.operation === "artifact") {
+        if (input.artifact === "icon") {
+          const bytes = (dependencies.readIcon || readBuildIcon)(build);
+          return bytes
+            ? /** @type {const} */ ({ kind: "bytes", body: bytes, contentType: "image/png" })
+            : notFound("App icon unavailable.");
+        }
         if (build.state !== "ready") {
           return badRequest(409, "Device build is not ready yet.");
         }

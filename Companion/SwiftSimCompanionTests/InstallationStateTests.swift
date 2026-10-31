@@ -1,5 +1,7 @@
 import XCTest
 import Security
+import CryptoKit
+import UIKit
 @testable import SwiftSimCompanion
 
 final class InstallationStateTests: XCTestCase {
@@ -731,5 +733,62 @@ extension InstallationStateTests {
         store.deviceBuildStatus = try installFixture()
         XCTAssertNil(store.currentBuildInstallURL())
         XCTAssertNil(store.beginCurrentBuildInstall())
+    }
+}
+
+extension InstallationStateTests {
+    @MainActor
+    func testAppIconMetadataAndBuildConfigurationSurviveInstallAndCacheRoundTrips() throws {
+        var value = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(statusJSON.utf8)) as? [String: Any])
+        var app = try XCTUnwrap(value["app"] as? [String: Any])
+        let digest = String(repeating: "a", count: 64); app["iconDigest"] = digest
+        value["app"] = app; value["configuration"] = "Debug"
+        let status = try JSONDecoder().decode(DeviceBuildStatus.self, from: JSONSerialization.data(withJSONObject: value))
+        let session = DeviceBuildSession(id: status.id, token: "fixture", baseURL: URL(string: "https://delivery.example")!)
+        let build = ManagedBuild(session: session, status: status).markingInstallRequested()
+        XCTAssertEqual(build.iconDigest, digest)
+        XCTAssertEqual(build.configuration, "Debug")
+        let restored = try JSONDecoder().decode(ManagedBuild.self, from: JSONEncoder().encode(build))
+        XCTAssertEqual(DeviceBuildStatus(cached: restored).app.iconDigest, digest)
+        XCTAssertEqual(DeviceBuildStatus(cached: restored).configuration, "Debug")
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(build)) as? [String: Any])
+        legacy.removeValue(forKey: "iconDigest"); legacy.removeValue(forKey: "configuration")
+        XCTAssertNil(try JSONDecoder().decode(ManagedBuild.self, from: JSONSerialization.data(withJSONObject: legacy)).iconDigest)
+    }
+
+    @MainActor
+    func testFailedAndPreparingBuildsCannotAppearReadyInTheLibrary() throws {
+        for (state, expected) in [("failed", "Build failed"), ("building", "Building"), ("exporting", "Signing build")] {
+            let json = statusJSON.replacingOccurrences(of: #""state":"ready""#, with: "\"state\":\"\(state)\"")
+            let status = try JSONDecoder().decode(DeviceBuildStatus.self, from: Data(json.utf8))
+            let build = ManagedBuild(session: DeviceBuildSession(id: status.id, token: "fixture", baseURL: URL(string: "https://delivery.example")!), status: status)
+            XCTAssertEqual(build.libraryStatusText, expected)
+        }
+    }
+
+    func testAppIconReferencesBindToTheirBuildAndNeverSendPairingCredentialsToDeliveryHosts() throws {
+        let digest = String(repeating: "a", count: 64)
+        let publicRef = try XCTUnwrap(AppIconReference(digest: digest, buildID: "build-1", baseURL: URL(string: "https://delivery.example")!, token: "build-token", pairedMac: nil))
+        XCTAssertEqual(publicRef.url.path, "/api/device-builds/build-1/artifact/icon")
+        XCTAssertNil(publicRef.authorization)
+        XCTAssertEqual(URLComponents(url: publicRef.url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "build-token")
+        let mac = PairedMac(token: "pairing-token", baseURL: URL(string: "https://private.example")!)
+        let privateRef = try XCTUnwrap(AppIconReference(digest: digest, buildID: "build-1", baseURL: URL(string: "https://delivery.example")!, token: "build-token", pairedMac: mac))
+        XCTAssertEqual(privateRef.url.host, "private.example")
+        XCTAssertEqual(privateRef.authorization, "Bearer pairing-token")
+        XCTAssertNil(privateRef.url.query)
+        XCTAssertNil(AppIconReference(digest: digest, buildID: "../private", baseURL: publicRef.url, token: "secret", pairedMac: nil))
+        XCTAssertNil(AppIconReference(digest: "invalid", buildID: "build-1", baseURL: publicRef.url, token: "secret", pairedMac: nil))
+    }
+
+    @MainActor
+    func testIconBytesRequireMatchingDigestAndBoundedPixels() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let data = try XCTUnwrap(renderer.image { context in UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2, height: 2)) }.pngData())
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        XCTAssertTrue(AppIconCache.isValid(data, digest: digest))
+        XCTAssertNotNil(AppIconCache.image(from: data))
+        XCTAssertFalse(AppIconCache.isValid(data, digest: String(repeating: "0", count: 64)))
+        XCTAssertFalse(AppIconCache.isValid(Data("not PNG".utf8), digest: digest))
     }
 }

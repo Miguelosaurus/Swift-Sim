@@ -122,7 +122,7 @@ export function deviceDeliveryRequestAllowed(method, pathname) {
   if (verb !== "GET") return false;
   if (pathname === "/health") return true;
   if (/^\/d\/[^/]+$/.test(pathname)) return true;
-  return /^\/api\/device-builds\/[^/]+(?:\/logs|\/links|\/artifact\/(?:ipa|manifest))?$/.test(pathname);
+  return /^\/api\/device-builds\/[^/]+(?:\/logs|\/links|\/artifact\/(?:ipa|manifest|icon))?$/.test(pathname);
 }
 
 export function parseQuickTunnelUrl(output) {
