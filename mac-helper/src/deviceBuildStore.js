@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import {
@@ -42,6 +42,15 @@ const REBUILD_ACTIVE_STATES = new Set([
 ]);
 
 export class DeviceBuildStore extends DeviceBuildStoreCore {
+  #readSnapshot;
+
+  readSnapshotVersion() {
+    try {
+      const s = lstatSync(this.path, { bigint: true });
+      if (!s.isFile() || s.nlink !== 1n || (s.mode & 0o077n) || (process.getuid && s.uid !== BigInt(process.getuid()))) return null;
+      return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs, s.mode, s.uid].join(":");
+    } catch { return null; }
+  }
   constructor(options = {}) {
     const { maintenance = true, ...storeOptions } = options;
     super(storeOptions);
@@ -414,11 +423,17 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
 
   readOnly(operation) {
     return this.withLock(() => {
-      const state = this.readState();
+      const version = this.readSnapshotVersion();
+      const state = version && this.#readSnapshot?.version === version
+        ? this.#readSnapshot.state : this.readState();
+      this.#readSnapshot = undefined;
       const recoveredRenewals = recoverStaleRenewals(state.builds);
       if (state.needsCompaction || recoveredRenewals) {
         this.writeState(state);
         this.applyState(state);
+      }
+      if (version && !state.needsCompaction && !recoveredRenewals && this.readSnapshotVersion() === version) {
+        this.#readSnapshot = { version, state };
       }
       return structuredClone(operation(state));
     });
@@ -426,6 +441,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
 
   withTransaction(operation) {
     return this.withLock(() => {
+      this.#readSnapshot = undefined;
       const state = this.readState();
       recoverStaleRenewals(state.builds);
       const result = operation(state);

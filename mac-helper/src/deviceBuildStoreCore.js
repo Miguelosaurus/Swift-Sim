@@ -452,7 +452,13 @@ export class DeviceBuildStore {
   }
 
   applyState(state) {
-    this.builds = new Map(state.builds);
+    // This map is only a storage-estimate hint. Full rows remain on disk and
+    // are freshly read for authority; do not retain logs/provenance here.
+    this.builds = new Map([...state.builds].map(([id, build]) => [id, {
+      project: build.project, workspace: build.workspace, scheme: build.scheme,
+      configuration: build.configuration, createdAt: build.createdAt,
+      artifacts: { ipaPath: build.artifacts?.ipaPath || "" },
+    }]));
     this.apps = new Map(state.apps);
     this.artifactCleanupJobs = new Map(state.artifactCleanupJobs);
     this.deliveryReferenceCleanupJobs = new Map(state.deliveryReferenceCleanupJobs || []);

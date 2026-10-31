@@ -792,3 +792,35 @@ test("failed-build artifact cleanup scheduling is canonical, durable, and dedupl
       /canonical device-build root/,
     );
   }));
+
+test("warm history reads remain locked and detached while mutations and external writes use fresh state", () => withStore((store, directory) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  let reads = 0, locks = 0;
+  const read = store.readState.bind(store), lock = store.withLock.bind(store);
+  store.readState = () => { reads++; return read(); };
+  store.withLock = operation => { locks++; return lock(operation); };
+  for (let i = 0; i < 40; i++) { const rows = store.list(); rows[0].app.name = "caller edit"; }
+  assert.equal(reads, 1); assert.equal(locks, 40);
+  assert.equal(store.get(build.id).app.name, "Example");
+  assert.equal(store.builds.get(build.id).logs, undefined, "estimate hint never retains full rows");
+  const other = new DeviceBuildStore({ path: join(directory, "builds.json"), maintenance: false });
+  const changed = other.get(build.id); changed.app.name = "external update"; other.save(changed);
+  assert.equal(store.get(build.id).app.name, "external update");
+  const previous = reads; const update = store.get(build.id); update.app.name = "own update"; store.save(update);
+  assert(reads > previous, "mutation cannot reuse a cached read view");
+  assert.equal(store.get(build.id).app.name, "own update");
+}));
+
+test("cached read view still expires a renewal lease when only time changes", () => withStore((store) => {
+  const build = completeBuild(store, "Example", "com.example.app", "TEAM123", "1.0", "1");
+  const pending = store.renewInstallLink(build.id, { ttlMinutes: 60 });
+  assert(store.get(build.id).pendingRenewal); // populate and reuse the read view
+  assert(store.get(build.id).pendingRenewal);
+  const previous = Date.now;
+  try {
+    Date.now = () => Date.parse(pending.pendingRenewal.deadlineAt) + 1;
+    const recovered = store.get(build.id);
+    assert.equal(recovered.pendingRenewal, undefined);
+    assert.equal(recovered.token, build.token);
+  } finally { Date.now = previous; }
+}));
