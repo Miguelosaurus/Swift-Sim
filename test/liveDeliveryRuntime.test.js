@@ -204,13 +204,38 @@ function fixture() {
     return { requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, patchDigest: record.preparedPatch.patchDigest, applied: true, refreshed, revision };
   }
   return {
-    path, scope, state, calls, adapter, queue, receipts, proof, runtime,
+    path, scope, state, calls, adapter, queue, receipts, proof, runtime, store,
     service: runtime(),
     files(beforeSource = original, afterSource = firstEdit) { return [{ path, beforeSource, afterSource }]; },
     advance(ms) { clock += ms; },
     cleanup() { rmSync(directory, { recursive: true, force: true }); },
   };
 }
+
+test("idle confirmed and disconnected prepared turns avoid source reads and no-op journal mutations", async () => {
+  const f = fixture();
+  try {
+    const pending = await f.service.enqueue({ requestId: "request-idle-memory", files: f.files() });
+    await f.service.runOnce();
+    let reads = 0;
+    const read = f.store.readJSONSync.bind(f.store);
+    f.store.readJSONSync = path => { reads++; return read(path); };
+    await f.service.runOnce();
+    reads = 0;
+    for (let i = 0; i < 30; i++) await f.service.runOnce();
+    assert.equal(reads, 0);
+    assert.equal(f.calls.prepare.length, 1); assert.equal(f.calls.apply.length, 0);
+    f.state.connected = true; f.state.foreground = true;
+    await f.service.runOnce();
+    assert.equal(f.service.status(pending.delivery.requestId).outcome, "hot-reloaded");
+    await f.service.runOnce(); reads = 0;
+    for (let i = 0; i < 30; i++) await f.service.runOnce();
+    assert.equal(reads, 0); assert.equal(f.calls.apply.length, 1);
+    f.state.scope.sessionIdentity = "new-after-idle"; f.state.revision = 0;
+    await f.service.runOnce(); await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.calls.apply.length, 2, "lightweight idle discovery still detects fresh-process restoration");
+  } finally { f.cleanup(); }
+});
 
 test("offline intent compiles once, waits durably and applies after foreground without a build or retry request", async () => {
   const f = fixture();

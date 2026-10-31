@@ -29,6 +29,15 @@ export function createLiveDeliveryQueue({
   const root = resolve(rootPath);
   const journalPath = join(root, "queue.json");
   let locks = lockManager;
+  let pollingCache;
+
+  function pollingVersion() {
+    assertPrivatePath(root, "directory");
+    const stats = assertPrivatePath(journalPath, "file");
+    if (!stats) return "absent";
+    if (stats.size > LIMITS.journalBytes) throw queueError("QUEUE_JOURNAL_INVALID");
+    return [stats.dev, stats.ino, stats.size, stats.mtimeMs, stats.ctimeMs, stats.birthtimeMs, stats.mode, stats.uid, stats.nlink].join(":");
+  }
 
   function timestamp() {
     const value = Number(now());
@@ -73,6 +82,21 @@ export function createLiveDeliveryQueue({
   return Object.freeze({
     rootPath: root,
     limits: LIMITS,
+    // Source-free discovery only. Every mutation still reads and validates the
+    // authoritative journal under its lock; no cached snapshot grants a claim.
+    pollingSnapshot() {
+      const version = pollingVersion();
+      if (pollingCache?.version === version) return clone(pollingCache.value);
+      const journal = read();
+      if (pollingVersion() !== version) throw queueError("QUEUE_JOURNAL_CHANGED");
+      const records = journal.records.map(({ files: _files, desiredSnapshots: _desired, ...record }) => record);
+      const deadlines = records.filter((record) => !TERMINAL.has(record.state))
+        .flatMap((record) => [record.expiresAt, ...(record.claim ? [record.claim.expiresAt] : [])]);
+      const value = { records, desires: journal.desiredStates.filter((item) => !item.revoked).map(({ scope }) => ({ scope })),
+        nextSweepAt: deadlines.length ? Math.min(...deadlines) : Infinity };
+      pollingCache = { version, value };
+      return clone(value);
+    },
     list({ scope } = {}) {
       const records = read().records;
       return clone(scope ? records.filter((record) => scopeMatches(record.scope, normalizeScope(scope))) : records);

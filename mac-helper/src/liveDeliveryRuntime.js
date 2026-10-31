@@ -69,14 +69,18 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   }
 
   async function tick() {
-    if (!queue.list().length && !queue.desiredStates().length) return { processed: false };
-    await queue.sweepExpired();
-    if (adapter.cleanup && now() - lastCleanup >= 60_000) {
-      await adapter.cleanup(queue.list(), { now: now() }); lastCleanup = now();
+    let snapshot = queue.pollingSnapshot();
+    if (!snapshot.records.length && !snapshot.desires.length) return { processed: false };
+    if (snapshot.nextSweepAt <= now()) {
+      await queue.sweepExpired();
+      snapshot = queue.pollingSnapshot();
     }
-    const records = queue.list().filter((record) => ["applying", "applied", "uncertain"].includes(record.state)
+    if (adapter.cleanup && now() - lastCleanup >= 60_000) {
+      await adapter.cleanup(snapshot.records, { now: now() }); lastCleanup = now();
+    }
+    const records = snapshot.records.filter((record) => ["applying", "applied", "uncertain"].includes(record.state)
       || (record.expiresAt > now() && (INCOMPLETE.has(record.state) || record.state === "refreshed")));
-    const desires = queue.desiredStates();
+    const desires = snapshot.desires;
     if (!records.length && !desires.length) return { processed: false };
     const operation = async () => {
       if (stopping) return { processed: false };
@@ -122,6 +126,11 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
             return { processed: true, requestId: record.requestId };
           }
         }
+        const canApply = matched && observed.connected === true && observed.foreground === true && observed.rootReady === true;
+        const waitingState = matched && observed.connected ? "waiting-for-foreground" : "waiting-for-device";
+        if (!records.some((record) => sameScope(record.scope, scope) && INCOMPLETE.has(record.state)
+          && !["applying", "applied"].includes(record.state) && !record.claim
+          && (!record.preparedPatch || canApply || record.state !== waitingState))) continue;
         const record = await queue.claimNext({ scope, currentRevision: observed.revision || 0, deviceConnected: matched && observed.connected === true, foreground: matched && observed.foreground === true && observed.rootReady === true, workerId });
         if (!record) continue;
         const claimToken = record.claim.token;

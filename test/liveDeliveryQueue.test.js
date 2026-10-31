@@ -38,6 +38,38 @@ async function begin(f, requestId = "request-1", currentRevision = 0) {
 }
 function proof(requestId = "request-1", revision = 1, refreshed = true) { return { requestId, sessionIdentity: scope.sessionIdentity, binaryIdentity: scope.binaryIdentity, applied: true, refreshed, revision, patchDigest: requestId }; }
 
+test("poll discovery reuses only a detached source-free view and notices file and permission changes", async () => {
+  const f = fixture();
+  try {
+    assert.deepEqual(f.queue.pollingSnapshot().records, []);
+    await queued(f);
+    let reads = 0;
+    const read = f.fileStore.readJSONSync.bind(f.fileStore);
+    f.fileStore.readJSONSync = path => { reads++; return read(path); };
+    const first = f.queue.pollingSnapshot();
+    assert.equal(first.records.length, 1);
+    assert.equal(first.nextSweepAt, 1000 + 24 * 60 * 60 * 1000);
+    assert.equal(first.records[0].files, undefined);
+    assert.equal(first.records[0].desiredSnapshots, undefined);
+    assert(!JSON.stringify(first).includes(sources[0].afterSource));
+    first.records[0].scope.binaryIdentity = "caller mutation";
+    for (let i = 0; i < 100; i++) assert.equal(f.queue.pollingSnapshot().records[0].scope.binaryIdentity, scope.binaryIdentity);
+    assert.equal(reads, 1, "unchanged idle polls never parse or hash source history again");
+    const previousReads = reads;
+    await f.queue.claimNext({ scope, currentRevision: 0, workerId: "fresh-authority" });
+    assert(reads > previousReads, "mutation always revalidates locked authority, never the polling cache");
+    assert.equal(f.queue.pollingSnapshot().records[0].state, "compiling");
+    const path = join(f.rootPath, "queue.json");
+    chmodSync(path, 0o644);
+    assert.throws(() => f.queue.pollingSnapshot(), { code: "QUEUE_JOURNAL_UNSAFE" });
+    chmodSync(path, 0o600);
+    const journal = read(path);
+    journal.records[0].files[0].afterSource = "tampered";
+    await f.fileStore.writeJSON(path, journal, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+    assert.throws(() => f.queue.pollingSnapshot(), { code: "QUEUE_JOURNAL_INVALID" });
+  } finally { f.cleanup(); }
+});
+
 test("v3 complete coverage is durable across reopen and rejects missing or contradictory evidence", async () => {
   const f = fixture();
   try {

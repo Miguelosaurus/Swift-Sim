@@ -220,7 +220,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       return { epoch: createHash("sha256").update(pairing.token).digest("hex"), installationId: pairing.installationID };
     },
     listBuilds: () => deviceBuildStore.list(),
-    listLiveDeliveries: () => liveDeliveryService().queue.list(),
+    listLiveDeliveries: () => liveDeliveryService().queue.pollingSnapshot().records,
   });
   remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
     listBuilds: () => deviceBuildStore.list(),
