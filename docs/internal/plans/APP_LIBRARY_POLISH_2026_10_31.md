@@ -57,3 +57,34 @@ hashes are unchanged. No Zenics source or phone app data was changed.
 Private operator receipts are under `.build/qol-verification/`, including
 `phone-build.json`, resource ownership, and capture hashes. No credentials or
 capability URLs are included in this note.
+
+## Follow-up: install taps and existing icons
+
+The user reported needing three taps before the iOS popup appeared and later
+confirmed icons loaded after opening app cards. Larply's existing saved IPA
+supplied its icon without a new app build. All three managed apps now have
+digest-verified thumbnails available through the paired helper.
+
+Reproduced a concrete hit-target defect in a credential-free install fixture:
+the visible install capsule was 362 × 58 points, but its accessibility/tap
+target was only the 161 × 20 label. An edge tap at (50, 800) did nothing; a
+label tap started the request. Explicit label content shapes now make the
+install and renew-link capsules fully tappable. Repeating the same edge tap
+started the request immediately, with a 362 × 58 accessibility target.
+This proves the missed-tap correction in Simulator; it does not establish that
+every delayed physical-device prompt had the same cause.
+
+Checkpoint `12f26a3` also adds home pull-to-refresh and replaces claims that
+iOS displayed a popup with the accurate “Install requested” state. All 58
+Companion tests passed. Original simulator preferences were restored and the
+task simulator shut down. Hot reload engine/capture state was preserved.
+
+The current OTA is **build 22**, ID
+`14387fb3-74d6-4b90-8715-4fef0478d4c4`. The actual IPA's bundle identity and
+compiled build number were checked. It retains app data and includes its icon.
+APNs accepted its build-ready notification; physical installation and popup
+behavior remain unconfirmed. Its scoped delivery generation
+`261a703c-3017-450a-afdb-227d712fcd8a` remains available until
+`2026-11-01T00:38:10.408Z`. Earlier live capabilities were preserved.
+Local synthetic tap snapshots and lifecycle receipts are under
+`.build/install-tap-investigation/`.
