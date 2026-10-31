@@ -44,6 +44,12 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Fixed
 
+- Show Build installed for confirmed versions, including Swift Sim's own exact
+  running build without nearby Mac verification. Keep install handoffs synchronous
+  and block duplicate/stale callbacks until iOS responds.
+- Preserve installation observation timestamps so newer confirmation or negative
+  evidence can resolve stale cached status for the same exact build.
+
 - Read build display names from the packaged app instead of preferring internal
   target names or IPA filenames.
 - Use app-focused notification copy for successful changes, ready installs,

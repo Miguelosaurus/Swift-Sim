@@ -36,10 +36,13 @@ application security workaround was introduced. This is development validation,
 not physical push-display or stock release performance proof. The simulator was
 shut down after testing; no data was erased.
 
-The display-name follow-up passed the full repository gate: 1296 source tests,
+The initial display-name follow-up passed the full repository gate: 1296 source tests,
 746 compiled tests and two hermetic checks, with package checks. It includes real
 plist, malformed/unsafe metadata, selected archive product and resume/signing
-coverage. The current Git checkpoint identifies its exact source.
+coverage. A subsequent tracked-file architecture check caught the new metadata
+module's direct process import. The call was moved behind the existing build
+adapter; no capability cap was relaxed. The final gate includes the tracked
+modules. The current Git checkpoint identifies its exact source.
 
 ## Actual Mac and device state
 
@@ -70,9 +73,16 @@ Scheduled Summary disabled at 2026-10-31T19:54:36Z. This does not retrospectivel
 explain the earlier missing Zenics alert. Bearer links stay private.
 
 The user also reported needing three Install taps and that the installed build
-still offered Install Update. That follow-up is being addressed with exact
-installed-state presentation and install-handoff checks; it is not yet claimed
-resolved in this checkpoint.
+still offered Install Update. The follow-up replaces that footer with a static
+Build installed checkmark for confirmed exact versions. Swift Sim recognizes its
+own bundle/version/build directly on the phone in detail and history. Install
+URLs are ready before the button is enabled; the system callback owns the pending
+tap guard, and stale callbacks cannot mark another build as requested. Opening
+the installer remains separate from installation proof. Optional installation
+observation timestamps preserve newer positive/negative evidence across cache
+and server views. All 54 Companion tests pass, including these transitions.
+The exact cause of the three physical taps and the updated phone interaction
+remain unproven until the follow-up signed build is exercised.
 
 ## Remaining proof boundary and resources
 

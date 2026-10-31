@@ -46,7 +46,7 @@ final class SessionStore: ObservableObject {
     private let pairedMacKey = "pairedMac"
     private var keyboardTail: Task<Void, Never>?
     private var libraryActionDismissTask: Task<Void, Never>?
-    private var installRequestSnapshot: (build: ManagedBuild, status: DeviceBuildStatus?)?
+    private var installHandoff: (id: UUID, build: DeviceBuildSession, viewRevision: UInt64)?
     private var currentSourceBuildRequestKeys: [String: String] = [:]
     private var pairingRevision: UInt64 = 0
     private var pairingAttemptRevision: UInt64 = 0
@@ -82,6 +82,7 @@ final class SessionStore: ObservableObject {
         }
 
         if let build = DeviceBuildSession(url: url) {
+            invalidateInstallHandoff()
             deviceBuildViewRevision &+= 1
             currentDeviceBuild = build
             currentSession = nil
@@ -96,6 +97,7 @@ final class SessionStore: ObservableObject {
         }
 
         guard let session = SimulatorSession(url: url) else { return false }
+        invalidateInstallHandoff()
         deviceBuildViewRevision &+= 1
         currentSession = session
         currentDeviceBuild = nil
@@ -245,6 +247,7 @@ final class SessionStore: ObservableObject {
     }
 
     func reopen(_ recent: RecentSession) {
+        invalidateInstallHandoff()
         deviceBuildViewRevision &+= 1
         currentSession = recent.session
         currentDeviceBuild = nil
@@ -270,6 +273,7 @@ final class SessionStore: ObservableObject {
     }
 
     func closeCurrentSession() {
+        invalidateInstallHandoff()
         deviceBuildViewRevision &+= 1
         currentSession = nil
         currentDeviceBuild = nil
@@ -282,6 +286,7 @@ final class SessionStore: ObservableObject {
     }
 
     func openManagedApp(_ app: ManagedApp) {
+        invalidateInstallHandoff()
         deviceBuildViewRevision &+= 1
         selectedManagedAppID = app.id
         currentSession = nil
@@ -297,6 +302,7 @@ final class SessionStore: ObservableObject {
     }
 
     func reopen(_ build: ManagedBuild) {
+        invalidateInstallHandoff()
         deviceBuildViewRevision &+= 1
         selectedManagedAppID = build.appID
         currentDeviceBuild = build.session
@@ -309,13 +315,13 @@ final class SessionStore: ObservableObject {
     }
 
     func closeCurrentBuild() {
+        invalidateInstallHandoff()
         deviceBuildViewRevision &+= 1
         currentDeviceBuild = nil
         deviceBuildStatus = nil
         deviceBuildLogs = []
         deviceBuildActionMessage = nil
         isStartingInstallation = false
-        installRequestSnapshot = nil
     }
 
     func refresh() async {
@@ -404,7 +410,7 @@ final class SessionStore: ObservableObject {
                 expectedRevision: viewRevision
             ), pairingRevision == pairingSnapshot else { return }
             let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
-            if resolvedSession != build { deviceBuildViewRevision &+= 1 }
+            if resolvedSession != build { invalidateInstallHandoff(); deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
             let managedBuild = ManagedBuild(session: resolvedSession, status: decoded)
@@ -461,32 +467,46 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    func beginCurrentBuildInstall() {
-        guard let build = currentDeviceBuild else { return }
-        if let managedBuild = managedApps.lazy.flatMap(\.builds).first(where: { $0.id == build.id }) {
-            installRequestSnapshot = (managedBuild, deviceBuildStatus)
-        }
-        isStartingInstallation = true
-        deviceBuildActionMessage = nil
-        updateManagedBuild(build.id) { existing in
-            existing.markingInstallRequested()
-        }
-        deviceBuildStatus = deviceBuildStatus?.markingInstallRequested()
+    var currentBuildInstallationState: InstallationState {
+        guard let build = currentDeviceBuild else { return .unknown }
+        let status = deviceBuildStatus?.id == build.id ? deviceBuildStatus : nil
+        let cached = managedApps.lazy.flatMap(\.builds).first(where: { $0.id == build.id })
+        return Self.resolvedInstallationState(status: status, cached: cached)
     }
 
-    func finishCurrentBuildInstallHandoff(opened: Bool) {
-        isStartingInstallation = false
+    var currentBuildIsInstalled: Bool { currentBuildInstallationState.isInstalled }
+
+    @discardableResult
+    func beginCurrentBuildInstall() -> UUID? {
+        guard !isStartingInstallation, !currentBuildIsInstalled,
+              let build = currentDeviceBuild, currentBuildInstallURL() != nil else { return nil }
+        let id = UUID()
+        installHandoff = (id, build, deviceBuildViewRevision)
+        isStartingInstallation = true
+        deviceBuildActionMessage = nil
+        return id
+    }
+
+    @discardableResult
+    func finishCurrentBuildInstallHandoff(opened: Bool, attemptID: UUID) -> Bool {
+        guard let attempt = installHandoff, attempt.id == attemptID,
+              Self.deviceBuildResponseIsCurrent(current: currentDeviceBuild, expected: attempt.build,
+                currentRevision: deviceBuildViewRevision, expectedRevision: attempt.viewRevision) else { return false }
+        invalidateInstallHandoff()
         guard opened else {
-            if let snapshot = installRequestSnapshot {
-                upsertManagedBuild(snapshot.build)
-                deviceBuildStatus = snapshot.status
-            }
-            installRequestSnapshot = nil
-            deviceBuildActionMessage = "The install screen didn't open. Try again."
-            return
+            deviceBuildActionMessage = "The installer didn't open. Try again."
+            return false
         }
-        installRequestSnapshot = nil
-        deviceBuildActionMessage = "Install opened. Swift Sim can confirm it through an Apple device connection or when this exact Debug build launches over the private connection."
+        // Opening the URL is a request, never proof of installation.
+        updateManagedBuild(attempt.build.id) { $0.markingInstallRequested() }
+        deviceBuildStatus = deviceBuildStatus?.markingInstallRequested()
+        deviceBuildActionMessage = "Install requested. Approve the iOS prompt, then return here to check."
+        return true
+    }
+
+    private func invalidateInstallHandoff() {
+        installHandoff = nil
+        isStartingInstallation = false
     }
 
     func syncCurrentBuildInstallRequested() async {
@@ -522,7 +542,7 @@ final class SessionStore: ObservableObject {
         guard let build = currentDeviceBuild else { return nil }
 
         if let status = deviceBuildStatus {
-            guard status.isReady else { return nil }
+            guard status.id == build.id, status.isReady else { return nil }
             if let expiry = status.expiryDate, expiry <= Date() {
                 return nil
             }
@@ -543,6 +563,7 @@ final class SessionStore: ObservableObject {
 
     func prepareCurrentBuildInstallURL() async -> URL? {
         guard let build = currentDeviceBuild else { return nil }
+        let viewRevision = deviceBuildViewRevision
 
         if let installURL = currentBuildInstallURL() {
             return installURL
@@ -552,7 +573,8 @@ final class SessionStore: ObservableObject {
             await refreshDeviceBuild()
         }
 
-        guard currentDeviceBuild?.id == build.id else { return nil }
+        guard Self.deviceBuildResponseIsCurrent(current: currentDeviceBuild, expected: build,
+            currentRevision: deviceBuildViewRevision, expectedRevision: viewRevision) else { return nil }
         guard let status = deviceBuildStatus, status.isReady else {
             deviceBuildActionMessage = "This app is still being prepared. Try again in a moment."
             return nil
@@ -586,7 +608,7 @@ final class SessionStore: ObservableObject {
                 expectedRevision: viewRevision
             ), pairingRevision == pairingSnapshot else { return }
             let resolvedSession = renewedDeviceBuildSession(from: decoded) ?? build
-            if resolvedSession != build { deviceBuildViewRevision &+= 1 }
+            if resolvedSession != build { invalidateInstallHandoff(); deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
             upsertManagedBuild(ManagedBuild(session: resolvedSession, status: decoded))
@@ -690,6 +712,7 @@ final class SessionStore: ObservableObject {
                 deviceBuildActionMessage = "Swift Sim couldn't create the link. Try again."
                 return
             }
+            invalidateInstallHandoff()
             deviceBuildViewRevision &+= 1
             currentDeviceBuild = renewedSession
             deviceBuildStatus = decoded
@@ -1549,6 +1572,44 @@ final class SessionStore: ObservableObject {
         currentRevision == expectedRevision && current == expected
     }
 
+    nonisolated static func isRunningAppBuild(bundleIdentifier: String, version: String, build: String,
+        runningBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        runningVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+        runningBuild: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) -> Bool {
+        !bundleIdentifier.isEmpty && !version.isEmpty && !build.isEmpty
+            && bundleIdentifier == runningBundleIdentifier && version == runningVersion && build == runningBuild
+    }
+
+    static func resolvedInstallationState(status: DeviceBuildStatus?, cached: ManagedBuild?,
+        runningBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        runningVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+        runningBuild: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) -> InstallationState {
+        let matchesSelf: (String, String, String) -> Bool = { identifier, version, build in
+            isRunningAppBuild(bundleIdentifier: identifier, version: version, build: build,
+                runningBundleIdentifier: runningBundleIdentifier, runningVersion: runningVersion, runningBuild: runningBuild)
+        }
+        if let status, matchesSelf(status.app.bundleIdentifier, status.app.version, status.app.build) { return .verified }
+        if let cached, (status == nil || (cached.id == status?.id && cached.bundleIdentifier == status?.app.bundleIdentifier
+            && cached.version == status?.app.version && cached.buildNumber == status?.app.build)),
+           matchesSelf(cached.bundleIdentifier, cached.version, cached.buildNumber) { return .verified }
+        let remote = InstallationState(serverValue: status?.installation?.state)
+        guard let cached, (status == nil || (cached.id == status?.id && cached.bundleIdentifier == status?.app.bundleIdentifier
+            && cached.version == status?.app.version && cached.buildNumber == status?.app.build)) else { return remote }
+        let local = InstallationState(serverValue: cached.installationState)
+        let remoteDate = SwiftSimISO8601.date(from: status?.installation?.updatedAt)
+            ?? SwiftSimISO8601.date(from: status?.installation?.lastSeenAt
+                ?? status?.installation?.launchConfirmedAt ?? status?.installation?.verifiedAt)
+        let localDate = cached.installationUpdatedAt ?? cached.lastSeenAt ?? cached.launchConfirmedAt ?? cached.verifiedAt
+        if let localDate, let remoteDate, localDate > remoteDate,
+           local.isInstalled || [.differentVersion, .notInstalled].contains(local) { return local }
+        if remote.isInstalled { return remote }
+        if local.isInstalled {
+            if status == nil || [.unknown, .requested].contains(remote) { return local }
+            if localDate != nil && remoteDate == nil { return local }
+        }
+        return status == nil ? local : remote
+    }
+
     static func installationVerificationIsActive(_ state: String?) -> Bool {
         ["requested", "not-installed", "different-version"].contains(state ?? "")
     }
@@ -2030,6 +2091,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
     let verifiedAt: Date?
     let verifiedDevices: [VerifiedDevice]
     let installationSource: String?
+    let installationUpdatedAt: Date?
     let launchConfirmedAt: Date?
     let lastSeenAt: Date?
     let lastOpened: Date
@@ -2044,7 +2106,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
     }
 
     var installationStatus: InstallationState {
-        InstallationState(serverValue: installationState)
+        if SessionStore.isRunningAppBuild(bundleIdentifier: bundleIdentifier, version: version, build: buildNumber) { return .verified }
+        return InstallationState(serverValue: installationState)
     }
 
     var isPreparing: Bool {
@@ -2076,6 +2139,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         verifiedAt = Self.parse(status.installation?.verifiedAt)
         verifiedDevices = status.installation?.devices ?? []
         installationSource = status.installation?.source
+        installationUpdatedAt = Self.parse(status.installation?.updatedAt)
         launchConfirmedAt = Self.parse(status.installation?.launchConfirmedAt)
         lastSeenAt = Self.parse(status.installation?.lastSeenAt)
         lastOpened = Date()
@@ -2099,6 +2163,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         verifiedAt = nil
         verifiedDevices = []
         installationSource = nil
+        installationUpdatedAt = nil
         launchConfirmedAt = nil
         lastSeenAt = nil
         lastOpened = Date()
@@ -2122,6 +2187,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         verifiedAt = nil
         verifiedDevices = []
         installationSource = nil
+        installationUpdatedAt = nil
         launchConfirmedAt = nil
         lastSeenAt = nil
         lastOpened = legacy.lastOpened
@@ -2147,6 +2213,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
             verifiedDevices: verifiedDevices,
             lastOpened: Date(),
             installationSource: installationSource,
+            installationUpdatedAt: installationUpdatedAt,
             launchConfirmedAt: launchConfirmedAt,
             lastSeenAt: lastSeenAt
         )
@@ -2171,6 +2238,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         verifiedDevices: [VerifiedDevice],
         lastOpened: Date,
         installationSource: String? = nil,
+        installationUpdatedAt: Date? = nil,
         launchConfirmedAt: Date? = nil,
         lastSeenAt: Date? = nil
     ) {
@@ -2191,6 +2259,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         self.verifiedAt = verifiedAt
         self.verifiedDevices = verifiedDevices
         self.installationSource = installationSource
+        self.installationUpdatedAt = installationUpdatedAt
         self.launchConfirmedAt = launchConfirmedAt
         self.lastSeenAt = lastSeenAt
         self.lastOpened = lastOpened
@@ -2213,6 +2282,8 @@ enum InstallationState: Equatable {
     case launchConfirmed
     case differentVersion
     case notInstalled
+
+    var isInstalled: Bool { self == .verified || self == .launchConfirmed }
 
     init(serverValue: String?) {
         switch serverValue {
@@ -2268,6 +2339,7 @@ struct DeviceBuildStatus: Decodable, Equatable {
                 verifiedAt: installation?.verifiedAt ?? "",
                 devices: installation?.devices ?? [],
                 source: installation?.source,
+                updatedAt: installation?.updatedAt,
                 launchConfirmedAt: installation?.launchConfirmedAt,
                 lastSeenAt: installation?.lastSeenAt
             ),
@@ -2300,6 +2372,7 @@ struct DeviceBuildStatus: Decodable, Equatable {
             verifiedAt: build.verifiedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
             devices: build.verifiedDevices,
             source: build.installationSource,
+            updatedAt: build.installationUpdatedAt.map { ISO8601DateFormatter().string(from: $0) },
             launchConfirmedAt: build.launchConfirmedAt.map { ISO8601DateFormatter().string(from: $0) },
             lastSeenAt: build.lastSeenAt.map { ISO8601DateFormatter().string(from: $0) }
         )
@@ -2374,15 +2447,17 @@ struct DeviceBuildInstallation: Decodable, Equatable {
     let verifiedAt: String
     let devices: [VerifiedDevice]
     let source: String?
+    let updatedAt: String?
     let launchConfirmedAt: String?
     let lastSeenAt: String?
 
-    init(state: String, requestedAt: String, verifiedAt: String, devices: [VerifiedDevice], source: String? = nil, launchConfirmedAt: String? = nil, lastSeenAt: String? = nil) {
+    init(state: String, requestedAt: String, verifiedAt: String, devices: [VerifiedDevice], source: String? = nil, updatedAt: String? = nil, launchConfirmedAt: String? = nil, lastSeenAt: String? = nil) {
         self.state = state
         self.requestedAt = requestedAt
         self.verifiedAt = verifiedAt
         self.devices = devices
         self.source = source
+        self.updatedAt = updatedAt
         self.launchConfirmedAt = launchConfirmedAt
         self.lastSeenAt = lastSeenAt
     }

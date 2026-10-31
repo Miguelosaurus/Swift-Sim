@@ -1,9 +1,18 @@
 import test from "node:test";
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appDisplayNameFromSettings, archivedAppDisplayName, builtAppDisplayName } from "../mac-helper/src/deviceBuildDisplayName.js";
+import { appDisplayNameFromSettings, archivedAppDisplayName as projectArchivedName, builtAppDisplayName as projectBuiltName } from "../mac-helper/src/deviceBuildDisplayName.js";
+
+function readInfo(path) {
+  const result = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", path], { encoding: "utf8", timeout: 2000, maxBuffer: 1024 * 1024 });
+  if (result.status !== 0) throw new Error("Unreadable fixture plist");
+  return JSON.parse(result.stdout);
+}
+const builtAppDisplayName = (app, fallback) => projectBuiltName(app, fallback, readInfo);
+const archivedAppDisplayName = (archive, settings, fallback) => projectArchivedName(archive, settings, fallback, readInfo);
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-display-name-"));

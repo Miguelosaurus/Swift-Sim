@@ -60,7 +60,7 @@ struct ActivityEvent: Identifiable, Codable, Equatable {
         return url
     }
     var date: Date? { SwiftSimISO8601.date(from: updatedAt ?? createdAt) }
-    var canApplyQueuedChange: Bool { kind == "queued" && !["expired", "superseded", "unavailable", "failed"].contains(state) }
+    var canApplyQueuedChange: Bool { kind == "queued" && requestId != nil && ["waiting-for-device", "waiting-for-foreground"].contains(state) }
     var isAttention: Bool { kind == "attention" }
     var isMeaningful: Bool {
         // Retained history can expire while an unrelated current install opens.

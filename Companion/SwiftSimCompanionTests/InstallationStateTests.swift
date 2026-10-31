@@ -621,3 +621,115 @@ extension InstallationStateTests {
         ))
     }
 }
+
+extension InstallationStateTests {
+    private func installFixture(state: String = "unknown", observedAt: String? = nil,
+                                bundle: String = "com.example.app", version: String = "1.0", build: String = "1") throws -> DeviceBuildStatus {
+        var value = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(statusJSON.utf8)) as? [String: Any])
+        value["expiresAt"] = "2099-07-10T02:00:00Z"
+        var app = try XCTUnwrap(value["app"] as? [String: Any])
+        app["bundleIdentifier"] = bundle; app["version"] = version; app["build"] = build
+        value["app"] = app
+        var installation = try XCTUnwrap(value["installation"] as? [String: Any])
+        installation["state"] = state
+        if let observedAt { installation["updatedAt"] = observedAt }
+        value["installation"] = installation
+        return try JSONDecoder().decode(DeviceBuildStatus.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    @MainActor
+    func testExactRunningAppIdentityProvesOnlyItsOwnVersionAndBuild() {
+        func matches(_ identifier: String, _ version: String, _ build: String) -> Bool {
+            SessionStore.isRunningAppBuild(bundleIdentifier: identifier, version: version, build: build,
+                runningBundleIdentifier: "com.example.Companion", runningVersion: "0.6.1", runningBuild: "20")
+        }
+        XCTAssertTrue(matches("com.example.Companion", "0.6.1", "20"))
+        XCTAssertFalse(matches("com.example.Companion", "0.6.1", "19"))
+        XCTAssertFalse(matches("com.example.Companion", "0.6.2", "20"))
+        XCTAssertFalse(matches("com.example.OtherApp", "0.6.1", "20"))
+        XCTAssertFalse(matches("", "", ""))
+    }
+
+    @MainActor
+    func testRunningCompanionRecognitionDoesNotNeedRemoteInstallationProof() throws {
+        let own = try installFixture(bundle: "com.example.Companion", version: "0.6.1", build: "20")
+        XCTAssertEqual(SessionStore.resolvedInstallationState(status: own, cached: nil,
+            runningBundleIdentifier: "com.example.Companion", runningVersion: "0.6.1", runningBuild: "20"), .verified)
+        XCTAssertEqual(SessionStore.resolvedInstallationState(status: own, cached: nil,
+            runningBundleIdentifier: "com.example.Companion", runningVersion: "0.6.1", runningBuild: "19"), .unknown)
+        XCTAssertEqual(own.installation?.state, "unknown", "Local self-recognition must not rewrite server proof.")
+    }
+
+    @MainActor
+    func testLibraryAndDetailRecognizeTheSameRunningCompanionBuild() throws {
+        let own = try installFixture(bundle: try XCTUnwrap(Bundle.main.bundleIdentifier),
+            version: try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String),
+            build: try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String))
+        let session = DeviceBuildSession(id: own.id, token: "fixture", baseURL: URL(string: "https://paired.example")!)
+        let cached = ManagedBuild(session: session, status: own)
+        XCTAssertEqual(cached.installationStatus, .verified)
+        XCTAssertEqual(cached.installationState, "unknown")
+        let store = SessionStore(); store.currentDeviceBuild = session; store.deviceBuildStatus = own
+        XCTAssertTrue(store.currentBuildIsInstalled)
+        XCTAssertNil(store.beginCurrentBuildInstall())
+    }
+
+    @MainActor
+    func testInstallationResolutionUsesNewerPositiveAndNegativeEvidenceForTheExactBuild() throws {
+        let session = DeviceBuildSession(id: "build-1", token: "fixture", baseURL: URL(string: "https://paired.example")!)
+        let earlier = "2026-10-31T19:00:00Z"; let later = "2026-10-31T20:00:00Z"
+        let oldNegative = try installFixture(state: "different-version", observedAt: earlier)
+        let newPositive = try installFixture(state: "verified", observedAt: later)
+        let cachedPositive = ManagedBuild(session: session, status: newPositive)
+        XCTAssertEqual(SessionStore.resolvedInstallationState(status: oldNegative, cached: cachedPositive), .verified)
+        let cachedNegative = ManagedBuild(session: session, status: try installFixture(state: "not-installed", observedAt: later))
+        let oldPositive = try installFixture(state: "verified", observedAt: earlier)
+        XCTAssertEqual(SessionStore.resolvedInstallationState(status: oldPositive, cached: cachedNegative), .notInstalled)
+        XCTAssertEqual(DeviceBuildStatus(cached: cachedNegative).installation?.updatedAt, later)
+        let foreignVersion = ManagedBuild(session: session, status: try installFixture(state: "verified", observedAt: later, build: "2"))
+        XCTAssertEqual(SessionStore.resolvedInstallationState(status: oldNegative, cached: foreignVersion), .differentVersion)
+    }
+
+    @MainActor
+    func testInstallHandoffBlocksRepeatedTapsAndWaitsForTheSystemCallback() throws {
+        let store = SessionStore()
+        store.currentDeviceBuild = DeviceBuildSession(id: "build-1", token: "fixture", baseURL: URL(string: "https://paired.example")!)
+        store.deviceBuildStatus = try installFixture()
+        let attempt = try XCTUnwrap(store.beginCurrentBuildInstall())
+        XCTAssertTrue(store.isStartingInstallation)
+        XCTAssertNil(store.beginCurrentBuildInstall())
+        XCTAssertEqual(store.deviceBuildStatus?.installation?.state, "unknown")
+        XCTAssertTrue(store.finishCurrentBuildInstallHandoff(opened: true, attemptID: attempt))
+        XCTAssertFalse(store.isStartingInstallation)
+        XCTAssertEqual(store.deviceBuildStatus?.installation?.state, "requested")
+        XCTAssertFalse(store.currentBuildIsInstalled)
+        XCTAssertFalse(store.finishCurrentBuildInstallHandoff(opened: true, attemptID: attempt))
+    }
+
+    @MainActor
+    func testFailedOrStaleHandoffCannotClaimInstallationOrARequestForAnotherBuild() throws {
+        let store = SessionStore()
+        store.currentDeviceBuild = DeviceBuildSession(id: "build-1", token: "fixture", baseURL: URL(string: "https://paired.example")!)
+        store.deviceBuildStatus = try installFixture()
+        let rejected = try XCTUnwrap(store.beginCurrentBuildInstall())
+        XCTAssertFalse(store.finishCurrentBuildInstallHandoff(opened: false, attemptID: rejected))
+        XCTAssertEqual(store.deviceBuildStatus?.installation?.state, "unknown")
+        let stale = try XCTUnwrap(store.beginCurrentBuildInstall())
+        store.closeCurrentBuild()
+        store.currentDeviceBuild = DeviceBuildSession(id: "build-2", token: "new", baseURL: URL(string: "https://paired.example")!)
+        let secondJSON = statusJSON.replacingOccurrences(of: "build-1", with: "build-2")
+        store.deviceBuildStatus = try JSONDecoder().decode(DeviceBuildStatus.self, from: Data(secondJSON.utf8))
+        XCTAssertFalse(store.finishCurrentBuildInstallHandoff(opened: true, attemptID: stale))
+        XCTAssertEqual(store.deviceBuildStatus?.installation?.state, "unknown")
+        XCTAssertFalse(store.isStartingInstallation)
+    }
+
+    @MainActor
+    func testUnreadyOrMismatchedStatusCannotOpenAnInstaller() throws {
+        let store = SessionStore()
+        store.currentDeviceBuild = DeviceBuildSession(id: "another-build", token: "fixture", baseURL: URL(string: "https://paired.example")!)
+        store.deviceBuildStatus = try installFixture()
+        XCTAssertNil(store.currentBuildInstallURL())
+        XCTAssertNil(store.beginCurrentBuildInstall())
+    }
+}

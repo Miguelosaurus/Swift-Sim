@@ -1140,7 +1140,15 @@ private struct DeviceBuildView: View {
 
     private var installDock: some View {
         VStack(spacing: 10) {
-            if isInstallLinkExpired {
+            if installationStatus.isInstalled {
+                Label("Build installed", systemImage: "checkmark.circle.fill")
+                    .font(.headline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .foregroundStyle(.secondary)
+                    .liquidGlassCapsule(tint: Color.green.opacity(0.12), interactive: false)
+                    .accessibilityIdentifier("buildInstalledStatus")
+            } else if isInstallLinkExpired {
                 Button {
                     Task { await sessionStore.renewCurrentDeviceBuildLink() }
                 } label: {
@@ -1216,7 +1224,7 @@ private struct DeviceBuildView: View {
     }
 
     private var installationStatus: InstallationState {
-        InstallationState(serverValue: status?.installation?.state ?? currentManagedBuild?.installationState)
+        sessionStore.currentBuildInstallationState
     }
 
     private var actionableWarnings: [String] {
@@ -1239,6 +1247,7 @@ private struct DeviceBuildView: View {
     }
 
     private var canInstall: Bool {
+        guard !installationStatus.isInstalled, sessionStore.currentBuildInstallURL() != nil else { return false }
         if status == nil { return true }
         guard status?.isReady == true else { return false }
         guard let expiry = status?.expiryDate else { return currentManagedBuild?.isLinkActive == true }
@@ -1252,41 +1261,24 @@ private struct DeviceBuildView: View {
     }
 
     private var installButtonTitle: String {
-        if sessionStore.isStartingInstallation { return "Starting Install…" }
-        if status == nil || isPreparingBuild { return "Check and Install" }
-        guard canInstall else { return isPreparingBuild ? "Preparing App…" : "Install Unavailable" }
+        if installationStatus.isInstalled { return "Build installed" }
+        if sessionStore.isStartingInstallation { return "Opening Installer…" }
+        guard canInstall else { return status == nil || isPreparingBuild ? "Preparing Install…" : "Install Unavailable" }
         let buildCount = sessionStore.managedApps.first(where: { $0.id == currentManagedBuild?.appID })?.builds.count ?? 1
         return buildCount > 1 ? "Install Update" : "Install on iPhone"
     }
 
     private func startInstall() {
-        if let installURL = sessionStore.currentBuildInstallURL() {
-            openInstallURL(installURL)
-            return
-        }
-
-        Task { @MainActor in
-            guard let installURL = await sessionStore.prepareCurrentBuildInstallURL() else {
-                return
-            }
-            openInstallURL(installURL)
-        }
-    }
-
-    private func openInstallURL(_ installURL: URL) {
-        // Keep the system handoff in the original button event. Moving this
-        // behind an async Task can make iOS treat the first tap as preparation
-        // rather than the user-authorized request to open the manifest.
-        sessionStore.beginCurrentBuildInstall()
-        sessionStore.finishCurrentBuildInstallHandoff(opened: true)
+        // The view prepares its URL while loading. Only a synchronous button
+        // event opens the system installer; preparation never auto-installs.
+        guard canInstall, let installURL = sessionStore.currentBuildInstallURL(),
+              let attemptID = sessionStore.beginCurrentBuildInstall() else { return }
         openURL(installURL) { opened in
             Task { @MainActor in
-                if !opened {
-                    sessionStore.finishCurrentBuildInstallHandoff(opened: false)
-                }
+                let accepted = sessionStore.finishCurrentBuildInstallHandoff(opened: opened, attemptID: attemptID)
+                if accepted { await sessionStore.syncCurrentBuildInstallRequested() }
             }
         }
-        Task { await sessionStore.syncCurrentBuildInstallRequested() }
     }
 
     private var conciseVersionLabel: String {

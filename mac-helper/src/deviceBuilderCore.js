@@ -68,7 +68,7 @@ export async function resumeDeviceBuild(build, { save, logger = () => {}, readCu
       assertResumeProvenance(checkpoint.provenance, finalCapture.provenance);
       assertContainedArtifact(build.artifacts.root, ipaPath, "file");
       build.artifacts.ipaPath = ipaPath;
-      build.app.name = builtAppDisplayName(checkpoint.appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme);
+      build.app.name = builtAppDisplayName(checkpoint.appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
       build.liveReload.recovery.phase = "packaged";
       build.state = "ready";
       saveBuild();
@@ -415,7 +415,7 @@ export async function runDeviceBuild(build, {
           const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
           build.artifacts.ipaPath = ipaPath;
           build.liveReload.recovery.phase = "packaged";
-          build.app.name = builtAppDisplayName(appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme);
+          build.app.name = builtAppDisplayName(appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
           build.state = "ready";
           saveBuild();
           log("Build is ready to install and hot reload.");
@@ -469,7 +469,7 @@ export async function runDeviceBuild(build, {
     const ipaPath = findIpa(exportPath);
     if (!ipaPath) throw new DeviceBuildError("Xcode export finished, but no IPA was produced.");
     build.artifacts.ipaPath = ipaPath;
-    build.app.name = archivedAppDisplayName(archivePath, settings, build.app.name || displayNameFromIpa(ipaPath) || build.scheme);
+    build.app.name = archivedAppDisplayName(archivePath, settings, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
 
     build.state = "ready";
     saveBuild();
@@ -1128,6 +1128,12 @@ function packageBuiltApp(appPath, exportPath, scheme) {
   return ipaPath;
 }
 
+function readBuiltAppInfo(path) {
+  const result = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", path], { encoding: "utf8", timeout: 2000, maxBuffer: 1024 * 1024 });
+  if (result.status !== 0) return null;
+  return JSON.parse(result.stdout);
+}
+
 function displayNameFromIpa(ipaPath) {
   const name = basename(ipaPath, ".ipa").trim();
   return name || "";
@@ -1152,6 +1158,7 @@ function publicInstallation(installation = {}) {
     state: installation.state || "unknown",
     requestedAt: installation.requestedAt || "",
     verifiedAt: installation.verifiedAt || "",
+    ...(typeof installation.updatedAt === "string" && installation.updatedAt.length <= 64 && Number.isFinite(Date.parse(installation.updatedAt)) ? { updatedAt: new Date(installation.updatedAt).toISOString() } : {}),
     ...(["apple-device", "live-client"].includes(installation.source) ? { source: installation.source } : {}),
     ...(installation.launchConfirmedAt ? { launchConfirmedAt: installation.launchConfirmedAt } : {}),
     ...(installation.lastSeenAt ? { lastSeenAt: installation.lastSeenAt } : {}),

@@ -43,6 +43,8 @@ final class ActivityTests: XCTestCase {
     func testQueuedUpdateStaysInActivityAndRequiresExplicitTrustedAppHandoff() async throws {
         let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
         var item = event(buildID: "build-one", kind: "queued")
+        item["requestId"] = "request-one"
+        item["state"] = "waiting-for-device"
         item["targetAppName"] = "Example"
         item["launchURL"] = "example-debug://open"
         let center = ActivityCenter(defaults: store, notifications: CompanionNotifications(defaults: store), transport: { request in
@@ -68,6 +70,18 @@ final class ActivityTests: XCTestCase {
             let invalid = try JSONDecoder().decode(ActivityFeed.self, from: feed([item]))
             XCTAssertFalse(invalid.isValid)
         }
+    }
+
+    func testSignedBuildProgressAndUnpreparedChangesNeverOfferTheNoInstallAppHandoff() throws {
+        for state in ["queued", "preparing", "building", "delivering", "applying", "applied"] {
+            var item = event(kind: "queued"); item["state"] = state
+            item["buildId"] = "build-one"
+            XCTAssertFalse(try JSONDecoder().decode(ActivityFeed.self, from: feed([item])).events[0].canApplyQueuedChange)
+            item["requestId"] = "request-one"
+            XCTAssertFalse(try JSONDecoder().decode(ActivityFeed.self, from: feed([item])).events[0].canApplyQueuedChange)
+        }
+        var ready = event(kind: "queued"); ready["state"] = "waiting-for-foreground"; ready["requestId"] = "request-one"
+        XCTAssertTrue(try JSONDecoder().decode(ActivityFeed.self, from: feed([ready])).events[0].canApplyQueuedChange)
     }
 
     @MainActor

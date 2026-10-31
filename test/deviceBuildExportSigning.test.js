@@ -1,8 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { exportOptionsPlist } from "../mac-helper/src/deviceBuilderCore.js";
+import { exportOptionsPlist, publicDeviceBuild } from "../mac-helper/src/deviceBuilderCore.js";
 
 const build = { exportMethod: "ad-hoc", app: { bundleIdentifier: "com.example.app", teamID: "EXAMPLE123" }, signing: {} };
+test("installation evidence exposes a bounded observation timestamp without promoting its state", () => {
+  const projected = publicDeviceBuild({ ...build, installation: { state: "different-version", updatedAt: "2026-10-31T19:54:36Z" } });
+  assert.equal(projected.installation.updatedAt, "2026-10-31T19:54:36.000Z");
+  assert.equal(projected.installation.state, "different-version");
+  for (const updatedAt of [undefined, "", "/Users/private/proof", "x".repeat(5000)]) {
+    assert.equal(publicDeviceBuild({ ...build, installation: { updatedAt } }).installation.updatedAt, undefined);
+  }
+});
 test("automatic export keeps the automatic profile-selection flow", () => {
   const xml = exportOptionsPlist(build, { CODE_SIGN_STYLE: "Automatic", PROVISIONING_PROFILE_SPECIFIER: "ignored" });
   assert.match(xml, /<key>method<\/key>\s*<string>ad-hoc<\/string>/);
