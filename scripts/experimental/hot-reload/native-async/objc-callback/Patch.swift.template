@@ -1,0 +1,10 @@
+@_private(sourceFile: "Baseline.swift") import ObjCFrontierBaseline
+import Foundation
+
+extension CallbackProbe {
+    @_dynamicReplacement(for: callback(_:))
+    private func frontier_callback_@GEN@(_ value: NSNumber) -> NSNumber {
+        count += @OFFSET@
+        return NSNumber(value: value.intValue + @OFFSET@)
+    }
+}

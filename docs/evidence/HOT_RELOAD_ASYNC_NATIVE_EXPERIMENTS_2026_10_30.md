@@ -142,3 +142,93 @@ the real captured module context, then qualify a reversible immutable variant
 with exact native request/applied/replacement/refresh/revision proof on the
 phone. These host results justify pursuing that path; they do not substitute
 for its device gate or enable it automatically.
+
+## Objective-C callback follow-up
+
+The complete captured edit exposed a different representation: Swift emits an
+Objective-C category for the protocol-inferred
+`Coordinator.scrollViewWillBeginDragging(_:)`. It has no Swift `TX` replacement
+record. This is not an omitted implementation. Counting only `TX` records
+therefore incorrectly rejects a complete mixed Swift/Objective-C bundle.
+
+A second native harness defines an `NSObject` conforming to an `@objc` protocol,
+then uses an ordinary complete `@_dynamicReplacement` declaration in two
+separately compiled libraries. On `dlopen`, the compiler-generated categories
+map the original selector to each new implementation. **38 native checks pass**
+in Swift 6 mode: direct Swift calls under the qualified implicit-dynamic
+baseline, protocol calls and Objective-C selector calls on the existing object
+all change from baseline to generation 1 to generation 2. After each load, the
+original selector's current IMP equals the exact generated selector's IMP;
+the method type encoding matches as well. This is actual dispatch behavior,
+not a category-count assertion. It does not prove behavior for an optimized,
+non-dynamic baseline or every UIKit callback ABI.
+
+The runner captures original IMPs before loading and exercises serialized
+rollback from generation 2 to generation 1, restoration of the baseline,
+forward compensation to generation 2, and final baseline restoration. Stale
+expected IMP and mismatched ABI attempts reject before mutation. The class owns
+the target selector; the code does not mutate an inherited superclass method.
+Every swap checks the returned previous IMP and reads back the new IMP. Object
+state remains accumulated: restoring dispatch does not silently undo state
+changes already performed by a callback.
+
+This is not a transaction across arbitrary threads. Objective-C has no
+compare-and-swap operation for an unrelated concurrent swizzler. The prototype
+serializes its own mutations on the main thread; an unexpected previous IMP
+enters an uncertain-state failure. A production mixed bundle must coordinate
+activation and rollback across all affected methods and Swift replacements,
+and must not unload images still referenced by executing code. Loading a
+category to inspect it is already a mutation, so inspection happens first.
+
+### Artifact inspection before loading
+
+`objc-callback/preflight.py` reads bounded Mach-O bytes without calling
+`dlopen`. It resolves category class bindings, original/generated selector
+pairs, Objective-C encodings and their shared implementation address. The
+allowlist requires exact class symbols and selector pairs and rejects extra
+methods, mismatched encodings or IMPs, initializer/non-lazy entries, malformed
+metadata and unqualified formats. The prototype supports thin arm64 dylibs,
+bounded relative method lists, classic pointer dyld-info streams and chained
+64/64_OFFSET fixups. Other architectures, authenticated pointer formats and
+unqualified fixup encodings reject. Apple documents the chained structures in
+[dyld's fixup format header](https://github.com/apple-oss-distributions/dyld/blob/main/include/mach-o/fixup-chains.h).
+The native run checks twelve negative preflight cases across its two artifacts.
+
+This parser is an isolated prototype, not a hardened production Mach-O loader.
+Encoding equality does not establish semantic parameter types: Objective-C
+object types can share `@` encoding. Exact Swift signature/isolation comparison
+and the captured compiler/binary identity remain required independently.
+
+Both real iOS artifacts were inspected without loading and cross-checked
+against `otool -ov`:
+
+| Artifact | Changed members | Swift records | Exact category mapping | Compiled representation |
+| --- | --- | --- | --- | --- |
+| Historical captured four-file edit | 7 | 6 | 1 | 7 of 7 |
+| First full qualification variant | 8 | 7 | 1 | 8 of 8 |
+
+The category targets the captured module's exact private
+`LibraryCollectionGridView.Coordinator` class symbol. The original selector
+`scrollViewWillBeginDragging:` and generated selector
+`__swiftSim_full_f2_470:` (historical) or `__swiftSim_full_f4_470:` (qualification)
+share one implementation address and encoding `v24@0:8@16`. Artifact hashes
+and exact names are stored in adjacent `.objc-inventory.json` files under
+`.build/hot-reload-frontier/zenics-captured/` and the original full qualification
+request directory. Both receipts explicitly record `loaded: false`.
+
+The installed SDK counts Swift `TX`/`TI` records; its generic Objective-C
+category-prefix count also misses this Swift-emitted `__CATEGORY_...` naming.
+Consequently these artifact inventories **do not provide a physical native
+category receipt**. The full mixed four-file edit remains gated pending an SDK
+capability that verifies the exact target/generated-selector IMP mapping for
+the request and couples it with refresh/revision proof. An Objective-C-only
+patch cannot be reported as applied through the existing managed-patch rule
+requiring nonzero Swift replacements. Do not invent a Swift record or treat
+the separately qualified async-only phone subset as proof of this callback.
+
+Reproduce with `python3 scripts/experimental/hot-reload/native-async/objc-callback/run.py`.
+The initial observed category run is retained at
+`.build/objc-frontier-1793411868205293000/`; the Swift 6 rollback/preflight run
+is retained at `.build/objc-frontier-1793412269830766000/`. Later reruns retain
+their own source snapshots and reports. No engine/SDK activation or iPhone
+mutation occurred in this Objective-C experiment.

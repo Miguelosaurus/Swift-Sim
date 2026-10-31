@@ -32,3 +32,17 @@ toolchain requires explicit requalification.
 See the [evidence and coverage matrix](../../../../docs/evidence/HOT_RELOAD_ASYNC_NATIVE_EXPERIMENTS_2026_10_30.md)
 for the support boundary. Native host behavior is not a physical iPhone
 application/root-refresh receipt.
+
+The separate Objective-C callback experiment is:
+
+```sh
+python3 scripts/experimental/hot-reload/native-async/objc-callback/run.py
+```
+
+It verifies category-based replacement, exact selector/IMP mappings, serialized
+rollback and forward compensation. Its bounded Mach-O reader validates
+allowlisted category methods **before loading**. `preflight.py ARTIFACT --expect
+EXPECTED.json` only inventories bytes; it never loads a library. Unsupported
+architectures and pointer encodings reject. See the Objective-C appendix in the
+same evidence document for the real four-file compilation results and remaining
+device/SDK proof requirement.
