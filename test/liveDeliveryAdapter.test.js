@@ -5,6 +5,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLiveDeliveryAdapter } from "../mac-helper/src/liveDeliveryAdapter.js";
+import { replacementCoverageDigest } from "../mac-helper/src/replacementProof.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const identity = {
@@ -139,5 +140,71 @@ test("unsafe capture metadata fails closed without exposing its private contents
   try {
     chmodSync(f.manifestPath, 0o644);
     await assert.rejects(f.adapter.binding({}), (error) => error.code === "LIVE_BINARY_PROVENANCE_REQUIRED" && !error.message.includes(f.manifestPath));
+  } finally { f.cleanup(); }
+});
+
+function completeCallbackFixture(f) {
+  const callback = { class_name: "FixtureCoordinator", selector: "callback:", replacement_selector: "replacement:", type_encoding: "v24@0:8@16" };
+  const expected = { version: 3, swift_replacements: 0, objc_callbacks: [callback] };
+  f.record.preparedPatch.replacementProof = expected;
+  f.status.prepared_replacement_proof_protocol = 3;
+  f.status.client_capabilities.push("replacement-proof-v3");
+  return { ...f.report(), succeeded: true, admission: "applied", state_uncertain: false, attempt_id: f.record.claim.token,
+    replacement_proof_version: 3, coverage_digest: replacementCoverageDigest(expected),
+    expected_swift_replacements: 0, dynamic_replacements: 0, objc_replacements: 1,
+    represented_replacements: 1, complete_replacement_coverage: true,
+    objc_callback_proofs: [{ ...callback, owns_selector: true, implementation_matches: true,
+      encoding_matches: true, implementation_in_patch: true, previous_implementation_changed: true, verified: true }] };
+}
+
+test("v3 adapter accepts exact Objective-C-only proof with zero native Swift replacements", async () => {
+  const f = await fixture();
+  try {
+    const report = completeCallbackFixture(f); const observed = await f.adapter.inspect(f.record);
+    assert.equal(observed.connected, true);
+    f.setResult({ success: true, data: { state: "completed", report } });
+    assert.equal((await f.adapter.apply(f.record, observed)).refreshed, true);
+    assert.deepEqual(f.calls.findLast(call => call.action === "inject_prepared").replacement_proof, f.record.preparedPatch.replacementProof);
+    for (const mutation of [{ dynamic_replacements: true }, { expected_swift_replacements: false },
+      { objc_replacements: "1" }, { complete_replacement_coverage: 1 }, { attempt_id: "stale-attempt" },
+      { coverage_digest: "0".repeat(64) }, { objc_callback_proofs: [] }, { root_revision: true },
+      { applied: 1 }, { admission: "uncertain-after-load" }, { state_uncertain: true }, { succeeded: false }]) {
+      f.setResult({ success: true, data: { state: "completed", report: { ...report, ...mutation } } });
+      assert.equal(await f.adapter.apply(f.record, observed), null, JSON.stringify(mutation));
+    }
+    f.setResult({ success: true, data: { state: "completed", report: { ...report,
+      objc_callback_proofs: [{ ...report.objc_callback_proofs[0], implementation_in_patch: 1 }] } } });
+    assert.equal(await f.adapter.apply(f.record, observed), null);
+  } finally { f.cleanup(); }
+});
+
+test("v3 prepared records require both engine and client capability", async () => {
+  const f = await fixture();
+  try {
+    completeCallbackFixture(f);
+    assert.equal((await f.adapter.inspect(f.record)).connected, true);
+    f.status.prepared_replacement_proof_protocol = 2;
+    assert.equal((await f.adapter.inspect(f.record)).connected, false);
+    f.status.prepared_replacement_proof_protocol = 3;
+    f.status.client_capabilities = f.status.client_capabilities.filter(value => value !== "replacement-proof-v3");
+    assert.equal((await f.adapter.inspect(f.record)).connected, false);
+  } finally { f.cleanup(); }
+});
+
+test("v3 no-effect retry cannot discard uncertain or mismatched callback coverage", async () => {
+  const f = await fixture();
+  try {
+    const report = { ...completeCallbackFixture(f), succeeded: false, admission: "rejected-no-effect",
+      error_code: "PREPARED_WAITING_FOR_FOREGROUND", applied: false, refreshed: false,
+      refresh_acknowledged: false, objc_replacements: 0, represented_replacements: 0,
+      complete_replacement_coverage: false, objc_callback_proofs: [] };
+    const observed = await f.adapter.inspect(f.record);
+    f.setResult({ success: true, data: { state: "rejected-no-effect", report } });
+    assert.equal((await f.adapter.apply(f.record, observed)).noEffect.admitted, false);
+    for (const mutation of [{ state_uncertain: true }, { coverage_digest: "0".repeat(64) },
+      { replacement_proof_version: 2 }, { objc_replacements: 1 }]) {
+      f.setResult({ success: true, data: { state: "rejected-no-effect", report: { ...report, ...mutation } } });
+      assert.equal(await f.adapter.apply(f.record, observed), null, JSON.stringify(mutation));
+    }
   } finally { f.cleanup(); }
 });
