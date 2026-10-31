@@ -2,7 +2,9 @@
 // Independent admission probes. Uses an already-built experimental generator.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
 
 const generator = resolve(process.argv[2] || ".build/hot-reload-frontier/full-callable/generate");
 function generate(before, after, files) {
@@ -38,6 +40,8 @@ const negatives = [
   ["conditional declaration changed", "#if DEBUG\n" + method + "\n#endif", "#if DEBUG\n" + method.replace("{1}", "{2}") + "\n#endif"],
   ["subscript accessor signature changed", "class A { subscript(_ index:Int)->Int {get {index}}; func x()->Int{1} }", "class A { subscript(_ index:Int)->Int {get async {index+1}}; func x()->Int{2} }"],
   ["incomplete syntax", method, method + "\nfunc bad( {"],
+  ...["function", "file", "fileID", "filePath", "line", "column", "isolation", "unqualifiedMacro"].map(name =>
+    [`source-context expression #${name}`, method, method.replace("{1}", `{ let value = #${name}; return 2 }`)]),
 ];
 for (const [name, before, after] of negatives) {
   const result = generate(before, after);
@@ -77,4 +81,81 @@ const mixed = generate(null, null, [
   { path: "B.swift", before: "class B { var state=1 }", after: "class B { var state=1; var added=2 }" },
 ]);
 assert.notEqual(mixed.status, 0, "one unsupported file must reject the full multi-file bundle");
-console.log(JSON.stringify({ negativeBundles: negatives.length + 1, positiveBundles: positives.length + 3, stableEligible: false }));
+
+// Exercise the actual maintainer tool's finally block with injected dependencies.
+// No engine, phone, production queue, compiler or product source is contacted.
+const qualifierPath = new URL("./qualify-phone.mjs", import.meta.url);
+const qualifierText = readFileSync(qualifierPath, "utf8");
+const qualifierTree = ts.createSourceFile("qualify-phone.mjs", qualifierText, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+const cleanupTry = qualifierTree.statements.find(statement => ts.isTryStatement(statement) && statement.finallyBlock);
+assert(cleanupTry, "qualification tool must retain an explicit outer cleanup block");
+const cleanupText = cleanupTry.finallyBlock.statements.map(statement => statement.getText(qualifierTree)).join("\n");
+const safeSaveFunction = qualifierTree.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === "saveAfterMutation");
+assert(safeSaveFunction, "post-mutation persistence must be isolated from native restoration");
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const executeCleanup = new AsyncFunction("dependencies", `
+  const { assert, queue, adapter, createLiveDeliveryQueue, createLiveDeliveryRuntime,
+    liveRuntimeLockManager, output, files, save, drive, runtime, receipt, hash, readFileSync,
+    initialScope, mutationAttempted, originalError, persistenceErrors, join } = dependencies;
+  ${safeSaveFunction.getText(qualifierTree)}
+  ${cleanupText}
+  return receipt;
+`);
+const faultCases = ["success", "uncertain-apply", "restore-failure", "client-absent", "revocation-failure", "audit-failure",
+  "restore-receipt-write-failure", "result-write-failure"];
+for (const scenario of faultCases) {
+  const events = [];
+  const scope = { binaryIdentity: "review-binary", sessionIdentity: "review-process" };
+  const receipt = scenario === "uncertain-apply" ? {} : { apply: { outcome: "hot-reloaded" } };
+  const save = (name, value) => {
+    if ((scenario === "restore-receipt-write-failure" && name === "restoration-obligation.json" && value.required === false)
+      || (scenario === "result-write-failure" && name === "result.json")) throw new Error("injected receipt write failure");
+    events.push(["save", name, structuredClone(value)]);
+  };
+  const restoreQueue = {
+    async enqueue() { events.push(["restore-enqueue"]); return { requestId: "review-restore" }; },
+    async revokeDesired() { events.push(["restore-revoke"]); },
+  };
+  const dependencies = {
+    assert, initialScope: scope, mutationAttempted: true, originalError: undefined, receipt, join,
+    persistenceErrors: [],
+    output: "/nonexistent-review-output", liveRuntimeLockManager: {},
+    files: scenario === "audit-failure" ? [{ path: "unavailable-source", beforeSource: "source" }] : [],
+    queue: { async revokeDesired() {
+      events.push(["original-revoke"]);
+      if (scenario === "revocation-failure") throw new Error("injected journal failure");
+    } },
+    adapter: { async inspect() {
+      return { scope, connected: scenario !== "client-absent", foreground: true, rootReady: true,
+        matchesBinary: true, revision: 1 };
+    } },
+    createLiveDeliveryQueue() { return restoreQueue; },
+    createLiveDeliveryRuntime() { return { async stop() { events.push(["restore-stop"]); } }; },
+    save,
+    async drive() {
+      events.push(["restore-drive"]);
+      if (scenario === "restore-failure") throw new Error("injected restoration failure");
+      return { outcome: "hot-reloaded", delivery: { revision: 2 } };
+    },
+    runtime: { async stop() { events.push(["original-stop"]); } },
+    hash(value) { return value; },
+    readFileSync() { throw new Error("injected source audit failure"); },
+  };
+  await executeCleanup(dependencies).catch(() => {});
+  assert(events.some(([event]) => event === "original-stop"), `${scenario}: original runtime must always stop`);
+  if (scenario === "client-absent") {
+    assert.equal(receipt.restorationRequired, true, "unavailable client retains restoration obligation");
+  } else {
+    assert(events.some(([event]) => event === "restore-enqueue"), `${scenario}: cleanup cannot skip compensation`);
+    assert(events.some(([event]) => event === "restore-stop"), `${scenario}: restoration runtime must always stop`);
+  }
+  if (scenario === "success") assert.equal(receipt.complete, true);
+  if (scenario === "uncertain-apply") assert.notEqual(receipt.complete, true, "restoration must not manufacture application proof");
+  if (scenario === "restore-failure") assert.equal(receipt.restorationRequired, true, "failed restoration keeps obligation");
+  if (["restore-receipt-write-failure", "result-write-failure"].includes(scenario)) {
+    assert.equal(receipt.complete, true, "persistence failure must not interrupt separately proven restoration");
+    assert(dependencies.persistenceErrors.length > 0, "persistence failure remains explicit in the retained receipt");
+  }
+}
+console.log(JSON.stringify({ negativeBundles: negatives.length + 1, positiveBundles: positives.length + 3,
+  cleanupFaultCases: faultCases.length, stableEligible: false }));
