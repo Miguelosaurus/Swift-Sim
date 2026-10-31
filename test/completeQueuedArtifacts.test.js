@@ -1,11 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync, linkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { prepareCompleteQueuedLivePatch, sealCompleteQueuedLivePatch, validateCompleteQueuedLivePatchCoverage } from "../mac-helper/src/liveReload.js";
 import { replacementCoverageDigest } from "../mac-helper/src/replacementProof.js";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
+
+const fixtureFiles = new NodeAtomicFileStore();
 
 const hash = value => createHash("sha256").update(value).digest("hex");
 function fixture(t) {
@@ -25,14 +28,14 @@ function fixture(t) {
   const state = { compileCount: 0, inspected: 0, generatedInputs: [] };
   const compiler = {
     generate(input) { state.generatedInputs.push(input); return { sources: [input.files[0].after] }; },
-    inspectCoverage({ dylibPath }) { state.inspected++; return { replacementProof, coverageDigest: replacementCoverageDigest(replacementProof), artifactDigest: hash(readFileSync(dylibPath)) }; },
+    inspectCoverage({ dylibPath }) { state.inspected++; return { replacementProof, coverageDigest: replacementCoverageDigest(replacementProof), artifactDigest: hash(fixtureFiles.readTextSync(dylibPath)) }; },
   };
   const runner = { runSync(request) { state.compileCount++; writeFileSync(request.args[request.args.indexOf("-o") + 1], "unsigned image", { mode: 0o600 }); return { code: 0, stdout: "", stderr: "" }; } };
   const options = { artifactRoot, patchRoot, manifestPath, compiler, runner };
   const prepare = () => prepareCompleteQueuedLivePatch(record, options);
   const seal = raw => {
     writeFileSync(raw.path, "signed image", { mode: 0o600 });
-    const signedDigest = hash(readFileSync(raw.path)); sealCompleteQueuedLivePatch(record, raw, signedDigest);
+    const signedDigest = hash(fixtureFiles.readTextSync(raw.path)); sealCompleteQueuedLivePatch(record, raw, signedDigest);
     record.preparedPatch = { ...raw, patchDigest: signedDigest, sourceSnapshotDigest: record.snapshotDigest };
     return signedDigest;
   };
@@ -51,7 +54,7 @@ test("complete artifacts compile immutable snapshots and bind cached machine-cod
 
 test("signing explicitly seals the unsigned-to-signed transition before reuse or apply", t => {
   const f = fixture(t); const raw = f.prepare(); const signed = f.seal(raw);
-  const marker = JSON.parse(readFileSync(raw.path + ".json"));
+  const marker = JSON.parse(fixtureFiles.readTextSync(raw.path + ".json"));
   assert.equal(marker.unsignedArtifactDigest, raw.artifactDigest); assert.equal(marker.artifactDigest, signed);
   assert.equal(f.prepare().artifactDigest, signed); assert.equal(f.state.compileCount, 1);
   assert.doesNotThrow(() => validateCompleteQueuedLivePatchCoverage(f.record));
@@ -75,13 +78,13 @@ test("corrupt expected proof, compiler resource, source digest and signed bytes 
 test("marker and generated-source links cannot overwrite a foreign file", t => {
   for (const kind of ["symlink", "hardlink"]) for (const target of ["marker", "source"]) {
     const f = fixture(t); const raw = f.prepare();
-    const marker = JSON.parse(readFileSync(raw.path + ".json"));
+    const marker = JSON.parse(fixtureFiles.readTextSync(raw.path + ".json"));
     const foreign = join(f.root, "foreign"); writeFileSync(foreign, "keep foreign bytes", { mode: 0o600 });
     const path = target === "marker" ? raw.path + ".json" : join(f.options.patchRoot, `queued_${marker.key}`, "Replacement0.swift");
     rmSync(path); (kind === "symlink" ? symlinkSync : linkSync)(foreign, path);
     if (target === "source") rmSync(raw.path);
     assert.throws(f.prepare, { code: "PATCH_ARTIFACT_INVALID" }, `${kind} ${target}`);
-    assert.equal(readFileSync(foreign, "utf8"), "keep foreign bytes");
+    assert.equal(fixtureFiles.readTextSync(foreign, "utf8"), "keep foreign bytes");
   }
 });
 

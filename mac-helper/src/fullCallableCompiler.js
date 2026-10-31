@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeReplacementProof, replacementCoverageDigest } from "./replacementProof.js";
+import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
+import { NodeArtifactStore } from "./infrastructure/nodeArtifactStore.js";
 
 const SOURCE = fileURLToPath(new URL("../resources/FullCallableGenerator.swift", import.meta.url));
 const INPUT_LIMIT = 8 * 1024 * 1024;
@@ -11,7 +13,7 @@ const VERSION = "full-callable-v1";
 
 // Process execution is an explicit infrastructure port; this module neither
 // creates a helper/engine nor loads a generated library.
-export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = SOURCE } = {}) {
+export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = SOURCE, files = new NodeAtomicFileStore(), artifacts = new NodeArtifactStore() } = {}) {
   if (typeof runner?.runSync !== "function" || !isAbsolute(cacheRoot || "")) throw new TypeError("An explicit command runner and absolute compiler cache are required.");
   function run(executable, args, { input, timeoutMs = 30_000 } = {}) {
     const result = runner.runSync({ executable, args,
@@ -52,15 +54,15 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     const host = resolve(dirname(compiler), "../lib/swift/host");
     try {
       run(compiler, [resourcePath, "-sdk", hostSDK, "-I", host, "-L", host, "-Xlinker", "-rpath", "-Xlinker", host, "-o", staged], { timeoutMs: 60_000 });
-      chmodSync(staged, 0o700);
-      const bytes = privateRegularFile(staged);
+      const bytes = privateRegularFile(staged, { ownerOnly: false });
       // Concurrent publishers never overwrite an existing cache entry. The
       // compile itself is side-effect-free and admission uses the final digest.
       if (existsSync(binary) || existsSync(receipt)) throw unsupported("FULL_CALLABLE_CACHE_CONFLICT");
-      renameSync(staged, binary);
-      writeFileSync(receipt, JSON.stringify({ version: 1, fingerprint, sourceDigest: hash(source), binaryDigest: hash(bytes) }), { mode: 0o600, flag: "wx" });
+      artifacts.writeSync(artifacts.resolveContained(target, binary), bytes, { mode: 0o700, replace: false });
+      files.writeJSONSync(receipt, { version: 1, fingerprint, sourceDigest: hash(source), binaryDigest: hash(bytes) },
+        { mode: 0o600, createParentMode: 0o700, replace: false, syncDirectory: true });
       return binary;
-    } finally { if (existsSync(staged) && !lstatSync(staged).isSymbolicLink()) rmSync(staged); }
+    } finally { if (existsSync(staged) && !lstatSync(staged).isSymbolicLink()) artifacts.removeTreeSync(artifacts.resolveContained(target, staged)); }
   }
   function generate(input) {
     input = { ...input, generation: input?.generation || randomUUID().replaceAll("-", "") };
@@ -163,7 +165,7 @@ function privateRegularFile(path, { ownerOnly = true, trustedResource = false, m
   return readFileSync(path);
 }
 function ensurePrivateDirectory(path) {
-  if (!existsSync(path)) mkdirSync(path, { recursive: true, mode: 0o700 });
+  if (!existsSync(path)) ensureDirectoryModeSync(path, 0o700);
   const stats = lstatSync(path);
   if (!stats.isDirectory() || stats.isSymbolicLink() || (stats.mode & 0o077) || (process.getuid && stats.uid !== process.getuid())) throw unsupported("FULL_CALLABLE_CACHE_INVALID");
 }

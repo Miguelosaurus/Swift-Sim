@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { canonicalProjectPath } from "./liveSessionDescriptor.js";
 import { normalizedLiveBinaryIdentity, liveBinaryMatches } from "./liveBinaryIdentity.js";
-import { prepareQueuedLivePatchAsync, cleanupQueuedLiveArtifacts, queuedLiveEngineControl, validateQueuedLivePatchCoverage, CLASSIFIER_VERSION } from "./liveReload.js";
+import { prepareQueuedLivePatchAsync, cleanupQueuedLiveArtifacts, queuedLiveEngineControl, validateQueuedLivePatchCoverage, validateCompleteQueuedLivePatchCoverage, sealCompleteQueuedLivePatch, CLASSIFIER_VERSION } from "./liveReload.js";
+import { normalizeReplacementProof, replacementCoverageDigest, verifyReplacementProofReceipt, REPLACEMENT_PROOF_CAPABILITY } from "./replacementProof.js";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 
 const LIVE_ROOT = join(homedir(), ".swift-sim", "live");
@@ -39,16 +40,22 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     const data = response?.success ? response.data : null;
     const capabilities = Array.isArray(data?.client_capabilities) ? data.client_capabilities : [];
     const engineSupports = data?.prepared_delivery_protocol === 1;
+    const completeEngine = data?.prepared_replacement_proof_protocol === 3;
+    const completeClient = capabilities.includes(REPLACEMENT_PROOF_CAPABILITY);
+    const requiresComplete = Boolean(record.preparedPatch?.replacementProof);
     const client = data?.client_identity;
     const matchesBinary = liveBinaryMatches(manifest.binaryIdentity, client) && typeof client?.process_nonce === "string" && client.process_nonce.length >= 8;
     const revisionValid = Number.isSafeInteger(client?.root_revision) && client.root_revision >= 0;
     return {
       engineAvailable: Boolean(data && engineSupports),
       engineReachable: Boolean(data),
+      completeEngine,
+      completeClient,
       clientPresent: Boolean(data?.has_connected_client),
       supportsReceipts: REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value)),
       matchesBinary,
-      connected: Boolean(data?.has_connected_client && matchesBinary && revisionValid && REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value))),
+      connected: Boolean(data?.has_connected_client && matchesBinary && revisionValid && REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value))
+        && (!requiresComplete || (completeEngine && completeClient))),
       foreground: client?.is_active === true,
       rootReady: client?.root_ready === true,
       revision: revisionValid ? client.root_revision : null,
@@ -62,26 +69,33 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       attempt_id: record.claim?.token || record.applyClaimToken,
       path: record.preparedPatch.path, expires_at_ms: record.expiresAt, baseline_revision: record.baselineRevision,
       expected_identity: { ...normalizedLiveBinaryIdentity(observed.identity), process_nonce: record.scope.sessionIdentity },
+      ...(record.preparedPatch.replacementProof ? { replacement_proof: normalizeReplacementProof(record.preparedPatch.replacementProof) } : {}),
     };
   }
   function proofFrom(response, record, observed) {
     const wrapper = response?.success ? response.data : null;
     const report = wrapper?.report;
     const attemptId = record.claim?.token || record.applyClaimToken;
+    const expectedCoverage = record.preparedPatch.replacementProof;
+    const coverageIdentityMatches = !expectedCoverage || (report?.coverage_digest === replacementCoverageDigest(expectedCoverage)
+      && report?.replacement_proof_version === 3);
     if (wrapper?.state === "rejected-no-effect" && report?.admission === "rejected-no-effect"
       && report.attempt_id === attemptId && String(report.request_id) === record.requestId
       && report.patch_digest === record.preparedPatch.patchDigest && report.applied === false
       && report.refresh_acknowledged === false && report.refreshed !== true && (report.dynamic_replacements === undefined || report.dynamic_replacements === 0)
       && report.client_identity?.process_nonce === record.scope.sessionIdentity
       && liveBinaryMatches(observed.identity, report.client_identity)
+      && coverageIdentityMatches && report.state_uncertain !== true && (report.objc_replacements === undefined || report.objc_replacements === 0)
       && ["PREPARED_WAITING_FOR_FOREGROUND", "PREPARED_ROOT_NOT_READY"].includes(report.error_code)) {
       return { noEffect: { requestId: record.requestId, patchDigest: record.preparedPatch.patchDigest, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, attemptId, admitted: false, applied: false, reasonCode: report.error_code } };
     }
     if (!report || String(report.request_id) !== record.requestId || report.patch_digest !== record.preparedPatch.patchDigest
       || !liveBinaryMatches(observed.identity, report.client_identity)
       || report.client_identity?.process_nonce !== record.scope.sessionIdentity
-      || report.applied !== true || !(Number(report.dynamic_replacements) > 0) || !Number.isSafeInteger(report.root_revision)
+      || report.applied !== true || (expectedCoverage ? !verifyReplacementProofReceipt({ expected: expectedCoverage, report, attemptId }) : !(Number(report.dynamic_replacements) > 0))
+      || !Number.isSafeInteger(report.root_revision)
       || report.root_revision <= record.baselineRevision) return null;
+    if (expectedCoverage && (report.succeeded !== true || report.admission !== "applied" || report.state_uncertain === true)) return null;
     return {
       requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity,
       patchDigest: record.preparedPatch.patchDigest, applied: true,
@@ -93,6 +107,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     withLock: lock,
     cleanup: cleanupQueuedLiveArtifacts,
     validatePrepared(record) {
+      if (record.preparedPatch?.replacementProof) { validateCompleteQueuedLivePatchCoverage(record); return; }
       if (!/^[a-f0-9]{64}$/.test(record.snapshotDigest || "") || record.preparedPatch?.coverageVersion !== CLASSIFIER_VERSION || record.preparedPatch?.sourceSnapshotDigest !== record.snapshotDigest) validateQueuedLivePatchCoverage(record);
     },
     async binding({ project, scheme }) {
@@ -101,15 +116,19 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       const observed = await inspect({ scope });
       if (observed.engineReachable && !observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The installed engine cannot process durable live edits. Activate the matching engine and SDK before using the queued workflow; no build was started.");
       if (observed.clientPresent && !observed.supportsReceipts) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "The connected Debug app needs the matching reconnect and receipt SDK. Complete its one-time Debug update; no automatic rebuild was started.");
+      if (observed.completeEngine && observed.clientPresent && !observed.completeClient) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "This Debug app needs the complete replacement receipt SDK. Install its one-time Debug update before using broader hot reload; no automatic rebuild was started.");
       return { scope: observed.matchesBinary ? observed.scope : scope, revision: observed.revision || 0, verifiedProcess: observed.matchesBinary && observed.connected, sourceBaselines: manifest.sourceBaselines };
     },
     inspect,
     async prepare(record, options) {
-      const raw = await compile(record, options);
+      const observed = await inspect(record);
+      const raw = await compile(record, { ...options, completeCoverage: observed.completeEngine });
       const response = await control({ action: "prepare_dylib", path: raw.path }, { timeoutMs: 30_000 });
       const digest = response?.success ? response.data?.patch_digest : "";
       if (!/^[0-9a-f]{64}$/.test(digest) || hash(readFileSync(raw.path)) !== digest) throw deliveryError("PATCH_SIGNING_FAILED", "The queued patch could not be signed and verified. No app build or install was started.");
-      return { path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest };
+      if (raw.replacementProof) sealCompleteQueuedLivePatch(record, raw, digest);
+      return { path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
+        ...(raw.replacementProof ? { replacementProof: normalizeReplacementProof(raw.replacementProof), coverageDigest: raw.coverageDigest, compilerResourceDigest: raw.compilerResourceDigest } : {}) };
     },
     async apply(record, observed, { cancellationSignal } = {}) {
       let result = await control(request(record, observed), { timeoutMs: 2_000 });

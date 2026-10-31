@@ -30,6 +30,8 @@ import { ensureDirectoryModeSync, NodeAtomicFileStore } from "./infrastructure/n
 import { NodeCommandRunner } from "./infrastructure/nodeCommandRunner.js";
 import { fileURLToPath } from "node:url";
 import { readLocalEngineCandidate, validateLocalEngineAppMetadata } from "./liveEngineCandidate.js";
+import { createFullCallableCompiler, compilerResourceDigest } from "./fullCallableCompiler.js";
+import { normalizeReplacementProof, replacementCoverageDigest } from "./replacementProof.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 2;
@@ -717,21 +719,140 @@ export function prepareQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, 
   return { path, mode: "swift-dynamic-replacement-bundle" };
 }
 
-function queuedArtifactUsage(root) {
+// Complete coverage is a negotiated SDK/engine contract. Legacy callers retain
+// their qualified compiler; new requests never infer coverage from nonzero TX.
+export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, "queued-artifacts"), manifestPath = LIVE_MANIFEST,
+  runner = new NodeCommandRunner({ spawn, spawnSync }), compiler, patchRoot = LIVE_PATCH_ROOT } = {}) {
+  assertCompleteEditSet(record);
+  const manifest = readJSONFile(manifestPath);
+  const identity = normalizedLiveBinaryIdentity(manifest?.binaryIdentity);
+  if (`${identity.executable_uuid}:${identity.debug_dylib_uuid}` !== record.scope.binaryIdentity) throw completeArtifactError();
+  const contexts = record.files.map(file => manifest.compilations?.find(context => context.sources?.some(path => resolve(path) === resolve(file.path))));
+  const reference = contexts[0];
+  if (!reference || contexts.some(context => !context || context.moduleName !== reference.moduleName
+    || context.workingDirectory !== reference.workingDirectory || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments))) throw completeArtifactError();
+  const resourceDigest = compilerResourceDigest();
+  const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest])).digest("hex");
+  const path = join(artifactRoot, `eval_injection_swift_sim_dynamic_${key}.dylib`);
+  const marker = `${path}.json`;
+  ensureDirectoryModeSync(artifactRoot, 0o700);
+  const fullCompiler = compiler || createFullCallableCompiler({ runner, cacheRoot: join(LIVE_ROOT, "compiler-cache") });
+  const generation = fullCompiler.generate({ module: reference.moduleName, generation: key.slice(0, 32),
+    files: record.files.map(file => ({ path: file.path, before: file.beforeSource, after: file.afterSource })) });
+  const moduleName = `SwiftSimLivePatch_${key}`;
+  const previous = existsSync(marker) ? readCompleteMarker(marker) : null;
+  if (existsSync(path)) {
+    const stats = lstatSync(path);
+    if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1 || (stats.mode & 0o077) !== 0
+      || (process.getuid && stats.uid !== process.getuid()) || previous?.key !== key || previous.requestId !== record.requestId
+      || previous.snapshotDigest !== record.snapshotDigest || previous.binaryIdentity !== record.scope.binaryIdentity || previous.resourceDigest !== resourceDigest) throw completeArtifactError();
+    if (previous.artifactDigest !== createHash("sha256").update(readFileSync(path)).digest("hex")) throw completeArtifactError();
+    const coverage = fullCompiler.inspectCoverage({ dylibPath: path, generation, moduleName });
+    if (coverage.coverageDigest !== previous.coverageDigest) throw completeArtifactError();
+    return completePrepared(path, coverage, resourceDigest);
+  }
+  const volume = statfsSync(artifactRoot);
+  const initialUsage = queuedArtifactUsage(artifactRoot, patchRoot);
+  if (!Number.isFinite(initialUsage)) throw completeArtifactError();
+  if (readdirSync(artifactRoot).length > 1024 || initialUsage > 120 * 1024 * 1024
+    || Number(volume.bavail) * Number(volume.bsize) < 128 * 1024 * 1024) throw Object.assign(new Error("Insufficient bounded patch storage."), { code: "PATCH_STORAGE_INSUFFICIENT" });
+  const directory = join(patchRoot, `queued_${key}`);
+  ensureDirectoryModeSync(directory, 0o700);
+  const owner = { version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest,
+    binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest };
+  writeCompleteMarker(marker, owner);
+  const paths = generation.sources.map((source, index) => {
+    const generatedPath = join(directory, `Replacement${index}.swift`);
+    if (existsSync(generatedPath)) assertCompleteFile(generatedPath);
+    new NodeAtomicFileStore().writeTextSync(generatedPath, typeof source === "string" ? source : source.source,
+      { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+    return generatedPath;
+  });
+  const dylibPath = join(directory, `eval_injection_swift_sim_dynamic_queued_${key}.dylib`);
+  if (existsSync(dylibPath)) { assertCompleteFile(dylibPath, false); rmSync(dylibPath); }
+  const result = runner.runSync({ executable: "/usr/bin/xcrun", args: ["swiftc", "-emit-library", ...paths, "-module-name", moduleName,
+    ...reference.compilerArguments, "-Xfrontend", "-disable-access-control", "-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup", "-o", dylibPath],
+    cwd: reference.workingDirectory,
+    environment: { inherit: ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "TOOLCHAINS"], overrides: {}, unset: ["SDKROOT"] },
+    policy: { timeoutMs: 60_000, outputLimitBytes: 32 * 1024 * 1024, processGroup: "inherit", acceptedExitCodes: [0] } });
+  if (result.code !== 0 || result.error || result.timedOut || !existsSync(dylibPath)) throw unsupportedReplacement();
+  const coverage = fullCompiler.inspectCoverage({ dylibPath, generation, moduleName });
+  const size = statSync(dylibPath).size;
+  if (size > 32 * 1024 * 1024 || queuedArtifactUsage(artifactRoot, patchRoot) + size + 1024 * 1024 > 128 * 1024 * 1024) {
+    throw Object.assign(new Error("The complete patch exceeds its storage quota."), { code: "PATCH_STORAGE_INSUFFICIENT" });
+  }
+  writeFileSync(path, readFileSync(dylibPath), { mode: 0o600, flag: "wx" });
+  writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest });
+  return completePrepared(path, coverage, resourceDigest);
+}
+
+function assertCompleteEditSet(record) {
+  if (classifyEditSet({ files: record.files.map(file => ({ ...file, kind: "swift", status: "modified" })) }).route !== "hot-reload") {
+    throw Object.assign(new Error("The queued snapshot changes compiled structure."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
+  }
+}
+function completePrepared(path, coverage, resourceDigest) {
+  const replacementProof = normalizeReplacementProof(coverage.replacementProof);
+  return { path, mode: "swift-complete-replacement-bundle", replacementProof,
+    coverageDigest: replacementCoverageDigest(replacementProof), compilerResourceDigest: resourceDigest, artifactDigest: coverage.artifactDigest };
+}
+function completeArtifactError() { return Object.assign(new Error("The complete patch artifact is not trusted."), { code: "PATCH_ARTIFACT_INVALID" }); }
+
+export function validateCompleteQueuedLivePatchCoverage(record) {
+  assertCompleteEditSet(record);
+  if (!/^[a-f0-9]{64}$/.test(record.snapshotDigest || "") || record.preparedPatch?.sourceSnapshotDigest !== record.snapshotDigest
+    || record.preparedPatch.compilerResourceDigest !== compilerResourceDigest()
+    || record.preparedPatch.coverageDigest !== replacementCoverageDigest(record.preparedPatch.replacementProof)) throw completeArtifactError();
+  const path = record.preparedPatch.path;
+  assertCompleteFile(path);
+  const marker = readCompleteMarker(`${path}.json`);
+  if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity
+    || marker.resourceDigest !== record.preparedPatch.compilerResourceDigest || marker.coverageDigest !== record.preparedPatch.coverageDigest
+    || marker.artifactDigest !== record.preparedPatch.patchDigest
+    || createHash("sha256").update(readFileSync(path)).digest("hex") !== marker.artifactDigest) throw completeArtifactError();
+}
+
+export function sealCompleteQueuedLivePatch(record, raw, signedDigest) {
+  assertCompleteFile(raw.path);
+  const marker = readCompleteMarker(`${raw.path}.json`);
+  if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity || marker.artifactDigest !== raw.artifactDigest
+    || marker.coverageDigest !== raw.coverageDigest || marker.resourceDigest !== raw.compilerResourceDigest
+    || !/^[a-f0-9]{64}$/.test(signedDigest) || createHash("sha256").update(readFileSync(raw.path)).digest("hex") !== signedDigest) throw completeArtifactError();
+  writeCompleteMarker(`${raw.path}.json`, { ...marker, unsignedArtifactDigest: marker.unsignedArtifactDigest || raw.artifactDigest, artifactDigest: signedDigest });
+}
+function assertCompleteFile(path, ownerOnly = true) {
+  const stats = lstatSync(path);
+  if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1 || (ownerOnly && (stats.mode & 0o077))
+    || (process.getuid && stats.uid !== process.getuid())) throw completeArtifactError();
+  return stats;
+}
+function readCompleteMarker(path) {
+  if (assertCompleteFile(path).size > 16_384) throw completeArtifactError();
+  try { return JSON.parse(readFileSync(path, "utf8")); } catch { throw completeArtifactError(); }
+}
+function writeCompleteMarker(path, value) {
+  if (existsSync(path)) assertCompleteFile(path);
+  if (Buffer.byteLength(JSON.stringify(value)) > 16_384) throw completeArtifactError();
+  new NodeAtomicFileStore().writeJSONSync(path, value, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+}
+
+function queuedArtifactUsage(root, patchRoot = LIVE_PATCH_ROOT) {
   let bytes = 0;
   for (const name of readdirSync(root).slice(0, 1025)) {
     const stats = lstatSync(join(root, name));
     if (stats.isFile() && !stats.isSymbolicLink()) bytes += stats.size;
   }
-  if (existsSync(LIVE_PATCH_ROOT)) {
-    const directories = readdirSync(LIVE_PATCH_ROOT).filter((name) => /^queued_[a-f0-9]{64}$/.test(name));
+  if (existsSync(patchRoot)) {
+    const directories = readdirSync(patchRoot).filter((name) => /^queued_[a-f0-9]{64}$/.test(name));
     if (directories.length > 1024) return Infinity;
     for (const directory of directories) {
-      const path = join(LIVE_PATCH_ROOT, directory);
+      const path = join(patchRoot, directory);
       if (lstatSync(path).isSymbolicLink()) return Infinity;
-      for (const name of ["SwiftSimLivePatch.swift", `eval_injection_swift_sim_dynamic_${directory}.dylib`]) {
+      const names = readdirSync(path);
+      if (names.length > 64) return Infinity;
+      for (const name of names) {
         const file = join(path, name);
-        if (existsSync(file)) { const stats = lstatSync(file); if (stats.isSymbolicLink()) return Infinity; bytes += stats.size; }
+        if (existsSync(file)) { const stats = lstatSync(file); if (stats.isSymbolicLink() || !stats.isFile()) return Infinity; bytes += stats.size; }
       }
     }
   }
@@ -760,15 +881,15 @@ export function cleanupQueuedLiveArtifacts(records, { artifactRoot = join(LIVE_R
   }
 }
 
-export async function prepareQueuedLivePatchAsync(record, { cancellationSignal } = {}) {
+export async function prepareQueuedLivePatchAsync(record, { cancellationSignal, completeCoverage = false } = {}) {
   const runner = new NodeCommandRunner({ spawn, spawnSync });
   const result = await runner.run({
     executable: process.execPath,
-    args: [fileURLToPath(new URL("../bin/swift-sim-live-prepare.js", import.meta.url))],
-    input: JSON.stringify(record),
+    args: [fileURLToPath(new URL("../bin/swift-sim-live-prepare.js", import.meta.url)), ...(completeCoverage ? ["--complete-coverage-v3"] : [])],
+    input: Buffer.from(JSON.stringify(record)),
     ...(cancellationSignal ? { cancellationSignal } : {}),
     environment: { inherit: ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS"], overrides: {}, unset: [] },
-    policy: { timeoutMs: 60_000, outputLimitBytes: 1024 * 1024, processGroup: "new", acceptedExitCodes: [0] },
+    policy: { timeoutMs: completeCoverage ? 150_000 : 60_000, outputLimitBytes: 1024 * 1024, processGroup: "new", acceptedExitCodes: [0] },
   });
   if (result.code !== 0 || result.timedOut || result.cancellationError) {
     let failure;
