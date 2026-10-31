@@ -180,3 +180,61 @@ No new physical phone patch or push notification was sent as a qualification.
 Private raw profiles, RSS series, workflow hashes and rollout details are in
 `.build/helper-memory-round2/` in the task checkout. The full check log is
 `/tmp/swift-sim-round2-check.log`. Temporary loopback inspectors were closed.
+
+## October 31: physical-footprint qualification
+
+Source commit `d19e69d` targets actual retained memory in the legacy build
+history store. The storage-planning hint now retains only its required fields,
+not full build logs and provenance. Locked read operations share one private
+state snapshot while its inode, nanosecond timestamps, owner and mode remain
+unchanged. Mutations still invalidate that view and read fresh state under the
+existing lock. Each read still evaluates capability and renewal deadlines;
+clock-only expiry is not hidden by an unchanged file. The authority router and
+SQLite backend are unchanged.
+
+The returned rows remain detached copies. Tests cover external writers,
+mutation freshness, per-call locking, detached results and renewal expiry with
+no file change. This adds no poll delay, TTL cache, heap-size cap, forced GC,
+periodic restart or extra persistent worker.
+
+Forty history reads against identical private copies of the actual catalog,
+followed by the same ten-second idle delay, produced identical result hashes.
+Kernel physical footprint was **225.3 MiB before and 123.2 MiB after**. Median
+read latency improved from **12.9 ms to 4.5 ms**, and p95 from **16.8 ms to
+11.0 ms**. This isolated workload is separate from the whole-helper measurement.
+
+The installed old helper's 24 kernel-footprint samples over about two minutes
+had a **144.8 MiB median**, ranging from **144.6–145.0 MiB**. The replacement
+helper was warmed without explicit collection and measured using the same
+finite sampler. The observations below report physical footprint, rather than
+allocation volume or the historical Activity Monitor snapshot.
+
+The replacement's 24 samples had a **113.5 MiB median**, a **21.6% reduction**
+from the old helper. The range was **91.4–252.2 MiB**: the high early reading
+shows why one short cold-start snapshot is insufficient. A later point was
+about 114 MB. Startup peak was about 266 MB. These are kernel-accounted
+physical-footprint measurements, without forced collection or a smaller heap cap.
+
+A second, settled one-minute window independently measured a **101.4 MiB
+median** and **79.4–114.6 MiB range**. Thus the live-helper median reduction
+was about **22% in the first window and 30% in the repeat window**, rather
+than only a decrease in allocated bytes.
+
+Full checks passed: **1,267 source tests, 719 compiled tests and two hermetic
+tests**, plus architecture, types, lint, formatting, documentation and archive
+installation checks. The latest 50 store tests, including clock-only cached
+renewal expiry, passed separately and in the compiled gate. The destructive
+Homebrew installation gate remained disabled. Physical phone application and
+displayed push were not newly exercised by this helper-only change.
+
+There were no active builds, simulator streams or live claims at helper
+handoff. Pairing, build history, delivery journal, compiler manifest/map and
+session descriptor remained byte-identical. No native engine or phone app was
+replaced. The installed helper intentionally remains running for normal hot
+reload and notifications; all benchmark children and finite samplers end after
+measurement, and no login item or watcher was installed.
+
+Private metrics, copied-catalog benchmarks, finite sampler and ownership notes
+are in `.build/helper-memory-round3/` in the task checkout. Full check log:
+`/tmp/swift-sim-memory-round3-check.log`. The cold-start peak can still exceed
+steady idle memory, and larger real workloads can legitimately use more RAM.
