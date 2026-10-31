@@ -171,3 +171,10 @@ in this continuation. Build/package/provisioning credentials stay private.
 
 All subagents must be stopped at their final checkpoints before restarting
 Codex. Do not create an automation or continue in the background while paused.
+
+Final stop: helper-side code and this handoff are committed on the working
+branch, with 15 focused tests passing; production main remains `88053e7`.
+All three continuation agents are stopped. Native WIP is additionally preserved
+in the ignored private `.build/callback-v3-restart-checkpoint/` directory:
+an eight-file source archive, tracked diff and SHA-256 manifest. These are backup
+evidence, not an instruction to overwrite the native working tree on resume.
