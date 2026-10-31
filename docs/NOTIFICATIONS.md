@@ -47,11 +47,21 @@ explicit opt-in retain the Companion handoff.
 Pending intent, patch compilation, APNs acceptance and notification taps are not
 successful reloads. The confirmed state requires matching native application,
 replacement and SwiftUI refresh receipts with an increased root revision.
-The Debug SDK also shows an unobtrusive host-app indicator for actual received,
-applying, refresh-waiting and confirmed events. It does not intercept touches,
-change host view identity or ship live-loading feedback in Release. Existing apps
-need their next SDK-enabled Debug build for that indicator; no automatic rebuild
-or installation is required just to receive inbox updates.
+The Debug SDK traces a thin teal glow clockwise from the screen's top center
+through received, applying and refresh-waiting events. It leaves a small gap until
+the matching native applied-and-refreshed receipt is admitted, then closes the
+outline and sends one soft glass ripple across the content. The trace indicates
+lifecycle stages, not a measured percentage. A failure uses an amber outline and
+an unconfirmed-update label, without a success ripple.
+
+The effect does not intercept touches or add host view identity changes. It
+exists only during feedback, supports Reduce Motion with a static outline and
+status, respects Reduce Transparency, and is excluded from Release. iOS 26 uses
+native Liquid Glass for the narrow ripple; earlier systems use a material ring.
+There is no content snapshot, shader pipeline, new service, or idle animation.
+Existing apps need one Debug rebuild against the updated SwiftSimLive package
+for this effect. Rebuilding with an older pinned SDK retains its old feedback.
+No automatic rebuild or installation is required just to receive inbox updates.
 
 ## Apple push setup
 

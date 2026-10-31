@@ -39,9 +39,10 @@ private struct SwiftSimLiveModifier: ViewModifier {
     func body(content: Content) -> some View {
         AnyView(content)
             .id(observer.revision)
-            .overlay(alignment: .top) {
+            .overlay {
                 if let state = feedback.presentation {
-                    SwiftSimDeliveryFeedbackBanner(state: state)
+                    SwiftSimDeliveryFeedbackEffect(state: state)
+                        .id(state.requestID)
                 }
             }
     }
