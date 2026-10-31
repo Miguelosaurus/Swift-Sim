@@ -104,3 +104,24 @@ has the largest plausible saving, but keeping delivery and notification paths wa
 is essential to avoid cold-start delay. The compiler is already a short-lived
 worker. A complete rewrite is not justified solely by an unmeasured memory saving;
 prototype and benchmark the narrow resident split first.
+
+## Final activation checkpoint
+
+Product code checkpoint: `edac1aaa78d5b4345fe205c9e2fa5e711ade753c`, pushed to
+main without a PR. The full final gate passed 1297 source tests, 747 compiled
+tests, two hermetic checks and the type/format/lint/architecture/docs/package
+checks. All 54 Companion tests passed on the locally signed development test
+runner. The task simulator is shut down again.
+
+The compiled helper was activated healthy from that checkpoint, with the native
+engine preserved and immediately-before/after capture hashes unchanged. The
+installed Codex plugin remains `0.6.1+codex.20261031.1` with matching packaged
+files. No additional live SDK or Zenics build was created for this follow-up.
+
+Swift Sim Companion build 20 is ready, ID
+`9e08f40e-74f8-4cbb-af46-cfec0e0374a2`, using the existing ad hoc method and app
+identity with data preservation. Its display name is Swift Sim. APNs accepted
+its legitimate ready alert at 2026-10-31T20:09:41.499Z. Build 20 contains the
+installed footer and installer handoff fixes. The user was asked to exercise
+one install attempt and confirm the footer. Physical interaction acceptance
+remains pending at this checkpoint; unit tests are not a substitute for it.
