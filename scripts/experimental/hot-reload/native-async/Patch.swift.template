@@ -1,0 +1,89 @@
+@_private(sourceFile: "Baseline.swift") import AsyncFrontierBaseline
+import Foundation
+
+extension AsyncProbe {
+    @_dynamicReplacement(for: work(_:scale:))
+    private func frontier_work(_ input: Int, scale: Int) async throws -> Int {
+        guard input >= 0 else { throw ProbeError.negative }
+        let sum = await withTaskGroup(of: Int.self, returning: Int.self) { group in
+            for value in 0..<input { group.addTask { value * scale } }
+            return await group.reduce(0, +)
+        }
+        let nested: @Sendable (Int) async -> Int = { value in
+            await withCheckedContinuation { continuation in continuation.resume(returning: value + @OFFSET@) }
+        }
+        return await nested(sum)
+    }
+    @_dynamicReplacement(for: generic(_:))
+    private func frontier_generic<T: BinaryInteger & Sendable>(_ value: T) async -> T { value + T(@OFFSET@) }
+    @_dynamicReplacement(for: mapping(_:using:))
+    private func frontier_mapping<T: Sendable, U: Sendable>(_ value: T, using operation: @Sendable (T) async throws -> U) async rethrows -> (U, Int) where U: Equatable {
+        (try await operation(value), @OFFSET@)
+    }
+    @_dynamicReplacement(for: typed(_:))
+    private func frontier_typed(_ value: Int) async throws(ProbeError) -> Int {
+        if value < 0 { throw .negative }
+        return value + @OFFSET@
+    }
+    @_dynamicReplacement(for: mutate(_:))
+    private func frontier_mutate(_ value: inout Int) async { value += @OFFSET@ }
+    @_dynamicReplacement(for: overloaded(_:))
+    private func frontier_overloadedInt(_ value: Int) async -> String { "patch@GEN@-int-\(value)" }
+    @_dynamicReplacement(for: overloaded(_:))
+    private func frontier_overloadedString(_ value: String) async -> String { "patch@GEN@-string-\(value)" }
+    @_dynamicReplacement(for: rethrowing(_:))
+    private func frontier_rethrowing(_ operation: @Sendable () async throws -> Int) async rethrows -> Int {
+        try await operation() + @OFFSET@
+    }
+    @_dynamicReplacement(for: asyncValue)
+    private var frontier_asyncValue: Int { get async throws { 10 + @OFFSET@ } }
+    @_dynamicReplacement(for: subscript(_:))
+    private subscript(frontier index: Int) -> Int { get async { index + @OFFSET@ } }
+    @_dynamicReplacement(for: callback(_:))
+    private func frontier_callback(_ body: @Sendable (Int) -> Int) async -> Int { body(@OFFSET@) }
+    @_dynamicReplacement(for: makeClosure(_:))
+    private func frontier_makeClosure(_ seed: Int) async -> @Sendable () -> Int {
+        let captured = seed + @OFFSET@
+        return { captured }
+    }
+    @_dynamicReplacement(for: suspended(_:id:))
+    private func frontier_suspended(_ gate: SuspensionGate, id: Int) async throws -> Int {
+        await gate.hold(id)
+        try Task.checkCancellation()
+        return id + @OFFSET@
+    }
+    @_dynamicReplacement(for: cancellation(_:id:marker:))
+    private func frontier_cancellation(_ gate: SuspensionGate, id: Int, marker: CancellationMarker) async throws -> Int {
+        try await withTaskCancellationHandler {
+            await gate.hold(id)
+            try Task.checkCancellation()
+            return id + @OFFSET@
+        } onCancel: { marker.record(@GEN@) }
+    }
+}
+
+extension ActorProbe {
+    @_dynamicReplacement(for: advance(_:))
+    private func frontier_advance(_ increment: Int) async -> Int {
+        count += increment
+        await Task.yield()
+        return count + @OFFSET@
+    }
+    @_dynamicReplacement(for: interleave(_:id:))
+    private func frontier_interleave(_ gate: SuspensionGate, id: Int) async -> Int {
+        count += 1
+        await gate.hold(id)
+        count += 1
+        return count + @OFFSET@
+    }
+}
+
+extension MainProbe {
+    @_dynamicReplacement(for: advance(_:))
+    private func frontier_advance(_ increment: Int) async -> Int { count += increment; return count + @OFFSET@ }
+}
+
+extension GenericProbe {
+    @_dynamicReplacement(for: value(_:))
+    private func frontier_value(_ input: T) async throws -> T { input + T(@OFFSET@) }
+}
