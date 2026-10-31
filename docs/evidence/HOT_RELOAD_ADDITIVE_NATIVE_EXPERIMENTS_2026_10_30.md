@@ -137,3 +137,99 @@ and restoration; keep added conformances experimental because restoration cannot
 remove them. This still needs exact iOS compiler/link/load proof and phone root
 refresh/revision evidence. No installed engine, app or product source was changed
 by the host experiment.
+
+## AST generation from ordinary source — second experiment
+
+The follow-up is a reusable, explicitly gated compiler prototype rather than
+handwritten replacement source:
+
+```sh
+python3 scripts/experimental/hot-reload/native-additive/generate-test.py
+```
+
+`generate.swift` uses the installed toolchain's bundled SwiftParser/SwiftSyntax;
+there is no SwiftPM dependency download. Its only invocation is
+`--experimental-additive-v1`, with bounded JSON stdin containing a captured
+module, unique generation identity, available-module set, and ordinary
+before/after source for each file. Output is versioned JSON with separate source
+units, replacement coverage, all represented additions, a unique patch module
+name, `stableEligible: false`, and an explicit prohibition on disabling access
+control. It never compiles, loads, contacts a helper or mutates source itself.
+
+The representation compares existing declaration headers, bodies and lexical
+order. All existing declarations must remain represented. Changed existing
+function bodies become full dynamic replacements. Added private/fileprivate
+functions (including private methods on existing types), top-level private
+nominal declarations, private typealiases, extensions of newly added same-file
+types, and explicitly captured available-module imports are emitted. New nominal
+bodies are carried intact, including their stored fields, generic requirements,
+protocol conformances and methods; their metadata belongs to the new patch
+module rather than the existing object's type.
+
+The native harness consumes ordinary two-file source edits, emits and compiles
+one complete dylib, and repeats this for two generations. Each generation has
+**three changed existing methods and eight additive declarations**, including:
+
+- a new private method on an existing class;
+- identically named private helpers in separate original files;
+- a fileprivate generic struct conforming to an existing protocol and a newly
+  added private protocol with an associated type;
+- a private extension and generic helper dependency;
+- an added Foundation import and real `NSNumber` operation.
+
+**Ten runtime assertions passed** on objects created before loading either
+patch. They prove generated calls, both changed files, generic/conformance
+execution, generation-specific nominal identities, and coexistence of baseline
+and both patch-generation existential values. Both ordinary after-source sets
+also compile unchanged under `-O` without any generated replacement source;
+the resulting artifacts have zero `TX`/`TI` replacement definitions. This is a
+bounded artifact regression, not a claim about an actual App Store archive.
+
+Final evidence:
+`/tmp/swift-sim-additive-ast-complete-20261030/summary.json` and adjacent compiler,
+generator, symbols and runtime logs. Earlier successful generation runs are
+retained under `swift-sim-additive-ast-first-20261030` and
+`swift-sim-additive-ast-reviewed-20261030` in the temporary directory.
+
+### Complete-change rejection
+
+Fifteen generator negatives cover stored layout addition/reordering, signature
+changes, public additive helpers, changes to existing conformance, unrepresented
+computed properties, removal, malformed syntax, absent captured imports, local
+nominal metadata, new extensions on existing types, initializer changes, macro
+declarations/expressions and the missing explicit capability gate. A further
+case passes parser representation but has an unresolved dependency in the
+second file: compilation rejects the **whole** bundle and emits no dylib. The
+first file's otherwise valid replacements are not loaded.
+
+Internal review caught an important structural issue before completion:
+dictionary matching alone can overlook reordering existing declarations. The
+prototype now requires the existing declarations' relative lexical order to
+remain identical, including stored fields. Reordering methods also rejects
+conservatively. Hidden macro expansion and conditional additions reject because
+their expanded semantic surface is not represented by this prototype.
+
+### Baseline and lifecycle contract
+
+Every generation in this prototype compares the **immutable installed source
+baseline** with the entire desired source, so it re-emits all additive dependency
+declarations into the fresh patch module. Feeding only the previous patch's
+source as the imported module baseline is incorrect: its added declarations do
+not exist in the installed module. Integration needs authoritative installed
+source plus desired-state/dependency tracking. Generation identifiers must be
+unique at admission; the stateless generator cannot enforce lifetime uniqueness.
+
+This remains an additive function-body capability. Existing computed accessors,
+initializers, top-level storage, constrained existing extensions, new conformance
+extensions on existing types, local nominal types and changed protocol/layout
+surfaces are rejected, not silently ignored. A future combined compiler can use
+the separately qualified full-callable representation for existing accessors.
+Available-module membership is a capture constraint; actual SDK availability,
+symbol resolution and iOS signing still require the compiler/link/load gates.
+
+The generated experiment does not yet implement removal of additions or an
+original-source restore command. The prior native experiment proves restoration
+of existing methods and proves that old conformances remain resident. A complete
+pipeline must distinguish method restoration from removal of registered
+metadata, preserve loaded generations while referenced, and fence ambiguous
+application. No production route or physical-device capability was enabled.
