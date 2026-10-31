@@ -126,3 +126,57 @@ workflow hash checks, rollout audit and live samples are retained in the task
 checkout's `.build/helper-memory-replay/`. The full check log is
 `/tmp/swift-sim-memory-full-check.log`. Private source and runtime data are not
 committed with this report.
+
+## October 31 follow-up: compact compiler observations
+
+Source commit `3e61458` removes two remaining sources of idle allocation:
+`liveDeliveryAdapter.inspect` retains a compact compiler identity/binding view,
+and launch verification uses a bounded projected capture reader. Each poll
+rechecks private file metadata, permissions and ownership. Changes invalidate
+that reader immediately. The launch projection also carries a full-file digest,
+so changes outside projected fields still invalidate an in-flight observation.
+Explicit delivery binding continues to read the complete authoritative capture;
+store confirmation still performs its existing transaction checks.
+
+Native status remains observed on every hot-reload turn. Neither hot-reload nor
+notification intervals changed. No notification preference, APNs configuration,
+SDK, phone install or native engine was changed. New regression tests exercise
+native status freshness, permission changes, capture identity changes, detached
+projections, non-projected drift and actual launch confirmation/rejection with
+the cached reader.
+
+The old helper was already stopped when this follow-up began. A fresh run of
+previous code established the baseline against the same saved state. This is
+important: the previous 244 MB observation was not a fixed idle floor. The fresh
+baseline initially measured 254 MB, settled around 142 MB, and had a peak near
+310 MB. A minute of baseline RSS observations ranged from 110.8–148.4 MiB.
+
+Comparable 30-second allocation sampling estimated **427.8 MiB before and
+208.6 MiB after**, about **51% less cumulative allocation**. The new helper's
+footprint later settled to approximately **119 MB without forced collection**.
+A final minute of RSS observations ranged from **159.0–189.6 MiB** and ended
+with **140 MB physical footprint**. Since the fresh previous-code baseline
+also settled near 142 MB, this run does **not** establish a large incremental
+resident-memory reduction. The clear measured improvement is less recurring
+allocation; the fall from the historical 244 MB snapshot also includes natural
+collection, allocator behavior and OS accounting variation.
+
+Its earlier startup/profiling peak still reached about 306 MB: this change is
+not a universal memory ceiling, and startup/real work still uses more memory.
+The reduction in recurring work is stronger evidence than comparing two
+arbitrary RSS snapshots. Both old and new heap samples eventually contained
+about 20–21 MiB of live objects; resident allocator/V8 pages explain much of
+the difference from that live-heap count.
+
+All **1,266 source tests, 669 compiled tests and two hermetic tests** passed,
+including notification, hot-reload, reconnect and launch-confirmation coverage.
+Full packaging, architecture, types, formatting and lint gates passed. Clean
+Homebrew installation remained opt-in and was not run. The helper was replaced
+only after confirming there were no active builds, simulator streams or live
+claims. All six workflow files listed above remained byte-for-byte unchanged.
+The installed CLI still read the original restoration receipt at revision 2.
+No new physical phone patch or push notification was sent as a qualification.
+
+Private raw profiles, RSS series, workflow hashes and rollout details are in
+`.build/helper-memory-round2/` in the task checkout. The full check log is
+`/tmp/swift-sim-round2-check.log`. Temporary loopback inspectors were closed.
