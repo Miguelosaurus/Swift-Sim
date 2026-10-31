@@ -7,7 +7,7 @@ import { createFullCallableCompiler, parseObjCCategories, replacementProofDigest
 import { replacementCoverageDigest } from "../mac-helper/src/replacementProof.js";
 
 const nonce = "0123456789abcdef0123456789abcdef";
-const member = (name, extra = {}) => ({ file: "Fixture.swift", line: 1, member: "operation(_:)", owner: "Probe", replacementName: name, kind: "function", accessors: [], ...extra });
+const member = (name, extra = {}) => ({ file: "Fixture.swift", line: 1, member: "operation(_:)", owner: "Probe", replacementName: name, kind: "function", accessors: [], isStatic: false, ...extra });
 const generation = (members) => ({ schemaVersion: 1, capability: "full-callable-v1", generation: nonce, module: "Fixture", changedMemberCount: members.length, members, sources: ["generated"] });
 const input = { module: "Fixture", generation: nonce, files: [{ path: "Fixture.swift", before: "before", after: "after" }] };
 
@@ -123,7 +123,7 @@ Contents of (__DATA,__objc_selrefs) section
 
 test("Objective-C callback coverage uses exact class, generated member, ABI and shared IMP", t => {
   const f = fixture(t); const g = generation([member("__swiftSim_full_g0123456789abcdef0123456789abcdef_f0_0")]);
-  f.state.nm = ""; f.state.otool = category; f.state.commands = "sectname __objc_catlist\n size 0x8\n";
+  f.state.nm = ""; f.state.otool = category; f.state.commands = "sectname __objc_catlist\n size 0x8\nsectname __objc_selrefs\n segname __DATA\n addr 0x100\n size 0x8\n";
   const proof = f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: g, moduleName: "Patch" }).replacementProof;
   assert.equal(proof.swift_replacements, 0); assert.equal(proof.objc_callbacks.length, 1);
   assert.deepEqual(proof.objc_callbacks[0], { class_name: "Probe", selector: "callback:", replacement_selector: "__swiftSim_full_g0123456789abcdef0123456789abcdef_f0_0:", type_encoding: "v24@0:8@16" });
@@ -145,4 +145,30 @@ test("proof digest shares the v3 contract canonical callback ordering", () => {
   const callbacks = ["z", "A", "a"].map(class_name => ({ class_name, selector: "callback:", replacement_selector: "replacement:", type_encoding: "v24@0:8@16" }));
   const proof = { version: 3, swift_replacements: 1, objc_callbacks: callbacks };
   assert.equal(replacementProofDigest(proof), replacementCoverageDigest({ ...proof, objc_callbacks: [...callbacks].reverse() }));
+});
+
+test("static dispatch and exact module/owner prefixes cannot be substituted", t => {
+  const f = fixture(t); const g = generation([member("__swiftSim_full_g0123456789abcdef0123456789abcdef_f0_0", { isStatic: true })]);
+  f.state.demangled = f.state.demangled.replace("for (extension", "for static (extension");
+  assert.equal(f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: g, moduleName: "Patch" }).replacementProof.swift_replacements, 1);
+  for (const changed of [f.state.demangled.replace("in Patch)", "in OtherPatch)"), f.state.demangled.replace(":Fixture.", ":OtherFixture."), f.state.demangled.replace("Fixture.Probe.", "Fixture.OtherProbe.")]) {
+    const saved = f.state.demangled; f.state.demangled = changed;
+    assert.throws(() => f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: g, moduleName: "Patch" }), { code: "FULL_CALLABLE_COVERAGE_INCOMPLETE" });
+    f.state.demangled = saved;
+  }
+});
+
+test("multiple callback pairs in one compiler category and indirect selector references are complete", t => {
+  const f = fixture(t);
+  const first = "__swiftSim_full_g0123456789abcdef0123456789abcdef_f0_0";
+  const second = "__swiftSim_full_g0123456789abcdef0123456789abcdef_f0_1";
+  const g = generation([member(first), member(second)]);
+  const pair = `        name    0x12 (0x30) ${second}\n        types   0x21 @16@0:8\n        imp     0x12000 second\n        name    0x13 (0x31) ping\n        types   0x21 @16@0:8\n        imp     0x12000 second\n`;
+  f.state.nm = "";
+  f.state.otool = category.replace("count   2", "count   4").replace("    classMethods 0x0", pair + "    classMethods 0x0")
+    .replace(`(0x205f8) ${first}:`, "(0x205f8)").replace("0x17f25 unrelated:", `0x17f25 ${first}:`);
+  f.state.commands = "sectname __objc_catlist\n size 0x8\nsectname __objc_selrefs\n segname __DATA\n addr 0x205f8\n size 0x8\n";
+  assert.equal(f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: g, moduleName: "Patch" }).replacementProof.objc_callbacks.length, 2);
+  f.state.commands = f.state.commands.replace("size 0x8\n", "size 0x10\n");
+  assert.throws(() => f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: g, moduleName: "Patch" }), { code: "FULL_CALLABLE_OBJC_METADATA_INVALID" });
 });

@@ -93,7 +93,7 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
       const normalized = name.replace(/\(([^ ]+) in _[A-Fa-f0-9]+\)/g, "$1");
       const matches = members.filter(member => {
         const owner = member.owner.split(/\s+where\s+/)[0];
-        const prefix = owner ? `dynamically replaceable variable for (extension in ${moduleName}):${generation.module}.${owner}.`
+        const prefix = owner ? `dynamically replaceable variable for ${member.isStatic ? "static " : ""}(extension in ${moduleName}):${generation.module}.${owner}.`
           : `dynamically replaceable variable for ${moduleName}.`;
         return normalized.startsWith(prefix) && identifierIn(normalized, member.replacementName);
       });
@@ -105,14 +105,20 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     }
     const loadCommands = run("/usr/bin/xcrun", ["otool", "-l", dylibPath]);
     rejectInitializers(loadCommands);
-    const categories = parseObjCCategories(run("/usr/bin/xcrun", ["otool", "-ov", dylibPath]));
+    const metadata = run("/usr/bin/xcrun", ["otool", "-ov", dylibPath]);
+    const categories = parseObjCCategories(metadata, { selectorReferences: selectorReferences(loadCommands, metadata) });
     if (categoryCountFromLoadCommands(loadCommands) !== categories.length) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
     const callbacks = [];
     for (const category of categories) {
-      if (category.methods.length !== 2) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
-      const replacement = category.methods.find(method => /^__swiftSim_full_g[a-f0-9]{24,64}_f\d+_\d+(?::(?:[A-Za-z_$][A-Za-z0-9_$]*:)*)?$/.test(method.selector));
-      const original = category.methods.find(method => method !== replacement);
-      if (!replacement || !original || original.encoding !== replacement.encoding || original.imp !== replacement.imp) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+      const alias = /^__swiftSim_full_g[a-f0-9]{24,64}_f\d+_\d+(?::(?:[A-Za-z_$][A-Za-z0-9_$]*:)*)?$/;
+      const replacements = category.methods.filter(method => alias.test(method.selector));
+      const consumed = new Set();
+      if (!replacements.length || category.methods.length !== replacements.length * 2
+        || new Set(category.methods.map(method => method.selector)).size !== category.methods.length) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+      for (const replacement of replacements) {
+      const originals = category.methods.filter(method => !alias.test(method.selector) && method.encoding === replacement.encoding && method.imp === replacement.imp);
+      if (originals.length !== 1 || consumed.has(originals[0].selector)) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+      const original = originals[0]; consumed.add(original.selector);
       const replacementIdentifier = replacement.selector.match(/^(__swiftSim_full_g[a-f0-9]{24,64}_f\d+_\d+)(?::|$)/)?.[1];
       const matches = members.filter(member => member.kind === "function" && member.replacementName === replacementIdentifier);
       if (matches.length !== 1 || matches[0].swift.length || matches[0].objc.length) throw unsupported("FULL_CALLABLE_COVERAGE_INCOMPLETE");
@@ -132,6 +138,7 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
       const callback = { class_name: category.className, selector: original.selector,
         replacement_selector: replacement.selector, type_encoding: original.encoding };
       member.objc.push(callback); callbacks.push(callback);
+      }
     }
     for (const member of members) {
       const expected = member.kind === "function" ? ["function"] : member.accessors;
@@ -172,7 +179,7 @@ function validateGeneration(value, input) {
     || !Array.isArray(value.members) || value.members.length !== value.changedMemberCount) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   const names = new Set();
   for (const member of value.members) {
-    if (!member || !["function", "property", "subscript"].includes(member.kind) || typeof member.owner !== "string" || typeof member.member !== "string"
+    if (!member || !["function", "property", "subscript"].includes(member.kind) || typeof member.isStatic !== "boolean" || typeof member.owner !== "string" || typeof member.member !== "string"
       || !new RegExp(`^__swiftSim_(?:full_g${value.generation}_f\\d+_\\d+|label_g${value.generation}_f\\d+_\\d+_0)$`).test(member.replacementName || "") || names.has(member.replacementName)
       || !Array.isArray(member.accessors) || member.accessors.some(name => !["getter", "setter"].includes(name))
       || (member.kind !== "function" && !member.accessors.length)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
@@ -205,7 +212,36 @@ function categoryCountFromLoadCommands(output) {
   }
   return count;
 }
-export function parseObjCCategories(output) {
+function selectorReferences(commands, metadata) {
+  const sections = new Map(); let name = ""; let segment = ""; let address = null;
+  for (const line of commands.split(/\r?\n/)) {
+    const section = line.match(/^\s*sectname\s+(\S+)/); if (section) { name = section[1]; segment = ""; address = null; }
+    const seg = line.match(/^\s*segname\s+(\S+)/); if (seg) segment = seg[1];
+    const addr = line.match(/^\s*addr\s+0x([0-9a-fA-F]+)/); if (addr) address = BigInt(`0x${addr[1]}`);
+    const size = line.match(/^\s*size\s+0x([0-9a-fA-F]+)/);
+    if (size && name === "__objc_selrefs") {
+      const bytes = BigInt(`0x${size[1]}`);
+      if (address === null || bytes % 8n || bytes > 65_536n || sections.has(segment)) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+      sections.set(segment, { address, count: Number(bytes / 8n), observed: 0 }); name = "";
+    }
+  }
+  const result = new Map(); let active = null;
+  for (const line of metadata.split(/\r?\n/)) {
+    if (line.startsWith("Contents of ")) {
+      const header = line.match(/^Contents of \(([^,]+),__objc_selrefs\) section$/);
+      active = header ? sections.get(header[1]) : null;
+      if (header && !active) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+      continue;
+    }
+    if (!active || !line.trim()) continue;
+    const value = line.match(/^\s+0x[0-9a-fA-F]+\s+([A-Za-z_$][A-Za-z0-9_$:]*)$/);
+    if (!value || active.observed >= active.count) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+    result.set((active.address + BigInt(active.observed * 8)).toString(16), value[1]); active.observed += 1;
+  }
+  if ([...sections.values()].some(section => section.count !== section.observed)) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+  return result;
+}
+export function parseObjCCategories(output, { selectorReferences = new Map() } = {}) {
   if (typeof output !== "string" || Buffer.byteLength(output) > OUTPUT_LIMIT) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
   const result = []; let active = false; let current = null; let pending = null;
   for (const line of output.split(/\r?\n/)) {
@@ -226,8 +262,14 @@ export function parseObjCCategories(output) {
       continue;
     }
     const count = line.match(/^\s+count\s+(\d+)$/); if (count) { if (current.declaredCount !== null) throw unsupported(); current.declaredCount = Number(count[1]); continue; }
-    const name = line.match(/^\s{8,}name\s+0x[0-9a-fA-F]+(?:\s+\(0x[0-9a-fA-F]+\))?\s+(\S+)$/);
+    const name = line.match(/^\s{8,}name\s+0x[0-9a-fA-F]+(?:\s+\(0x[0-9a-fA-F]+\))?\s+([A-Za-z_$][A-Za-z0-9_$:]*)$/);
     if (name) { if (pending) throw unsupported(); pending = { selector: name[1] }; continue; }
+    const indirectName = line.match(/^\s{8,}name\s+0x[0-9a-fA-F]+\s+\(0x([0-9a-fA-F]+)\)\s*$/);
+    if (indirectName) {
+      const selector = selectorReferences.get(BigInt(`0x${indirectName[1]}`).toString(16));
+      if (pending || !selector) throw unsupported("FULL_CALLABLE_OBJC_METADATA_INVALID");
+      pending = { selector }; continue;
+    }
     const encoding = line.match(/^\s{8,}types\s+0x[0-9a-fA-F]+(?:\s+\(0x[0-9a-fA-F]+\))?\s+(\S+)$/);
     if (encoding) { if (!pending || pending.encoding) throw unsupported(); pending.encoding = encoding[1]; continue; }
     const imp = line.match(/^\s{8,}imp\s+0x([0-9a-fA-F]+)(?:\s+\(0x([0-9a-fA-F]+)\))?(?:\s+\S+)?$/);

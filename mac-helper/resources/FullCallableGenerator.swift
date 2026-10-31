@@ -23,6 +23,7 @@ struct Member {
     let replacementName: String
     let kind: String
     let accessors: [String]
+    let isStatic: Bool
 }
 struct Failure: Error, CustomStringConvertible { let description: String }
 func tokens(_ node: some SyntaxProtocol) -> String {
@@ -88,7 +89,7 @@ final class Inventory: SyntaxVisitor {
         return .skipChildren
     }
     func append(node: some SyntaxProtocol, body: some SyntaxProtocol, target: String, signature: String, replacement: String,
-                replacementName: String, kind: String = "function", accessors: [String] = []) {
+                replacementName: String, kind: String = "function", accessors: [String] = [], isStatic: Bool = false) {
         let owner = owners.joined(separator: ".")
         let constraint = constraints.filter { !$0.isEmpty }.joined(separator: " ")
         let extensionTarget = [owner, constraint].filter { !$0.isEmpty }.joined(separator: " ")
@@ -98,7 +99,7 @@ final class Inventory: SyntaxVisitor {
             contextAttributes: extensionAttributes.joined(separator: "\n"),
             declaration: signature, body: tokens(body), lower: body.position.utf8Offset,
             upper: body.endPosition.utf8Offset, line: line, target: target, replacement: replacement,
-            replacementName: replacementName, kind: kind, accessors: accessors))
+            replacementName: replacementName, kind: kind, accessors: accessors, isStatic: isStatic))
     }
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         guard let body = node.body else { return .skipChildren }
@@ -110,7 +111,7 @@ final class Inventory: SyntaxVisitor {
         let labels = node.signature.parameterClause.parameters.map { $0.firstName.text + ":" }.joined()
         append(node: node, body: body, target: node.name.text + "(" + labels + ")",
                signature: tokens(declaration), replacement: replacement.trimmedDescription,
-               replacementName: replacement.name.text)
+               replacementName: replacement.name.text, isStatic: node.modifiers.contains { ["static", "class"].contains($0.name.text) })
         return .skipChildren
     }
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
@@ -135,7 +136,8 @@ final class Inventory: SyntaxVisitor {
         })
         append(node: node, body: body, target: "subscript(" + labels + ")",
                signature: tokens(declaration) + " accessor-shape " + accessorSurface(body), replacement: replacement.trimmedDescription,
-               replacementName: "__swiftSim_label_g\(generation)_f\(fileIndex)_\(members.count)_0", kind: "subscript", accessors: requirements)
+               replacementName: "__swiftSim_label_g\(generation)_f\(fileIndex)_\(members.count)_0", kind: "subscript", accessors: requirements,
+               isStatic: node.modifiers.contains { ["static", "class"].contains($0.name.text) })
         return .skipChildren
     }
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
@@ -152,7 +154,8 @@ final class Inventory: SyntaxVisitor {
         replacement.bindings = PatternBindingListSyntax([renamed])
         append(node: node, body: body, target: pattern.identifier.text,
                signature: tokens(declaration) + " accessor-shape " + accessorSurface(body), replacement: replacement.trimmedDescription,
-               replacementName: "__swiftSim_full_g\(generation)_f\(fileIndex)_\(members.count)", kind: "property", accessors: requirements)
+               replacementName: "__swiftSim_full_g\(generation)_f\(fileIndex)_\(members.count)", kind: "property", accessors: requirements,
+               isStatic: node.modifiers.contains { ["static", "class"].contains($0.name.text) })
         return .skipChildren
     }
 }
@@ -205,7 +208,8 @@ func generate(_ input: Input) throws -> [String: Any] {
             chunks.append(member.owner.isEmpty ? declaration : "\(member.contextAttributes)\nextension \(member.owner) {\n\(declaration)\n}")
             coverage.append(["file": filename, "line": member.line, "member": member.target, "owner": member.owner,
                              "bodyStartUTF8": member.lower, "bodyEndUTF8": member.upper,
-                             "replacementName": member.replacementName, "kind": member.kind, "accessors": member.accessors])
+                             "replacementName": member.replacementName, "kind": member.kind, "accessors": member.accessors,
+                             "isStatic": member.isStatic])
         }
         generated.append(chunks.joined(separator: "\n"))
     }
