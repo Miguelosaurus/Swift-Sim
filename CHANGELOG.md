@@ -41,6 +41,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
   the outline; native application stays immediate and the ripple starts at contact.
   Cold renderer/capture preparation no longer consumes that sweep. A separate
   visual clock limits catch-up after stalled frames and avoids the startup blob.
+  The Metal renderer now advances the glow, soft reveal and ripple together in
+  one scoped display loop, removing the per-frame SwiftUI mask handoff.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.

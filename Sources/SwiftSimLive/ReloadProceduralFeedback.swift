@@ -9,11 +9,13 @@ import AppKit
 
 /// Rendering only. Native receipts and the choreography own completion.
 struct SwiftSimReloadRenderInput {
-    let frame: SwiftSimReloadChoreography.Frame
-    let time: Double
+    let state: SwiftSimDeliveryFeedbackState
+    let estimatedRemaining: Double
     let cornerRadius: CGFloat
     let lightAppearance: Bool
-    let prepareSnapshot: Bool
+    let active: Bool
+
+    var prepareSnapshot: Bool { state.phase == .refreshed }
 }
 
 /// Distance-delayed, damped displacement, following Mehta's WWDC-based ripple.
@@ -95,7 +97,10 @@ private enum SwiftSimReloadGPUCache {
 final class SwiftSimReloadMetalView: MTKView {
     static let isAvailable = MTLCreateSystemDefaultDevice() != nil
     var unavailable: (() -> Void)?
-    var ready: (() -> Void)?
+    var finished: (() -> Void)?
+    private var rendererReady = false
+    private var finishedEmitted = false
+    private var visualTimeline = SwiftSimReloadVisualTimeline()
     private var readinessScheduled = false
     private var hasRenderedFrame = false
     private var resources: SwiftSimReloadGPUResources?
@@ -107,11 +112,12 @@ final class SwiftSimReloadMetalView: MTKView {
     private var compilation: Task<Void, Never>?
     private var input: SwiftSimReloadRenderInput?
     private let inFlight = DispatchSemaphore(value: 2)
-    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 14)
+    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 15)
 
     init() {
         super.init(frame: .zero, device: MTLCreateSystemDefaultDevice())
         isPaused = true
+        preferredFramesPerSecond = 60
         enableSetNeedsDisplay = false
         autoResizeDrawable = false
         colorPixelFormat = .bgra8Unorm
@@ -154,33 +160,45 @@ final class SwiftSimReloadMetalView: MTKView {
     #if canImport(AppKit) && !canImport(UIKit)
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func layout() {
+        super.layout()
+        if !rendererReady { scheduleCaptureIfNeeded(); draw() }
+    }
+    #elseif canImport(UIKit)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !rendererReady { scheduleCaptureIfNeeded(); draw() }
+    }
     #endif
 
     func update(_ input: SwiftSimReloadRenderInput) {
         self.input = input
-        if input.prepareSnapshot && hasRenderedFrame && !captureAttempted && !captureScheduled {
+        scheduleCaptureIfNeeded()
+        signalReadinessIfPossible()
+        isPaused = !rendererReady || !input.active || finishedEmitted
+        if !rendererReady && input.active { draw() }
+    }
+
+    private func scheduleCaptureIfNeeded() {
+        if input?.prepareSnapshot == true && input?.active == true && hasRenderedFrame && !captureAttempted && !captureScheduled {
             captureScheduled = true
             // Let the refreshed host hierarchy commit before capturing it.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.captureScheduled = false
-                guard self.input?.prepareSnapshot == true else { return }
+                guard self.input?.prepareSnapshot == true, self.input?.active == true else { return }
                 self.prepareCapture()
             }
         }
-        if input.frame.finished { capture = nil }
-        let scale = SwiftSimReloadRipple.snapshotScale(size: bounds.size, nativeScale: 2)
-        let size = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
-        if drawableSize != size { drawableSize = size }
-        draw()
     }
 
     func stop() {
+        isPaused = true
         compilation?.cancel()
         compilation = nil
         input = nil
         unavailable = nil
-        ready = nil
+        finished = nil
         capture = nil
         emptyTexture = nil
         queue = nil
@@ -189,28 +207,35 @@ final class SwiftSimReloadMetalView: MTKView {
     }
 
     override func draw(_ rect: CGRect) {
-        guard let input, bounds.width > 0, bounds.height > 0,
+        guard let input, input.active, !finishedEmitted, bounds.width > 0, bounds.height > 0,
               let resources, let queue, let emptyTexture,
               inFlight.wait(timeout: .now()) == .success else { return }
+        let scale = SwiftSimReloadRipple.snapshotScale(size: bounds.size, nativeScale: 2)
+        let size = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
+        if drawableSize != size { drawableSize = size }
         guard let descriptor = currentRenderPassDescriptor, let drawable = currentDrawable,
               let command = queue.makeCommandBuffer(),
               let encoder = command.makeRenderCommandEncoder(descriptor: descriptor) else {
             inFlight.signal()
             return
         }
-        let frame = input.frame
-        uniforms[0] = SIMD4(Float(bounds.width), Float(bounds.height), Float(input.cornerRadius), Float(input.time))
+        let sample = visualTimeline.sampled(at: ProcessInfo.processInfo.systemUptime,
+            ready: rendererReady, state: input.state, estimatedRemaining: input.estimatedRemaining)
+        visualTimeline = sample.timeline
+        let frame = sample.frame
+        uniforms[0] = SIMD4(Float(bounds.width), Float(bounds.height), Float(input.cornerRadius), Float(visualTimeline.elapsed))
         uniforms[1] = SIMD4(Float(frame.auraOpacity), frame.waveStarted ? Float(frame.waveProgress * SwiftSimReloadChoreography.waveDuration) : -1,
             Float(SwiftSimReloadChoreography.waveDuration), input.lightAppearance ? 1 : 0)
         uniforms[2] = SIMD4(Float(SwiftSimReloadRipple.amplitude), Float(SwiftSimReloadRipple.frequency),
             Float(SwiftSimReloadRipple.decay), capture == nil ? 0 : 1)
+        uniforms[3] = SIMD4(SwiftSimReloadShader.revealProgress(for: frame), SwiftSimReloadShader.revealSoftness, 0, 0)
         // Uniform work belongs once per frame, not in every fragment.
-        let time = Float(input.time)
+        let time = Float(visualTimeline.elapsed)
         let burst = exp(-time * 1.6)
         for index in 0..<11 {
             let n = Float(index), phase = n * 2.39996
             let drift = time * (0.24 + 0.018 * n) + burst * sin(time * 4) * 0.2
-            uniforms[index + 3] = SIMD4(Float(bounds.width) * (0.5 + 0.46 * sin(drift + phase)),
+            uniforms[index + 4] = SIMD4(Float(bounds.width) * (0.5 + 0.46 * sin(drift + phase)),
                 Float(bounds.height) * (0.5 + 0.46 * cos(drift * 0.83 + phase * 1.37)), 0, 0)
         }
         encoder.setRenderPipelineState(resources.pipeline)
@@ -228,25 +253,31 @@ final class SwiftSimReloadMetalView: MTKView {
                 Task { @MainActor [weak self] in
                     guard let self, self.resources != nil else { return }
                     self.hasRenderedFrame = true
+                    self.scheduleCaptureIfNeeded()
                     self.signalReadinessIfPossible()
                 }
             }
-            // The preparation frame is intentionally transparent. Waiting
-            // for visible presentation can deadlock behind its empty mask;
-            // successful GPU completion is the readiness boundary here.
+            // The preparation pass is intentionally transparent. Successful
+            // GPU completion warms the surface without consuming visual time.
             command.addCompletedHandler { command in
                 if command.status == .completed { notifyReady() }
             }
         }
         command.present(drawable)
         command.commit()
+        if frame.finished {
+            finishedEmitted = true
+            isPaused = true
+            capture = nil
+            DispatchQueue.main.async { [weak self] in self?.finished?() }
+        }
     }
 
     private func signalReadinessIfPossible() {
-        guard hasRenderedFrame, resources != nil,
+        guard !rendererReady, hasRenderedFrame, resources != nil, input?.active == true,
               input?.prepareSnapshot != true || captureAttempted else { return }
-        ready?()
-        ready = nil
+        rendererReady = true
+        isPaused = false
     }
 
     private func prepareCapture() {
@@ -293,28 +324,34 @@ final class SwiftSimReloadMetalView: MTKView {
 struct SwiftSimReloadProceduralFeedback: UIViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
-    var onReady: () -> Void
+    var onFinished: () -> Void
     func makeUIView(context: Context) -> SwiftSimReloadMetalView {
         let view = SwiftSimReloadMetalView()
         view.unavailable = onUnavailable
-        view.ready = onReady
+        view.finished = onFinished
         return view
     }
-    func updateUIView(_ view: SwiftSimReloadMetalView, context: Context) { view.update(input) }
+    func updateUIView(_ view: SwiftSimReloadMetalView, context: Context) {
+        view.finished = onFinished
+        view.update(input)
+    }
     static func dismantleUIView(_ view: SwiftSimReloadMetalView, coordinator: ()) { view.stop() }
 }
 #elseif canImport(AppKit)
 struct SwiftSimReloadProceduralFeedback: NSViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
-    var onReady: () -> Void
+    var onFinished: () -> Void
     func makeNSView(context: Context) -> SwiftSimReloadMetalView {
         let view = SwiftSimReloadMetalView()
         view.unavailable = onUnavailable
-        view.ready = onReady
+        view.finished = onFinished
         return view
     }
-    func updateNSView(_ view: SwiftSimReloadMetalView, context: Context) { view.update(input) }
+    func updateNSView(_ view: SwiftSimReloadMetalView, context: Context) {
+        view.finished = onFinished
+        view.update(input)
+    }
     static func dismantleNSView(_ view: SwiftSimReloadMetalView, coordinator: ()) { view.stop() }
 }
 #endif
@@ -323,11 +360,17 @@ struct SwiftSimReloadProceduralFeedback: NSViewRepresentable {
 /// color anchors, a noise-deformed edge, and distance-delayed damped refraction.
 /// Runtime compilation keeps CLI SwiftPM and Xcode on the same Debug-only source.
 enum SwiftSimReloadShader {
+    static let revealSoftness: Float = 56
+
+    static func revealProgress(for frame: SwiftSimReloadChoreography.Frame) -> Float {
+        frame.waveStarted ? 1 : min(Float(1).nextDown, Float(frame.reveal))
+    }
+
     static let source = #"""
     #include <metal_stdlib>
     using namespace metal;
     struct Varying { float4 position [[position]]; float2 uv; };
-    struct Uniforms { float4 geometry; float4 animation; float4 ripple; float4 anchors[11]; };
+    struct Uniforms { float4 geometry; float4 animation; float4 ripple; float4 reveal; float4 anchors[11]; };
     vertex Varying reloadVertex(uint id [[vertex_id]]) {
         float2 p = id == 0 ? float2(-1, -1) : (id == 1 ? float2(3, -1) : float2(-1, 3));
         return {float4(p, 0, 1), float2(p.x * .5 + .5, .5 - p.y * .5)};
@@ -341,6 +384,35 @@ enum SwiftSimReloadShader {
     float edgeDistance(float2 p, float2 size, float radius) {
         float2 q = abs(p - size * .5) - (size * .5 - radius);
         return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+    }
+    // Closest perimeter position, clockwise from top center. The same shader
+    // draws the light and its soft trailing reveal; no separately updated mask.
+    float perimeterPosition(float2 p, float2 size, float r) {
+        float arc = r * 1.57079632679;
+        float a = size.x * .5 - r, b = size.y - 2 * r, c = size.x - 2 * r;
+        float length = 2 * (b + c) + 4 * arc;
+        float2 q = abs(p - size * .5) - (size * .5 - r);
+        bool right = p.x >= size.x * .5, bottom = p.y >= size.y * .5;
+        if (q.x > 0 && q.y > 0) {
+            if (right && !bottom) return a + r * atan2(q.x, q.y);
+            if (right && bottom) return a + arc + b + r * atan2(q.y, q.x);
+            if (!right && bottom) return a + 2 * arc + b + c + r * atan2(q.x, q.y);
+            return a + 3 * arc + 2 * b + c + r * atan2(q.y, q.x);
+        }
+        if (q.y >= q.x) {
+            if (bottom) return a + 2 * arc + b + (size.x - r - p.x);
+            return right ? p.x - size.x * .5 : length - (size.x * .5 - p.x);
+        }
+        return right ? a + arc + p.y - r : a + 3 * arc + b + c + size.y - r - p.y;
+    }
+    float revealOpacity(float2 p, float2 size, float radius, float progress, float softness) {
+        if (progress <= 0) return 0;
+        if (progress >= 1) return 1;
+        float length = 2 * (size.x + size.y - 4 * radius) + 6.28318530718 * radius;
+        float behindHead = progress * length - perimeterPosition(p, size, radius);
+        // Feather only behind the actual head, never across the waiting gap.
+        float feather = min(softness, max(.5, (1 - progress) * length * .5));
+        return smoothstep(0.0, feather, behindHead);
     }
     fragment float4 reloadFragment(Varying v [[stage_in]], constant Uniforms &u [[buffer(0)]],
                                    texture2d<float> snapshot [[texture(0)]]) {
@@ -363,7 +435,8 @@ enum SwiftSimReloadShader {
         float core = 1 - smoothstep(2.0, 6.0, distance);
         float mid = (1 - smoothstep(0.0, 16.0, distance)) * .55;
         float bloom = (1 - smoothstep(0.0, 34.0, distance)) * .30;
-        float alpha = saturate(core + mid + bloom) * u.animation.x;
+        float alpha = saturate(core + mid + bloom) * u.animation.x
+            * revealOpacity(p, size, u.geometry.z, u.reveal.x, u.reveal.y);
         for (int i = 0; i < 11; ++i) {
             float weight = saturate(1 - length(p - u.anchors[i].xy) / (max(size.x, size.y) * .56));
             weight = weight * weight * (3 - 2 * weight);
@@ -375,7 +448,7 @@ enum SwiftSimReloadShader {
         float3 glow = teal * shimmer * (1 + burst * .10);
         result = float4(glow * alpha, alpha);
         }
-        if (waveTime >= 0) {
+        if (waveTime >= 0 && u.reveal.x >= 1) {
             float2 radial = p - float2(size.x * .5, 5);
             float distanceFromOrigin = length(radial);
             float travel = length(float2(size.x * .5, size.y - 5));

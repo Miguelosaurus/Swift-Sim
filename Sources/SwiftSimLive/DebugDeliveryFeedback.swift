@@ -506,79 +506,34 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var animationFinished = false
     @State private var proceduralAvailable = true
-    @State private var proceduralReady = false
     @State private var visualTimeline = SwiftSimReloadVisualTimeline()
+
+    private var cornerRadius: CGFloat {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
+        #else
+        22
+        #endif
+    }
 
     var body: some View {
         GeometryReader { safeGeometry in
-            TimelineView(.animation(minimumInterval: state.phase == .refreshed ? 1.0 / 60 : 1.0 / 30,
-              paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { tick in
-                GeometryReader { geometry in
-                    let now = ProcessInfo.processInfo.systemUptime
-                    #if canImport(MetalKit)
-                    let usesProcedural = !reduceMotion && !reduceTransparency && state.phase != .failed && proceduralAvailable && SwiftSimReloadMetalView.isAvailable
-                    #else
-                    let usesProcedural = false
-                    #endif
-                    let sample = visualTimeline.sampled(at: now,
-                        ready: (!usesProcedural || proceduralReady) && scenePhase == .active,
-                        state: state, estimatedRemaining: estimatedRemaining)
-                    let frame = sample.frame
-                    #if os(iOS)
-                    let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
-                    #else
-                    let corner: CGFloat = 22
-                    #endif
-                    ZStack(alignment: .top) {
-                        #if canImport(MetalKit)
-                        if usesProcedural {
-                            SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
-                                frame: frame, time: sample.timeline.elapsed, cornerRadius: corner,
-                                lightAppearance: colorScheme == .light,
-                                prepareSnapshot: state.phase == .refreshed && !frame.finished),
-                                onUnavailable: { proceduralAvailable = false },
-                                onReady: { proceduralReady = true })
-                                .mask {
-                                    // Keep the transparent preparation surface
-                                    // laid out; an empty mask can suppress it.
-                                    if proceduralReady {
-                                        SwiftSimReloadReveal(progress: frame.reveal, cornerRadius: corner).fill(.white)
-                                    } else {
-                                        Rectangle().fill(.white)
-                                    }
-                                }
-                        } else {
-                            fallback(frame: frame, corner: corner)
-                        }
-                        #else
-                        fallback(frame: frame, corner: corner)
-                        #endif
-                        if reduceMotion || state.phase == .failed {
-                            Label(state.phase.title, systemImage: state.phase.symbol)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                .background {
-                                    if reduceTransparency { Capsule().fill(.background) }
-                                    else { Capsule().fill(.regularMaterial) }
-                                }
-                                .padding(.top, safeGeometry.safeAreaInsets.top + 10)
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                    .onAppear { visualTimeline = sample.timeline }
-                    .onChange(of: tick.date) { _ in visualTimeline = sample.timeline }
-                    .onChange(of: proceduralReady) { _ in visualTimeline = sample.timeline }
-                    .onChange(of: state.sequence) { _ in visualTimeline = sample.timeline }
-                    .onChange(of: frame.finished) { finished in
-                        if finished {
-                            animationFinished = true
-                            onFinished()
-                        }
-                    }
+            #if canImport(MetalKit)
+            if !reduceMotion && !reduceTransparency && state.phase != .failed && proceduralAvailable && SwiftSimReloadMetalView.isAvailable {
+                GeometryReader { _ in
+                    SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
+                        state: state, estimatedRemaining: estimatedRemaining, cornerRadius: cornerRadius,
+                        lightAppearance: colorScheme == .light, active: scenePhase == .active),
+                        onUnavailable: { proceduralAvailable = false }, onFinished: onFinished)
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 }
                 .ignoresSafeArea()
+            } else {
+                fallbackTimeline(topInset: safeGeometry.safeAreaInsets.top)
             }
+            #else
+            fallbackTimeline(topInset: safeGeometry.safeAreaInsets.top)
+            #endif
         }
         .transaction { $0.animation = nil }
         .allowsHitTesting(false)
@@ -589,6 +544,39 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                 try? await Task.sleep(for: .seconds(SwiftSimReloadChoreography.waveDuration))
                 if !Task.isCancelled { onFinished() }
             }
+        }
+    }
+
+    private func fallbackTimeline(topInset: CGFloat) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60,
+            paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { tick in
+            let sample = visualTimeline.sampled(at: ProcessInfo.processInfo.systemUptime,
+                ready: scenePhase == .active, state: state, estimatedRemaining: estimatedRemaining)
+            let frame = sample.frame
+            GeometryReader { _ in
+                ZStack(alignment: .top) {
+                    fallback(frame: frame, corner: cornerRadius)
+                    if reduceMotion || state.phase == .failed {
+                        Label(state.phase.title, systemImage: state.phase.symbol)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background {
+                                if reduceTransparency { Capsule().fill(.background) }
+                                else { Capsule().fill(.regularMaterial) }
+                            }
+                            .padding(.top, topInset + 10)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .onAppear { visualTimeline = sample.timeline }
+                .onChange(of: tick.date) { _ in visualTimeline = sample.timeline }
+                .onChange(of: state.sequence) { _ in visualTimeline = sample.timeline }
+                .onChange(of: frame.finished) { finished in
+                    if finished { animationFinished = true; onFinished() }
+                }
+            }
+            .ignoresSafeArea()
         }
     }
 

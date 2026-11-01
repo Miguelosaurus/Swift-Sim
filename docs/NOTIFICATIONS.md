@@ -101,21 +101,25 @@ status, respects Reduce Transparency, and is excluded from Release. A Metal
 renderer draws the procedural glow and refractive wave. Reduced Transparency
 uses a simple nonrefractive cue; systems without a usable Metal pipeline retain
 the material/native-glass fallback.
-The temporary aura is drawn at up to 30 frames per second; completion choreography
-uses up to 60. Its clocks pause for Reduce Motion, failures, inactive scenes and
-finished presentation, which is dismissed with request/sequence fencing. There is no
-new service or idle animation. The Metal view's autonomous loop is paused;
-existing presentation ticks drive it. One background compilation caches the
-pipeline per Debug process, while captures and drawable resources belong to the
-temporary presentation. Neither shader compilation nor visual completion gates
-native patch receipts or notifications.
+The Metal view owns one temporary display loop with a preferred rate of 60 fps.
+It advances the visual clock only when it can encode a frame, and draws the glow,
+its reveal and the ripple from that same frame. SwiftUI supplies lifecycle and
+geometry updates, not a separately animated per-frame mask. The leading edge
+fades over 56 perimeter points behind the actual head; it never lights beyond
+that head or bridges the waiting gap. The loop is paused during preparation,
+inactive scenes and completion, and stopped on teardown. Native/material
+fallbacks remain scoped to the presentation. No service or idle animation is
+added. One background compilation caches the pipeline per Debug process, while
+captures and drawable resources belong to the temporary presentation. Neither
+shader compilation nor visual completion gates native receipts or notifications.
 The renderer prepares transparently before the visible sweep starts. Readiness
 requires a successful GPU pass and any already-required refreshed app capture.
-The preparation surface keeps a full mask so an empty reveal cannot suppress
-its initialization; its shader output is transparent. The previous temporary
-Canvas glow is not shown while Metal prepares. This adds no prewarming, idle
-animation or separate ripple timer. Native timings still supply the pace
-forecast; only the visual clock controls outline contact and the wave.
+Preparation uses transparent shader output on the full surface, with no separate
+SwiftUI reveal mask. The previous temporary Canvas glow is not shown while Metal
+prepares. This adds no prewarming or separate ripple timer. Native timings still
+supply the pace forecast; only the visual clock controls outline contact and
+the wave. Floating-point reveal values stay below one until the actual contact
+frame so conversion to GPU precision cannot close the outline early.
 Existing apps need one Debug rebuild against the updated SwiftSimLive package
 for this effect. Rebuilding with an older pinned SDK retains its old feedback.
 No automatic rebuild or installation is required just to receive inbox updates.

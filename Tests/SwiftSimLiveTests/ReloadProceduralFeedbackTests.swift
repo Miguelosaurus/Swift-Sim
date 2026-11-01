@@ -42,12 +42,13 @@ func actualShaderPushesPixelsOutThenBackAndHasNoWaveBeforeContact() throws {
         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
     let snapshot = try #require(SwiftSimReloadRipple.texture(from: image, device: device))
     let queue = try #require(device.makeCommandQueue())
-    func render(waveTime: Float) throws -> [UInt8] {
-        var uniforms = [SIMD4<Float>](repeating: .zero, count: 14)
+    func render(waveTime: Float, reveal: Float = 1) throws -> [UInt8] {
+        var uniforms = [SIMD4<Float>](repeating: .zero, count: 15)
         uniforms[0] = SIMD4(256, 256, 0, 0)
         uniforms[1] = SIMD4(0, waveTime, Float(SwiftSimReloadChoreography.waveDuration), 0)
         uniforms[2] = SIMD4(Float(SwiftSimReloadRipple.amplitude), Float(SwiftSimReloadRipple.frequency),
             Float(SwiftSimReloadRipple.decay), 1)
+        uniforms[3] = SIMD4(reveal, SwiftSimReloadShader.revealSoftness, 0, 0)
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = output
         pass.colorAttachments[0].loadAction = .clear
@@ -70,6 +71,8 @@ func actualShaderPushesPixelsOutThenBackAndHasNoWaveBeforeContact() throws {
     let touching = try render(waveTime: 0)
     #expect(touching[3] == 0)
     let arrival = Float(hypot(42.5, 0.5) / hypot(128, 251) * (SwiftSimReloadChoreography.waveDuration - 1))
+    let premature = try render(waveTime: arrival + 0.08, reveal: 0.999)
+    #expect(premature[3] == 0)
     let leading = try render(waveTime: arrival + 0.01)
     #expect(leading[3] > 240) // Displaced text must not crossfade over its live copy.
     let crest = try render(waveTime: arrival + 0.08)
@@ -83,5 +86,64 @@ func actualShaderPushesPixelsOutThenBackAndHasNoWaveBeforeContact() throws {
     #expect(abs(fadingOverHost - 170) < 3) // No displaced duplicate during fade.
     let settled = try render(waveTime: Float(SwiftSimReloadChoreography.waveDuration))
     #expect(settled[3] == 0)
+}
+
+@Test
+func floatRevealCannotRoundToClosedBeforeTheContactFrame() {
+    let almost = SwiftSimReloadChoreography.Frame(reveal: 1.0.nextDown,
+        waveProgress: 0, waveStarted: false, finished: false, auraOpacity: 1)
+    #expect(SwiftSimReloadShader.revealProgress(for: almost) < 1)
+    let contact = SwiftSimReloadChoreography.Frame(reveal: 1,
+        waveProgress: 0, waveStarted: true, finished: false, auraOpacity: 1)
+    #expect(SwiftSimReloadShader.revealProgress(for: contact) == 1)
+}
+
+@Test(.enabled(if: MTLCreateSystemDefaultDevice() != nil))
+func gpuRevealHasASoftContinuousHeadWithoutLightingAheadOfIt() throws {
+    let device = try #require(MTLCreateSystemDefaultDevice())
+    let library = try device.makeLibrary(source: SwiftSimReloadShader.source, options: nil)
+    let descriptor = MTLRenderPipelineDescriptor()
+    descriptor.vertexFunction = library.makeFunction(name: "reloadVertex")
+    descriptor.fragmentFunction = library.makeFunction(name: "reloadFragment")
+    descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+    let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+    let target = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm,
+        width: 256, height: 256, mipmapped: false)
+    target.storageMode = .shared; target.usage = .renderTarget
+    let output = try #require(device.makeTexture(descriptor: target))
+    let empty = try #require(device.makeTexture(descriptor: .texture2DDescriptor(
+        pixelFormat: .rgba8Unorm, width: 1, height: 1, mipmapped: false)))
+    let queue = try #require(device.makeCommandQueue())
+    func alpha(_ progress: Float, radius: Float = 0, x: Int = 254, y: Int = 42) throws -> UInt8 {
+        var uniforms = [SIMD4<Float>](repeating: .zero, count: 15)
+        uniforms[0] = SIMD4(256, 256, radius, 0.5)
+        uniforms[1] = SIMD4(1, -1, 2.1, 0)
+        uniforms[3] = SIMD4(progress, SwiftSimReloadShader.revealSoftness, 0, 0)
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = output
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].storeAction = .store
+        let command = try #require(queue.makeCommandBuffer())
+        let encoder = try #require(command.makeRenderCommandEncoder(descriptor: pass))
+        encoder.setRenderPipelineState(pipeline)
+        uniforms.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
+        encoder.setFragmentTexture(empty, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.endEncoding(); command.commit(); command.waitUntilCompleted()
+        #expect(command.status == .completed)
+        var pixel = [UInt8](repeating: 0, count: 4)
+        output.getBytes(&pixel, bytesPerRow: 4, from: MTLRegionMake2D(x, y, 1, 1), mipmapLevel: 0)
+        return pixel[3]
+    }
+    let softness = SwiftSimReloadShader.revealSoftness
+    let ramp = try [0, softness / 4, softness / 2, softness * 3 / 4, softness]
+        .map { try alpha((170.5 + $0) / 1024) }
+    #expect(ramp[0] == 0)
+    #expect(ramp[1] > 0 && ramp[1] < ramp[2] && ramp[2] < ramp[3] && ramp[3] < ramp[4])
+    #expect(ramp[2] > 100 && ramp[2] < 155 && ramp[4] > 245)
+    #expect(try alpha(0.999, x: 127, y: 0) == 0)
+    #expect(try alpha(1, x: 127, y: 0) > 245)
+    #expect(try alpha(0.11, radius: 32, x: 245, y: 10) == 0)
+    #expect(try alpha(0.20, radius: 32, x: 245, y: 10) > 245)
 }
 #endif

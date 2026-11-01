@@ -1,13 +1,13 @@
 # Teal Debug reload feedback — 2026-10-31
 
-Current SDK treatment: V9 readiness/visual clock, V8 minimum sweep, V6 calibration.
+Current SDK treatment: V10 single-renderer cadence/reveal, V9 readiness, V8 minimum.
 This replaces the existing Debug feedback banner without changing receipt or
 root-refresh authority. The target app's Debug SDK carries the effect; updating
 the regular Release Companion alone does not install it.
 
 The initial `a13c413` visual design was rejected in user review as insufficiently
 like the original Siri edge light. Its historical evidence is retained below;
-the current treatment uses the V5 renderer with V9 readiness, V8 minimum sweep,
+the current treatment uses the V10 render loop with V9 readiness, V8 minimum sweep,
 V6 calibration and V4 adaptive pacing.
 
 ## Initial behavior — superseded visually
@@ -416,3 +416,46 @@ explicit stress faults, `final-*.mov` use normal source. Exported previews are
 appearance restored, task simulator shut down. No helper/engine restart or
 Companion rebuild was needed. A subsequent signed Zenics Debug update is needed;
 physical-phone V9 visual acceptance is still pending.
+
+## Continuous reveal in one renderer — V10, 2026-11-01
+
+User review of the recorded build-35 cold test found startup improved, but both
+the first and warm restore looked blocky. V9's SwiftUI per-tick state updates and
+hard wedge mask were therefore not accepted as smooth phone feedback.
+
+The Metal path now owns its visual timeline and preferred 60-fps display loop.
+SwiftUI supplies native lifecycle, appearance, geometry and scene activity only;
+it no longer advances the Metal timeline or supplies a per-frame reveal mask.
+The renderer advances the clock only after obtaining an available in-flight
+slot, render target and encoder. Glow, reveal and ripple use one uniform sample.
+The loop remains paused during cold preparation, inactive scenes and completion,
+and is explicitly stopped on teardown. Preparation/capture scheduling works
+without needing a later SwiftUI tick. No persistent idle renderer was added.
+
+A shader computes clockwise distance along the rounded perimeter from top
+center. Its leading edge fades over 56 points behind the true head rather than
+cutting the glow with a hard wedge. It never lights ahead or bridges the waiting
+gap. GPU float conversion stays below one before the exact contact frame; the
+wave additionally requires reveal equal to one. The 1.4-second minimum,
+2.1-second waveform, native receipt admission and immediate application remain.
+
+Twenty SDK tests pass. Actual GPU pixels verify the continuous alpha ramp,
+rounded-corner reveal, no light ahead of the head, no premature closure, and no
+wave before contact, along with existing ripple/displacement and native-proof
+tests. The SDK/fixture builds for iOS Simulator. Normal light/dark previews and
+two-second shader plus 0.8-second capture fault previews show the full outline
+and wave with retained SwiftUI/UIKit input. A development preview caught safe-area
+clipping after moving the renderer; a full-screen geometry wrapper corrected it
+before publication. These are functional development previews using simslim,
+not physical-device frame-rate measurements or user acceptance.
+
+All injected delays were removed and the normal SDK rebuilt. Release exclusions,
+documentation and whitespace checks pass. The task simulator and recorders are
+stopped with original appearance restored. To make room for another signed build,
+eight inactive task-owned Simulator cache/output folders under `qol-ui` and
+`confirmation-ui` were removed after open-file checks. Source, evidence logs,
+device artifacts, live compiler contexts and production helper/engine remained.
+Ownership/evidence: `.build/teal-reload-feedback-v10/`. Normal and cold exports:
+`swift-sim-continuous-reveal-v10-dark.mp4` and
+`swift-sim-continuous-reveal-v10-cold-dark.mp4`. The subsequent Zenics Debug update
+still needs physical-phone cold and warm visual review; Companion 25 is unchanged.
