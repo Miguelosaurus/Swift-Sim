@@ -48,8 +48,8 @@ Pending intent, patch compilation, APNs acceptance and notification taps are not
 successful reloads. The confirmed state requires matching native application,
 replacement and SwiftUI refresh receipts with an increased root revision.
 The Debug SDK reveals soft teal edge light clockwise from the screen's top
-center, then keeps uneven pools of teal, mint and cyan flowing around the edges
-with the final gap held open while the reload is pending. The light blooms inward
+center, then keeps independently moving teal, mint and cyan pools flowing around
+a noise-deformed inner edge, with the final gap held open while pending. The light blooms inward
 with a soft falloff rather than displaying a numeric percentage. Only an admitted
 matching native applied-and-refreshed receipt closes that final gap. One shared
 animation clock starts the glass wave on the exact frame the edge reaches the
@@ -65,20 +65,35 @@ with a bounded, speed-aware transition and starts the wave at contact. The
 forecast uses three moving averages, no polling or disk writes, and does not
 delay patch execution, native receipts, or notifications.
 
-The finish uses a broad live-backdrop glass lens with a feathered crest and its
-hard rim masked away, so content refracts as the wave propagates. It does not
-filter the host view or take a snapshot, preserving embedded UIKit content and
-touch handling. A failure uses static amber and an unconfirmed-update label,
+The finish uses a strong, distance-delayed displacement wave: content pushes
+outward, pulls back into a trough, and settles before fading. Its 44-point
+amplitude is deliberately exaggerated. One monotonic clock drives the closing
+outline and the wave's birth; there is no separate ripple-start timer.
+
+The wave samples one temporary in-memory capture of the refreshed app. The
+capture excludes the feedback overlay, is capped at two pixels per point and
+four million pixels, and is released after the wave. It is never written to disk
+or sent over the network. The native app stays live and receives touches under
+the overlay. Content changing during the wave can briefly reflect the captured
+frame; live video refraction is not claimed. Filtering the captured image avoids
+UIKit/AppKit placeholders caused by filtering the host itself. A failure uses
+static amber and an unconfirmed-update label,
 without closing as a success or playing the success wave.
 
 The effect does not intercept touches or add host view identity changes. It
 exists only during feedback, supports Reduce Motion with a static outline and
-status, respects Reduce Transparency, and is excluded from Release. iOS 26 uses
-native Liquid Glass for the refractive crest; earlier systems use a material-only wave.
+status, respects Reduce Transparency, and is excluded from Release. A Metal
+renderer draws the procedural glow and refractive wave. Reduced Transparency
+uses a simple nonrefractive cue; systems without a usable Metal pipeline retain
+the material/native-glass fallback.
 The temporary aura is drawn at up to 30 frames per second; completion choreography
 uses up to 60. Its clocks pause for Reduce Motion, failures, inactive scenes and
 finished presentation, which is dismissed with request/sequence fencing. There is no
-content snapshot, custom shader pipeline, new service, or idle animation.
+new service or idle animation. The Metal view's autonomous loop is paused;
+existing presentation ticks drive it. One background compilation caches the
+pipeline per Debug process, while captures and drawable resources belong to the
+temporary presentation. Neither shader compilation nor visual completion gates
+native patch receipts or notifications.
 Existing apps need one Debug rebuild against the updated SwiftSimLive package
 for this effect. Rebuilding with an older pinned SDK retains its old feedback.
 No automatic rebuild or installation is required just to receive inbox updates.

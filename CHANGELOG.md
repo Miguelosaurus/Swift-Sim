@@ -24,6 +24,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
   motion/transparency fallbacks and UIKit-safe touch handling.
   Sweep pacing learns recent successful native stage timings and adjusts speed
   continuously instead of sprinting to the final gap and waiting there.
+  The teal glow now has a noise-deformed edge and independent moving color pools;
+  completion sends a stronger outward-and-back displacement wave through a
+  bounded temporary app capture, with touch handling preserved.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.

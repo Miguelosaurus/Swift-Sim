@@ -125,7 +125,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
             }
             #endif
             dismissal = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(current.phase == .refreshed ? 3.1 : 5))
+                try? await Task.sleep(for: .seconds(current.phase == .refreshed ? 3.5 : 5))
                 guard !Task.isCancelled else { return }
                 self?.dismissPresentation(requestID: current.requestID, sequence: current.sequence)
             }
@@ -182,7 +182,7 @@ struct SwiftSimReloadTiming {
 struct SwiftSimReloadChoreography {
     private static let forecastReveal = 0.85
     static let waitingReveal = 0.97
-    static let waveDuration = 1.35
+    static let waveDuration = 2.35
     private static let velocityResponse = 0.25
     private let startedAt: TimeInterval
     private var segmentAt: TimeInterval = 0
@@ -220,6 +220,8 @@ struct SwiftSimReloadChoreography {
     var contactAt: TimeInterval? {
         completion.map { startedAt + $0.at + $0.duration }
     }
+
+    func elapsed(at now: TimeInterval) -> Double { max(0, now - startedAt) }
 
     struct Frame {
         let reveal: CGFloat
@@ -458,28 +460,37 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
     @State private var animationFinished = false
+    @State private var proceduralAvailable = true
 
     var body: some View {
         GeometryReader { safeGeometry in
             TimelineView(.animation(minimumInterval: state.phase == .refreshed ? 1.0 / 60 : 1.0 / 30,
               paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { _ in
                 GeometryReader { geometry in
-                    let frame = choreography.frame(at: ProcessInfo.processInfo.systemUptime)
+                    let now = ProcessInfo.processInfo.systemUptime
+                    let frame = choreography.frame(at: now)
                     #if os(iOS)
                     let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
                     #else
                     let corner: CGFloat = 22
                     #endif
                     ZStack(alignment: .top) {
-                        SwiftSimReloadAura(reveal: reduceMotion || state.phase == .failed ? 1 : frame.reveal,
-                            cornerRadius: corner, failed: state.phase == .failed,
-                            reduceMotion: reduceMotion, reduceTransparency: reduceTransparency,
-                            active: scenePhase == .active && frame.auraOpacity > 0)
-                            .opacity(reduceMotion || state.phase == .failed ? 1 : frame.auraOpacity)
-                        if state.phase == .refreshed && frame.waveStarted && !frame.finished && !reduceMotion {
-                            SwiftSimReloadLiquidWave(progress: frame.waveProgress, reduceTransparency: reduceTransparency)
+                        #if canImport(MetalKit)
+                        if proceduralAvailable && SwiftSimReloadMetalView.isAvailable && !reduceMotion && !reduceTransparency && state.phase != .failed {
+                            SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
+                                frame: frame, time: choreography.elapsed(at: now), cornerRadius: corner,
+                                lightAppearance: colorScheme == .light,
+                                prepareSnapshot: state.phase == .refreshed && !frame.finished),
+                                onUnavailable: { proceduralAvailable = false })
+                                .mask { SwiftSimReloadReveal(progress: frame.reveal, cornerRadius: corner).fill(.white) }
+                        } else {
+                            fallback(frame: frame, corner: corner)
                         }
+                        #else
+                        fallback(frame: frame, corner: corner)
+                        #endif
                         if reduceMotion || state.phase == .failed {
                             Label(state.phase.title, systemImage: state.phase.symbol)
                                 .font(.caption.weight(.semibold))
@@ -507,6 +518,17 @@ struct SwiftSimDeliveryFeedbackEffect: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .opacity(scenePhase == .active ? 1 : 0)
+    }
+
+    @ViewBuilder private func fallback(frame: SwiftSimReloadChoreography.Frame, corner: CGFloat) -> some View {
+        SwiftSimReloadAura(reveal: reduceMotion || state.phase == .failed ? 1 : frame.reveal,
+            cornerRadius: corner, failed: state.phase == .failed,
+            reduceMotion: reduceMotion, reduceTransparency: reduceTransparency,
+            active: scenePhase == .active && frame.auraOpacity > 0)
+            .opacity(reduceMotion || state.phase == .failed ? 1 : frame.auraOpacity)
+        if state.phase == .refreshed && frame.waveStarted && !frame.finished && !reduceMotion {
+            SwiftSimReloadLiquidWave(progress: frame.waveProgress, reduceTransparency: reduceTransparency)
+        }
     }
 }
 #endif
