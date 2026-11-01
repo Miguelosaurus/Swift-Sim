@@ -91,8 +91,13 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     private(set) var reducer = SwiftSimDeliveryFeedbackReducer()
     private var subscription: AnyCancellable?
     private var dismissal: Task<Void, Never>?
+    private let clock: () -> TimeInterval
+    private var timing = SwiftSimReloadTiming()
+    private(set) var choreography = SwiftSimReloadChoreography()
 
-    init(center: NotificationCenter = .default) {
+    init(center: NotificationCenter = .default,
+         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.clock = clock
         subscription = center.publisher(for: Notification.Name("SWIFT_SIM_LIVE_DELIVERY_FEEDBACK"))
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in self?.receive(notification.userInfo ?? [:]) }
@@ -101,6 +106,16 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     func receive(_ info: [AnyHashable: Any]) {
         guard reducer.consume(info), let current = reducer.current else { return }
         dismissal?.cancel()
+        let now = clock()
+        let phaseChanged = timing.consume(current.phase, at: now)
+        if current.phase == .receiving {
+            choreography = SwiftSimReloadChoreography(startedAt: now,
+                estimatedDuration: timing.remaining(for: .receiving))
+        } else if current.phase == .refreshed {
+            choreography.confirm(at: now)
+        } else if current.phase.rank < 3 && phaseChanged {
+            choreography.retarget(at: now, estimatedRemaining: timing.remaining(for: current.phase))
+        }
         presentation = current
         if current.phase.rank == 3 {
             #if canImport(UIKit)
@@ -123,13 +138,88 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     }
 }
 
-/// One clock owns both the final perimeter contact and the first wave frame.
-/// Confirmation comes only from the admitted native feedback, never this clock.
+/// Three in-memory moving averages, updated only from admitted successful runs.
+/// No timers, polling, disk writes, or byte-level progress tracking.
+struct SwiftSimReloadTiming {
+    private var estimates = [0.5, 2.5, 1.0]
+    private var samples: [Double?] = [nil, nil, nil]
+    private var phase: SwiftSimDeliveryFeedbackState.Phase?
+    private var phaseStartedAt: TimeInterval = 0
+
+    func remaining(for phase: SwiftSimDeliveryFeedbackState.Phase) -> Double {
+        estimates.dropFirst(min(phase.rank, 3)).reduce(0, +)
+    }
+
+    @discardableResult
+    mutating func consume(_ next: SwiftSimDeliveryFeedbackState.Phase, at now: TimeInterval) -> Bool {
+        guard next != phase || next == .receiving else { return false }
+        if next == .receiving {
+            samples = [nil, nil, nil]
+        } else if let phase, phase.rank < 3, next.rank == phase.rank + 1 {
+            let duration = now - phaseStartedAt
+            if duration.isFinite && duration >= 0.01 && duration <= 120 {
+                samples[phase.rank] = duration
+            }
+        }
+        if next == .refreshed {
+            for index in estimates.indices {
+                if let sample = samples[index] {
+                    // One anomalous run cannot dominate the next estimate.
+                    let bounded = min(estimates[index] * 4, max(estimates[index] / 4, sample))
+                    estimates[index] += 0.3 * (bounded - estimates[index])
+                }
+            }
+        }
+        phase = next
+        phaseStartedAt = now
+        return true
+    }
+}
+
+/// One monotonic clock owns estimated travel, final contact, and the wave.
+/// Sparse native stage events retarget speed without jumping position/velocity.
+/// Only an admitted native receipt can schedule contact at 100%.
 struct SwiftSimReloadChoreography {
-    static let entranceDuration = 1.05
-    static let waitingReveal = 0.93
-    static let closingDuration = 0.24
+    private static let forecastReveal = 0.85
+    static let waitingReveal = 0.97
     static let waveDuration = 1.35
+    private static let velocityResponse = 0.25
+    private let startedAt: TimeInterval
+    private var segmentAt: TimeInterval = 0
+    private var travel: Double = 0
+    private var velocity: Double
+    private var targetVelocity: Double
+    private var completion: (at: Double, reveal: Double, velocity: Double, duration: Double)?
+
+    init(startedAt: TimeInterval = 0, estimatedDuration: Double = 4) {
+        self.startedAt = startedAt
+        let duration = estimatedDuration.isFinite ? max(0.15, estimatedDuration) : 4
+        velocity = 1 / duration
+        targetVelocity = velocity
+    }
+
+    mutating func retarget(at now: TimeInterval, estimatedRemaining: Double) {
+        guard completion == nil, now >= startedAt + segmentAt,
+              estimatedRemaining.isFinite, estimatedRemaining > 0 else { return }
+        let elapsed = now - startedAt
+        let current = motion(elapsed: elapsed)
+        travel = current.travel
+        velocity = current.velocity
+        segmentAt = elapsed
+        targetVelocity = max(0.12, 1 - travel) / max(0.15, estimatedRemaining)
+    }
+
+    mutating func confirm(at now: TimeInterval) {
+        guard completion == nil, now >= startedAt + segmentAt else { return }
+        let elapsed = now - startedAt
+        let current = pending(elapsed: elapsed)
+        let duration = min(0.6, max(0.12, (1 - current.reveal) / max(0.01, current.velocity)))
+        completion = (elapsed, current.reveal, current.velocity, duration)
+    }
+
+    var contactAt: TimeInterval? {
+        completion.map { startedAt + $0.at + $0.duration }
+    }
 
     struct Frame {
         let reveal: CGFloat
@@ -139,30 +229,48 @@ struct SwiftSimReloadChoreography {
         let auraOpacity: Double
     }
 
-    static func frame(elapsed: Double, confirmedAt: Double?) -> Frame {
-        let elapsed = max(0, elapsed)
-        let pending = waitingReveal * ease(min(1, elapsed / entranceDuration))
-        guard let confirmation = confirmedAt, confirmation.isFinite,
-              confirmation >= 0, elapsed >= confirmation else {
-            return Frame(reveal: pending, waveProgress: 0, waveStarted: false,
+    func frame(at now: TimeInterval) -> Frame {
+        let elapsed = max(0, now - startedAt)
+        guard let completion, elapsed >= completion.at else {
+            return Frame(reveal: pending(elapsed: elapsed).reveal, waveProgress: 0, waveStarted: false,
                 finished: false, auraOpacity: min(1, elapsed / 0.2))
         }
-        let before = waitingReveal * ease(min(1, confirmation / entranceDuration))
-        let closing = max(closingDuration, entranceDuration - confirmation)
-        let contact = confirmation + closing
+        let contact = completion.at + completion.duration
         if elapsed < contact {
-            let fraction = ease((elapsed - confirmation) / closing)
-            return Frame(reveal: min(1.0.nextDown, before + (1 - before) * fraction), waveProgress: 0,
+            let t = (elapsed - completion.at) / completion.duration
+            let gap = 1 - completion.reveal
+            // Cubic Hermite: carry current speed into completion; do not ease
+            // back to zero before the wave. Bound tangents to stay monotonic.
+            let initialSlope = min(3, completion.velocity * completion.duration / gap)
+            let fraction = (-2 * t * t * t + 3 * t * t)
+                + (t * t * t - 2 * t * t + t) * initialSlope + (t * t * t - t * t)
+            return Frame(reveal: min(1.0.nextDown, completion.reveal + gap * fraction), waveProgress: 0,
                 waveStarted: false, finished: false, auraOpacity: 1)
         }
-        let progress = min(1, (elapsed - contact) / waveDuration)
+        let progress = min(1, (elapsed - contact) / Self.waveDuration)
         return Frame(reveal: 1, waveProgress: progress, waveStarted: true,
             finished: progress >= 1, auraOpacity: max(0, 1 - progress * 2))
     }
 
-    private static func ease(_ value: Double) -> Double {
-        let value = max(0, min(1, value))
-        return value * value * (3 - 2 * value)
+    private func motion(elapsed: Double) -> (travel: Double, velocity: Double) {
+        let dt = max(0, elapsed - segmentAt)
+        let decay = exp(-dt / Self.velocityResponse)
+        let difference = velocity - targetVelocity
+        return (travel + targetVelocity * dt + difference * Self.velocityResponse * (1 - decay),
+                targetVelocity + difference * decay)
+    }
+
+    private func pending(elapsed: Double) -> (reveal: Double, velocity: Double) {
+        let current = motion(elapsed: elapsed)
+        // Keep a completion margin in the forecast, so ordinary runs cruise
+        // until their predicted receipt instead of slowing early at 80%.
+        // Only overruns enter the soft boundary; time never closes the loop.
+        let linear = current.travel * Self.forecastReveal
+        let speed = current.velocity * Self.forecastReveal
+        if linear <= Self.forecastReveal { return (linear, speed) }
+        let tail = Self.waitingReveal - Self.forecastReveal
+        let decay = exp(-(linear - Self.forecastReveal) / tail)
+        return (min(Self.waitingReveal, Self.forecastReveal + tail * (1 - decay)), speed * decay)
     }
 }
 
@@ -345,22 +453,19 @@ struct SwiftSimReloadLiquidWave: View {
 
 struct SwiftSimDeliveryFeedbackEffect: View {
     let state: SwiftSimDeliveryFeedbackState
+    let choreography: SwiftSimReloadChoreography
     var onFinished: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var scenePhase
-    @State private var startedAt = Date()
-    @State private var confirmedAt: Date?
     @State private var animationFinished = false
-    private var animationKey: String { "\(state.sequence)-\(reduceMotion)-\(scenePhase == .active)" }
 
     var body: some View {
         GeometryReader { safeGeometry in
             TimelineView(.animation(minimumInterval: state.phase == .refreshed ? 1.0 / 60 : 1.0 / 30,
-              paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { timeline in
+              paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { _ in
                 GeometryReader { geometry in
-                    let frame = SwiftSimReloadChoreography.frame(elapsed: timeline.date.timeIntervalSince(startedAt),
-                        confirmedAt: confirmedAt.map { $0.timeIntervalSince(startedAt) })
+                    let frame = choreography.frame(at: ProcessInfo.processInfo.systemUptime)
                     #if os(iOS)
                     let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
                     #else
@@ -402,9 +507,6 @@ struct SwiftSimDeliveryFeedbackEffect: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .opacity(scenePhase == .active ? 1 : 0)
-        .task(id: animationKey) {
-            if state.phase == .refreshed && confirmedAt == nil { confirmedAt = Date() }
-        }
     }
 }
 #endif

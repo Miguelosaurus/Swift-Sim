@@ -55,6 +55,16 @@ matching native applied-and-refreshed receipt closes that final gap. One shared
 animation clock starts the glass wave on the exact frame the edge reaches the
 top; host-app implicit animations cannot introduce a separate delay.
 
+The sweep estimates its pace from recent successful receiving, applying and
+refresh-waiting durations held in memory. It starts with a conservative estimate,
+moves linearly through most of the perimeter, and adjusts speed smoothly at
+native stage transitions. It never moves backward or races to a fixed 93% in
+one second. If a reload overruns the estimate, travel eases below completion;
+elapsed time cannot imply success. Confirmed refresh finishes the remaining arc
+with a bounded, speed-aware transition and starts the wave at contact. The
+forecast uses three moving averages, no polling or disk writes, and does not
+delay patch execution, native receipts, or notifications.
+
 The finish uses a broad live-backdrop glass lens with a feathered crest and its
 hard rim masked away, so content refracts as the wave propagates. It does not
 filter the host view or take a snapshot, preserving embedded UIKit content and

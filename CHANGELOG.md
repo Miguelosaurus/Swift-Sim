@@ -22,6 +22,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
   soft inward bloom, and a held final gap that closes only after confirmed refresh.
   The exact contact frame starts a broad refractive live-glass wave, with
   motion/transparency fallbacks and UIKit-safe touch handling.
+  Sweep pacing learns recent successful native stage timings and adjusts speed
+  continuously instead of sprinting to the final gap and waiting there.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.

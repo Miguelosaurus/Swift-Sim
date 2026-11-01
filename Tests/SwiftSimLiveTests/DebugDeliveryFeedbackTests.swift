@@ -35,30 +35,105 @@ func glassLensGrowsFromTheTop() {
 }
 
 @Test
-func perimeterWaitsForProofAndContactStartsTheWaveOnTheSameClockTick() {
-    let pending = SwiftSimReloadChoreography.frame(elapsed: 600, confirmedAt: nil)
+func perimeterWaitsForProofAndContactStartsTheWaveOnTheSameClockTick() throws {
+    var choreography = SwiftSimReloadChoreography()
+    let pending = choreography.frame(at: 600)
     #expect(pending.reveal < 1 && !pending.waveStarted && pending.waveProgress == 0)
     let confirmation = 2.0
-    let contact = confirmation + SwiftSimReloadChoreography.closingDuration
-    let before = SwiftSimReloadChoreography.frame(elapsed: contact - 0.00001, confirmedAt: confirmation)
+    choreography.confirm(at: confirmation)
+    let contact = try #require(choreography.contactAt)
+    let before = choreography.frame(at: contact - 0.00001)
     #expect(before.reveal < 1 && !before.waveStarted && before.waveProgress == 0)
-    let touching = SwiftSimReloadChoreography.frame(elapsed: contact, confirmedAt: confirmation)
+    let touching = choreography.frame(at: contact)
     #expect(touching.reveal == 1 && touching.waveStarted && touching.waveProgress == 0)
-    let after = SwiftSimReloadChoreography.frame(elapsed: contact + 1.0 / 60, confirmedAt: confirmation)
+    let after = choreography.frame(at: contact + 1.0 / 60)
     #expect(after.reveal == 1 && after.waveProgress > 0)
 }
 
 @Test
-func fastProofStillCompletesTheClockwiseSweepAndTheWaitingGapCannotBeBlurredClosed() {
-    let before = SwiftSimReloadChoreography.frame(elapsed: 0.9, confirmedAt: 0.05)
+func fastProofStillCompletesTheClockwiseSweepAndTheWaitingGapCannotBeBlurredClosed() throws {
+    var choreography = SwiftSimReloadChoreography()
+    choreography.confirm(at: 0.05)
+    let contactTime = try #require(choreography.contactAt)
+    #expect(contactTime <= 0.65)
+    let before = choreography.frame(at: contactTime - 0.00001)
     #expect(before.reveal < 1 && !before.waveStarted)
-    let contact = SwiftSimReloadChoreography.frame(elapsed: 1.05, confirmedAt: 0.05)
+    let contact = choreography.frame(at: contactTime)
     #expect(contact.reveal == 1 && contact.waveStarted)
     let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
     let waiting = SwiftSimReloadReveal(progress: 0.93, cornerRadius: 55).path(in: bounds)
     #expect(!waiting.contains(CGPoint(x: 190, y: 2)))
     #expect(waiting.contains(CGPoint(x: 210, y: 2)))
     #expect(SwiftSimReloadReveal(progress: 1, cornerRadius: 55).path(in: bounds).contains(CGPoint(x: 190, y: 2)))
+}
+
+@Test
+func estimatedSweepDoesNotSprintToTheEndAndPhaseChangesPreserveMotion() {
+    var choreography = SwiftSimReloadChoreography(estimatedDuration: 4)
+    #expect(abs(choreography.frame(at: 1).reveal - 0.2125) < 0.000001)
+    #expect(abs(choreography.frame(at: 2).reveal - 0.425) < 0.000001)
+    #expect(abs(choreography.frame(at: 3).reveal - 0.6375) < 0.000001)
+    #expect(abs(choreography.frame(at: 3.8).reveal - 0.8075) < 0.000001)
+    #expect(abs(choreography.frame(at: 4).reveal - 0.85) < 0.000001)
+    let at = 1.2
+    let delta = 0.00001
+    let position = choreography.frame(at: at).reveal
+    let incomingSpeed = (position - choreography.frame(at: at - delta).reveal) / delta
+    choreography.retarget(at: at, estimatedRemaining: 6)
+    #expect(abs(choreography.frame(at: at).reveal - position) < 0.000001)
+    let outgoingSpeed = (choreography.frame(at: at + delta).reveal - position) / delta
+    #expect(abs(incomingSpeed - outgoingSpeed) < 0.0001)
+    #expect(choreography.frame(at: 2).reveal < 0.425)
+    var previous = position
+    for tick in 1...18000 {
+        let frame = choreography.frame(at: at + Double(tick) / 30)
+        #expect(frame.reveal >= previous && frame.reveal < 1 && !frame.waveStarted)
+        previous = frame.reveal
+    }
+}
+
+@Test
+func receiptContinuesFromCurrentPositionAndSpeedWithoutATerminalCrawl() throws {
+    for confirmation in [0.05, 2, 4, 20] {
+        var choreography = SwiftSimReloadChoreography()
+        let delta = 0.00001
+        let position = choreography.frame(at: confirmation).reveal
+        let incomingSpeed = (position - choreography.frame(at: confirmation - delta).reveal) / delta
+        choreography.confirm(at: confirmation)
+        let contact = try #require(choreography.contactAt)
+        #expect(contact - confirmation <= 0.600001)
+        #expect(abs(choreography.frame(at: confirmation).reveal - position) < 0.000001)
+        let outgoingSpeed = (choreography.frame(at: confirmation + delta).reveal - position) / delta
+        #expect(abs(incomingSpeed - outgoingSpeed) < 0.001)
+        var previous = position
+        for tick in 1...100 {
+            let frame = choreography.frame(at: confirmation + (contact - confirmation) * Double(tick) / 100)
+            #expect(frame.reveal >= previous && frame.reveal <= 1)
+            previous = frame.reveal
+        }
+        #expect(choreography.frame(at: contact).waveStarted)
+    }
+}
+
+@Test
+func stageForecastLearnsSuccessfulTimingsAndIgnoresFailuresOrRepeatedStages() {
+    var timing = SwiftSimReloadTiming()
+    #expect(timing.remaining(for: .receiving) == 4)
+    timing.consume(.receiving, at: 0)
+    timing.consume(.applying, at: 0.5)
+    let repeated = timing.consume(.applying, at: 1)
+    #expect(!repeated)
+    timing.consume(.waitingForRefresh, at: 2.5)
+    timing.consume(.refreshed, at: 3)
+    #expect(abs(timing.remaining(for: .receiving) - 3.7) < 0.000001)
+    let learned = timing.remaining(for: .applying)
+    timing.consume(.receiving, at: 4)
+    timing.consume(.applying, at: 4.5)
+    timing.consume(.failed, at: 40)
+    #expect(timing.remaining(for: .applying) == learned)
+    timing.consume(.receiving, at: 41)
+    timing.consume(.refreshed, at: 50) // Missing stages must not be charged to receiving.
+    #expect(abs(timing.remaining(for: .receiving) - 3.7) < 0.000001)
 }
 
 @Test
@@ -100,6 +175,32 @@ func staleAndForeignFeedbackCannotChangeCurrentPresentation() {
     #expect(!consume(event(b, 6, "receiving")))
     #expect(reducer.current?.requestID == b)
     #expect(reducer.current?.phase == .applying)
+}
+
+@MainActor
+@Test
+func pacingOnlyConfirmsAfterTheObserverAdmitsTheNativeReceipt() {
+    var now = 100.0
+    let observer = SwiftSimDeliveryFeedbackObserver(center: NotificationCenter(), clock: { now })
+    let id = UUID().uuidString
+    observer.receive(event(id, 1, "receiving"))
+    now = 100.5
+    observer.receive(event(id, 2, "applying"))
+    now = 103
+    observer.receive(event(id, 3, "waiting-for-refresh"))
+    now = 104
+    var receipt = event(id, 4, "refreshed")
+    observer.receive(receipt)
+    #expect(observer.choreography.contactAt == nil)
+    #expect(!observer.choreography.frame(at: 10000).waveStarted)
+    receipt["applied"] = true
+    receipt["dynamic_replacements"] = 1
+    receipt["refresh_acknowledged"] = true
+    receipt["revision"] = 5
+    observer.receive(receipt)
+    #expect(observer.choreography.contactAt != nil)
+    #expect(observer.choreography.frame(at: 105).waveStarted)
+    observer.dismissPresentation(requestID: id, sequence: 4)
 }
 
 @MainActor
