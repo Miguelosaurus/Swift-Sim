@@ -97,7 +97,7 @@ final class SwiftSimReloadMetalView: MTKView {
     var unavailable: (() -> Void)?
     var ready: (() -> Void)?
     private var readinessScheduled = false
-    private var hasPresentedFrame = false
+    private var hasRenderedFrame = false
     private var resources: SwiftSimReloadGPUResources?
     private var queue: MTLCommandQueue?
     private var capture: MTLTexture?
@@ -158,7 +158,7 @@ final class SwiftSimReloadMetalView: MTKView {
 
     func update(_ input: SwiftSimReloadRenderInput) {
         self.input = input
-        if input.prepareSnapshot && hasPresentedFrame && !captureAttempted && !captureScheduled {
+        if input.prepareSnapshot && hasRenderedFrame && !captureAttempted && !captureScheduled {
             captureScheduled = true
             // Let the refreshed host hierarchy commit before capturing it.
             DispatchQueue.main.async { [weak self] in
@@ -222,27 +222,31 @@ final class SwiftSimReloadMetalView: MTKView {
         command.addCompletedHandler { _ in semaphore.signal() }
         if !readinessScheduled {
             readinessScheduled = true
-            // Compiling a pipeline is not proof that anything was visible.
-            // Keep the immediate native glow until a drawable is presented.
+            // The visual clock stays at zero until the first drawable and any
+            // already-required refreshed capture are ready.
             let notifyReady: @Sendable () -> Void = { [weak self] in
                 Task { @MainActor [weak self] in
                     guard let self, self.resources != nil else { return }
-                    self.hasPresentedFrame = true
-                    self.ready?()
-                    self.ready = nil
+                    self.hasRenderedFrame = true
+                    self.signalReadinessIfPossible()
                 }
             }
-            #if targetEnvironment(simulator)
-            // Simulator Metal omits the drawable presentation callback.
+            // The preparation frame is intentionally transparent. Waiting
+            // for visible presentation can deadlock behind its empty mask;
+            // successful GPU completion is the readiness boundary here.
             command.addCompletedHandler { command in
                 if command.status == .completed { notifyReady() }
             }
-            #else
-            drawable.addPresentedHandler { _ in notifyReady() }
-            #endif
         }
         command.present(drawable)
         command.commit()
+    }
+
+    private func signalReadinessIfPossible() {
+        guard hasRenderedFrame, resources != nil,
+              input?.prepareSnapshot != true || captureAttempted else { return }
+        ready?()
+        ready = nil
     }
 
     private func prepareCapture() {
@@ -250,6 +254,7 @@ final class SwiftSimReloadMetalView: MTKView {
         #if canImport(UIKit)
         guard let window else { return }
         captureAttempted = true
+        defer { signalReadinessIfPossible() }
         let format = UIGraphicsImageRendererFormat()
         format.scale = SwiftSimReloadRipple.snapshotScale(size: bounds.size, nativeScale: window.screen.scale)
         format.preferredRange = .standard
@@ -266,6 +271,7 @@ final class SwiftSimReloadMetalView: MTKView {
         #elseif canImport(AppKit)
         guard let root = window?.contentView else { return }
         captureAttempted = true
+        defer { signalReadinessIfPossible() }
         let hidden = isHidden
         isHidden = true
         defer { isHidden = hidden }

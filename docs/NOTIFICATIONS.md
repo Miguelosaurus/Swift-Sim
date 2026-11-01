@@ -74,8 +74,11 @@ The outline has a 1.4-second minimum sweep, including when refresh is confirmed
 almost immediately. Short forecasts cannot accelerate it into a flash, and fast
 confirmation spreads the remaining travel smoothly across that minimum rather
 than pausing at the end. Only presentation waits; the native update applies
-immediately. Its dismissal watchdog leaves time for the entire closing sweep
-and ripple. Slow reloads retain their adaptive pacing.
+immediately. Slow reloads retain their adaptive pacing. Rendering uses a separate
+visual clock: preparation does not consume the sweep, and a delayed render tick
+advances it by at most 1/15 second instead of jumping across the screen. The
+view dismisses on visual completion, with a ten-second success safety watchdog;
+Reduce Motion uses a short static confirmation without starting the moving clock.
 
 The finish uses a 2.1-second, distance-delayed displacement wave: content pushes
 outward, pulls back into a trough, and settles before fading. Its 38-point
@@ -106,10 +109,13 @@ existing presentation ticks drive it. One background compilation caches the
 pipeline per Debug process, while captures and drawable resources belong to the
 temporary presentation. Neither shader compilation nor visual completion gates
 native patch receipts or notifications.
-An immediate native glow follows the same perimeter clock while the procedural
-renderer prepares its first frame. The handoff waits for drawable presentation
-(GPU completion on Simulator), so cold startup cannot hide the beginning of the
-sweep. This adds no prewarming, idle animation or separate ripple delay.
+The renderer prepares transparently before the visible sweep starts. Readiness
+requires a successful GPU pass and any already-required refreshed app capture.
+The preparation surface keeps a full mask so an empty reveal cannot suppress
+its initialization; its shader output is transparent. The previous temporary
+Canvas glow is not shown while Metal prepares. This adds no prewarming, idle
+animation or separate ripple timer. Native timings still supply the pace
+forecast; only the visual clock controls outline contact and the wave.
 Existing apps need one Debug rebuild against the updated SwiftSimLive package
 for this effect. Rebuilding with an older pinned SDK retains its old feedback.
 No automatic rebuild or installation is required just to receive inbox updates.

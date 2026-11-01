@@ -39,6 +39,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
   renderer prepares its first frame, without shifting the outline/ripple clock.
   Fast reloads retain a readable 1.4-second minimum sweep instead of flashing
   the outline; native application stays immediate and the ripple starts at contact.
+  Cold renderer/capture preparation no longer consumes that sweep. A separate
+  visual clock limits catch-up after stalled frames and avoids the startup blob.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.

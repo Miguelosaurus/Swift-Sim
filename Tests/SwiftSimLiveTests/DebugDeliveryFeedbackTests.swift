@@ -166,6 +166,64 @@ func stageForecastLearnsSuccessfulTimingsAndIgnoresFailuresOrRepeatedStages() {
 }
 
 @Test
+func coldPreparationDoesNotConsumeTheVisibleSweepAndStallsCannotSkipIt() {
+    let state = SwiftSimDeliveryFeedbackState(requestID: UUID().uuidString,
+        patchDigest: String(repeating: "a", count: 64), baselineRevision: 0,
+        sequence: 4, phase: .refreshed, revision: 1)
+    var timeline = SwiftSimReloadVisualTimeline()
+    for now in [100.0, 101, 102.8] {
+        let sample = timeline.sampled(at: now, ready: false, state: state, estimatedRemaining: 0)
+        #expect(sample.frame.reveal == 0 && !sample.frame.waveStarted)
+        #expect(sample.timeline.elapsed == 0)
+        timeline = sample.timeline
+    }
+    var sample = timeline.sampled(at: 103, ready: true, state: state, estimatedRemaining: 0)
+    #expect(sample.frame.reveal == 0 && sample.timeline.elapsed == 0)
+    timeline = sample.timeline
+    var wallTime = 103.0
+    for _ in 0..<15 {
+        wallTime += 1.0 / 30
+        sample = timeline.sampled(at: wallTime, ready: true, state: state, estimatedRemaining: 0)
+        timeline = sample.timeline
+    }
+    let beforeStall = sample.frame.reveal
+    let elapsed = timeline.elapsed
+    wallTime += 2
+    sample = timeline.sampled(at: wallTime, ready: true, state: state, estimatedRemaining: 0)
+    #expect(sample.timeline.elapsed - elapsed <= 1.0 / 15 + 0.000001)
+    #expect(sample.frame.reveal - beforeStall < 0.1)
+    #expect(!sample.frame.waveStarted)
+    timeline = sample.timeline
+    var previous = sample.frame
+    for _ in 0..<120 {
+        wallTime += 1.0 / 60
+        sample = timeline.sampled(at: wallTime, ready: true, state: state, estimatedRemaining: 0)
+        #expect(sample.frame.reveal >= previous.reveal)
+        if sample.frame.waveStarted && !previous.waveStarted {
+            #expect(sample.frame.reveal == 1 && previous.reveal < 1)
+            #expect(sample.frame.waveProgress < 1.0 / 60)
+            #expect(sample.timeline.elapsed >= SwiftSimReloadChoreography.minimumSweepDuration)
+        }
+        timeline = sample.timeline
+        previous = sample.frame
+    }
+    #expect(sample.frame.waveStarted)
+}
+
+@Test
+func displayClockNeverClosesAnUnconfirmedUpdate() {
+    let state = SwiftSimDeliveryFeedbackState(requestID: UUID().uuidString,
+        patchDigest: String(repeating: "a", count: 64), baselineRevision: 0,
+        sequence: 3, phase: .waitingForRefresh, revision: nil)
+    var timeline = SwiftSimReloadVisualTimeline()
+    for tick in 0..<6000 {
+        let sample = timeline.sampled(at: Double(tick) / 30, ready: true, state: state, estimatedRemaining: 1)
+        #expect(sample.frame.reveal < 1 && !sample.frame.waveStarted)
+        timeline = sample.timeline
+    }
+}
+
+@Test
 func feedbackRequiresAReceivedRequestAndItsActualCompleteReceipt() {
     var reducer = SwiftSimDeliveryFeedbackReducer()
     func consume(_ info: [AnyHashable: Any]) -> Bool { reducer.consume(info) }
@@ -208,7 +266,7 @@ func staleAndForeignFeedbackCannotChangeCurrentPresentation() {
 
 @MainActor
 @Test
-func pacingOnlyConfirmsAfterTheObserverAdmitsTheNativeReceipt() {
+func pacingOnlyConfirmsAfterTheObserverAdmitsTheNativeReceipt() throws {
     var now = 100.0
     let observer = SwiftSimDeliveryFeedbackObserver(center: NotificationCenter(), clock: { now })
     let id = UUID().uuidString
@@ -220,15 +278,30 @@ func pacingOnlyConfirmsAfterTheObserverAdmitsTheNativeReceipt() {
     now = 104
     var receipt = event(id, 4, "refreshed")
     observer.receive(receipt)
-    #expect(observer.choreography.contactAt == nil)
-    #expect(!observer.choreography.frame(at: 10000).waveStarted)
+    let waiting = try #require(observer.presentation)
+    #expect(waiting.phase == .waitingForRefresh)
+    var timeline = SwiftSimReloadVisualTimeline()
+    for tick in 0..<120 {
+        let sample = timeline.sampled(at: Double(tick) / 60, ready: true,
+            state: waiting, estimatedRemaining: observer.estimatedRemaining)
+        #expect(!sample.frame.waveStarted)
+        timeline = sample.timeline
+    }
     receipt["applied"] = true
     receipt["dynamic_replacements"] = 1
     receipt["refresh_acknowledged"] = true
     receipt["revision"] = 5
     observer.receive(receipt)
-    #expect(observer.choreography.contactAt != nil)
-    #expect(observer.choreography.frame(at: 105).waveStarted)
+    let confirmed = try #require(observer.presentation)
+    #expect(confirmed.phase == .refreshed)
+    var startedWave = false
+    for tick in 120..<240 {
+        let sample = timeline.sampled(at: Double(tick) / 60, ready: true,
+            state: confirmed, estimatedRemaining: observer.estimatedRemaining)
+        startedWave = startedWave || sample.frame.waveStarted
+        timeline = sample.timeline
+    }
+    #expect(startedWave)
     observer.dismissPresentation(requestID: id, sequence: 4)
 }
 

@@ -1,13 +1,13 @@
 # Teal Debug reload feedback — 2026-10-31
 
-Current SDK treatment: V8 minimum sweep, V7 startup continuity, V6 motion calibration.
+Current SDK treatment: V9 readiness/visual clock, V8 minimum sweep, V6 calibration.
 This replaces the existing Debug feedback banner without changing receipt or
 root-refresh authority. The target app's Debug SDK carries the effect; updating
 the regular Release Companion alone does not install it.
 
 The initial `a13c413` visual design was rejected in user review as insufficiently
 like the original Siri edge light. Its historical evidence is retained below;
-the current treatment uses the V5 renderer with V8 minimum sweep, V7 startup continuity,
+the current treatment uses the V5 renderer with V9 readiness, V8 minimum sweep,
 V6 calibration and V4 adaptive pacing.
 
 ## Initial behavior — superseded visually
@@ -373,3 +373,46 @@ Local ownership/evidence: `.build/teal-reload-feedback-v8/`. Exports:
 `swift-sim-readable-fast-reload-v8-dark.mp4` and
 `swift-sim-readable-fast-reload-v8-light.mp4`. Phone V8 visual qualification
 requires installing the subsequent Zenics Debug update; build 33 contains V7.
+
+## Cold preparation and render clock — V9, 2026-11-01
+
+The build-34 phone test applied and restored with complete native receipts
+(revisions 1 and 2), but user review rejected the cold first presentation: a
+blue blob stalled at the top, then the outline appeared halfway around. The warm
+restore looked correct. V8's duration floor therefore did not qualify the cold
+phone path; native success must not be confused with visual acceptance.
+
+The visual timeline is now independent of native uptime. It remains at zero
+until a successful GPU preparation pass and any already-required refreshed app
+capture complete. The native Canvas startup handoff is removed. Preparation
+uses a full mask with transparent shader output: the first stress attempt showed
+that an empty mask could suppress the preparation surface entirely. Readiness
+uses GPU command completion because the preparation surface is intentionally
+transparent; it does not claim that a visible frame was presented.
+
+Render ticks advance the visual clock by at most 1/15 second, so a main-thread
+stall cannot consume half the outline. Sparse native events still provide the
+pace estimates and only an admitted refreshed state can confirm the visual
+choreography. The unused native-uptime choreography was removed from the
+observer. The 1.4-second minimum sweep, 2.1-second waveform and exact shared
+outline-contact/ripple-start frame remain. Normal visual completion dismisses
+the view; a ten-second terminal safety watchdog accommodates preparation.
+Reduce Motion keeps a short static confirmation with no moving clock.
+
+Validation: eighteen SDK tests pass, including cold readiness delay, bounded
+advance after a two-second stall, exact contact, unconfirmed updates never
+closing, native admission and actual GPU wave pixels. Task-only fault injection
+added two seconds to background shader preparation and 0.8 seconds to the main
+capture. Light/dark recordings then showed the full sweep from top center after
+preparation, followed by the complete ripple. The first failed empty-mask attempt
+is not acceptance evidence. All injected delays were removed, and the normal SDK
+was rebuilt and recorded in both appearances. SwiftUI/UIKit input persists.
+Release symbol/string exclusions and docs/diff checks pass.
+
+Evidence/ownership: `.build/teal-reload-feedback-v9/`; `cold-*.mov` contain the
+explicit stress faults, `final-*.mov` use normal source. Exported previews are
+`swift-sim-cold-start-stress-v9-dark.mp4` and
+`swift-sim-ready-clock-v9-dark.mp4`. Preview/recorders stopped, original
+appearance restored, task simulator shut down. No helper/engine restart or
+Companion rebuild was needed. A subsequent signed Zenics Debug update is needed;
+physical-phone V9 visual acceptance is still pending.

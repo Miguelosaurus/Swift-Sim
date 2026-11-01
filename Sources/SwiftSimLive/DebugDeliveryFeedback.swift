@@ -93,7 +93,10 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     private var dismissal: Task<Void, Never>?
     private let clock: () -> TimeInterval
     private var timing = SwiftSimReloadTiming()
-    private(set) var choreography = SwiftSimReloadChoreography()
+
+    var estimatedRemaining: Double {
+        timing.remaining(for: presentation?.phase ?? .receiving)
+    }
 
     init(center: NotificationCenter = .default,
          clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -107,20 +110,12 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
         guard reducer.consume(info), let current = reducer.current else { return }
         dismissal?.cancel()
         let now = clock()
-        let phaseChanged = timing.consume(current.phase, at: now)
-        if current.phase == .receiving {
-            choreography = SwiftSimReloadChoreography(startedAt: now,
-                estimatedDuration: timing.remaining(for: .receiving))
-        } else if current.phase == .refreshed {
-            choreography.confirm(at: now)
-        } else if current.phase.rank < 3 && phaseChanged {
-            choreography.retarget(at: now, estimatedRemaining: timing.remaining(for: current.phase))
-        }
+        timing.consume(current.phase, at: now)
         presentation = current
         if current.phase.rank == 3 {
-            let dismissalDelay = current.phase == .refreshed
-                ? max(3.5, (choreography.contactAt ?? now) - now + SwiftSimReloadChoreography.waveDuration + 0.35)
-                : 5
+            // The view normally dismisses on its final displayed frame. This
+            // watchdog must also allow cold renderer/capture preparation.
+            let dismissalDelay = current.phase == .refreshed ? 10.0 : 5.0
             #if canImport(UIKit)
             if UIAccessibility.isVoiceOverRunning {
                 UIAccessibility.post(notification: .announcement,
@@ -284,6 +279,43 @@ struct SwiftSimReloadChoreography {
         let tail = Self.waitingReveal - Self.forecastReveal
         let decay = exp(-(linear - Self.forecastReveal) / tail)
         return (min(Self.waitingReveal, Self.forecastReveal + tail * (1 - decay)), speed * decay)
+    }
+}
+
+/// Presentation advances only on render-tick samples, never during cold
+/// preparation. A stalled main thread cannot consume half the outline at once.
+struct SwiftSimReloadVisualTimeline {
+    private var choreography: SwiftSimReloadChoreography?
+    private var lastWallTime: TimeInterval?
+    private var sequence: Int?
+    private var phase: SwiftSimDeliveryFeedbackState.Phase?
+    private(set) var elapsed = 0.0
+
+    func sampled(at now: TimeInterval, ready: Bool, state: SwiftSimDeliveryFeedbackState,
+                 estimatedRemaining: Double) -> (timeline: Self, frame: SwiftSimReloadChoreography.Frame) {
+        var next = self
+        let delta = max(0, now - (lastWallTime ?? now))
+        next.lastWallTime = now
+        if ready {
+            if next.choreography == nil {
+                next.choreography = SwiftSimReloadChoreography(estimatedDuration: estimatedRemaining)
+            } else {
+                next.elapsed += min(delta, 1.0 / 15)
+            }
+            if next.sequence != state.sequence {
+                if state.phase == .refreshed {
+                    next.choreography?.confirm(at: next.elapsed)
+                } else if state.phase.rank < 3 && next.phase != state.phase {
+                    next.choreography?.retarget(at: next.elapsed, estimatedRemaining: estimatedRemaining)
+                }
+                next.sequence = state.sequence
+                next.phase = state.phase
+            }
+        }
+        let frame = next.choreography?.frame(at: next.elapsed)
+            ?? SwiftSimReloadChoreography.Frame(reveal: 0, waveProgress: 0, waveStarted: false,
+                finished: false, auraOpacity: 0)
+        return (next, frame)
     }
 }
 
@@ -466,7 +498,7 @@ struct SwiftSimReloadLiquidWave: View {
 
 struct SwiftSimDeliveryFeedbackEffect: View {
     let state: SwiftSimDeliveryFeedbackState
-    let choreography: SwiftSimReloadChoreography
+    let estimatedRemaining: Double
     var onFinished: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -475,14 +507,23 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     @State private var animationFinished = false
     @State private var proceduralAvailable = true
     @State private var proceduralReady = false
+    @State private var visualTimeline = SwiftSimReloadVisualTimeline()
 
     var body: some View {
         GeometryReader { safeGeometry in
             TimelineView(.animation(minimumInterval: state.phase == .refreshed ? 1.0 / 60 : 1.0 / 30,
-              paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { _ in
+              paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { tick in
                 GeometryReader { geometry in
                     let now = ProcessInfo.processInfo.systemUptime
-                    let frame = choreography.frame(at: now)
+                    #if canImport(MetalKit)
+                    let usesProcedural = !reduceMotion && !reduceTransparency && state.phase != .failed && proceduralAvailable && SwiftSimReloadMetalView.isAvailable
+                    #else
+                    let usesProcedural = false
+                    #endif
+                    let sample = visualTimeline.sampled(at: now,
+                        ready: (!usesProcedural || proceduralReady) && scenePhase == .active,
+                        state: state, estimatedRemaining: estimatedRemaining)
+                    let frame = sample.frame
                     #if os(iOS)
                     let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
                     #else
@@ -490,19 +531,22 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                     #endif
                     ZStack(alignment: .top) {
                         #if canImport(MetalKit)
-                        if proceduralAvailable && SwiftSimReloadMetalView.isAvailable && !reduceMotion && !reduceTransparency && state.phase != .failed {
-                            // Metal's first compilation/drawable may take several
-                            // frames. Never leave the beginning of the sweep blank.
-                            if !proceduralReady {
-                                fallback(frame: frame, corner: corner)
-                            }
+                        if usesProcedural {
                             SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
-                                frame: frame, time: choreography.elapsed(at: now), cornerRadius: corner,
+                                frame: frame, time: sample.timeline.elapsed, cornerRadius: corner,
                                 lightAppearance: colorScheme == .light,
                                 prepareSnapshot: state.phase == .refreshed && !frame.finished),
                                 onUnavailable: { proceduralAvailable = false },
                                 onReady: { proceduralReady = true })
-                                .mask { SwiftSimReloadReveal(progress: frame.reveal, cornerRadius: corner).fill(.white) }
+                                .mask {
+                                    // Keep the transparent preparation surface
+                                    // laid out; an empty mask can suppress it.
+                                    if proceduralReady {
+                                        SwiftSimReloadReveal(progress: frame.reveal, cornerRadius: corner).fill(.white)
+                                    } else {
+                                        Rectangle().fill(.white)
+                                    }
+                                }
                         } else {
                             fallback(frame: frame, corner: corner)
                         }
@@ -522,6 +566,10 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                    .onAppear { visualTimeline = sample.timeline }
+                    .onChange(of: tick.date) { _ in visualTimeline = sample.timeline }
+                    .onChange(of: proceduralReady) { _ in visualTimeline = sample.timeline }
+                    .onChange(of: state.sequence) { _ in visualTimeline = sample.timeline }
                     .onChange(of: frame.finished) { finished in
                         if finished {
                             animationFinished = true
@@ -536,6 +584,12 @@ struct SwiftSimDeliveryFeedbackEffect: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .opacity(scenePhase == .active ? 1 : 0)
+        .task(id: state.sequence) {
+            if reduceMotion && state.phase == .refreshed {
+                try? await Task.sleep(for: .seconds(SwiftSimReloadChoreography.waveDuration))
+                if !Task.isCancelled { onFinished() }
+            }
+        }
     }
 
     @ViewBuilder private func fallback(frame: SwiftSimReloadChoreography.Frame, corner: CGFloat) -> some View {

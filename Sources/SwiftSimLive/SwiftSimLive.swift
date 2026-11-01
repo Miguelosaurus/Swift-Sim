@@ -41,7 +41,7 @@ private struct SwiftSimLiveModifier: ViewModifier {
             .id(observer.revision)
             .overlay {
                 if let state = feedback.presentation {
-                    SwiftSimDeliveryFeedbackEffect(state: state, choreography: feedback.choreography) {
+                    SwiftSimDeliveryFeedbackEffect(state: state, estimatedRemaining: feedback.estimatedRemaining) {
                         feedback.dismissPresentation(requestID: state.requestID, sequence: state.sequence)
                     }
                         .id(state.requestID)
