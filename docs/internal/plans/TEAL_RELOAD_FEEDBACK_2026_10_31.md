@@ -1,13 +1,13 @@
 # Teal Debug reload feedback — 2026-10-31
 
-Current SDK implementation: `7fb03e74081a9293d0d8e74b172a46c0133a1e5b`.
+Current SDK implementation: `0242b639182c3c4839097ea271d381f4f448b5a3`.
 This replaces the existing Debug feedback banner without changing receipt or
 root-refresh authority. No Companion OTA, helper restart, or Zenics build was
 performed for this SDK change.
 
 The initial `a13c413` visual design was rejected in user review as insufficiently
 like the original Siri edge light. Its historical evidence is retained below;
-the current treatment is described in the V5 section, retaining V4 adaptive pacing.
+the current treatment uses the V5 renderer with V6 calibration and V4 adaptive pacing.
 
 ## Initial behavior — superseded visually
 
@@ -285,3 +285,30 @@ Ownership and local evidence: `.build/teal-reload-feedback-v5/`. Exports:
 `swift-sim-procedural-teal-v5-dark.mp4` and
 `swift-sim-procedural-teal-v5-light.mp4`. Existing target apps require one Debug
 rebuild against the current SDK revision before this can run on the phone.
+
+## Motion calibration — V6, 2026-11-01
+
+User approved the ripple's movement but requested a slightly quicker, gentler
+finish and less inward glow. The Apple motion reference was reviewed again.
+Wave duration is reduced from 2.35 to 2.1 seconds, with amplitude reduced from
+44 to 38 points. The sine/decay behavior, top origin and exact-contact clock are
+retained. An extra leading-edge displacement ramp and crossfade were removed:
+the sine already starts at zero, and the ramp steepened its spatial derivative,
+causing a visible pinch in the first preview. The GPU test now also checks that
+displaced text is opaque over its live copy at the leading edge.
+
+The glow's steady deformation is reduced from 22 to 18 points, intro deformation
+boost from 28 to 14, middle/broad falloff from 18/42 to 16/34, and intro bounce,
+brightness surge and anchor overshoot are reduced. This keeps the light nearer
+the bezel while retaining flowing teal movement. It is visual calibration
+toward the Apple reference, not a claim of identical private rendering.
+
+The fifteen SDK tests, including actual GPU pixel read-back and exact-contact
+choreography, pass. The SDK/fixture builds for iOS Simulator. New light/dark
+synthetic recordings verify the adjusted motion and retained SwiftUI/UIKit input.
+Release symbol/string exclusion and documentation/whitespace checks pass. Local
+evidence/ownership: `.build/teal-reload-feedback-v6/`; exported previews are
+`swift-sim-calibrated-teal-v6-dark.mp4` and
+`swift-sim-calibrated-teal-v6-light.mp4`. Preview/recorders stopped, original
+appearance restored, task simulator shut down. No helper restart or phone build
+was performed; the existing phone rollout requirement still applies.
