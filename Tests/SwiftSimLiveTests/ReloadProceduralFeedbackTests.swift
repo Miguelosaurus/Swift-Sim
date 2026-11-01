@@ -70,6 +70,8 @@ func actualShaderPushesPixelsOutThenBackAndHasNoWaveBeforeContact() throws {
     let touching = try render(waveTime: 0)
     #expect(touching[3] == 0)
     let arrival = Float(hypot(42.5, 0.5) / hypot(128, 251) * (SwiftSimReloadChoreography.waveDuration - 1))
+    let leading = try render(waveTime: arrival + 0.01)
+    #expect(leading[3] > 240) // Displaced text must not crossfade over its live copy.
     let crest = try render(waveTime: arrival + 0.08)
     let trough = try render(waveTime: arrival + 0.26)
     #expect(crest[2] > 190) // The source gradient at this pixel is 170.

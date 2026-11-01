@@ -19,7 +19,7 @@ struct SwiftSimReloadRenderInput {
 /// Distance-delayed, damped displacement, following Mehta's WWDC-based ripple.
 /// The larger amplitude and slower decay make both crest and trough visible.
 enum SwiftSimReloadRipple {
-    static let amplitude = 44.0
+    static let amplitude = 38.0
     static let frequency = 18.0
     static let decay = 3.2
     static let trailingDuration = 1.0
@@ -205,7 +205,7 @@ final class SwiftSimReloadMetalView: MTKView {
         let burst = exp(-time * 1.6)
         for index in 0..<11 {
             let n = Float(index), phase = n * 2.39996
-            let drift = time * (0.24 + 0.018 * n) + burst * sin(time * 4) * 0.4
+            let drift = time * (0.24 + 0.018 * n) + burst * sin(time * 4) * 0.2
             uniforms[index + 3] = SIMD4(Float(bounds.width) * (0.5 + 0.46 * sin(drift + phase)),
                 Float(bounds.height) * (0.5 + 0.46 * cos(drift * 0.83 + phase * 1.37)), 0, 0)
         }
@@ -319,15 +319,15 @@ enum SwiftSimReloadShader {
         float3 teal = float3(.0, .48, .43);
         if (u.animation.x > .001 && edge > -150) {
         float burst = exp(-time * 1.6);
-        float bounce = 1 + .32 * burst * cos(time * 8.2);
+        float bounce = 1 + .16 * burst * cos(time * 8.2);
         float2 domain = p / max(size.x, size.y) * 5;
         float field = noise(domain + float2(time * .38, -time * .27));
         field += .45 * noise(domain * 2.3 + float2(-time * .24, time * .33));
-        float warped = edge + field * (22 + burst * 28) * bounce;
+        float warped = edge + field * (18 + burst * 14) * bounce;
         float distance = min(abs(edge), abs(warped));
         float core = 1 - smoothstep(2.0, 6.0, distance);
-        float mid = (1 - smoothstep(0.0, 18.0, distance)) * .55;
-        float bloom = (1 - smoothstep(0.0, 42.0, distance)) * .30;
+        float mid = (1 - smoothstep(0.0, 16.0, distance)) * .55;
+        float bloom = (1 - smoothstep(0.0, 34.0, distance)) * .30;
         float alpha = saturate(core + mid + bloom) * u.animation.x;
         for (int i = 0; i < 11; ++i) {
             float weight = saturate(1 - length(p - u.anchors[i].xy) / (max(size.x, size.y) * .56));
@@ -337,7 +337,7 @@ enum SwiftSimReloadShader {
             teal = mix(teal, color, weight * .8);
         }
         float shimmer = .92 + field * .12;
-        float3 glow = teal * shimmer * (1 + burst * .22);
+        float3 glow = teal * shimmer * (1 + burst * .10);
         result = float4(glow * alpha, alpha);
         }
         if (waveTime >= 0) {
@@ -349,14 +349,14 @@ enum SwiftSimReloadShader {
             if (age > 0 && age < 1.0) {
                 float envelope = exp(-u.ripple.z * age);
                 float displacement = u.ripple.x * sin(u.ripple.y * age) * envelope
-                    * smoothstep(0.0, .05, age) * (1 - smoothstep(.60, .85, age));
+                    * (1 - smoothstep(.60, .85, age));
                 float2 direction = radial / max(1.0, distanceFromOrigin);
                 float2 sampleUV = clamp((p + direction * displacement) / size, float2(0), float2(1));
                 constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
                 float4 sample = snapshot.sample(linearSampler, sampleUV);
                 // Return sampled pixels to their original positions before
                 // fading them, so a displaced copy never ghosts over live text.
-                float waveAlpha = smoothstep(0.0, .02, age) * (1 - smoothstep(.85, 1.0, age));
+                float waveAlpha = 1 - smoothstep(.85, 1.0, age);
                 float highlight = displacement / u.ripple.x;
                 float3 refracted = max(float3(0), sample.rgb + highlight * float3(.10, .15, .14));
                 if (u.ripple.w < .5) { refracted = teal; waveAlpha *= .14; }

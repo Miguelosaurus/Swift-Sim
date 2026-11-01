@@ -182,7 +182,7 @@ struct SwiftSimReloadTiming {
 struct SwiftSimReloadChoreography {
     private static let forecastReveal = 0.85
     static let waitingReveal = 0.97
-    static let waveDuration = 2.35
+    static let waveDuration = 2.1
     private static let velocityResponse = 0.25
     private let startedAt: TimeInterval
     private var segmentAt: TimeInterval = 0

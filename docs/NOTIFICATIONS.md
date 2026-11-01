@@ -65,10 +65,10 @@ with a bounded, speed-aware transition and starts the wave at contact. The
 forecast uses three moving averages, no polling or disk writes, and does not
 delay patch execution, native receipts, or notifications.
 
-The finish uses a strong, distance-delayed displacement wave: content pushes
-outward, pulls back into a trough, and settles before fading. Its 44-point
-amplitude is deliberately exaggerated. One monotonic clock drives the closing
-outline and the wave's birth; there is no separate ripple-start timer.
+The finish uses a 2.1-second, distance-delayed displacement wave: content pushes
+outward, pulls back into a trough, and settles before fading. Its 38-point
+amplitude keeps the crest and trough visible. One monotonic clock drives the
+closing outline and the wave's birth; there is no separate ripple-start timer.
 
 The wave samples one temporary in-memory capture of the refreshed app. The
 capture excludes the feedback overlay, is capped at two pixels per point and

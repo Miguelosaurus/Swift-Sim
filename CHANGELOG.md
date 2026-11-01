@@ -27,6 +27,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
   The teal glow now has a noise-deformed edge and independent moving color pools;
   completion sends a stronger outward-and-back displacement wave through a
   bounded temporary app capture, with touch handling preserved.
+  The finish is tuned to be slightly quicker and gentler, with a softer startup
+  surge and less inward reach from the teal glow.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.
