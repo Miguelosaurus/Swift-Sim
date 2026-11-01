@@ -459,3 +459,13 @@ Ownership/evidence: `.build/teal-reload-feedback-v10/`. Normal and cold exports:
 `swift-sim-continuous-reveal-v10-dark.mp4` and
 `swift-sim-continuous-reveal-v10-cold-dark.mp4`. The subsequent Zenics Debug update
 still needs physical-phone cold and warm visual review; Companion 25 is unchanged.
+
+### Build 36 phone result
+
+The first test after installing Zenics Debug 36 applied and refreshed at revision
+1; the reverse restore applied and refreshed at revision 2. User review of the
+first animation confirmed **Smooth from the top center**. Original desired
+source and product files were verified afterward. The warm restore has native
+proof; its visual quality was not separately stated. This is user visual
+acceptance of the first-run path, not a measured physical-device frame rate.
+Local bounded receipts: `.build/phone-animation-rollout-20261101/v10-phone-acceptance.json`.
