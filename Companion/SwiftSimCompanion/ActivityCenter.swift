@@ -371,9 +371,10 @@ final class ActivityCenter: ObservableObject {
         guard let event = cache.events.first(where: { $0.id == requestedEvent.id }) else { return }
         cache.readCursor = max(cache.readCursor, event.sequence)
         publishCache()
-        if event.buildId != nil && !["queued", "live-applied"].contains(event.kind) {
+        if (event.buildId != nil || event.targetAppName != nil), let onOpenEvent {
+            selectedEvent = nil
             isPresented = false
-            await onOpenEvent?(event)
+            await onOpenEvent(event)
         } else {
             selectedEvent = event
         }

@@ -260,16 +260,34 @@ final class SessionStore: ObservableObject {
     }
 
     private func openActivityEvent(_ event: ActivityEvent) async {
-        guard let expectedMac = pairedMac, let buildID = event.buildId else { return }
+        guard let expectedMac = pairedMac else { return }
         let revision = pairingRevision
         await refreshHelperStatus()
-        guard Self.pairingResponseIsCurrent(current: pairedMac, expected: expectedMac, currentRevision: pairingRevision, expectedRevision: revision),
-              let build = managedApps.filter({ $0.ownerPairingID == expectedMac.id }).flatMap(\.builds).first(where: { $0.id == buildID }) else {
+        guard Self.pairingResponseIsCurrent(current: pairedMac, expected: expectedMac, currentRevision: pairingRevision, expectedRevision: revision) else { return }
+        guard let app = Self.activityApp(for: event, in: managedApps, ownerPairingID: expectedMac.id) else {
             activity.isPresented = true
-            showLibraryAction("This build is no longer available from the connected Mac.", kind: .error)
+            activity.selectedEvent = event
+            showLibraryAction("This app is no longer available from the connected Mac.", kind: .information)
             return
         }
-        reopen(build)
+        activity.selectedEvent = nil
+        activity.isPresented = false
+        isMacSettingsPresented = false
+        openManagedApp(app)
+    }
+
+    static func activityApp(for event: ActivityEvent, in apps: [ManagedApp], ownerPairingID: String) -> ManagedApp? {
+        let owned = apps.filter { $0.ownerPairingID == ownerPairingID }
+        if let buildID = event.buildId,
+           let app = owned.first(where: { $0.builds.contains(where: { $0.id == buildID }) }) {
+            return app
+        }
+        // Older authenticated live events carry an app name but no build ID.
+        // Use it only for unambiguous page navigation within this paired Mac;
+        // never use it to launch an app or choose an install artifact.
+        guard let name = event.targetAppName else { return nil }
+        let matches = owned.filter { $0.displayName == name }
+        return matches.count == 1 ? matches[0] : nil
     }
 
     func closeCurrentSession() {

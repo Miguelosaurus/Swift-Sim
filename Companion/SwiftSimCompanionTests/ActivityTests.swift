@@ -40,7 +40,53 @@ final class ActivityTests: XCTestCase {
     }
 
     @MainActor
-    func testQueuedUpdateStaysInActivityAndRequiresExplicitTrustedAppHandoff() async throws {
+    func testActivityPageRoutingPrefersExactBuildAndStaysWithinThePairedMac() throws {
+        func app(_ build: String, name: String, owner: String?) -> ManagedApp {
+            var value = ManagedApp(build: ManagedBuild(pending: DeviceBuildSession(
+                id: build, token: "fixture", baseURL: URL(string: "https://paired.example")!)))
+            value.displayName = name
+            value.ownerPairingID = owner
+            return value
+        }
+        let owned = app("old-build", name: "Renamed app", owner: "current-mac")
+        let other = app("other-build", name: "Example", owner: "current-mac")
+        let foreign = app("foreign-build", name: "Example", owner: "other-mac")
+        var item = event(buildID: "old-build"); item["targetAppName"] = "Example"
+        let exact = try JSONDecoder().decode(ActivityFeed.self, from: feed([item])).events[0]
+        XCTAssertEqual(SessionStore.activityApp(for: exact, in: [other, foreign, owned], ownerPairingID: "current-mac")?.id, owned.id)
+
+        item.removeValue(forKey: "buildId"); item["kind"] = "queued"
+        let live = try JSONDecoder().decode(ActivityFeed.self, from: feed([item])).events[0]
+        XCTAssertEqual(SessionStore.activityApp(for: live, in: [foreign, other], ownerPairingID: "current-mac")?.id, other.id)
+        XCTAssertNil(SessionStore.activityApp(for: live, in: [foreign], ownerPairingID: "current-mac"))
+        let duplicate = app("duplicate-build", name: "Example", owner: "current-mac")
+        XCTAssertNil(SessionStore.activityApp(for: live, in: [other, duplicate], ownerPairingID: "current-mac"))
+    }
+
+    @MainActor
+    func testLiveNotificationTapOpensTheAuthenticatedAppPageAndClearsAnOldDetailSheet() async throws {
+        let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
+        let notifications = CompanionNotifications(defaults: store)
+        var item = event(kind: "queued"); item["targetAppName"] = "Example"
+        let center = ActivityCenter(defaults: store, notifications: notifications, transport: { request in
+            (try self.feed([item]), self.response(request))
+        })
+        center.connect(to: PairedMac(token: "fixture", baseURL: URL(string: "https://paired.example")!))
+        await center.refresh()
+        center.selectedEvent = center.events.first
+        center.isPresented = true
+        var opened: [String?] = []
+        center.onOpenEvent = { opened.append($0.targetAppName) }
+        notifications.received(try XCTUnwrap(ActivityPushTarget(userInfo: ["eventId": "event-1", "macID": "installation-one"])), foreground: false)
+        await center.refresh()
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(opened, ["Example"])
+        XCTAssertNil(center.selectedEvent)
+        XCTAssertFalse(center.isPresented)
+    }
+
+    @MainActor
+    func testQueuedUpdateOpensItsAppPageWithoutLaunchingItsApp() async throws {
         let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
         var item = event(buildID: "build-one", kind: "queued")
         item["requestId"] = "request-one"
@@ -56,8 +102,9 @@ final class ActivityTests: XCTestCase {
         center.onOpenEvent = { _ in openedBuild = true }
         let queued = try XCTUnwrap(center.events.first)
         await center.open(queued)
-        XCTAssertFalse(openedBuild)
-        XCTAssertEqual(center.selectedEvent?.id, queued.id)
+        XCTAssertTrue(openedBuild)
+        XCTAssertNil(center.selectedEvent)
+        XCTAssertFalse(center.isPresented)
         XCTAssertEqual(queued.supportedLaunchURL?.absoluteString, "example-debug://open")
         for state in ["expired", "superseded", "unavailable"] {
             item["state"] = state
@@ -132,7 +179,7 @@ final class ActivityTests: XCTestCase {
     }
 
     @MainActor
-    func testOpeningStaleBuildRowUsesCurrentStateInsteadOfAnExpiredInstallHandoff() async throws {
+    func testOpeningStaleBuildRowRoutesCurrentEventToTheAppPageWithoutAnInstallHandoff() async throws {
         let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
         var item = event(buildID: "build-one")
         let center = ActivityCenter(defaults: store, notifications: CompanionNotifications(defaults: store), transport: { request in
@@ -144,12 +191,12 @@ final class ActivityTests: XCTestCase {
         item = event(sequence: 2, buildID: "build-one", kind: "queued")
         item["state"] = "expired"
         await center.refresh()
-        var opened = false
-        center.onOpenEvent = { _ in opened = true }
+        var opened: ActivityEvent?
+        center.onOpenEvent = { opened = $0 }
         await center.open(staleRow)
-        XCTAssertFalse(opened)
-        XCTAssertEqual(center.selectedEvent?.state, "expired")
-        XCTAssertFalse(center.selectedEvent?.canApplyQueuedChange ?? true)
+        XCTAssertEqual(opened?.state, "expired")
+        XCTAssertFalse(opened?.canApplyQueuedChange ?? true)
+        XCTAssertNil(center.selectedEvent)
     }
 
     @MainActor

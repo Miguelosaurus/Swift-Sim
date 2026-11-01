@@ -4,6 +4,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Open the app's current build/history page from build and hot-reload
+  notifications, clearing old activity sheets and keeping installation explicit.
+
 - Make the entire visible install/link button tappable, add pull-to-refresh to
   the app library, and describe installer handoff as a request rather than proof
   that iOS displayed its prompt.

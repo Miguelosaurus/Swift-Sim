@@ -25,6 +25,12 @@ install capabilities, pairing credentials or diagnostic logs. A notification tap
 refreshes the current authenticated feed and checks the Mac installation identity
 before resolving a target. Expired, removed or superseded requests do not offer a
 stale app handoff. Initial history and enabling alerts do not replay old pushes.
+Build and hot-reload notification taps open the target app's page in Swift Sim,
+showing its current latest build and version history. They do not automatically
+open an installer or launch the target app. Exact build identity takes precedence;
+legacy live events without a build ID navigate only when their authenticated app
+name matches exactly one app owned by the paired Mac. Ambiguous or unavailable
+targets retain the activity details instead.
 
 ## Queued hot reload
 
