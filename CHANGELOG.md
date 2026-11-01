@@ -29,6 +29,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
   bounded temporary app capture, with touch handling preserved.
   The finish is tuned to be slightly quicker and gentler, with a softer startup
   surge and less inward reach from the teal glow.
+  An immediate native glow preserves the top-center start while the procedural
+  renderer prepares its first frame, without shifting the outline/ripple clock.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.

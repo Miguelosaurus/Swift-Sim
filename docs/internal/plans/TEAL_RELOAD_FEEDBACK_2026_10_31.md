@@ -1,13 +1,14 @@
 # Teal Debug reload feedback — 2026-10-31
 
-Current SDK implementation: `0242b639182c3c4839097ea271d381f4f448b5a3`.
+Current SDK treatment: V7 startup continuity with V6 motion calibration.
 This replaces the existing Debug feedback banner without changing receipt or
 root-refresh authority. No Companion OTA, helper restart, or Zenics build was
 performed for this SDK change.
 
 The initial `a13c413` visual design was rejected in user review as insufficiently
 like the original Siri edge light. Its historical evidence is retained below;
-the current treatment uses the V5 renderer with V6 calibration and V4 adaptive pacing.
+the current treatment uses the V5 renderer with V7 startup continuity,
+V6 calibration and V4 adaptive pacing.
 
 ## Initial behavior — superseded visually
 
@@ -312,3 +313,32 @@ evidence/ownership: `.build/teal-reload-feedback-v6/`; exported previews are
 `swift-sim-calibrated-teal-v6-light.mp4`. Preview/recorders stopped, original
 appearance restored, task simulator shut down. No helper restart or phone build
 was performed; the existing phone rollout requirement still applies.
+
+## Visible top-center startup — V7, 2026-11-01
+
+The original V6 recording confirmed a real blank interval: the choreography
+advanced while the first Metal pipeline/drawable was being prepared, then the
+first visible glow appeared partway around the top-right corner. The presentation
+now draws its native fallback immediately at the current perimeter position.
+That temporary glow remains until Metal has presented its first drawable;
+Simulator, whose Metal API omits presentation callbacks, uses successful command
+completion. The handoff neither resets nor delays the existing choreography.
+The contact frame, 2.1-second wave, displacement constants, native receipt
+authority and notifications are unchanged. No eager GPU prewarming was added.
+Capture waits for readiness so the temporary startup glow is removed before the
+refreshed app is sampled. Readiness callbacks are cleared on handoff/teardown.
+
+Validation: all fifteen SDK tests pass, including native receipt admission,
+exact-contact timing and actual GPU wave pixels. The actual SDK/fixture builds
+for both iOS Simulator and unsigned generic iOS device, covering both callback
+branches. New light/dark recordings show the first short glow at top center and
+the full wave; SwiftUI and UIKit taps retain their values. Release compilation
+and symbol/string exclusions pass, as do documentation/whitespace checks.
+These remain synthetic visual previews, not physical-device patch proof.
+
+Local evidence/ownership: `.build/teal-reload-feedback-v7/`; exports are
+`swift-sim-top-center-start-v7-dark.mp4` and
+`swift-sim-top-center-start-v7-light.mp4`. The preview and recorder stopped,
+original light appearance/Reduce Motion preference were verified, and the task
+simulator was shut down. No helper restart, Companion OTA or Zenics build was
+performed. Existing target apps still require the updated SDK in a Debug build.

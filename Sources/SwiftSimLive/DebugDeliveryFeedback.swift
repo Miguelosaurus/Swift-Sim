@@ -463,6 +463,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var animationFinished = false
     @State private var proceduralAvailable = true
+    @State private var proceduralReady = false
 
     var body: some View {
         GeometryReader { safeGeometry in
@@ -479,11 +480,17 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                     ZStack(alignment: .top) {
                         #if canImport(MetalKit)
                         if proceduralAvailable && SwiftSimReloadMetalView.isAvailable && !reduceMotion && !reduceTransparency && state.phase != .failed {
+                            // Metal's first compilation/drawable may take several
+                            // frames. Never leave the beginning of the sweep blank.
+                            if !proceduralReady {
+                                fallback(frame: frame, corner: corner)
+                            }
                             SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
                                 frame: frame, time: choreography.elapsed(at: now), cornerRadius: corner,
                                 lightAppearance: colorScheme == .light,
                                 prepareSnapshot: state.phase == .refreshed && !frame.finished),
-                                onUnavailable: { proceduralAvailable = false })
+                                onUnavailable: { proceduralAvailable = false },
+                                onReady: { proceduralReady = true })
                                 .mask { SwiftSimReloadReveal(progress: frame.reveal, cornerRadius: corner).fill(.white) }
                         } else {
                             fallback(frame: frame, corner: corner)

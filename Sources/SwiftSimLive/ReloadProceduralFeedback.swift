@@ -95,6 +95,9 @@ private enum SwiftSimReloadGPUCache {
 final class SwiftSimReloadMetalView: MTKView {
     static let isAvailable = MTLCreateSystemDefaultDevice() != nil
     var unavailable: (() -> Void)?
+    var ready: (() -> Void)?
+    private var readinessScheduled = false
+    private var hasPresentedFrame = false
     private var resources: SwiftSimReloadGPUResources?
     private var queue: MTLCommandQueue?
     private var capture: MTLTexture?
@@ -155,7 +158,7 @@ final class SwiftSimReloadMetalView: MTKView {
 
     func update(_ input: SwiftSimReloadRenderInput) {
         self.input = input
-        if input.prepareSnapshot && !captureAttempted && !captureScheduled {
+        if input.prepareSnapshot && hasPresentedFrame && !captureAttempted && !captureScheduled {
             captureScheduled = true
             // Let the refreshed host hierarchy commit before capturing it.
             DispatchQueue.main.async { [weak self] in
@@ -177,6 +180,7 @@ final class SwiftSimReloadMetalView: MTKView {
         compilation = nil
         input = nil
         unavailable = nil
+        ready = nil
         capture = nil
         emptyTexture = nil
         queue = nil
@@ -216,6 +220,27 @@ final class SwiftSimReloadMetalView: MTKView {
         encoder.endEncoding()
         let semaphore = inFlight
         command.addCompletedHandler { _ in semaphore.signal() }
+        if !readinessScheduled {
+            readinessScheduled = true
+            // Compiling a pipeline is not proof that anything was visible.
+            // Keep the immediate native glow until a drawable is presented.
+            let notifyReady: @Sendable () -> Void = { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.resources != nil else { return }
+                    self.hasPresentedFrame = true
+                    self.ready?()
+                    self.ready = nil
+                }
+            }
+            #if targetEnvironment(simulator)
+            // Simulator Metal omits the drawable presentation callback.
+            command.addCompletedHandler { command in
+                if command.status == .completed { notifyReady() }
+            }
+            #else
+            drawable.addPresentedHandler { _ in notifyReady() }
+            #endif
+        }
         command.present(drawable)
         command.commit()
     }
@@ -262,9 +287,11 @@ final class SwiftSimReloadMetalView: MTKView {
 struct SwiftSimReloadProceduralFeedback: UIViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
+    var onReady: () -> Void
     func makeUIView(context: Context) -> SwiftSimReloadMetalView {
         let view = SwiftSimReloadMetalView()
         view.unavailable = onUnavailable
+        view.ready = onReady
         return view
     }
     func updateUIView(_ view: SwiftSimReloadMetalView, context: Context) { view.update(input) }
@@ -274,9 +301,11 @@ struct SwiftSimReloadProceduralFeedback: UIViewRepresentable {
 struct SwiftSimReloadProceduralFeedback: NSViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
+    var onReady: () -> Void
     func makeNSView(context: Context) -> SwiftSimReloadMetalView {
         let view = SwiftSimReloadMetalView()
         view.unavailable = onUnavailable
+        view.ready = onReady
         return view
     }
     func updateNSView(_ view: SwiftSimReloadMetalView, context: Context) { view.update(input) }

@@ -94,6 +94,10 @@ existing presentation ticks drive it. One background compilation caches the
 pipeline per Debug process, while captures and drawable resources belong to the
 temporary presentation. Neither shader compilation nor visual completion gates
 native patch receipts or notifications.
+An immediate native glow follows the same perimeter clock while the procedural
+renderer prepares its first frame. The handoff waits for drawable presentation
+(GPU completion on Simulator), so cold startup cannot hide the beginning of the
+sweep. This adds no prewarming, idle animation or separate ripple delay.
 Existing apps need one Debug rebuild against the updated SwiftSimLive package
 for this effect. Rebuilding with an older pinned SDK retains its old feedback.
 No automatic rebuild or installation is required just to receive inbox updates.
