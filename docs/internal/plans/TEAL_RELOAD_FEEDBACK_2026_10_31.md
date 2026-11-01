@@ -1,13 +1,13 @@
 # Teal Debug reload feedback — 2026-10-31
 
-Current SDK implementation: `24a8a9d5a0b159cb4bb4369608ece5638d55d3d9`, pushed to main.
+Current SDK implementation: `7d821216f4f44b4fe305539097901a21834e232e`, pushed to main.
 This replaces the existing Debug feedback banner without changing receipt or
 root-refresh authority. No Companion OTA, helper restart, or Zenics build was
 performed for this SDK change.
 
 The initial `a13c413` visual design was rejected in user review as insufficiently
 like the original Siri edge light. Its historical evidence is retained below;
-the current visual treatment is described in the refinement section.
+the current visual treatment is described in the synchronized glass wave section.
 
 ## Initial behavior — superseded visually
 
@@ -61,9 +61,9 @@ own lane, retain its existing engine/signing/data identity, and qualify an actua
 reload on the phone after installation. Updating the Release Companion alone
 does not install this target-app effect.
 
-## Siri-style refinement after visual review
+## Siri-style refinement after visual review — V2 history
 
-The current renderer replaces the progress-track appearance with a clockwise
+The V2 renderer replaced the progress-track appearance with a clockwise
 entrance of soft light, then uneven flowing teal/mint/cyan pools with an inward
 falloff. Its 30 fps timeline exists only inside the temporary feedback subtree,
 and pauses for Reduce Motion, failure, inactive scenes and completion fade.
@@ -85,7 +85,50 @@ Motion and failure appearances were inspected. Original preferences were restore
 the preview/recorders stopped, and the task simulator shut down. Helper/engine PIDs
 and recorded compilation capture hashes are unchanged. No phone execution claimed.
 
-Current local receipts/screenshots: `.build/teal-reload-feedback-v2/`. Exported
+V2 local receipts/screenshots: `.build/teal-reload-feedback-v2/`. Exported
 `swift-sim-siri-teal-v2-light.mp4` and `swift-sim-siri-teal-v2-dark.mp4` are synthetic
 visual previews. Earlier previews represent the rejected design. The phone rollout
 still requires the current SDK revision and one Debug rebuild in the app's lane.
+
+## Synchronized glass wave — V3 current implementation
+
+The entrance holds its final gap open at 93% until an admitted native refresh
+receipt. One deterministic clock then closes the gap and starts the wave on the
+same frame that the reveal reaches 100%. Fast receipts still finish the clockwise
+entrance; an arbitrarily long unconfirmed wait never completes it. The closed
+perimeter mask has no blurred end cap that could visually bridge the gap early.
+There is no separate sleep or inherited host animation sequencing the transition.
+
+The finish is a broad, feathered native Liquid Glass lens growing from the top.
+Its hard rim is masked away, leaving live text/content visibly refracted through
+the wave. It uses a fixed-size viewport, does not filter the app's host layer,
+and introduces no screenshot, custom Metal resource, or helper process. Earlier
+systems use the material fallback; Reduce Transparency avoids refraction. The
+temporary timeline permits 60 fps during the finish and 30 fps while waiting.
+Normal completion dismisses through a request/sequence-fenced callback; the
+success watchdog is 3.1 seconds. Neither path advances native refresh authority.
+
+The original [Apple Siri motion clip](https://www.apple.com/newsroom/videos/videos-2024/autoplay/2024/apple-intelligence-siri-add-contact/large_2x.mp4)
+was sampled and inspected, alongside Apple's [WWDC24 ripple example](https://developer.apple.com/videos/play/wwdc2024/10151/).
+The host distortion shader approach was not used because Apple's
+[distortionEffect documentation](https://developer.apple.com/documentation/swiftui/view/distortioneffect(_:maxsampleoffset:isenabled:))
+documents placeholder limitations for UIKit/AppKit-backed views. The native glass
+overlay preserves those live controls without changing their host rendering.
+
+Validation: nine SDK tests pass, including exact before/contact/after timing,
+fast confirmation, a 600-second unconfirmed wait, gap geometry, receipt admission,
+stale-event rejection and revision isolation. The actual SDK/preview app builds
+for iOS Simulator. Final Release symbol inspection excludes all feedback types,
+including the choreography, reveal and lens. Documentation/whitespace checks pass.
+Light/dark synthetic previews show a UIKit switch responding when tapped during
+the wave, with its value retained afterward; a SwiftUI button also responds
+during the glow. Actual simulator Reduce Motion and amber failure states were
+inspected. These synthetic events do not prove a phone patch applied.
+
+Receipts, screenshots and ownership: `.build/teal-reload-feedback-v3/`. Exported
+`swift-sim-glass-wave-v3-light.mp4` and `swift-sim-glass-wave-v3-dark.mp4` show the
+current effect. The preview app and recorder stopped, original light appearance
+and Reduce Motion preference were restored, and the task simulator is shut down.
+Helper PID 48852 and engine PID 42553 remain untouched; compilation capture hashes
+still match baseline. Zenics remains unchanged in its active dirty lane. One
+updated Debug SDK build and an actual phone reload are still required there.
