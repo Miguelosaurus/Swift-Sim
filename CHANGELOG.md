@@ -4,6 +4,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Make the whole Latest Build card tappable, including its padded area, and
+  prevent a late notification refresh from overriding newer navigation.
+
 - Open the app's current build/history page from build and hot-reload
   notifications, clearing old activity sheets and keeping installation explicit.
 

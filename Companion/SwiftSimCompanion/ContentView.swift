@@ -667,9 +667,12 @@ private struct ManagedAppDetailView: View {
                             .foregroundStyle(.tertiary)
                     }
                     .padding(16)
-                    .liquidGlassPanel(cornerRadius: 26, tint: statusColor.opacity(0.08), interactive: true)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .liquidGlassPanel(cornerRadius: 26, tint: statusColor.opacity(0.08), interactive: true)
+                .accessibilityIdentifier("latestBuildButton")
             }
         }
     }
@@ -878,6 +881,8 @@ private struct BuildHistoryRow: View {
         }
         .padding(.horizontal, 15)
         .padding(.vertical, 13)
+        .frame(maxWidth: .infinity)
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .liquidGlassPanel(cornerRadius: 22, tint: Color.white.opacity(0.12), interactive: true)
     }
 

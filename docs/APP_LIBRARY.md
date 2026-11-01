@@ -12,6 +12,9 @@ recent history. The four previous builds are expanded; older builds stay availab
 under Older builds. Debug and Release labels are retained in history. Building
 current code still requires confirmation, and an install request is not proof of
 installation.
+The full Latest Build card, including its padding, opens the install page on a
+single tap. A notification's background refresh cannot return the user to app
+history after they have already chosen a build or moved to another screen.
 
 ## Icons
 

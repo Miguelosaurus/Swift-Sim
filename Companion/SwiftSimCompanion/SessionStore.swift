@@ -262,8 +262,10 @@ final class SessionStore: ObservableObject {
     private func openActivityEvent(_ event: ActivityEvent) async {
         guard let expectedMac = pairedMac else { return }
         let revision = pairingRevision
+        let viewRevision = deviceBuildViewRevision
         await refreshHelperStatus()
-        guard Self.pairingResponseIsCurrent(current: pairedMac, expected: expectedMac, currentRevision: pairingRevision, expectedRevision: revision) else { return }
+        guard Self.pairingResponseIsCurrent(current: pairedMac, expected: expectedMac, currentRevision: pairingRevision, expectedRevision: revision),
+              Self.revisionIsCurrent(current: deviceBuildViewRevision, expected: viewRevision) else { return }
         guard let app = Self.activityApp(for: event, in: managedApps, ownerPairingID: expectedMac.id) else {
             activity.isPresented = true
             activity.selectedEvent = event
