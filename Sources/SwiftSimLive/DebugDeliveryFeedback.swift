@@ -110,7 +110,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
             }
             #endif
             dismissal = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(current.phase == .refreshed ? 2.75 : 5))
+                try? await Task.sleep(for: .seconds(current.phase == .refreshed ? 3.1 : 5))
                 guard !Task.isCancelled else { return }
                 self?.dismissPresentation(requestID: current.requestID, sequence: current.sequence)
             }
@@ -120,6 +120,49 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     func dismissPresentation(requestID: String, sequence: Int) {
         guard presentation?.requestID == requestID, presentation?.sequence == sequence else { return }
         withAnimation(.easeOut(duration: 0.2)) { presentation = nil }
+    }
+}
+
+/// One clock owns both the final perimeter contact and the first wave frame.
+/// Confirmation comes only from the admitted native feedback, never this clock.
+struct SwiftSimReloadChoreography {
+    static let entranceDuration = 1.05
+    static let waitingReveal = 0.93
+    static let closingDuration = 0.24
+    static let waveDuration = 1.35
+
+    struct Frame {
+        let reveal: CGFloat
+        let waveProgress: CGFloat
+        let waveStarted: Bool
+        let finished: Bool
+        let auraOpacity: Double
+    }
+
+    static func frame(elapsed: Double, confirmedAt: Double?) -> Frame {
+        let elapsed = max(0, elapsed)
+        let pending = waitingReveal * ease(min(1, elapsed / entranceDuration))
+        guard let confirmation = confirmedAt, confirmation.isFinite,
+              confirmation >= 0, elapsed >= confirmation else {
+            return Frame(reveal: pending, waveProgress: 0, waveStarted: false,
+                finished: false, auraOpacity: min(1, elapsed / 0.2))
+        }
+        let before = waitingReveal * ease(min(1, confirmation / entranceDuration))
+        let closing = max(closingDuration, entranceDuration - confirmation)
+        let contact = confirmation + closing
+        if elapsed < contact {
+            let fraction = ease((elapsed - confirmation) / closing)
+            return Frame(reveal: min(1.0.nextDown, before + (1 - before) * fraction), waveProgress: 0,
+                waveStarted: false, finished: false, auraOpacity: 1)
+        }
+        let progress = min(1, (elapsed - contact) / waveDuration)
+        return Frame(reveal: 1, waveProgress: progress, waveStarted: true,
+            finished: progress >= 1, auraOpacity: max(0, 1 - progress * 2))
+    }
+
+    private static func ease(_ value: Double) -> Double {
+        let value = max(0, min(1, value))
+        return value * value * (3 - 2 * value)
     }
 }
 
@@ -147,6 +190,28 @@ struct SwiftSimReloadPerimeter: Shape {
                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
             path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
         }
+    }
+}
+
+/// Clips the glow at its actual perimeter position. Rounded stroke end caps
+/// and blur would otherwise bridge the waiting gap before it really closes.
+struct SwiftSimReloadReveal: Shape {
+    var progress: CGFloat
+    let cornerRadius: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard progress > 0 else { return Path() }
+        guard progress < 1 else { return Path(rect) }
+        var path = SwiftSimReloadPerimeter(cornerRadius: cornerRadius)
+            .path(in: rect).trimmedPath(from: 0, to: progress)
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -210,10 +275,7 @@ struct SwiftSimReloadAura: View {
             }
         }
         .mask {
-            SwiftSimReloadPerimeter(cornerRadius: cornerRadius)
-                .trim(from: 0, to: reveal)
-                .stroke(.white, style: StrokeStyle(lineWidth: 140, lineCap: .round, lineJoin: .round))
-                .blur(radius: 12)
+            SwiftSimReloadReveal(progress: reveal, cornerRadius: cornerRadius).fill(.white)
         }
     }
 
@@ -230,8 +292,9 @@ struct SwiftSimReloadAura: View {
     }
 }
 
-/// A narrow refractive ring, rather than a blurred copy of the host content.
-struct SwiftSimReloadWave: Shape {
+/// A growing live glass surface, masked inside its bevel to hide the hard rim.
+/// The backdrop stays live and includes UIKit, without filtering the host view.
+struct SwiftSimReloadLens: Shape {
     var progress: CGFloat
     var animatableData: CGFloat {
         get { progress }
@@ -242,108 +305,105 @@ struct SwiftSimReloadWave: Shape {
         let travel = hypot(rect.width / 2, rect.height) + 28
         let radius = 12 + max(0, min(progress, 1)) * travel
         let circle = CGRect(x: rect.midX - radius, y: 5 - radius, width: radius * 2, height: radius * 2)
-        return Path(ellipseIn: circle).strokedPath(StrokeStyle(lineWidth: 12))
+        return Path(ellipseIn: circle)
+    }
+}
+
+struct SwiftSimReloadLiquidWave: View {
+    let progress: CGFloat
+    let reduceTransparency: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            let travel = hypot(geometry.size.width / 2, geometry.size.height) + 28
+            let radius = 12 + progress * travel
+            let width = min(110, max(28, radius * 0.55))
+            let origin = UnitPoint(x: 0.5, y: 5 / max(1, geometry.size.height))
+            let lens = SwiftSimReloadLens(progress: progress)
+            Group {
+                if reduceTransparency {
+                    lens.fill(Color.teal.opacity(0.08))
+                } else if #available(iOS 26, macOS 26, *) {
+                    Color.clear.glassEffect(.clear, in: lens)
+                } else {
+                    lens.fill(.ultraThinMaterial)
+                }
+            }
+            .mask {
+                RadialGradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .white.opacity(0.1), location: 0.2),
+                    .init(color: .white.opacity(0.8), location: 0.65),
+                    .init(color: .white, location: 0.83),
+                    .init(color: .clear, location: 1),
+                ], center: origin, startRadius: max(0, radius - width), endRadius: radius)
+            }
+            .opacity(pow(sin(Double(progress) * .pi), 0.45))
+        }
     }
 }
 
 struct SwiftSimDeliveryFeedbackEffect: View {
     let state: SwiftSimDeliveryFeedbackState
+    var onFinished: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var scenePhase
-    @State private var outlineProgress: CGFloat = 0
-    @State private var waveProgress: CGFloat = 0
-    @State private var showingWave = false
-    @State private var auraOpacity: Double = 0
-    @State private var entranceStartedAt: Date?
-
-    private var teal: Color { Color(red: 0.03, green: 0.77, blue: 0.66) }
+    @State private var startedAt = Date()
+    @State private var confirmedAt: Date?
+    @State private var animationFinished = false
     private var animationKey: String { "\(state.sequence)-\(reduceMotion)-\(scenePhase == .active)" }
 
     var body: some View {
         GeometryReader { safeGeometry in
-            GeometryReader { geometry in
-                #if os(iOS)
-                let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
-                #else
-                let corner: CGFloat = 22
-                #endif
-                ZStack(alignment: .top) {
-                    SwiftSimReloadAura(reveal: reduceMotion ? 1 : outlineProgress,
-                        cornerRadius: corner, failed: state.phase == .failed,
-                        reduceMotion: reduceMotion, reduceTransparency: reduceTransparency,
-                        active: scenePhase == .active && auraOpacity > 0)
-                        .opacity(auraOpacity)
-                    // Mount at zero radius before the delayed finish animation.
-                    // Inserting the wave and advancing it in one turn skips motion.
-                    if state.phase == .refreshed && !reduceMotion {
-                        wave
-                            .opacity(showingWave ? 0.48 * (1 - Double(waveProgress)) : 0)
+            TimelineView(.animation(minimumInterval: state.phase == .refreshed ? 1.0 / 60 : 1.0 / 30,
+              paused: reduceMotion || state.phase == .failed || scenePhase != .active || animationFinished)) { timeline in
+                GeometryReader { geometry in
+                    let frame = SwiftSimReloadChoreography.frame(elapsed: timeline.date.timeIntervalSince(startedAt),
+                        confirmedAt: confirmedAt.map { $0.timeIntervalSince(startedAt) })
+                    #if os(iOS)
+                    let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
+                    #else
+                    let corner: CGFloat = 22
+                    #endif
+                    ZStack(alignment: .top) {
+                        SwiftSimReloadAura(reveal: reduceMotion || state.phase == .failed ? 1 : frame.reveal,
+                            cornerRadius: corner, failed: state.phase == .failed,
+                            reduceMotion: reduceMotion, reduceTransparency: reduceTransparency,
+                            active: scenePhase == .active && frame.auraOpacity > 0)
+                            .opacity(reduceMotion || state.phase == .failed ? 1 : frame.auraOpacity)
+                        if state.phase == .refreshed && frame.waveStarted && !frame.finished && !reduceMotion {
+                            SwiftSimReloadLiquidWave(progress: frame.waveProgress, reduceTransparency: reduceTransparency)
+                        }
+                        if reduceMotion || state.phase == .failed {
+                            Label(state.phase.title, systemImage: state.phase.symbol)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background {
+                                    if reduceTransparency { Capsule().fill(.background) }
+                                    else { Capsule().fill(.regularMaterial) }
+                                }
+                                .padding(.top, safeGeometry.safeAreaInsets.top + 10)
+                        }
                     }
-                    if reduceMotion || state.phase == .failed {
-                        Label(state.phase.title, systemImage: state.phase.symbol)
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background {
-                                if reduceTransparency { Capsule().fill(.background) }
-                                else { Capsule().fill(.regularMaterial) }
-                            }
-                            .padding(.top, safeGeometry.safeAreaInsets.top + 10)
+                    .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                    .onChange(of: frame.finished) { finished in
+                        if finished {
+                            animationFinished = true
+                            onFinished()
+                        }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                .ignoresSafeArea()
             }
-            .ignoresSafeArea()
         }
+        .transaction { $0.animation = nil }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .opacity(scenePhase == .active ? 1 : 0)
-        .task(id: animationKey) { await animateLifecycle() }
-    }
-
-    @ViewBuilder
-    private var wave: some View {
-        if reduceTransparency {
-            SwiftSimReloadWave(progress: waveProgress).fill(teal.opacity(0.12))
-        } else if #available(iOS 26, macOS 26, *) {
-            Color.clear.glassEffect(.clear.tint(teal.opacity(0.08)), in: SwiftSimReloadWave(progress: waveProgress))
-        } else {
-            SwiftSimReloadWave(progress: waveProgress).fill(.ultraThinMaterial)
-        }
-    }
-
-    @MainActor
-    private func animateLifecycle() async {
-        guard !reduceMotion, scenePhase == .active else {
-            showingWave = false
-            auraOpacity = 1
-            outlineProgress = 1
-            return
-        }
-        if state.phase == .failed {
-            showingWave = false
-            auraOpacity = 1
-            outlineProgress = 1
-            return
-        }
-        if entranceStartedAt == nil {
-            entranceStartedAt = Date()
-            withAnimation(.easeInOut(duration: 1.05)) { outlineProgress = 1 }
-            withAnimation(.easeOut(duration: 0.3)) { auraOpacity = 1 }
-        }
-        if state.phase == .refreshed {
-            // Fast reloads finish the clockwise entrance before their ripple.
-            // The moving aura can otherwise wait indefinitely for real proof.
-            let remaining = max(0, 1.05 - Date().timeIntervalSince(entranceStartedAt ?? Date()))
-            do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
-            guard !Task.isCancelled else { return }
-            showingWave = true
-            waveProgress = 0
-            withAnimation(.easeOut(duration: 1.1)) {
-                waveProgress = 1
-                auraOpacity = 0
-            }
+        .task(id: animationKey) {
+            if state.phase == .refreshed && confirmedAt == nil { confirmedAt = Date() }
         }
     }
 }

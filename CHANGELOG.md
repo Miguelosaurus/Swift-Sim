@@ -19,8 +19,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 ### Added
 
 - Debug hot reload feedback with a clockwise reveal of flowing teal edge light,
-  soft inward bloom, and a glass ripple only after confirmed refresh, with
-  motion/transparency fallbacks.
+  soft inward bloom, and a held final gap that closes only after confirmed refresh.
+  The exact contact frame starts a broad refractive live-glass wave, with
+  motion/transparency fallbacks and UIKit-safe touch handling.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.

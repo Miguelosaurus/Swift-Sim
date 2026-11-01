@@ -49,18 +49,25 @@ successful reloads. The confirmed state requires matching native application,
 replacement and SwiftUI refresh receipts with an increased root revision.
 The Debug SDK reveals soft teal edge light clockwise from the screen's top
 center, then keeps uneven pools of teal, mint and cyan flowing around the edges
-while the reload is pending. The light blooms inward with a soft falloff instead
-of displaying a progress track or percentage. Only an admitted matching native
-applied-and-refreshed receipt sends the soft glass ripple across the content and
-dissipates the edge light. A failure uses static amber and an unconfirmed-update
-label, without a success ripple.
+with the final gap held open while the reload is pending. The light blooms inward
+with a soft falloff rather than displaying a numeric percentage. Only an admitted
+matching native applied-and-refreshed receipt closes that final gap. One shared
+animation clock starts the glass wave on the exact frame the edge reaches the
+top; host-app implicit animations cannot introduce a separate delay.
+
+The finish uses a broad live-backdrop glass lens with a feathered crest and its
+hard rim masked away, so content refracts as the wave propagates. It does not
+filter the host view or take a snapshot, preserving embedded UIKit content and
+touch handling. A failure uses static amber and an unconfirmed-update label,
+without closing as a success or playing the success wave.
 
 The effect does not intercept touches or add host view identity changes. It
 exists only during feedback, supports Reduce Motion with a static outline and
 status, respects Reduce Transparency, and is excluded from Release. iOS 26 uses
-native Liquid Glass for the narrow ripple; earlier systems use a material ring.
-The temporary aura is drawn at up to 30 frames per second; its clock pauses for
-Reduce Motion, failures, inactive scenes and the completion fade. There is no
+native Liquid Glass for the refractive crest; earlier systems use a material-only wave.
+The temporary aura is drawn at up to 30 frames per second; completion choreography
+uses up to 60. Its clocks pause for Reduce Motion, failures, inactive scenes and
+finished presentation, which is dismissed with request/sequence fencing. There is no
 content snapshot, custom shader pipeline, new service, or idle animation.
 Existing apps need one Debug rebuild against the updated SwiftSimLive package
 for this effect. Rebuilding with an older pinned SDK retains its old feedback.

@@ -26,11 +26,39 @@ func reloadOutlineStartsAtTheTopAndTravelsClockwise() throws {
 }
 
 @Test
-func completionWaveRemainsHollow() {
+func glassLensGrowsFromTheTop() {
     let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
-    let wave = SwiftSimReloadWave(progress: 0).path(in: bounds)
-    #expect(!wave.contains(CGPoint(x: bounds.midX, y: 5)))
-    #expect(wave.contains(CGPoint(x: bounds.midX + 12, y: 5)))
+    let lens = SwiftSimReloadLens(progress: 0).path(in: bounds)
+    #expect(lens.contains(CGPoint(x: bounds.midX, y: 5)))
+    #expect(!lens.contains(CGPoint(x: bounds.midX, y: 50)))
+    #expect(SwiftSimReloadLens(progress: 1).path(in: bounds).contains(CGPoint(x: 1, y: 873)))
+}
+
+@Test
+func perimeterWaitsForProofAndContactStartsTheWaveOnTheSameClockTick() {
+    let pending = SwiftSimReloadChoreography.frame(elapsed: 600, confirmedAt: nil)
+    #expect(pending.reveal < 1 && !pending.waveStarted && pending.waveProgress == 0)
+    let confirmation = 2.0
+    let contact = confirmation + SwiftSimReloadChoreography.closingDuration
+    let before = SwiftSimReloadChoreography.frame(elapsed: contact - 0.00001, confirmedAt: confirmation)
+    #expect(before.reveal < 1 && !before.waveStarted && before.waveProgress == 0)
+    let touching = SwiftSimReloadChoreography.frame(elapsed: contact, confirmedAt: confirmation)
+    #expect(touching.reveal == 1 && touching.waveStarted && touching.waveProgress == 0)
+    let after = SwiftSimReloadChoreography.frame(elapsed: contact + 1.0 / 60, confirmedAt: confirmation)
+    #expect(after.reveal == 1 && after.waveProgress > 0)
+}
+
+@Test
+func fastProofStillCompletesTheClockwiseSweepAndTheWaitingGapCannotBeBlurredClosed() {
+    let before = SwiftSimReloadChoreography.frame(elapsed: 0.9, confirmedAt: 0.05)
+    #expect(before.reveal < 1 && !before.waveStarted)
+    let contact = SwiftSimReloadChoreography.frame(elapsed: 1.05, confirmedAt: 0.05)
+    #expect(contact.reveal == 1 && contact.waveStarted)
+    let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
+    let waiting = SwiftSimReloadReveal(progress: 0.93, cornerRadius: 55).path(in: bounds)
+    #expect(!waiting.contains(CGPoint(x: 190, y: 2)))
+    #expect(waiting.contains(CGPoint(x: 210, y: 2)))
+    #expect(SwiftSimReloadReveal(progress: 1, cornerRadius: 55).path(in: bounds).contains(CGPoint(x: 190, y: 2)))
 }
 
 @Test
