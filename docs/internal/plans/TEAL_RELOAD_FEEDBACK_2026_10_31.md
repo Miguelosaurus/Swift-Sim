@@ -1,11 +1,15 @@
 # Teal Debug reload feedback — 2026-10-31
 
-SDK implementation: `a13c413074c999304f2e79a65bb18fc519dce526`, pushed to main.
+Current SDK implementation: `24a8a9d5a0b159cb4bb4369608ece5638d55d3d9`, pushed to main.
 This replaces the existing Debug feedback banner without changing receipt or
 root-refresh authority. No Companion OTA, helper restart, or Zenics build was
 performed for this SDK change.
 
-## Behavior
+The initial `a13c413` visual design was rejected in user review as insufficiently
+like the original Siri edge light. Its historical evidence is retained below;
+the current visual treatment is described in the refinement section.
+
+## Initial behavior — superseded visually
 
 The outline begins at top center and travels clockwise through received,
 applying and refresh-waiting stages. It leaves a gap while refresh is unconfirmed.
@@ -56,3 +60,32 @@ checkout was only inspected, not edited or rebuilt. Update the SDK pin in its
 own lane, retain its existing engine/signing/data identity, and qualify an actual
 reload on the phone after installation. Updating the Release Companion alone
 does not install this target-app effect.
+
+## Siri-style refinement after visual review
+
+The current renderer replaces the progress-track appearance with a clockwise
+entrance of soft light, then uneven flowing teal/mint/cyan pools with an inward
+falloff. Its 30 fps timeline exists only inside the temporary feedback subtree,
+and pauses for Reduce Motion, failure, inactive scenes and completion fade.
+The glow is indeterminate while waiting; it does not pretend to measure native
+progress. Only confirmed refresh plays the softened glass wave. Fast successes
+finish the clockwise entrance before the wave. Terminal success dismissal allows
+2.75 seconds for that sequence; it does not delay the native receipt or helper.
+
+The original Apple reference was inspected directly:
+[Apple's 2024 Siri design](https://www.apple.com/newsroom/2024/06/introducing-apple-intelligence-for-iphone-ipad-and-mac/).
+The implementation uses public SwiftUI Canvas/Shape drawing and native glass for
+the finish, with no copied host content or custom Metal resource.
+
+Final validation: seven Swift package tests pass with client autoconnect disabled;
+the actual SDK/preview app builds for iOS Simulator; Release symbol exclusion also
+checks the new aura type. Light/dark synthetic previews exercise both SwiftUI and
+UIKit controls during the glow and retain their values. Actual simulator Reduce
+Motion and failure appearances were inspected. Original preferences were restored,
+the preview/recorders stopped, and the task simulator shut down. Helper/engine PIDs
+and recorded compilation capture hashes are unchanged. No phone execution claimed.
+
+Current local receipts/screenshots: `.build/teal-reload-feedback-v2/`. Exported
+`swift-sim-siri-teal-v2-light.mp4` and `swift-sim-siri-teal-v2-dark.mp4` are synthetic
+visual previews. Earlier previews represent the rejected design. The phone rollout
+still requires the current SDK revision and one Debug rebuild in the app's lane.
