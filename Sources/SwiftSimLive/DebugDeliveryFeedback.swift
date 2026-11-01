@@ -39,16 +39,6 @@ struct SwiftSimDeliveryFeedbackState: Equatable {
             case .failed: "exclamationmark.circle"
             }
         }
-        // This is a lifecycle cue, not a measured percentage. The final gap
-        // closes only after the reducer admits a complete native receipt.
-        var outlineProgress: CGFloat {
-            switch self {
-            case .receiving: 0.18
-            case .applying: 0.68
-            case .waitingForRefresh: 0.92
-            case .refreshed, .failed: 1
-            }
-        }
     }
 
     let requestID: String
@@ -120,7 +110,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
             }
             #endif
             dismissal = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(current.phase == .refreshed ? 2.25 : 5))
+                try? await Task.sleep(for: .seconds(current.phase == .refreshed ? 2.75 : 5))
                 guard !Task.isCancelled else { return }
                 self?.dismissPresentation(requestID: current.requestID, sequence: current.sequence)
             }
@@ -138,7 +128,7 @@ struct SwiftSimReloadPerimeter: Shape {
     var cornerRadius: CGFloat = 44
 
     func path(in bounds: CGRect) -> Path {
-        let rect = bounds.insetBy(dx: 5, dy: 5)
+        let rect = bounds
         guard rect.width > 0, rect.height > 0 else { return Path() }
         let radius = min(cornerRadius, min(rect.width, rect.height) / 2)
         return Path { path in
@@ -160,6 +150,86 @@ struct SwiftSimReloadPerimeter: Shape {
     }
 }
 
+/// Flowing edge light, rather than a progress-track stroke. Drawing is scoped
+/// to this temporary overlay and never samples or copies the host view.
+struct SwiftSimReloadAura: View {
+    var reveal: CGFloat
+    let cornerRadius: CGFloat
+    let failed: Bool
+    let reduceMotion: Bool
+    let reduceTransparency: Bool
+    let active: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var startedAt = Date()
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || failed || !active)) { timeline in
+            Canvas { context, size in
+                let bounds = CGRect(origin: .zero, size: size)
+                let path = SwiftSimReloadPerimeter(cornerRadius: cornerRadius).path(in: bounds)
+                let time = reduceMotion || failed ? 0 : max(0, timeline.date.timeIntervalSince(startedAt))
+                let palette = colors
+                var context = context
+                context.clip(to: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).path(in: bounds))
+                let shading = GraphicsContext.Shading.conicGradient(
+                    Gradient(colors: palette + [palette[0]]),
+                    center: CGPoint(x: size.width / 2, y: size.height / 2),
+                    angle: .radians(time * 0.46))
+                if reduceTransparency {
+                    context.stroke(path, with: shading, style: StrokeStyle(lineWidth: 7))
+                } else {
+                    // A broad falloff carries the light inward. Unequal moving
+                    // pools vary its depth and intensity around the perimeter.
+                    context.drawLayer { bloom in
+                        bloom.addFilter(.blur(radius: 14))
+                        bloom.opacity = colorScheme == .dark ? 0.88 : 0.6
+                        bloom.stroke(path, with: shading, style: StrokeStyle(lineWidth: 28))
+                        for index in 0..<4 {
+                            let position = (time * 0.035 + Double(index) * 0.247)
+                                .truncatingRemainder(dividingBy: 1)
+                            let length = 0.11 + 0.035 * sin(time * 0.7 + Double(index) * 1.8)
+                            let width = 38 + 20 * sin(time * 1.1 + Double(index) * 2.1)
+                            let style = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+                            let color = GraphicsContext.Shading.color(palette[(index + 1) % palette.count])
+                            bloom.stroke(path.trimmedPath(from: position, to: min(1, position + length)),
+                                with: color, style: style)
+                            if position + length > 1 {
+                                bloom.stroke(path.trimmedPath(from: 0, to: position + length - 1),
+                                    with: color, style: style)
+                            }
+                        }
+                    }
+                    context.drawLayer { lip in
+                        lip.addFilter(.blur(radius: 2.5))
+                        lip.opacity = 0.9
+                        lip.stroke(path, with: shading, style: StrokeStyle(lineWidth: 6))
+                    }
+                    context.opacity = 0.9
+                    context.stroke(path, with: shading, style: StrokeStyle(lineWidth: 2))
+                }
+            }
+        }
+        .mask {
+            SwiftSimReloadPerimeter(cornerRadius: cornerRadius)
+                .trim(from: 0, to: reveal)
+                .stroke(.white, style: StrokeStyle(lineWidth: 140, lineCap: .round, lineJoin: .round))
+                .blur(radius: 12)
+        }
+    }
+
+    private var colors: [Color] {
+        if failed { return [.orange, .yellow, .orange, Color(red: 0.9, green: 0.3, blue: 0.05)] }
+        return [
+            Color(red: 0.0, green: 0.48, blue: 0.43),
+            Color(red: 0.0, green: 0.88, blue: 0.72),
+            Color(red: 0.61, green: 1.0, blue: 0.91),
+            Color(red: 0.0, green: 0.76, blue: 0.86),
+            Color(red: 0.0, green: 0.55, blue: 0.51),
+            Color(red: 0.16, green: 0.95, blue: 0.69),
+        ]
+    }
+}
+
 /// A narrow refractive ring, rather than a blurred copy of the host content.
 struct SwiftSimReloadWave: Shape {
     var progress: CGFloat
@@ -172,7 +242,7 @@ struct SwiftSimReloadWave: Shape {
         let travel = hypot(rect.width / 2, rect.height) + 28
         let radius = 12 + max(0, min(progress, 1)) * travel
         let circle = CGRect(x: rect.midX - radius, y: 5 - radius, width: radius * 2, height: radius * 2)
-        return Path(ellipseIn: circle).strokedPath(StrokeStyle(lineWidth: 18))
+        return Path(ellipseIn: circle).strokedPath(StrokeStyle(lineWidth: 12))
     }
 }
 
@@ -184,34 +254,31 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     @State private var outlineProgress: CGFloat = 0
     @State private var waveProgress: CGFloat = 0
     @State private var showingWave = false
-    @State private var glowing = false
+    @State private var auraOpacity: Double = 0
+    @State private var entranceStartedAt: Date?
 
     private var teal: Color { Color(red: 0.03, green: 0.77, blue: 0.66) }
-    private var tint: Color { state.phase == .failed ? .orange : teal }
     private var animationKey: String { "\(state.sequence)-\(reduceMotion)-\(scenePhase == .active)" }
 
     var body: some View {
         GeometryReader { safeGeometry in
             GeometryReader { geometry in
                 #if os(iOS)
-                let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 46 : 24
+                let corner: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
                 #else
                 let corner: CGFloat = 22
                 #endif
                 ZStack(alignment: .top) {
-                    SwiftSimReloadPerimeter(cornerRadius: corner)
-                        .stroke(tint.opacity(0.09), lineWidth: 2)
-                    SwiftSimReloadPerimeter(cornerRadius: corner)
-                        .trim(from: 0, to: reduceMotion ? 1 : outlineProgress)
-                        .stroke(tint.gradient, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                        .shadow(color: tint.opacity(0.8), radius: 5)
-                        .shadow(color: tint.opacity(0.35), radius: 13)
-                        .opacity(glowing ? 1 : 0.7)
+                    SwiftSimReloadAura(reveal: reduceMotion ? 1 : outlineProgress,
+                        cornerRadius: corner, failed: state.phase == .failed,
+                        reduceMotion: reduceMotion, reduceTransparency: reduceTransparency,
+                        active: scenePhase == .active && auraOpacity > 0)
+                        .opacity(auraOpacity)
                     // Mount at zero radius before the delayed finish animation.
                     // Inserting the wave and advancing it in one turn skips motion.
                     if state.phase == .refreshed && !reduceMotion {
                         wave
-                            .opacity(showingWave ? 1 - Double(waveProgress) : 0)
+                            .opacity(showingWave ? 0.48 * (1 - Double(waveProgress)) : 0)
                     }
                     if reduceMotion || state.phase == .failed {
                         Label(state.phase.title, systemImage: state.phase.symbol)
@@ -250,27 +317,33 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     private func animateLifecycle() async {
         guard !reduceMotion, scenePhase == .active else {
             showingWave = false
-            glowing = false
-            outlineProgress = state.phase.outlineProgress
+            auraOpacity = 1
+            outlineProgress = 1
             return
         }
         if state.phase == .failed {
             showingWave = false
-            glowing = false
+            auraOpacity = 1
+            outlineProgress = 1
+            return
         }
-        withAnimation(.easeInOut(duration: 0.45)) { outlineProgress = state.phase.outlineProgress }
+        if entranceStartedAt == nil {
+            entranceStartedAt = Date()
+            withAnimation(.easeInOut(duration: 1.05)) { outlineProgress = 1 }
+            withAnimation(.easeOut(duration: 0.3)) { auraOpacity = 1 }
+        }
         if state.phase == .refreshed {
-            glowing = true
-            do { try await Task.sleep(for: .milliseconds(450)) } catch { return }
+            // Fast reloads finish the clockwise entrance before their ripple.
+            // The moving aura can otherwise wait indefinitely for real proof.
+            let remaining = max(0, 1.05 - Date().timeIntervalSince(entranceStartedAt ?? Date()))
+            do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
             guard !Task.isCancelled else { return }
             showingWave = true
             waveProgress = 0
             withAnimation(.easeOut(duration: 1.1)) {
                 waveProgress = 1
-                glowing = false
+                auraOpacity = 0
             }
-        } else if state.phase != .failed {
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { glowing = true }
         }
     }
 }

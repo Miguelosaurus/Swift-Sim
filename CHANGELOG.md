@@ -18,8 +18,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
-- Debug hot reload feedback with a clockwise teal screen-edge glow and a native
-  glass ripple only after confirmed refresh, with motion/transparency fallbacks.
+- Debug hot reload feedback with a clockwise reveal of flowing teal edge light,
+  soft inward bloom, and a glass ripple only after confirmed refresh, with
+  motion/transparency fallbacks.
 
 - Real app icons in the library, app history and install screens, extracted during
   packaging and cached as bounded thumbnails for offline use.

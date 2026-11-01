@@ -47,18 +47,21 @@ explicit opt-in retain the Companion handoff.
 Pending intent, patch compilation, APNs acceptance and notification taps are not
 successful reloads. The confirmed state requires matching native application,
 replacement and SwiftUI refresh receipts with an increased root revision.
-The Debug SDK traces a thin teal glow clockwise from the screen's top center
-through received, applying and refresh-waiting events. It leaves a small gap until
-the matching native applied-and-refreshed receipt is admitted, then closes the
-outline and sends one soft glass ripple across the content. The trace indicates
-lifecycle stages, not a measured percentage. A failure uses an amber outline and
-an unconfirmed-update label, without a success ripple.
+The Debug SDK reveals soft teal edge light clockwise from the screen's top
+center, then keeps uneven pools of teal, mint and cyan flowing around the edges
+while the reload is pending. The light blooms inward with a soft falloff instead
+of displaying a progress track or percentage. Only an admitted matching native
+applied-and-refreshed receipt sends the soft glass ripple across the content and
+dissipates the edge light. A failure uses static amber and an unconfirmed-update
+label, without a success ripple.
 
 The effect does not intercept touches or add host view identity changes. It
 exists only during feedback, supports Reduce Motion with a static outline and
 status, respects Reduce Transparency, and is excluded from Release. iOS 26 uses
 native Liquid Glass for the narrow ripple; earlier systems use a material ring.
-There is no content snapshot, shader pipeline, new service, or idle animation.
+The temporary aura is drawn at up to 30 frames per second; its clock pauses for
+Reduce Motion, failures, inactive scenes and the completion fade. There is no
+content snapshot, custom shader pipeline, new service, or idle animation.
 Existing apps need one Debug rebuild against the updated SwiftSimLive package
 for this effect. Rebuilding with an older pinned SDK retains its old feedback.
 No automatic rebuild or installation is required just to receive inbox updates.

@@ -18,19 +18,15 @@ func reloadOutlineStartsAtTheTopAndTravelsClockwise() throws {
     let right = try #require(path.trimmedPath(from: 0, to: 0.25).currentPoint)
     let bottom = try #require(path.trimmedPath(from: 0, to: 0.5).currentPoint)
     let left = try #require(path.trimmedPath(from: 0, to: 0.75).currentPoint)
-    #expect(abs(top.y - 5) < 1 && top.x > bounds.midX)
-    #expect(abs(right.x - 397) < 1 && abs(right.y - bounds.midY) < 2)
-    #expect(abs(bottom.x - bounds.midX) < 2 && abs(bottom.y - 869) < 1)
-    #expect(abs(left.x - 5) < 1 && abs(left.y - bounds.midY) < 2)
-    #expect(SwiftSimReloadPerimeter().path(in: CGRect(x: 0, y: 0, width: 8, height: 8)).isEmpty)
+    #expect(abs(top.y) < 1 && top.x > bounds.midX)
+    #expect(abs(right.x - bounds.maxX) < 1 && abs(right.y - bounds.midY) < 2)
+    #expect(abs(bottom.x - bounds.midX) < 2 && abs(bottom.y - bounds.maxY) < 1)
+    #expect(abs(left.x) < 1 && abs(left.y - bounds.midY) < 2)
+    #expect(SwiftSimReloadPerimeter().path(in: .zero).isEmpty)
 }
 
 @Test
-func loadingCannotVisuallyCompleteBeforeNativeRefreshAndWaveRemainsHollow() {
-    for phase in [SwiftSimDeliveryFeedbackState.Phase.receiving, .applying, .waitingForRefresh] {
-        #expect(phase.outlineProgress > 0 && phase.outlineProgress < 1)
-    }
-    #expect(SwiftSimDeliveryFeedbackState.Phase.refreshed.outlineProgress == 1)
+func completionWaveRemainsHollow() {
     let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
     let wave = SwiftSimReloadWave(progress: 0).path(in: bounds)
     #expect(!wave.contains(CGPoint(x: bounds.midX, y: 5)))
