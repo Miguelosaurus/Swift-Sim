@@ -1,14 +1,13 @@
 # Teal Debug reload feedback — 2026-10-31
 
-Current SDK implementation: `7355a1914f4ca275d224a258de1c9c7093582682`.
+Current SDK implementation: `7fb03e74081a9293d0d8e74b172a46c0133a1e5b`.
 This replaces the existing Debug feedback banner without changing receipt or
 root-refresh authority. No Companion OTA, helper restart, or Zenics build was
 performed for this SDK change.
 
 The initial `a13c413` visual design was rejected in user review as insufficiently
 like the original Siri edge light. Its historical evidence is retained below;
-the current treatment is described in the synchronized glass wave and adaptive
-pacing sections.
+the current treatment is described in the V5 section, retaining V4 adaptive pacing.
 
 ## Initial behavior — superseded visually
 
@@ -216,3 +215,73 @@ ownership are under `.build/teal-reload-feedback-v4/`; exports are
 The app/recorders stopped, original settings were restored, and the task simulator
 was shut down. Helper/engine processes and live compilation registration hashes
 are unchanged. Existing installed target apps still need one Debug SDK rebuild.
+
+## Procedural glow and exaggerated displacement — V5, 2026-11-01
+
+User approved using Aurora's glow movement and Mehta's ripple behavior, keeping
+teal and exact top-contact synchronization, with a much stronger wave. The new
+Debug-only renderer independently implements those movement principles; it does
+not add either project as a dependency or embed Apple's private framework code.
+
+The glow uses eleven independently moving teal/mint/cyan anchors and a
+noise-deformed rounded-rectangle distance field. A damped intro burst couples
+edge depth, movement and brightness. Narrow core, middle falloff and broad bloom
+replace the former fixed-border pools. Anchor trigonometry is calculated once
+per presentation tick, and fragments outside the glow band skip its work.
+
+The completion wave uses distance-delayed sine displacement under exponential
+decay: an outward crest followed by an inward trough. Its amplitude parameter
+is 44 points, versus 12 in Mehta's inspected modifier, with slower decay and a
+2.35-second traversal/tail. Displacement returns to zero before the sampled
+image fades, avoiding doubled text during the fade. V4's monotonic choreography
+still owns final closure and wave time in the same frame; the renderer does not
+schedule a separate start. The success watchdog is 3.5 seconds, while normal
+completion dismisses through the existing request/sequence-fenced callback.
+
+Applying a whole-host layer filter would risk missing UIKit/AppKit views. Instead,
+the wave samples one in-memory capture after admitted native refresh and before
+perimeter contact. The feedback view is excluded. Capture/upload is capped at
+two pixels per point and four million pixels, normalized explicitly to RGBA8,
+and released at completion/dismantling. Early texture-loader attempts rejected
+an otherwise clean UIKit capture; the explicit conversion is now covered by the
+GPU test. Captures are not written to disk or sent over a network by shipped
+code. Temporary capture diagnostics used only the synthetic fixture and were
+removed before the final build.
+
+The underlying app remains live and receives input, but the wave samples a
+single frame: rapidly changing content under it can briefly reflect that frame.
+Live video refraction and physical-phone execution are not claimed. A usable
+Metal pipeline is compiled once on a background task and cached per Debug
+process. The Metal view's autonomous loop is paused; existing presentation ticks
+drive up to 30 fps during loading and 60 during completion. Captures, queues and
+drawables belong to the temporary overlay, with nonblocking in-flight limits.
+Metal failure retains the prior native/material fallback. Reduce Motion uses a
+static status cue; Reduce Transparency uses the nonrefractive fallback; native
+failure remains static amber with no success wave.
+
+Validation:
+
+- Fifteen Swift package tests pass. The actual Metal shader is compiled and
+  rendered on the host GPU using the production CGImage-to-texture conversion.
+  Read-back pixels establish an outward crest, inward trough, preserved vertical
+  orientation, no pre-contact wave, clean fade and a cleared settled frame.
+  The existing native admission, pacing, monotonicity and exact-contact tests pass.
+- The actual SDK/fixture builds for iOS Simulator. Final light/dark recordings
+  visibly refract text/cards, and SwiftUI plus UIKit taps during presentation
+  retain their values. These are synthetic lifecycle previews, not patch receipts.
+- Actual Simulator Reduce Motion and failure appearances were inspected. The
+  initial Reduce Transparency defaults write did not activate the live setting;
+  enabling it in Settings did, and the nonrefractive cue was then verified.
+  The actual key was `EnhancedBackgroundContrastEnabled`; the original off/unset
+  state was restored through Settings and the temporary key was removed.
+- Release compilation/symbol and string inspection exclude renderer, capture,
+  shader source, forecast and injection entrypoints. Documentation/whitespace
+  validation passes.
+- Preview app, recorder and task-opened Settings app stopped; original appearance
+  and accessibility settings restored; task simulator shut down. No helper or
+  engine restart, Companion OTA or Zenics build was performed.
+
+Ownership and local evidence: `.build/teal-reload-feedback-v5/`. Exports:
+`swift-sim-procedural-teal-v5-dark.mp4` and
+`swift-sim-procedural-teal-v5-light.mp4`. Existing target apps require one Debug
+rebuild against the current SDK revision before this can run on the phone.
