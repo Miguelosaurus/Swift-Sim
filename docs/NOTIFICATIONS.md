@@ -70,6 +70,12 @@ elapsed time cannot imply success. Confirmed refresh finishes the remaining arc
 with a bounded, speed-aware transition and starts the wave at contact. The
 forecast uses three moving averages, no polling or disk writes, and does not
 delay patch execution, native receipts, or notifications.
+The outline has a 1.4-second minimum sweep, including when refresh is confirmed
+almost immediately. Short forecasts cannot accelerate it into a flash, and fast
+confirmation spreads the remaining travel smoothly across that minimum rather
+than pausing at the end. Only presentation waits; the native update applies
+immediately. Its dismissal watchdog leaves time for the entire closing sweep
+and ripple. Slow reloads retain their adaptive pacing.
 
 The finish uses a 2.1-second, distance-delayed displacement wave: content pushes
 outward, pulls back into a trough, and settles before fading. Its 38-point

@@ -118,6 +118,9 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
         }
         presentation = current
         if current.phase.rank == 3 {
+            let dismissalDelay = current.phase == .refreshed
+                ? max(3.5, (choreography.contactAt ?? now) - now + SwiftSimReloadChoreography.waveDuration + 0.35)
+                : 5
             #if canImport(UIKit)
             if UIAccessibility.isVoiceOverRunning {
                 UIAccessibility.post(notification: .announcement,
@@ -125,7 +128,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
             }
             #endif
             dismissal = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(current.phase == .refreshed ? 3.5 : 5))
+                try? await Task.sleep(for: .seconds(dismissalDelay))
                 guard !Task.isCancelled else { return }
                 self?.dismissPresentation(requestID: current.requestID, sequence: current.sequence)
             }
@@ -182,6 +185,7 @@ struct SwiftSimReloadTiming {
 struct SwiftSimReloadChoreography {
     private static let forecastReveal = 0.85
     static let waitingReveal = 0.97
+    static let minimumSweepDuration = 1.4
     static let waveDuration = 2.1
     private static let velocityResponse = 0.25
     private let startedAt: TimeInterval
@@ -193,7 +197,7 @@ struct SwiftSimReloadChoreography {
 
     init(startedAt: TimeInterval = 0, estimatedDuration: Double = 4) {
         self.startedAt = startedAt
-        let duration = estimatedDuration.isFinite ? max(0.15, estimatedDuration) : 4
+        let duration = estimatedDuration.isFinite ? max(Self.minimumSweepDuration, estimatedDuration) : 4
         velocity = 1 / duration
         targetVelocity = velocity
     }
@@ -206,14 +210,19 @@ struct SwiftSimReloadChoreography {
         travel = current.travel
         velocity = current.velocity
         segmentAt = elapsed
-        targetVelocity = max(0.12, 1 - travel) / max(0.15, estimatedRemaining)
+        targetVelocity = min(1 / Self.minimumSweepDuration,
+            max(0.12, 1 - travel) / max(0.15, estimatedRemaining))
     }
 
     mutating func confirm(at now: TimeInterval) {
         guard completion == nil, now >= startedAt + segmentAt else { return }
         let elapsed = now - startedAt
         let current = pending(elapsed: elapsed)
-        let duration = min(0.6, max(0.12, (1 - current.reveal) / max(0.01, current.velocity)))
+        let naturalFinish = min(0.6, max(0.12, (1 - current.reveal) / max(0.01, current.velocity)))
+        // Native application stays immediate; only presentation has a floor.
+        // Spread a fast success across the remaining sweep instead of holding
+        // or flashing the whole outline, then start the wave at exact contact.
+        let duration = max(naturalFinish, Self.minimumSweepDuration - elapsed)
         completion = (elapsed, current.reveal, current.velocity, duration)
     }
 
@@ -237,8 +246,10 @@ struct SwiftSimReloadChoreography {
             return Frame(reveal: pending(elapsed: elapsed).reveal, waveProgress: 0, waveStarted: false,
                 finished: false, auraOpacity: min(1, elapsed / 0.2))
         }
-        let contact = completion.at + completion.duration
-        if elapsed < contact {
+        // Compare boundaries in the same absolute clock as contactAt. Moving
+        // through elapsed time can round the exact contact tick to either side.
+        let contact = startedAt + completion.at + completion.duration
+        if now < contact {
             let t = (elapsed - completion.at) / completion.duration
             let gap = 1 - completion.reveal
             // Cubic Hermite: carry current speed into completion; do not ease
@@ -247,9 +258,9 @@ struct SwiftSimReloadChoreography {
             let fraction = (-2 * t * t * t + 3 * t * t)
                 + (t * t * t - 2 * t * t + t) * initialSlope + (t * t * t - t * t)
             return Frame(reveal: min(1.0.nextDown, completion.reveal + gap * fraction), waveProgress: 0,
-                waveStarted: false, finished: false, auraOpacity: 1)
+                waveStarted: false, finished: false, auraOpacity: min(1, elapsed / 0.2))
         }
-        let progress = min(1, (elapsed - contact) / Self.waveDuration)
+        let progress = now >= contact + Self.waveDuration ? 1 : max(0, (now - contact) / Self.waveDuration)
         return Frame(reveal: 1, waveProgress: progress, waveStarted: true,
             finished: progress >= 1, auraOpacity: max(0, 1 - progress * 2))
     }

@@ -55,7 +55,9 @@ func fastProofStillCompletesTheClockwiseSweepAndTheWaitingGapCannotBeBlurredClos
     var choreography = SwiftSimReloadChoreography()
     choreography.confirm(at: 0.05)
     let contactTime = try #require(choreography.contactAt)
-    #expect(contactTime <= 0.65)
+    #expect(abs(contactTime - SwiftSimReloadChoreography.minimumSweepDuration) < 0.000001)
+    #expect(choreography.frame(at: 0.05).auraOpacity == 0.25)
+    #expect(choreography.frame(at: 0.7).reveal < 0.75)
     let before = choreography.frame(at: contactTime - 0.00001)
     #expect(before.reveal < 1 && !before.waveStarted)
     let contact = choreography.frame(at: contactTime)
@@ -101,7 +103,7 @@ func receiptContinuesFromCurrentPositionAndSpeedWithoutATerminalCrawl() throws {
         let incomingSpeed = (position - choreography.frame(at: confirmation - delta).reveal) / delta
         choreography.confirm(at: confirmation)
         let contact = try #require(choreography.contactAt)
-        #expect(contact - confirmation <= 0.600001)
+        #expect(contact - confirmation <= max(0.600001, SwiftSimReloadChoreography.minimumSweepDuration - confirmation + 0.000001))
         #expect(abs(choreography.frame(at: confirmation).reveal - position) < 0.000001)
         let outgoingSpeed = (choreography.frame(at: confirmation + delta).reveal - position) / delta
         #expect(abs(incomingSpeed - outgoingSpeed) < 0.001)
@@ -112,6 +114,33 @@ func receiptContinuesFromCurrentPositionAndSpeedWithoutATerminalCrawl() throws {
             previous = frame.reveal
         }
         #expect(choreography.frame(at: contact).waveStarted)
+    }
+}
+
+@Test
+func learnedFastForecastsAndStageRetargetsKeepTheSweepReadable() throws {
+    for estimate in [0.001, 0.05, 0.5, 1.4, 4] {
+        for confirmation in [0.02, 0.05, 0.5, 1.3, 2.0] {
+            var choreography = SwiftSimReloadChoreography(startedAt: 100, estimatedDuration: estimate)
+            #expect(choreography.frame(at: 100).reveal == 0)
+            choreography.retarget(at: 100.01, estimatedRemaining: 0.001)
+            #expect(choreography.frame(at: 100.01).reveal < 0.01)
+            choreography.confirm(at: 100 + confirmation)
+            let contact = try #require(choreography.contactAt)
+            #expect(contact >= 101.4 - 0.000001)
+            let confirmedAt = 100 + confirmation
+            var previous = choreography.frame(at: confirmedAt).reveal
+            for tick in 1...300 {
+                let now = confirmedAt + (contact - confirmedAt) * Double(tick) / 300
+                let frame = choreography.frame(at: now)
+                #expect(frame.reveal >= previous && frame.reveal <= 1)
+                if now < contact { #expect(!frame.waveStarted) }
+                previous = frame.reveal
+            }
+            #expect(choreography.frame(at: contact).waveStarted)
+            #expect(choreography.frame(at: contact).waveProgress == 0)
+            #expect(choreography.frame(at: contact + SwiftSimReloadChoreography.waveDuration).finished)
+        }
     }
 }
 

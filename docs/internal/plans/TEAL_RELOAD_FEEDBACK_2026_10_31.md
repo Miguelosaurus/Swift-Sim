@@ -1,13 +1,13 @@
 # Teal Debug reload feedback — 2026-10-31
 
-Current SDK treatment: V7 startup continuity with V6 motion calibration.
+Current SDK treatment: V8 minimum sweep, V7 startup continuity, V6 motion calibration.
 This replaces the existing Debug feedback banner without changing receipt or
-root-refresh authority. No Companion OTA, helper restart, or Zenics build was
-performed for this SDK change.
+root-refresh authority. The target app's Debug SDK carries the effect; updating
+the regular Release Companion alone does not install it.
 
 The initial `a13c413` visual design was rejected in user review as insufficiently
 like the original Siri edge light. Its historical evidence is retained below;
-the current treatment uses the V5 renderer with V7 startup continuity,
+the current treatment uses the V5 renderer with V8 minimum sweep, V7 startup continuity,
 V6 calibration and V4 adaptive pacing.
 
 ## Initial behavior — superseded visually
@@ -342,3 +342,34 @@ Local evidence/ownership: `.build/teal-reload-feedback-v7/`; exports are
 original light appearance/Reduce Motion preference were verified, and the task
 simulator was shut down. No helper restart, Companion OTA or Zenics build was
 performed. Existing target apps still require the updated SDK in a Debug build.
+
+## Readable fast reloads — V8, 2026-11-01
+
+Zenics Debug 33 applied and restored the neutral phone test with native refresh
+receipts at revisions 1 and 2. User review confirmed the animation worked, but
+the first fast reload's sweep looked like a flash. A 1.4-second presentation
+floor now preserves a readable clockwise outline even after an immediate valid
+receipt. Forecast initialization and stage retargeting cap their speed; fast
+confirmation smoothly spreads the remaining sweep over the minimum duration.
+Slower runs retain the previous adaptive pacing. Native application, receipts
+and notifications are not delayed. The original intro opacity ramp continues
+through fast confirmation rather than jumping to full brightness.
+
+The 2.1-second ripple and its displacement constants are unchanged. It still
+begins on the exact closing frame, with no hold or separate start timer. Contact
+and finish comparisons now use absolute uptime on both sides, avoiding a tiny
+floating-point boundary discrepancy revealed by nonzero-clock tests. The
+terminal dismissal watchdog accounts for the remaining sweep plus the complete
+wave and a short margin, so the longer fast sweep cannot truncate its finish.
+
+Sixteen SDK tests pass, including fast learned forecasts, rapid retargets,
+monotonic travel, native admission, exact contact at nonzero uptime, and actual
+GPU wave pixels. The SDK/fixture builds for iOS Simulator. Synthetic light/dark
+previews confirm a complete readable sweep with a receipt after only 50 ms;
+SwiftUI/UIKit input values persist. Release exclusions and docs/diff checks pass.
+The task preview, recorder and simulator were stopped and original appearance
+restored. No helper restart or Companion rebuild is required for this SDK change.
+Local ownership/evidence: `.build/teal-reload-feedback-v8/`. Exports:
+`swift-sim-readable-fast-reload-v8-dark.mp4` and
+`swift-sim-readable-fast-reload-v8-light.mp4`. Phone V8 visual qualification
+requires installing the subsequent Zenics Debug update; build 33 contains V7.
