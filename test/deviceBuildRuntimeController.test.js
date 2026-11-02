@@ -333,8 +333,9 @@ test("successful builds run retention after ready delivery and retention failure
   const diagnostics = [];
   const { deps } = harness({
     artifactRetention: {
-      afterTerminalBuild(value) {
+      async afterTerminalBuild(value) {
         retained.push(value.state);
+        await Promise.resolve();
         throw new Error("simulated retention failure");
       },
     },

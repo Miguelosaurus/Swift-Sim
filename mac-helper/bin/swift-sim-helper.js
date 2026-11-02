@@ -90,6 +90,7 @@ let remoteLaunchVerifier;
 let setupStatusRuntime;
 let clock;
 let compatibilityRuntimeInitialized = false;
+let deviceBuildArtifactRetention;
 
 export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
   if (await runExtractedHelperCommand(argv)) return;
@@ -138,9 +139,10 @@ function initializeCompatibilityRuntime() {
     idGenerator: runtime.idGenerator,
     clock: runtime.clock,
   });
-  const deviceBuildArtifactRetention = createDeviceBuildArtifactRetentionCompatibility({
+  deviceBuildArtifactRetention = createDeviceBuildArtifactRetentionCompatibility({
     deviceBuildStore,
     clock: runtime.clock,
+    commandRunner: new NodeCommandRunner({ spawn, spawnSync }),
   });
   deviceBuildRuntime = createDeviceBuildRuntimeController({
     store: deviceBuildStore,
@@ -175,6 +177,16 @@ function initializeCompatibilityRuntime() {
 }
 
 async function main(argv) {
+  if (argv[0] === "prune-build-caches") {
+    if (argv.slice(1).some(value => value !== "--apply") || argv.length > 2) throw new Error("Use prune-build-caches [--apply]. Without --apply, no cache is removed.");
+    const service = deviceBuildArtifactRetention.compilerCaches;
+    const plan = service.plan();
+    console.log(JSON.stringify(argv.includes("--apply") ? await service.apply(plan) : {
+      version: plan.version, dryRun: true, keepRecent: plan.keepRecent,
+      candidates: plan.candidates.map(({ buildID }) => ({ buildID })), skipped: plan.skipped,
+    }, null, 2));
+    return;
+  }
   const handled = await dispatchCompatibilityCommand({
     argv,
     defaultHost: DEFAULT_HOST,

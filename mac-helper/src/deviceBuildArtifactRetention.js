@@ -31,9 +31,10 @@ export const FAILED_BUILD_ARTIFACT_RETENTION_MS = 24 * 60 * 60 * 1000;
  * Failed builds are handed to the durable whole-root cleanup queue after a
  * short diagnostic grace period.
  *
- * This service intentionally has no startup reconciliation. Historical cleanup
- * is a separate migration decision; wiring this service prevents future growth
- * without silently deleting pre-existing user artifacts.
+ * This component has no startup reconciliation. Its compatibility composition
+ * separately bounds superseded compiler caches after ready builds, using fresh
+ * live references and durable retirement; historical whole-root cleanup remains
+ * a distinct, explicitly gated migration operation.
  *
  * @param {{
  *   artifactStore: ArtifactStore,

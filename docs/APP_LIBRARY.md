@@ -16,6 +16,32 @@ The full Latest Build card, including its padding, opens the install page on a
 single tap. A notification's background refresh cannot return the user to app
 history after they have already chosen a build or moved to another screen.
 
+## Build cache retention
+
+Completed builds automatically retire superseded compiler workspaces. Swift Sim
+keeps the two most recent ready workspaces for each app, project, scheme, and
+configuration, plus older workspaces still referenced by current installations,
+the live compiler capture, queued or uncertain edits, confirmed restoration,
+active installs/renewals, workers, open files, or explicit retention pins.
+Protected references can therefore exceed the normal two-workspace allowance.
+An edit that was verifiably undone to the installed binary's original source
+does not require a compiler workspace for restoration; its journal is retained.
+
+Signed installers, icons, app data, build history, and saved hot-reload source
+intent are retained. Older installers remain available; a version whose compiler
+cache was retired no longer claims hot-reload compiler readiness. Install-link
+renewal remains separate from compiling current code.
+
+`swift-sim prune-build-caches` previews eligible existing compiler caches.
+`swift-sim prune-build-caches --apply` revalidates and reclaims them. Planning
+does not delete anything. Diagnostics, startup, and the historical artifact-audit
+and migration paths never trigger this cleanup. Reclamation pauses during storage
+migration/rollback or when live ownership cannot be verified.
+
+Retirement is recorded before an atomic cache detach. Recursive removal happens
+asynchronously outside the hot-reload locks; interrupted removal can resume on a
+later completed build or explicit apply. No cleanup watcher or idle timer is added.
+
 ## Icons
 
 During packaging, Swift Sim reads the compiled app's declared primary icon and

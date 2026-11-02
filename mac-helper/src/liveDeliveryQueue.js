@@ -85,6 +85,20 @@ export function createLiveDeliveryQueue({
   return Object.freeze({
     rootPath: root,
     limits: LIMITS,
+    // Reclamation takes engine -> queue -> selected build-store locks. Holding
+    // this read lease prevents enqueue/rebase/revocation from changing the
+    // referenced binaries while a compiler workspace is detached.
+    async withRetentionSnapshot(operation) {
+      if (!locks && typeof identity !== "function") throw queueError("QUEUE_LOCK_AUTHORITY_REQUIRED");
+      assertPrivatePath(root, "directory");
+      ensureDirectoryModeSync(root, 0o700);
+      locks ||= new NodeLockManager({ identity, fileStore });
+      return locks.withLock({ path: join(root, "queue.lock"), waitMs: 0, staleAfterMs: 1_000, ownerMode: 0o600 }, async () => {
+        const journal = read();
+        return operation(compilerCacheReferences(journal));
+      });
+    },
+    compilerRetentionSnapshot() { return clone(compilerCacheReferences(read())); },
     observeWorker: readinessStore.observeWorker,
     readiness: readinessStore.readiness,
     readinessSnapshot: readinessStore.readinessSnapshot,
@@ -745,4 +759,12 @@ function safeReason(value) { return /^[A-Z0-9_]{0,80}$/.test(String(value)) ? St
 function sha(value) { return createHash("sha256").update(value).digest("hex"); }
 function digest(value) { return sha(JSON.stringify(value)); }
 function clone(value) { return value === undefined ? undefined : structuredClone(value); }
+function compilerCacheReferences(journal) {
+  return {
+    records: journal.records.map(({ scope, state }) => ({ scope, state })),
+    // A verified return to the original binary needs no compiler to restore.
+    // Keep its source journal and proof intact; only its cache pin is redundant.
+    desires: journal.desiredStates.filter(item => !item.revoked && item.files.some(file => file.beforeHash !== file.afterHash)).map(({ scope }) => ({ scope })),
+  };
+}
 function queueError(code) { return Object.assign(new Error(`Swift Sim live delivery journal: ${code}.`), { code }); }

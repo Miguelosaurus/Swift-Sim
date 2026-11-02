@@ -7,6 +7,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeSync,
 } from "node:fs";
@@ -140,6 +141,35 @@ export class NodeArtifactStore {
     const approved = this.approved(path);
     assertApprovedComponentsSync(approved);
     rmSync(approved.path, { recursive: true, force: true });
+  }
+
+  /**
+   * Atomically detach a retired compiler cache. The source inode was recorded
+   * durably before this operation; crash recovery may reuse only that inode.
+   * @param {string} path @param {string} destination
+   * @param {{ device: string, inode: string }} expected
+   */
+  detachTreeSync(path, destination, expected) {
+    const source = this.approved(path);
+    const target = this.approved(destination);
+    if (source.root !== target.root || path === destination) throw invalidArtifactPathError();
+    assertApprovedComponentsSync(source);
+    assertApprovedComponentsSync(target);
+    const observe = (/** @type {string} */ candidate) => {
+      try {
+        const stat = lstatSync(candidate);
+        if (!stat.isDirectory() || !sameIdentity(identityOf(stat), expected))
+          throw invalidArtifactPathError();
+        return true;
+      } catch (error) {
+        if (hasCode(error, "ENOENT")) return false;
+        throw error;
+      }
+    };
+    const present = observe(path);
+    const detached = observe(destination);
+    if (present && detached) throw invalidArtifactPathError();
+    if (present) renameSync(path, destination);
   }
 
   /** @param {string} path */

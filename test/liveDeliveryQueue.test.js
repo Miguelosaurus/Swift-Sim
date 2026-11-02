@@ -38,6 +38,31 @@ async function begin(f, requestId = "request-1", currentRevision = 0) {
 }
 function proof(requestId = "request-1", revision = 1, refreshed = true) { return { requestId, sessionIdentity: scope.sessionIdentity, binaryIdentity: scope.binaryIdentity, applied: true, refreshed, revision, patchDigest: requestId }; }
 
+test("compiler cache references retain effective restoration and release only a proven return to the original source", async () => {
+  const f = fixture();
+  try {
+    await queued(f);
+    await prepare(f);
+    const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    assert.equal(f.queue.compilerRetentionSnapshot().desires.length, 1);
+    await f.queue.enqueue({ requestId: "request-undo", scope, baselineRevision: 1,
+      files: sources.map(file => ({ ...file, beforeSource: file.afterSource, afterSource: file.beforeSource })) });
+    await prepare(f, "request-undo");
+    const undoToken = await begin(f, "request-undo", 1);
+    await f.queue.transition("request-undo", { claimToken: undoToken, state: "refreshed", proof: proof("request-undo", 2) });
+    const path = join(f.rootPath, "queue.json");
+    const before = f.fileStore.readTextSync(path);
+    const snapshot = f.queue.compilerRetentionSnapshot();
+    assert.equal(snapshot.desires.length, 0);
+    assert.equal(f.queue.desiredStates().length, 1);
+    assert.equal(f.queue.desiredStates()[0].files[0].beforeHash, f.queue.desiredStates()[0].files[0].afterHash);
+    assert(!JSON.stringify(snapshot).includes("beforeSource"));
+    await f.queue.withRetentionSnapshot(locked => assert.deepEqual(locked, snapshot));
+    assert.equal(f.fileStore.readTextSync(path), before);
+  } finally { f.cleanup(); }
+});
+
 test("poll discovery reuses only a detached source-free view and notices file and permission changes", async () => {
   const f = fixture();
   try {

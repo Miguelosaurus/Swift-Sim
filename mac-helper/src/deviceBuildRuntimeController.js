@@ -257,7 +257,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
           try {
             dependencies.store.save(build);
           } catch {}
-          retainTerminalBuild(build);
+          await retainTerminalBuild(build);
         }
         return undefined;
       }
@@ -301,7 +301,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
       try {
         dependencies.store.save(build);
       } catch {}
-      retainTerminalBuild(build);
+      await retainTerminalBuild(build);
     }
   }
 
@@ -361,7 +361,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
       const readyBuild = await prepareDelivery(build);
       buildLogs(readyBuild).push("Install link is ready.");
       dependencies.store.save(readyBuild);
-      retainTerminalBuild(readyBuild);
+      await retainTerminalBuild(readyBuild);
       return readyBuild;
     } catch (error) {
       if (
@@ -384,7 +384,7 @@ export function createDeviceBuildRuntimeController(dependencies) {
           );
         } catch {}
       }
-      retainTerminalBuild(build);
+      await retainTerminalBuild(build);
       throw failure;
     }
   }
@@ -411,10 +411,10 @@ export function createDeviceBuildRuntimeController(dependencies) {
   }
 
   /** @param {BuildRecord} build */
-  function retainTerminalBuild(build) {
+  async function retainTerminalBuild(build) {
     if (!dependencies.artifactRetention) return;
     try {
-      dependencies.artifactRetention.afterTerminalBuild(build);
+      await dependencies.artifactRetention.afterTerminalBuild(build);
     } catch {
       try {
         dependencies.reportRetentionError?.(

@@ -2,6 +2,11 @@
 
 import { createDeviceBuildArtifactRetention } from "./deviceBuildArtifactRetention.js";
 import { NodeArtifactStore } from "./infrastructure/nodeArtifactStore.js";
+import { createCompilerCacheRetention } from "./deviceBuildCompilerCacheRetention.js";
+import { createNodeCompilerCacheReferences, createNodeCompilerCacheStorage } from "./infrastructure/nodeCompilerCacheRetention.js";
+import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
+import { liveRuntimeLockManager, withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
+import { dirname, join } from "node:path";
 
 /**
  * @typedef {{
@@ -14,12 +19,12 @@ import { NodeArtifactStore } from "./infrastructure/nodeArtifactStore.js";
  * Compose the compatibility helper's future-build artifact retention from the
  * existing artifact-store owner and durable device-build cleanup queue.
  *
- * This intentionally performs no historical scan. Existing artifacts remain
- * untouched until an explicit reconciliation/cutover step is separately proven.
+ * Compiler cache reconciliation runs only after a ready build or an explicit
+ * operator request. Ordinary construction/startup/diagnostics remain inert.
  *
- * @param {{ deviceBuildStore: DeviceBuildCleanupStore, clock: RetentionClock }} options
+ * @param {{ deviceBuildStore: import("./deviceBuildStore.js").DeviceBuildStore, clock: RetentionClock, commandRunner: import("./infrastructure/ports.js").CommandRunner }} options
  */
-export function createDeviceBuildArtifactRetentionCompatibility({ deviceBuildStore, clock }) {
+export function createDeviceBuildArtifactRetentionCompatibility({ deviceBuildStore, clock, commandRunner }) {
   if (!deviceBuildStore || typeof deviceBuildStore.scheduleArtifactCleanup !== "function") {
     throw new TypeError(
       "Device-build retention compatibility requires durable cleanup scheduling.",
@@ -29,9 +34,30 @@ export function createDeviceBuildArtifactRetentionCompatibility({ deviceBuildSto
     throw new TypeError("Device-build retention compatibility requires a clock.");
   }
   const artifactStore = new NodeArtifactStore();
-  return createDeviceBuildArtifactRetention({
+  const terminalRetention = createDeviceBuildArtifactRetention({
     artifactStore,
     scheduleFailedCleanup: (request) => deviceBuildStore.scheduleArtifactCleanup(request),
     now: () => clock.now().getTime(),
+  });
+  const stateRoot = dirname(deviceBuildStore.path);
+  const queueOptions = { rootPath: join(stateRoot, "live", "deliveries"), lockManager: liveRuntimeLockManager };
+  const compilerCaches = createCompilerCacheRetention({
+    store: deviceBuildStore,
+    artifactDirectory: join(stateRoot, "device-builds"),
+    queue: createLiveDeliveryQueue(queueOptions),
+    references: createNodeCompilerCacheReferences({ manifestPath: join(stateRoot, "live", "compilations.json"), commandRunner, environmentNames: () => Object.keys(process.env) }),
+    storage: createNodeCompilerCacheStorage(artifactStore),
+    // Do not wait behind a real hot reload just to reclaim cache space.
+    withEngineLock: (/** @type {() => unknown} */ operation) => withLiveEngineLifecycleLock(operation, { waitMs: 0 }),
+    now: () => clock.now().toISOString(),
+  });
+  return Object.freeze({
+    compilerCaches,
+    /** @param {Parameters<typeof terminalRetention.afterTerminalBuild>[0]} build */
+    async afterTerminalBuild(build) {
+      const result = terminalRetention.afterTerminalBuild(build);
+      if (build?.state === "ready") await compilerCaches.reconcile();
+      return result;
+    },
   });
 }

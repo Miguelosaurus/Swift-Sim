@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
+import { preserveCompilerCacheRetirement, retireDeviceBuildCompilerCache } from "./deviceBuildCompilerCachePolicy.js";
 import {
   DeviceBuildStore as DeviceBuildStoreCore,
   BUILD_STATE_LOCK_TIMEOUT_CODE,
@@ -83,6 +84,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
       }
 
       const incoming = normalizeIncomingBuild(structuredClone(build));
+      preserveCompilerCacheRetirement(incoming, existing);
       incoming.installation = newerInstallation(existing.installation, incoming.installation);
       incoming.logs = mergeLogs(existing.logs, incoming.logs);
       incoming.capabilities = mergeCapabilities(existing.capabilities, incoming.capabilities);
@@ -133,6 +135,7 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
     return this.readOnly((state) => state.builds.get(id));
   }
 
+  retireCompilerCache(input) { return retireDeviceBuildCompilerCache(this, input); }
   list() {
     return this.readOnly((state) => sortedBuilds(state.builds));
   }

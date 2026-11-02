@@ -121,6 +121,7 @@ async function main() {
     "build-device",
     "resume-device-build",
     "list-apps",
+    "prune-build-caches",
     "archive-app",
     "delete-app",
     "verify-device-build",
@@ -932,6 +933,7 @@ Usage:
   swift-sim live-delivery-status  Read a queued request with --request
   swift-sim live-desired-revoke   Revoke restoration for a qualified Debug project/scheme
   swift-sim list-apps [--archived] List managed prototype apps and build history
+  swift-sim prune-build-caches    Preview obsolete compiler caches; --apply reclaims them
   swift-sim verify-device-build    Verify an install on a reachable iPhone
   swift-sim archive-app ...        Archive or restore an app from the library
   swift-sim delete-app ...         Delete local app history and artifacts
