@@ -42,7 +42,9 @@ This requires one matching Debug update, engine protocol
 request and baseline select the strategy; a generic refresh cannot prove it.
 There is no extra hot-reload round trip, idle scan, recording or automatic upload.
 See the [Simulator qualification](evidence/STATE_PRESERVING_RELOAD_SIMULATOR_2026_11_01.md)
-for verified state, native receipts and the physical-phone boundary.
+for the exercised state scenarios and
+[basic physical-phone acceptance](evidence/STATE_PRESERVING_RELOAD_PHONE_2026_11_02.md)
+for native preserved-refresh receipts, visible body updates and restoration on Zenics 40.
 
 ## Complete replacement coverage
 

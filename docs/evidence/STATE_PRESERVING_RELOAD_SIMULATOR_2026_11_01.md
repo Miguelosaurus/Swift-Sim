@@ -61,4 +61,5 @@ explicit ID can reset its state normally. This does not migrate arbitrary UIKit
 controllers, suspended tasks or destroyed state. No app-content upload, runtime
 state serialization, idle scanner or extra delivery round trip is added.
 
-One new signed Debug app is required before testing this on a physical phone.
+The subsequent [basic physical-phone check](STATE_PRESERVING_RELOAD_PHONE_2026_11_02.md)
+verified visible body updates and restoration on the signed Debug 40 update.
