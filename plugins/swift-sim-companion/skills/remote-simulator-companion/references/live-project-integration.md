@@ -54,10 +54,26 @@ bounded recovery may restart a stale session; compile failures and partial
 applications are never retried.
 
 
+## State-preserving refresh
+
+Matching Debug builds automatically add observation and body erasure through a
+private compiler overlay, without editing repository app files or per-screen
+annotations. Preservation currently selects only edits entirely within eligible
+instrumented concrete SwiftUI View.body members. Other callables use the normal
+root reset; manual Refresh screen also resets deliberately.
+
+SwiftUI identity still applies: replacing a subtree's type/ID can discard that
+subtree's state. Do not promise migration of arbitrary UIKit controllers or
+unsupported generic/conditional declarations. One Debug SDK update is needed;
+the helper verifies the installed overlay/ABI and negotiates
+`state-preserving-refresh-v1`. Native receipts must acknowledge the exact
+strategy, request, digest and baseline. No state serialization, background scan,
+recording, new network round trip or automatic app-content upload is added.
+
 ## Asynchronous edits
 
 The reconnect SDK and prepared-delivery engine are a matching contract. The
-current engine 0.5.2 is a qualified local candidate; public setup still defaults
+current engine 0.5.5 is a qualified local candidate; public setup still defaults
 to 0.4.0. A reachable old engine, SDK, or helper must return an explicit update
 requirement. Complete one Debug SDK bootstrap when the matching candidate is
 activated; do not repeatedly rebuild because a device is temporarily absent.

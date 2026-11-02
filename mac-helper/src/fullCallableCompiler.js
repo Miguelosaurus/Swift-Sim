@@ -53,7 +53,7 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     const staged = join(target, `generator-${randomUUID()}`);
     const host = resolve(dirname(compiler), "../lib/swift/host");
     try {
-      run(compiler, [resourcePath, "-sdk", hostSDK, "-I", host, "-L", host, "-Xlinker", "-rpath", "-Xlinker", host, "-o", staged], { timeoutMs: 60_000 });
+      run(compiler, [resourcePath, "-sdk", hostSDK, "-I", host, "-L", host, "-module-cache-path", join(cacheRoot, "module-cache"), "-Xlinker", "-rpath", "-Xlinker", host, "-o", staged], { timeoutMs: 60_000 });
       const bytes = privateRegularFile(staged, { ownerOnly: false });
       // Concurrent publishers never overwrite an existing cache entry. The
       // compile itself is side-effect-free and admission uses the final digest.
@@ -75,6 +75,21 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     validateGeneration(result, input);
     result.resourceDigest = compilerResourceDigest(resourcePath);
     return result;
+  }
+  function instrument(input) {
+    if (!Array.isArray(input?.files) || input.files.length > 2048 || input.files.some(file =>
+      !isAbsolute(file.path || "") || typeof file.source !== "string")
+      || new Set(input.files.map(file => file.path)).size !== input.files.length) throw unsupported();
+    const encoded = JSON.stringify(input);
+    if (Buffer.byteLength(encoded) > INPUT_LIMIT) throw unsupported();
+    let result;
+    try { result = JSON.parse(run(executable(), ["--instrument-stateful-v1"], { input: encoded })); }
+    catch { throw unsupported("FULL_CALLABLE_INSTRUMENTATION_INVALID"); }
+    if (result?.schemaVersion !== 1 || result.capability !== "stateful-overlay-v1" || !Array.isArray(result.files)
+      || result.files.length > input.files.length || result.files.some(file => !input.files.some(value => value.path === file.path)
+        || typeof file.source !== "string" || !Array.isArray(file.owners) || file.owners.length > 1024
+        || file.owners.some(owner => typeof owner !== "string" || owner.length > 256))) throw unsupported();
+    return { ...result, resourceDigest: compilerResourceDigest(resourcePath) };
   }
   function inspectCoverage({ dylibPath, generation, moduleName }) {
     validateGeneration(generation);
@@ -151,7 +166,7 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     return { version: 1, artifactDigest: hash(bytes), replacementProof, coverageDigest: replacementProofDigest(replacementProof),
       changedMemberCount: members.length, members, swiftSymbols: variables };
   }
-  return Object.freeze({ generate, inspectCoverage });
+  return Object.freeze({ generate, instrument, inspectCoverage });
 }
 
 export function replacementProofDigest(proof) { return replacementCoverageDigest(proof); }
@@ -172,6 +187,9 @@ function ensurePrivateDirectory(path) {
 function validateInput(input) {
   if (!input || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(input.module || "") || !/^[a-f0-9]{24,64}$/.test(input.generation || "") || !Array.isArray(input.files) || !input.files.length || input.files.length > 32) throw unsupported();
   for (const file of input.files) if (typeof file.path !== "string" || typeof file.before !== "string" || typeof file.after !== "string" || Buffer.byteLength(file.before) > 1024 * 1024 || Buffer.byteLength(file.after) > 1024 * 1024) throw unsupported();
+  if (input.statefulBodies !== undefined && (!input.statefulBodies || typeof input.statefulBodies !== "object" || Array.isArray(input.statefulBodies)
+    || Object.entries(input.statefulBodies).some(([path, owners]) => !isAbsolute(path) || !Array.isArray(owners) || owners.length > 1024
+      || owners.some(owner => !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(owner))))) throw unsupported();
 }
 function validateGeneration(value, input) {
   if (value?.schemaVersion !== 1 || value.capability !== VERSION || !Number.isSafeInteger(value.changedMemberCount) || value.changedMemberCount < 1 || value.changedMemberCount > 512
@@ -180,12 +198,15 @@ function validateGeneration(value, input) {
     || !Array.isArray(value.sources) || (input && value.sources.length !== input.files.length) || value.sources.some(source => typeof source !== "string")
     || !Array.isArray(value.members) || value.members.length !== value.changedMemberCount) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   const names = new Set();
+  if (value.refreshStrategy !== undefined && !["remount", "preserve-state-v1"].includes(value.refreshStrategy)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   for (const member of value.members) {
     if (!member || !["function", "property", "subscript"].includes(member.kind) || typeof member.isStatic !== "boolean" || typeof member.owner !== "string" || typeof member.member !== "string"
       || !new RegExp(`^__swiftSim_(?:full_g${value.generation}_f\\d+_\\d+|label_g${value.generation}_f\\d+_\\d+_0)$`).test(member.replacementName || "") || names.has(member.replacementName)
       || !Array.isArray(member.accessors) || member.accessors.some(name => !["getter", "setter"].includes(name))
       || (member.kind !== "function" && !member.accessors.length)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
     names.add(member.replacementName);
+    if (input && value.refreshStrategy === "preserve-state-v1" && (member.member !== "body"
+      || !input.files.some(file => file.path.split("/").at(-1) === member.file && input.statefulBodies?.[file.path]?.includes(member.owner)))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   }
 }
 function identifierIn(text, identifier) {

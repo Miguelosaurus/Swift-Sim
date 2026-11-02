@@ -11,7 +11,7 @@ navigate to the changed screen later to see the result.
 
 This workflow requires the matching reconnect SDK, prepared-delivery engine,
 and helper capability. The reviewed SDK is pinned in `Package.swift`. The
-engine implementation is a qualified **local 0.5.4 candidate**, not a published
+engine implementation is a qualified **local 0.5.5 candidate**, not a published
 binary release. The public installer still defaults to engine 0.4.0. An older
 engine/client/helper must report an explicit update requirement; reconnecting
 alone cannot add a missing protocol capability.
@@ -21,6 +21,28 @@ explicit archive checksum, preserves owner-only configuration, and verifies
 the app signature before installation. No background updater or public
 candidate download is implied. First bootstrap requires one new signed Debug
 SDK installation; subsequent compatible edits do not reinstall the app.
+
+## Preserve the current screen
+
+Matching Debug builds automatically instrument eligible concrete SwiftUI view
+bodies in a private compiler overlay. Your source files stay unchanged; there
+are no per-screen annotations or serialized state snapshots. Compatible edits
+to instrumented bodies redraw without resetting the root, preserving state held
+by unchanged SwiftUI identities, such as drafts, counters, navigation and scroll.
+
+The initial opt-in is body-only. Other callable edits retain the normal root
+reset. Generic/conditional view declarations, extensions and source-context
+macros keep their existing behavior. Changing a subtree's type or explicit ID
+can reset that subtree under SwiftUI's normal identity rules. Manual Refresh
+screen remains an intentional reset. Release builds exclude the hooks.
+
+This requires one matching Debug update, engine protocol
+`state_preserving_refresh_protocol: 1`, and native capability
+`state-preserving-refresh-v1`. The exact signed patch, original instrumented ABI,
+request and baseline select the strategy; a generic refresh cannot prove it.
+There is no extra hot-reload round trip, idle scan, recording or automatic upload.
+See the [Simulator qualification](evidence/STATE_PRESERVING_RELOAD_SIMULATOR_2026_11_01.md)
+for verified state, native receipts and the physical-phone boundary.
 
 ## Complete replacement coverage
 

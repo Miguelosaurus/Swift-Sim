@@ -53,6 +53,17 @@ test("generator cache binds source and toolchain and rejects tampered executable
   assert.equal(f.state.calls.filter(call => call.args[0] === "--full-callable-generator-v1").length, executions);
 });
 
+test("preservation is valid only for captured instrumented body owners", t => {
+  const f = fixture(t); const path = join(f.root, "Fixture.swift");
+  f.state.generated.refreshStrategy = "preserve-state-v1";
+  const qualified = { ...input, files: [{ ...input.files[0], path }], statefulBodies: { [path]: ["Probe"] } };
+  assert.throws(() => f.compiler.generate(qualified), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  Object.assign(f.state.generated.members[0], { member: "body", kind: "property", accessors: ["getter"] });
+  assert.equal(f.compiler.generate(qualified).refreshStrategy, "preserve-state-v1");
+  assert.throws(() => f.compiler.generate({ ...qualified, statefulBodies: { [path]: ["Other"] } }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  assert.throws(() => f.compiler.generate({ ...qualified, statefulBodies: { [path]: "Probe" } }));
+});
+
 test("unsafe cache paths, malformed generator output and unavailable/timeout tools fail closed", t => {
   const f = fixture(t);
   f.state.fail = "--find"; assert.throws(() => f.compiler.generate(input), { code: "FULL_CALLABLE_COMPILER_UNAVAILABLE" });

@@ -65,7 +65,7 @@ test("corrupt expected proof, compiler resource, source digest and signed bytes 
   const f = fixture(t); const raw = f.prepare(); f.seal(raw);
   const original = structuredClone(f.record.preparedPatch);
   for (const change of [{ compilerResourceDigest: "0".repeat(64) }, { coverageDigest: "0".repeat(64) },
-    { patchDigest: "0".repeat(64) }, { sourceSnapshotDigest: "0".repeat(64) },
+    { patchDigest: "0".repeat(64) }, { sourceSnapshotDigest: "0".repeat(64) }, { refreshStrategy: "preserve-state-v1" },
     { replacementProof: { version: 3, swift_replacements: 2, objc_callbacks: [] } }]) {
     f.record.preparedPatch = { ...original, ...change };
     assert.throws(() => validateCompleteQueuedLivePatchCoverage(f.record));

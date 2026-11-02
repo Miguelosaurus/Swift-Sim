@@ -158,6 +158,27 @@ function completeCallbackFixture(f) {
       encoding_matches: true, implementation_in_patch: true, previous_implementation_changed: true, verified: true }] };
 }
 
+test("preserved refresh negotiates both peers and cannot borrow an ordinary remount receipt", async () => {
+  const f = await fixture();
+  try {
+    const report = completeCallbackFixture(f);
+    f.record.preparedPatch.refreshStrategy = "preserve-state-v1";
+    assert.equal((await f.adapter.inspect(f.record)).connected, false);
+    f.status.state_preserving_refresh_protocol = 1;
+    assert.equal((await f.adapter.inspect(f.record)).connected, false);
+    f.status.client_capabilities.push("state-preserving-refresh-v1");
+    const observed = await f.adapter.inspect(f.record);
+    assert.equal(observed.connected, true);
+    for (const strategy of [undefined, "remount"]) {
+      f.setResult({ success: true, data: { state: "completed", report: { ...report, refresh_strategy: strategy } } });
+      assert.equal(await f.adapter.apply(f.record, observed), null);
+    }
+    f.setResult({ success: true, data: { state: "completed", report: { ...report, refresh_strategy: "preserve-state-v1" } } });
+    assert.equal((await f.adapter.apply(f.record, observed)).refreshStrategy, "preserve-state-v1");
+    assert.equal(f.calls.findLast(call => call.action === "inject_prepared").refresh_strategy, "preserve-state-v1");
+  } finally { f.cleanup(); }
+});
+
 test("v3 adapter accepts exact Objective-C-only proof with zero native Swift replacements", async () => {
   const f = await fixture();
   try {

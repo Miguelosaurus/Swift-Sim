@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 import { readLocalEngineCandidate, validateLocalEngineAppMetadata } from "./liveEngineCandidate.js";
 import { createFullCallableCompiler, compilerResourceDigest } from "./fullCallableCompiler.js";
 import { normalizeReplacementProof, replacementCoverageDigest } from "./replacementProof.js";
+import { inspectStatefulBuild, statefulBodyIndex } from "./statefulBuild.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 2;
@@ -557,6 +558,16 @@ export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath
     }
   }
   if (!sourcePaths.size || sourcePaths.size > 8192) throw registrationError("LIVE_CAPTURE_SOURCES_INVALID", "The result bundle does not identify bounded Swift source inputs.");
+  const overlays = new Set(commands.flatMap(command => command.arguments.flatMap((arg, index) =>
+    arg === "-vfsoverlay" && basename(command.arguments[index + 1] || "") === "swift-sim-stateful-overlay.json"
+      ? [resolveFrom(command.working_directory, command.arguments[index + 1])] : [])));
+  if (overlays.size > 1) throw registrationError("STATEFUL_BUILD_INVALID", "The build captured conflicting state-preserving source overlays.");
+  let stateful;
+  for (const overlay of overlays) {
+    const inspected = inspectStatefulBuild(overlay, sourcePaths);
+    stateful = inspected.index;
+    for (const input of inspected.inputs) extraInputs.add(input);
+  }
   const binaryIdentity = appPath ? readBuiltLiveIdentity(appPath) : null;
   let appFingerprint = [];
   let presentation = {};
@@ -586,7 +597,7 @@ export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath
     sourceFiles,
     projectFiles: [...extraInputs].map((input) => resolve(input)).sort().map((input) => ({ path: input, ...registrationFileFingerprint(input, 16 * 1024 * 1024) })),
   };
-  return { commands, compilations, provenance, presentation };
+  return { commands, compilations, provenance, presentation, ...(stateful ? { stateful } : {}) };
 }
 
 async function registerLiveBuildResultUnlocked(options) {
@@ -632,6 +643,7 @@ async function registerLiveBuildResultUnlocked(options) {
       const fileStore = runtime.fileStore || new NodeAtomicFileStore();
       await fileStore.writeJSON(manifestPath, {
         version: 1, capturedAt: new Date(clock()).toISOString(), compilations: capture.compilations, presentation: capture.presentation,
+        ...(capture.stateful ? { stateful: capture.stateful } : {}),
         ...(capture.provenance.binaryIdentity ? { binaryIdentity: capture.provenance.binaryIdentity, sourceBaselines, binding: { projectPath: capture.provenance.projectPath, scheme: capture.provenance.scheme, projectRoot: projectRootFor(capture.provenance.projectPath) } } : {}),
         registration: { requestId, mapDigest, provenanceDigest, engineNonce, commandCount: receipt.command_count },
       }, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
@@ -739,24 +751,28 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   if (!reference || contexts.some(context => !context || context.moduleName !== reference.moduleName
     || context.workingDirectory !== reference.workingDirectory || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments))) throw completeArtifactError();
   const resourceDigest = compilerResourceDigest();
-  const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest])).digest("hex");
+  const stateful = statefulBodyIndex(manifest.stateful, reference.moduleName);
+  const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest, stateful.digest])).digest("hex");
   const path = join(artifactRoot, `eval_injection_swift_sim_dynamic_${key}.dylib`);
   const marker = `${path}.json`;
   ensureDirectoryModeSync(artifactRoot, 0o700);
   const fullCompiler = compiler || createFullCallableCompiler({ runner, cacheRoot: join(LIVE_ROOT, "compiler-cache") });
   const generation = fullCompiler.generate({ module: reference.moduleName, generation: key.slice(0, 32),
+    statefulBodies: stateful.bodies,
     files: record.files.map(file => ({ path: file.path, before: file.beforeSource, after: file.afterSource })) });
+  const refreshStrategy = generation.refreshStrategy || "remount";
   const moduleName = `SwiftSimLivePatch_${key}`;
   const previous = existsSync(marker) ? readCompleteMarker(marker) : null;
   if (existsSync(path)) {
     const stats = lstatSync(path);
     if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1 || (stats.mode & 0o077) !== 0
       || (process.getuid && stats.uid !== process.getuid()) || previous?.key !== key || previous.requestId !== record.requestId
-      || previous.snapshotDigest !== record.snapshotDigest || previous.binaryIdentity !== record.scope.binaryIdentity || previous.resourceDigest !== resourceDigest) throw completeArtifactError();
+      || previous.snapshotDigest !== record.snapshotDigest || previous.binaryIdentity !== record.scope.binaryIdentity || previous.resourceDigest !== resourceDigest
+      || previous.refreshStrategy !== refreshStrategy || previous.statefulDigest !== stateful.digest) throw completeArtifactError();
     if (previous.artifactDigest !== createHash("sha256").update(readFileSync(path)).digest("hex")) throw completeArtifactError();
     const coverage = fullCompiler.inspectCoverage({ dylibPath: path, generation, moduleName });
     if (coverage.coverageDigest !== previous.coverageDigest) throw completeArtifactError();
-    return completePrepared(path, coverage, resourceDigest);
+    return completePrepared(path, coverage, resourceDigest, refreshStrategy);
   }
   const volume = statfsSync(artifactRoot);
   const initialUsage = queuedArtifactUsage(artifactRoot, patchRoot);
@@ -766,7 +782,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const directory = join(patchRoot, `queued_${key}`);
   ensureDirectoryModeSync(directory, 0o700);
   const owner = { version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest,
-    binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest };
+    binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest, refreshStrategy, statefulDigest: stateful.digest };
   writeCompleteMarker(marker, owner);
   const paths = generation.sources.map((source, index) => {
     const generatedPath = join(directory, `Replacement${index}.swift`);
@@ -790,7 +806,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   }
   writeFileSync(path, readFileSync(dylibPath), { mode: 0o600, flag: "wx" });
   writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest });
-  return completePrepared(path, coverage, resourceDigest);
+  return completePrepared(path, coverage, resourceDigest, refreshStrategy);
 }
 
 function assertCompleteEditSet(record) {
@@ -798,10 +814,10 @@ function assertCompleteEditSet(record) {
     throw Object.assign(new Error("The queued snapshot changes compiled structure."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
   }
 }
-function completePrepared(path, coverage, resourceDigest) {
+function completePrepared(path, coverage, resourceDigest, refreshStrategy) {
   const replacementProof = normalizeReplacementProof(coverage.replacementProof);
   return { path, mode: "swift-complete-replacement-bundle", replacementProof,
-    coverageDigest: replacementCoverageDigest(replacementProof), compilerResourceDigest: resourceDigest, artifactDigest: coverage.artifactDigest };
+    coverageDigest: replacementCoverageDigest(replacementProof), compilerResourceDigest: resourceDigest, artifactDigest: coverage.artifactDigest, refreshStrategy };
 }
 function completeArtifactError() { return Object.assign(new Error("The complete patch artifact is not trusted."), { code: "PATCH_ARTIFACT_INVALID" }); }
 
@@ -815,6 +831,7 @@ export function validateCompleteQueuedLivePatchCoverage(record) {
   const marker = readCompleteMarker(`${path}.json`);
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity
     || marker.resourceDigest !== record.preparedPatch.compilerResourceDigest || marker.coverageDigest !== record.preparedPatch.coverageDigest
+    || (marker.refreshStrategy || "remount") !== (record.preparedPatch.refreshStrategy || "remount")
     || marker.artifactDigest !== record.preparedPatch.patchDigest
     || createHash("sha256").update(readFileSync(path)).digest("hex") !== marker.artifactDigest) throw completeArtifactError();
 }
@@ -824,6 +841,7 @@ export function sealCompleteQueuedLivePatch(record, raw, signedDigest) {
   const marker = readCompleteMarker(`${raw.path}.json`);
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity || marker.artifactDigest !== raw.artifactDigest
     || marker.coverageDigest !== raw.coverageDigest || marker.resourceDigest !== raw.compilerResourceDigest
+    || (marker.refreshStrategy || "remount") !== (raw.refreshStrategy || "remount")
     || !/^[a-f0-9]{64}$/.test(signedDigest) || createHash("sha256").update(readFileSync(raw.path)).digest("hex") !== signedDigest) throw completeArtifactError();
   writeCompleteMarker(`${raw.path}.json`, { ...marker, unsignedArtifactDigest: marker.unsignedArtifactDigest || raw.artifactDigest, artifactDigest: signedDigest });
 }
@@ -943,7 +961,7 @@ function dynamicReplacementContext(command) {
 
   const compilerArguments = ["-sdk", sdk, "-target", target];
   const valueFlags = new Set([
-    "-I", "-F", "-Fsystem", "-L", "-D", "-swift-version",
+    "-I", "-F", "-Fsystem", "-L", "-D", "-swift-version", "-module-cache-path", "-resource-dir",
     "-enable-upcoming-feature", "-enable-experimental-feature",
   ]);
   for (let index = 0; index < args.length; index += 1) {

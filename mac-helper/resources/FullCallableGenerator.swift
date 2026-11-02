@@ -8,6 +8,106 @@ struct Input: Decodable {
     let module: String
     let generation: String
     let files: [File]
+    let statefulBodies: [String: [String]]?
+}
+
+struct InstrumentInput: Decodable {
+    struct File: Decodable { let path: String; let source: String }
+    let files: [File]
+}
+
+func statefulBody(_ statements: CodeBlockItemListSyntax, lineCount: Int) -> AccessorBlockSyntax {
+    // The local builder preserves the original result-builder/explicit-return
+    // semantics. AnyView fixes the installed ABI before any patch is compiled.
+    let inner = statements.description
+    let padding = String(repeating: "\n", count: max(0, lineCount - inner.filter { $0 == "\n" }.count))
+    let text = "{ @SwiftUI.ViewBuilder func __swiftSimBuildBody() -> some SwiftUI.View {\(inner)\(padding)}; return SwiftUI.AnyView(__swiftSimBuildBody()) }"
+    let tree = Parser.parse(source: "var body: SwiftUI.AnyView \(text)")
+    return tree.statements.first!.item.as(VariableDeclSyntax.self)!.bindings.first!.accessorBlock!
+}
+
+final class StatefulInstrumenter: SyntaxRewriter {
+    var owners: [String] = []
+    var viewOwners = Set<String>()
+    var wrapped: [String] = []
+    override func visit(_ node: IfConfigDeclSyntax) -> DeclSyntax { DeclSyntax(node) }
+    override func visit(_ node: ExtensionDeclSyntax) -> DeclSyntax { DeclSyntax(node) }
+    override func visit(_ node: ClassDeclSyntax) -> DeclSyntax { DeclSyntax(node) }
+    override func visit(_ node: ActorDeclSyntax) -> DeclSyntax { DeclSyntax(node) }
+    override func visit(_ node: EnumDeclSyntax) -> DeclSyntax {
+        guard node.genericParameterClause == nil, node.genericWhereClause == nil else { return DeclSyntax(node) }
+        owners.append(node.name.text); let result = super.visit(node); owners.removeLast(); return result
+    }
+    override func visit(_ node: StructDeclSyntax) -> DeclSyntax {
+        guard node.genericParameterClause == nil, node.genericWhereClause == nil else { return DeclSyntax(node) }
+        let name = (owners + [node.name.text]).joined(separator: ".")
+        let explicitView = node.inheritanceClause?.inheritedTypes.contains {
+            ["View", "SwiftUI.View"].contains($0.type.trimmedDescription)
+        } == true
+        let safe = node.genericParameterClause == nil && node.genericWhereClause == nil
+            && !node.description.contains("__swiftSimRefresh")
+            && !node.modifiers.contains(where: { $0.name.text == "nonisolated" })
+            && !node.memberBlock.members.contains(where: { $0.decl.is(InitializerDeclSyntax.self) && $0.decl.description.contains("nonisolated") })
+        owners.append(node.name.text)
+        if explicitView && safe { viewOwners.insert(name) }
+        let count = wrapped.count
+        var result = super.visit(node).as(StructDeclSyntax.self)!
+        owners.removeLast()
+        if wrapped.count > count && wrapped[count...].contains(name) {
+            var field = Parser.parse(source: "@SwiftSimLive.SwiftSimRefresh private var __swiftSimRefresh")
+                .statements.first!.item.as(VariableDeclSyntax.self)!
+            // Use the type's existing closing line. A trailing // comment on
+            // the last member must never swallow the observation property.
+            field.leadingTrivia = result.memberBlock.rightBrace.leadingTrivia
+            result.memberBlock.rightBrace.leadingTrivia = .space
+            if let last = result.memberBlock.members.indices.last,
+               !result.memberBlock.members[last].decl.is(IfConfigDeclSyntax.self) {
+                result.memberBlock.members[last].semicolon = .semicolonToken()
+            }
+            result.memberBlock.members.append(MemberBlockItemSyntax(decl: DeclSyntax(field)))
+        }
+        return DeclSyntax(result)
+    }
+    override func visit(_ node: VariableDeclSyntax) -> DeclSyntax {
+        let owner = owners.joined(separator: ".")
+        guard viewOwners.contains(owner), node.bindings.count == 1,
+              let binding = node.bindings.first,
+              binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text == "body",
+              let type = binding.typeAnnotation?.type,
+              ["someView", "someSwiftUI.View", "AnyView", "SwiftUI.AnyView"].contains(tokens(type).replacingOccurrences(of: " ", with: "")),
+              let block = binding.accessorBlock,
+              case .getter(let statements) = block.accessors else { return DeclSyntax(node) }
+        let context = SourceContextExpressions(); context.walk(block)
+        let locals = LocalTypes(); locals.walk(block)
+        guard !context.found, !locals.found, !block.description.contains("__swiftSimBuildBody") else { return DeclSyntax(node) }
+        var result = node
+        var value = binding
+        value.typeAnnotation = TypeAnnotationSyntax(type: TypeSyntax(IdentifierTypeSyntax(name: .identifier("SwiftUI.AnyView"))))
+        value.accessorBlock = statefulBody(statements, lineCount: block.description.filter { $0 == "\n" }.count)
+        result.bindings = PatternBindingListSyntax([value])
+        wrapped.append(owner)
+        return DeclSyntax(result)
+    }
+}
+
+func instrument(_ input: InstrumentInput) throws -> [String: Any] {
+    guard input.files.count <= 2048 else { throw Failure(description: "instrumentation file limit") }
+    var result: [[String: Any]] = []
+    for file in input.files {
+        let tree = Parser.parse(source: file.source)
+        guard !tree.hasError else { continue }
+        let rewrite = StatefulInstrumenter()
+        let output = rewrite.rewrite(tree).description
+        if !rewrite.wrapped.isEmpty {
+            guard output.filter({ $0 == "\n" }).count == file.source.filter({ $0 == "\n" }).count else { continue }
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.withoutEscapingSlashes]
+            let filename = String(data: try encoder.encode(file.path), encoding: .utf8)!
+            let final = "import SwiftSimLive\nimport SwiftUI\n#sourceLocation(file: \(filename), line: 1)\n" + output
+            guard !Parser.parse(source: final).hasError else { continue }
+            result.append(["path": file.path, "source": final, "owners": rewrite.wrapped.sorted()])
+        }
+    }
+    return ["schemaVersion": 1, "capability": "stateful-overlay-v1", "files": result]
 }
 struct Member {
     let key: String
@@ -204,7 +304,18 @@ func generate(_ input: Input) throws -> [String: Any] {
             guard !localTypes.found else { throw Failure(description: "changed body contains local nominal metadata") }
             let magic = SourceContextExpressions(); magic.walk(bodyTree)
             guard !magic.found else { throw Failure(description: "source-context expression needs explicit original-context lowering") }
-            let declaration = "@_dynamicReplacement(for: \(member.target))\n\(member.replacement)"
+            var replacement = member.replacement
+            if member.target == "body", input.statefulBodies?[file.path]?.contains(member.owner) == true {
+                let tree = Parser.parse(source: replacement)
+                guard var property = tree.statements.first?.item.as(VariableDeclSyntax.self),
+                      var binding = property.bindings.first, let block = binding.accessorBlock,
+                      case .getter(let statements) = block.accessors else { throw Failure(description: "stateful body shape changed") }
+                binding.typeAnnotation = TypeAnnotationSyntax(type: TypeSyntax(IdentifierTypeSyntax(name: .identifier("SwiftUI.AnyView"))))
+                binding.accessorBlock = statefulBody(statements, lineCount: block.description.filter { $0 == "\n" }.count)
+                property.bindings = PatternBindingListSyntax([binding])
+                replacement = property.description
+            }
+            let declaration = "@_dynamicReplacement(for: \(member.target))\n\(replacement)"
             chunks.append(member.owner.isEmpty ? declaration : "\(member.contextAttributes)\nextension \(member.owner) {\n\(declaration)\n}")
             coverage.append(["file": filename, "line": member.line, "member": member.target, "owner": member.owner,
                              "bodyStartUTF8": member.lower, "bodyEndUTF8": member.upper,
@@ -213,7 +324,14 @@ func generate(_ input: Input) throws -> [String: Any] {
         }
         generated.append(chunks.joined(separator: "\n"))
     }
+    let preserving = !coverage.isEmpty && coverage.allSatisfy {
+        guard let owner = $0["owner"] as? String, $0["member"] as? String == "body",
+              let filename = $0["file"] as? String else { return false }
+        return input.files.contains { file in URL(fileURLWithPath: file.path).lastPathComponent == filename
+            && input.statefulBodies?[file.path]?.contains(owner) == true }
+    }
     return ["schemaVersion": 1, "capability": "full-callable-v1", "generation": input.generation, "module": input.module,
+            "refreshStrategy": preserving ? "preserve-state-v1" : "remount",
             "changedMemberCount": coverage.count, "members": coverage, "sources": generated]
 }
 final class LocalTypes: SyntaxVisitor {
@@ -236,7 +354,8 @@ final class SourceContextExpressions: SyntaxVisitor {
     }
 }
 do {
-    guard CommandLine.arguments.dropFirst() == ["--full-callable-generator-v1"] else {
+    let mode = Array(CommandLine.arguments.dropFirst())
+    guard mode == ["--full-callable-generator-v1"] || mode == ["--instrument-stateful-v1"] else {
         throw Failure(description: "versioned generator invocation required")
     }
     let limit = 8 * 1024 * 1024
@@ -245,7 +364,9 @@ do {
         data.append(chunk)
         guard data.count <= limit else { throw Failure(description: "input exceeds 8 MiB") }
     }
-    let result = try generate(JSONDecoder().decode(Input.self, from: data))
+    let result = mode == ["--instrument-stateful-v1"]
+        ? try instrument(JSONDecoder().decode(InstrumentInput.self, from: data))
+        : try generate(JSONDecoder().decode(Input.self, from: data))
     FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]))
     print()
 } catch {

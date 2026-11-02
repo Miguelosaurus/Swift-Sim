@@ -623,6 +623,7 @@ function validateProof(record, proof, refreshed) {
     || proof.binaryIdentity !== record.scope.binaryIdentity || proof.applied !== true
     || !Number.isSafeInteger(proof.revision) || proof.revision <= record.baselineRevision
     || (refreshed && proof.refreshed !== true)
+    || (record.preparedPatch.refreshStrategy === "preserve-state-v1" && proof.refreshStrategy !== "preserve-state-v1")
     || (record.preparedPatch.patchDigest && proof.patchDigest !== record.preparedPatch.patchDigest)) throw queueError("QUEUE_PROOF_INVALID");
   if (record.preparedPatch.replacementProof && (Buffer.byteLength(JSON.stringify(proof.replacementCoverage || {})) > 65_536
     || !verifyReplacementProofReceipt({ expected: record.preparedPatch.replacementProof, report: proof.replacementCoverage,

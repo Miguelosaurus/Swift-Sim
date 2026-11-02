@@ -11,6 +11,8 @@ import { verifyLiveBuildLinkerCompatibility } from "./liveBuildLinkerCompatibili
 import { annotateBuildFailure, recordDeviceBuildFailure } from "./buildFailure.js";
 import { appDisplayNameFromSettings, archivedAppDisplayName, builtAppDisplayName } from "./deviceBuildDisplayName.js";
 import { captureBuildIcon } from "./deviceBuildIcon.js";
+import { prepareStatefulBuild } from "./statefulBuild.js";
+import { NodeCommandRunner } from "./infrastructure/nodeCommandRunner.js";
 import {
   selectedTargetHasLivePackage,
   selectedXcodeApplicationTarget,
@@ -357,12 +359,24 @@ export async function runDeviceBuild(build, {
           saveBuild();
           const derivedDataPath = join(root, "DerivedData");
           const destination = signedDebugBuildDestination();
+          let statefulBuild = null;
+          if (!process.env.SWIFT_EXEC && !liveBuildSettingArgs.some(value => String(value).startsWith("SWIFT_EXEC=") || /-driver-use-frontend-path|-resource-dir/.test(String(value)))) {
+            try {
+              const compilerPath = spawnSync("/usr/bin/xcrun", ["--find", "swiftc"], { encoding: "utf8", timeout: 5_000 }).stdout?.trim();
+              if (!settings.SWIFT_EXEC || settings.SWIFT_EXEC === compilerPath) {
+                statefulBuild = prepareStatefulBuild({ projectPath: target.path, root, moduleName: settings.PRODUCT_MODULE_NAME,
+                  compilerPath, runner: new NodeCommandRunner({ spawn, spawnSync }) });
+              }
+            } catch { log("State-preserving view preparation was unavailable; standard hot reload remains enabled."); }
+          }
+          const statefulArgs = statefulBuild ? [...liveBuildSettingArgs.filter(value => !value.startsWith("OTHER_SWIFT_FLAGS=")),
+            `${liveBuildSettingArgs.findLast(value => value.startsWith("OTHER_SWIFT_FLAGS="))} -driver-use-frontend-path ${JSON.stringify(statefulBuild.wrapperPath)} -resource-dir ${JSON.stringify(statefulBuild.resourceDirectory)}`] : liveBuildSettingArgs;
           log("Building the signed live-enabled Debug app.");
           await runLogged("xcodebuild", [
             ...targetArgs(target),
             "-scheme", required(build.scheme, "scheme"),
             "-configuration", build.configuration || "Debug",
-            ...liveBuildSettingArgs,
+            ...statefulArgs,
             "-destination", destination,
             "-derivedDataPath", derivedDataPath,
             "-resultBundlePath", resultBundlePath,

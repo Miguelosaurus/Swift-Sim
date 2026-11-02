@@ -28,7 +28,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       if (captureVersion() !== version) throw new Error();
       // Observation only; explicit delivery binding always reads full authority.
       if (inspection) {
-        const projected = { binaryIdentity: value.binaryIdentity, binding: value.binding };
+        const projected = { binaryIdentity: value.binaryIdentity, binding: value.binding, requiresStateful: Boolean(value.stateful) };
         inspectionCache = { version, value: projected };
         return projected;
       }
@@ -55,6 +55,9 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     const completeEngine = data?.prepared_replacement_proof_protocol === 3;
     const completeClient = capabilities.includes(REPLACEMENT_PROOF_CAPABILITY);
     const requiresComplete = Boolean(record.preparedPatch?.replacementProof);
+    const preserveState = record.preparedPatch?.refreshStrategy === "preserve-state-v1";
+    const statefulEngine = data?.state_preserving_refresh_protocol === 1;
+    const statefulClient = capabilities.includes("state-preserving-refresh-v1");
     const client = data?.client_identity;
     const matchesBinary = liveBinaryMatches(manifest.binaryIdentity, client) && typeof client?.process_nonce === "string" && client.process_nonce.length >= 8;
     const revisionValid = Number.isSafeInteger(client?.root_revision) && client.root_revision >= 0;
@@ -62,15 +65,16 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       captureMatches: true,
       signingReady: data ? data.codesigning_identity_configured === true : undefined,
       compilerReady: data ? Number(data.captured_compilations || 0) > 0 : undefined,
-      engineAvailable: Boolean(data && engineSupports),
+      engineAvailable: Boolean(data && engineSupports && (!manifest.requiresStateful || (completeEngine && statefulEngine))),
       engineReachable: Boolean(data),
       completeEngine,
       completeClient,
+      statefulEngine, statefulClient,
       clientPresent: Boolean(data?.has_connected_client),
       supportsReceipts: REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value)),
       matchesBinary,
       connected: Boolean(data?.has_connected_client && matchesBinary && revisionValid && REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value))
-        && (!requiresComplete || (completeEngine && completeClient))),
+        && (!requiresComplete || (completeEngine && completeClient)) && (!preserveState || (statefulEngine && statefulClient))),
       foreground: client?.is_active === true,
       rootReady: client?.root_ready === true,
       revision: revisionValid ? client.root_revision : null,
@@ -84,6 +88,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       attempt_id: record.claim?.token || record.applyClaimToken,
       path: record.preparedPatch.path, expires_at_ms: record.expiresAt, baseline_revision: record.baselineRevision,
       expected_identity: { ...normalizedLiveBinaryIdentity(observed.identity), process_nonce: record.scope.sessionIdentity },
+      ...(record.preparedPatch.refreshStrategy ? { refresh_strategy: record.preparedPatch.refreshStrategy } : {}),
       ...(record.preparedPatch.replacementProof ? { replacement_proof: normalizeReplacementProof(record.preparedPatch.replacementProof) } : {}),
     };
   }
@@ -109,13 +114,15 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       || report.client_identity?.process_nonce !== record.scope.sessionIdentity
       || report.applied !== true || (expectedCoverage ? !verifyReplacementProofReceipt({ expected: expectedCoverage, report, attemptId }) : !(Number(report.dynamic_replacements) > 0))
       || !Number.isSafeInteger(report.root_revision)
-      || report.root_revision <= record.baselineRevision) return null;
+      || report.root_revision <= record.baselineRevision
+      || (record.preparedPatch.refreshStrategy === "preserve-state-v1" && report.refresh_strategy !== "preserve-state-v1")) return null;
     if (expectedCoverage && (report.succeeded !== true || report.admission !== "applied" || report.state_uncertain === true)) return null;
     return {
       requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity,
       patchDigest: record.preparedPatch.patchDigest, applied: true,
       refreshed: report.refreshed === true && report.refresh_acknowledged === true,
       revision: report.root_revision,
+      ...(record.preparedPatch.refreshStrategy ? { refreshStrategy: report.refresh_strategy } : {}),
       ...(expectedCoverage ? { replacementCoverage: privateCoverageReceipt(report) } : {}),
     };
   }
@@ -130,6 +137,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       const manifest = capture(); const scope = scopeFor(manifest);
       if ((project && canonicalProjectPath(project) !== scope.project) || (scheme && scheme !== scope.scheme)) throw deliveryError("LIVE_PROJECT_MISMATCH", "The live build belongs to a different project or scheme. Select the intended Debug integration; no rebuild was started.");
       const observed = await inspect({ scope });
+      if (manifest.stateful && (!observed.completeEngine || !observed.statefulEngine)) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "This Debug build needs its matching state-preserving live engine. No patch was compiled or sent.");
       if (observed.engineReachable && !observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The installed engine cannot process durable live edits. Activate the matching engine and SDK before using the queued workflow; no build was started.");
       if (observed.clientPresent && !observed.supportsReceipts) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "The connected Debug app needs the matching reconnect and receipt SDK. Complete its one-time Debug update; no automatic rebuild was started.");
       if (observed.completeEngine && observed.clientPresent && !observed.completeClient) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "This Debug app needs the complete replacement receipt SDK. Install its one-time Debug update before using broader hot reload; no automatic rebuild was started.");
@@ -138,12 +146,14 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     inspect,
     async prepare(record, options) {
       const observed = await inspect(record);
+      if (!observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The matching live engine is unavailable. No patch was compiled or sent.");
       const raw = await compile(record, { ...options, completeCoverage: observed.completeEngine });
       const response = await control({ action: "prepare_dylib", path: raw.path }, { timeoutMs: 30_000 });
       const digest = response?.success ? response.data?.patch_digest : "";
       if (!/^[0-9a-f]{64}$/.test(digest) || hash(readFileSync(raw.path)) !== digest) throw deliveryError("PATCH_SIGNING_FAILED", "The queued patch could not be signed and verified. No app build or install was started.");
       if (raw.replacementProof) sealCompleteQueuedLivePatch(record, raw, digest);
       return { path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
+        ...(raw.refreshStrategy ? { refreshStrategy: raw.refreshStrategy } : {}),
         ...(raw.replacementProof ? { replacementProof: normalizeReplacementProof(raw.replacementProof), coverageDigest: raw.coverageDigest, compilerResourceDigest: raw.compilerResourceDigest } : {}) };
     },
     async apply(record, observed, { cancellationSignal } = {}) {

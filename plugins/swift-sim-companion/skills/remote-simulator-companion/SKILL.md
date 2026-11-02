@@ -111,33 +111,26 @@ user to upload a screenshot or copy a report ID when this access is available.
 Read [developer-menu context](references/developer-menu.md) only for that task;
 never fetch or inject it into ordinary chats or the normal warm delivery path.
 
-Ordinary waiting is not a reconnect failure. Requesting a change from ChatGPT
-on the same iPhone backgrounds the target app. Submit once, report its typed
-`normalWaiting`/`guidanceCode`, and let the user return to the target app when
-ready. Application can take a few seconds after foreground reconnection; never
-promise a fixed ten-second deadline. Do not ask the user to keep the app open
-while composing the request, select a screen, resend, restart, rebuild, or poll
-unchanged status endlessly. A push notification or tap does not prove applied
-or refreshed; use the matching request's native receipt and revision.
+Requests from the same iPhone background the target app. Submit once, report
+`normalWaiting`/`guidanceCode`, and let the user return when ready. Reconnection
+has no fixed deadline. Do not require a screen, ask for resubmission, restart
+or rebuild, or repeatedly poll unchanged status. Notifications and taps do
+not prove application; require the matching native receipt and revision.
 
-Treat `normalWaiting: false` with `CHECK_MAC` or `CHECK_MATCHING_BUILD` as an
-actionable delivery fault, not ordinary phone backgrounding. Inspect
-`delivery.readiness.code` and its heartbeat/engine-observation ages, then check
-`swift-sim live-status` on the Mac. An absent engine, stale worker heartbeat,
-missing compiler/signing context, incompatible capability, or mismatched build
-will not be fixed just by opening the phone app. Preserve the opaque request
-and source snapshots; do not resubmit or automatically rebuild. A fresh
-heartbeat during `LIVE_PREPARING` keeps a long compilation distinguishable from
-an absent helper without claiming a newer engine check or successful apply.
+`normalWaiting: false` with `CHECK_MAC` or `CHECK_MATCHING_BUILD` requires
+investigation. Inspect `delivery.readiness.code`, heartbeat/engine-observation
+ages, then `swift-sim live-status`. Missing engine, heartbeat, compiler/signing
+context, capability or matching build requires Mac-side recovery. Preserve the
+request and snapshots; do not resubmit or automatically rebuild. A fresh
+`LIVE_PREPARING` heartbeat proves preparation is active, not a newer engine
+check or successful application.
 
 
 For first-time hot reload, follow [live project integration](references/live-project-integration.md)
-through signed Debug install, cold launch, connection, and one proven edit.
-Setup readiness and a connected engine do not prove a successful hot reload.
-The asynchronous contract needs the matching SDK, prepared-delivery engine and
-helper capability. Older installations require explicit bootstrap/update;
-they must not silently queue work they cannot process. See the live reference
-for current candidate availability and execution limits.
+through Debug install, cold launch, connection and a proven edit. Setup and
+connection alone are insufficient. The SDK, prepared-delivery engine and helper
+must match; older installations require explicit bootstrap/update. The reference
+also covers state-preserving refresh and its limits.
 
 Confirmed compatible edits are retained as desired source for that exact Debug
 binary and automatically restored after relaunch on reconnect. Pending expiry

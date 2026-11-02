@@ -5,26 +5,45 @@ import Combine
 import InjectionBundle
 
 @MainActor
-private final class SwiftSimLiveObserver: ObservableObject {
+final class SwiftSimLiveObserver: ObservableObject {
     static let shared = SwiftSimLiveObserver()
 
     @Published private(set) var revision = 0
+    private(set) var remountGeneration = 0
+    private var registeredRoot = false
     private var cancellable: AnyCancellable?
+    private var policySubscription: AnyCancellable?
+    private var pendingPolicy: [AnyHashable: Any]?
 
     private init() {
+        policySubscription = NotificationCenter.default.publisher(for: Notification.Name("SWIFT_SIM_NATIVE_REFRESH_POLICY"))
+            .sink { [weak self] event in self?.pendingPolicy = event.userInfo }
         cancellable = NotificationCenter.default.publisher(
             for: Notification.Name("INJECTION_BUNDLE_NOTIFICATION")
         )
-        .sink { [weak self] _ in
-            guard let self else { return }
+        .sink { [weak self] event in
+            guard let self, self.registeredRoot else { return }
+            let policy = self.pendingPolicy ?? event.userInfo
+            let preserve = SwiftSimRootRefreshPolicy.preservesState(policy, baseline: self.revision)
+            self.pendingPolicy = nil
+            if !preserve { self.remountGeneration &+= 1 }
             self.revision &+= 1
             InjectionSetRootReady(true, UInt(self.revision))
             NotificationCenter.default.post(
                 name: Notification.Name("SWIFT_SIM_LIVE_REVISION_APPLIED"),
                 object: nil,
-                userInfo: ["revision": self.revision]
+                userInfo: ["revision": self.revision,
+                    "refresh_strategy": preserve ? "preserve-state-v1" : "remount",
+                    "request_id": policy?["request_id"] ?? "",
+                    "patch_digest": policy?["patch_digest"] ?? "",
+                    "baseline_revision": policy?["baseline_revision"] ?? -1]
             )
         }
+    }
+
+    func registerRoot() {
+        guard !registeredRoot else { return }
+        registeredRoot = true
         // Registration follows the revision subscription, so a queued patch
         // cannot race an unobserved first refresh at process startup.
         InjectionSetRootReady(true, UInt(revision))
@@ -37,9 +56,11 @@ private struct SwiftSimLiveModifier: ViewModifier {
     @ObservedObject private var observer = SwiftSimLiveObserver.shared
     @State private var manualRevision = 0
 
+    init() { SwiftSimLiveObserver.shared.registerRoot() }
+
     func body(content: Content) -> some View {
         AnyView(content)
-            .id(SwiftSimRootIdentity(nativeRevision: observer.revision, manualRevision: manualRevision))
+            .id(SwiftSimRootIdentity(nativeRevision: observer.remountGeneration, manualRevision: manualRevision))
             .overlay {
                 if let state = feedback.presentation {
                     SwiftSimDeliveryFeedbackEffect(state: state, estimatedRemaining: feedback.estimatedRemaining) {
