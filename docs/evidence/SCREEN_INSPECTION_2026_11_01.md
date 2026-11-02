@@ -61,3 +61,22 @@ universal-links and keychain checks passing. Physical-phone gesture, accessibili
 footprint and hot-reload/notification coexistence still require device acceptance.
 Private receipts, source hashes, screenshots and task resource notes are retained
 in the generated qualification folder. No phone patch or app uninstall was used.
+
+## Prepared rollout
+
+Swift-Sim implementation is merged directly to main at
+`5c1190f5d9640940e99f8538994166fe8cfa40ec`; engine main is the pinned revision
+above. The installed CLI and native Codex skill/reference match this source.
+Zenics main `930a66c` changes only its SDK pin, preserving the pre-existing local
+Debug linker workaround. Same-identity Zenics Debug 38 is ready for OTA install
+with 869 compiler registrations. Its exported signature, Debug entitlement,
+exact SDK/engine revisions and every SDK Swift source hash verify. No diagnostic
+test selector is present in the shipped SDK. Installation is not confirmed.
+Companion 25 needs no update for this Debug-only feature.
+
+The task fixture is stopped and its Simulator is shut down. Inactive generated
+compiler caches were released after open-file checks; source, signed archives,
+phone build artifacts, registration authority and unrelated work were preserved.
+The normal helper and updated engine remain running for hot reload and
+notifications. No temporary server, watcher, browser or persistent service was
+created by this task. Physical-phone acceptance remains the next step.
