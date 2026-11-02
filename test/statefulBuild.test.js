@@ -16,7 +16,10 @@ function fixture(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const project = join(root, "App.xcodeproj"); mkdirSync(project);
   const source = join(root, "Screen.swift"); writeFileSync(source, "struct Screen: View { var body: some View { Text(\"before\") } }");
-  const compilerPath = join(root, "real-swiftc");
+  const compilerPath = join(root, "tool", "bin", "swiftc");
+  mkdirSync(join(root, "tool", "bin"), { recursive: true });
+  mkdirSync(join(root, "tool", "share", "swift"), { recursive: true });
+  writeFileSync(join(root, "tool", "share", "swift", "features.json"), JSON.stringify({ features: [{ name: "emit-abi-descriptor" }] }));
   writeFileSync(compilerPath, '#!/usr/bin/python3\nimport os,sys,json\nif "-typecheck" in sys.argv: sys.exit(int(os.environ.get("TEST_OLD_SDK", "0")))\nwith open(os.environ["TEST_ARGS_PATH"], "w") as f: json.dump(sys.argv[1:],f)\n', { mode: 0o700 });
   const compiler = { instrument({ files }) { return { resourceDigest: "a".repeat(64), files: files.map(file => ({ ...file, source: file.source.replace('"before"', '"overlay"'), owners: ["Screen"] })) }; } };
   const build = prepareStatefulBuild({ projectPath: project, root: join(root, "build"), moduleName: "App", compilerPath, compiler });
@@ -61,4 +64,19 @@ test("response files work and transformed-input or immutable-index corruption fa
   assert.throws(() => statefulBodyIndex(capture.index, "App"), { code: "STATEFUL_BUILD_INVALID" });
   assert.throws(() => inspectStatefulBuild(f.build.overlayPath, new Set([f.source])), { code: "STATEFUL_BUILD_INVALID" });
   assert.equal(hash(fixtureFiles.readTextSync(f.build.manifestPath)), capture.index.manifestDigest);
+});
+
+test("the real integrated driver retains ABI descriptor output with the private frontend", { skip: process.platform !== "darwin" }, t => {
+  const found = spawnSync("/usr/bin/xcrun", ["--find", "swiftc"], { encoding: "utf8" });
+  if (found.status !== 0) { t.skip("Xcode compiler unavailable"); return; }
+  const f = fixture(t); const compilerPath = found.stdout.trim();
+  const build = prepareStatefulBuild({ projectPath: join(f.root, "App.xcodeproj"), root: join(f.root, "real-build"),
+    moduleName: "App", compilerPath, compiler: { instrument: ({ files }) => ({ resourceDigest: "a".repeat(64), files: files.map(file => ({ ...file, owners: ["Screen"] })) }) } });
+  const result = spawnSync(compilerPath, ["-driver-print-jobs", "-emit-module", f.source, "-module-name", "FeatureProbe",
+    "-o", join(f.root, "FeatureProbe.swiftmodule"), "-driver-use-frontend-path", build.wrapperPath,
+    "-resource-dir", build.resourceDirectory], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /-emit-abi-descriptor-path/);
+  const manifest = JSON.parse(fixtureFiles.readTextSync(build.manifestPath));
+  assert.equal(manifest.featuresDigest, hash(fixtureFiles.readTextSync(manifest.featuresPath)));
 });

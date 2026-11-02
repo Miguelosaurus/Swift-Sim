@@ -50,6 +50,9 @@ proves that normal reset behavior remains available for other callable edits.
   marker/strategy integrity and complete replacement coverage.
 - Actual SwiftSyntax cases include single-line, trailing-comment, nested and
   conditional-member declarations. Generic/source-context bodies remain opaque.
+- A real integrated-driver job-plan regression checks ABI descriptor emission.
+  The private frontend preserves the toolchain's feature metadata in its expected
+  relative location; its exact bytes enter capture/resume provenance.
 - A Release SDK build exports no refresh wrapper, observer or native readiness
   call. Instrumentation is prepared only in the managed Debug build lane.
 

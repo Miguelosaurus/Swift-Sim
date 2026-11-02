@@ -39,6 +39,13 @@ export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPa
   const store = new NodeAtomicFileStore();
   const write = (path, content, mode = 0o600) => store.writeTextSync(path, content, { mode, createParentMode: 0o700, replace: false, syncDirectory: true });
   const wrapperPath = join(directory, "swiftc"); const wrapper = readFileSync(DRIVER, "utf8"); write(wrapperPath, wrapper, 0o700);
+  // Swift's integrated driver discovers ABI-emission features relative to the
+  // frontend executable, independently of -resource-dir. Preserve that exact
+  // toolchain metadata when the frontend lives in this private build directory.
+  const featureSource = resolve(dirname(compilerPath), "../share/swift/features.json");
+  const featureBytes = readFileSync(featureSource, "utf8");
+  if (Buffer.byteLength(featureBytes) > 64 * 1024 || !Array.isArray(JSON.parse(featureBytes).features)) throw invalid();
+  const featuresPath = join(root, "share", "swift", "features.json"); write(featuresPath, featureBytes);
   const records = generated.files.map((file, index) => {
     const generatedPath = join(directory, `View${index}.swift`); write(generatedPath, file.source);
     return { path: file.path, sourceDigest: digest(files.find(value => value.path === file.path).source), generatedPath, generatedDigest: digest(file.source), owners: file.owners };
@@ -49,7 +56,8 @@ export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPa
   write(overlayPath, overlay);
   const manifestPath = join(directory, "manifest.json");
   const manifest = { version: 1, moduleName, compilerPath, resourceDigest: generated.resourceDigest,
-    wrapperPath, wrapperDigest: digest(wrapper), overlayPath, overlayDigest: digest(overlay), files: records };
+    wrapperPath, wrapperDigest: digest(wrapper), overlayPath, overlayDigest: digest(overlay),
+    featuresPath, featuresDigest: digest(featureBytes), files: records };
   write(manifestPath, JSON.stringify(manifest));
   return { wrapperPath, overlayPath, manifestPath, resourceDirectory: resolve(dirname(compilerPath), "../lib/swift"), count: records.length };
 }
@@ -65,8 +73,10 @@ export function inspectStatefulBuild(overlayPath, sourcePaths) {
     || usage.manifestDigest !== manifestDigest || usage.moduleName !== manifest.moduleName || usage.active !== true
     || !Array.isArray(manifest.files) || manifest.files.length > 2048
     || digest(privateBytes(overlayPath)) !== manifest.overlayDigest
+    || manifest.featuresPath !== resolve(directory, "../share/swift/features.json")
+    || digest(privateBytes(manifest.featuresPath)) !== manifest.featuresDigest
     || manifest.wrapperPath !== join(directory, "swiftc") || digest(privateBytes(manifest.wrapperPath)) !== manifest.wrapperDigest) throw invalid();
-  const inputs = [manifestPath, overlayPath, usagePath, manifest.wrapperPath]; const bodies = {};
+  const inputs = [manifestPath, overlayPath, usagePath, manifest.wrapperPath, manifest.featuresPath]; const bodies = {};
   for (const file of manifest.files) {
     if (dirname(file.generatedPath) !== directory || !/^View\d+\.swift$/.test(file.generatedPath.slice(directory.length + 1))
       || !isAbsolute(file.path) || realpathSync(file.path) !== file.path || !Array.isArray(file.owners)
