@@ -1,6 +1,6 @@
 # Lean Swift Sim developer menu
 
-Date: 2026-11-01. Status: implemented; local qualification complete, phone acceptance pending.
+Date: 2026-11-01. Status: implemented and merged; local qualification complete, Debug 37 OTA ready, phone acceptance pending.
 
 See [implementation evidence](../../evidence/DEVELOPER_MENU_2026_11_01.md).
 

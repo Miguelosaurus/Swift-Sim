@@ -94,3 +94,24 @@ Private command receipts, screenshots, source hashes and process/resource notes
 are retained in the task's generated qualification directory. Inactive task
 build caches were removed only after open-file inspection; device-build
 artifacts, live capture authority and unrelated work were preserved.
+
+## Prepared phone rollout
+
+Implementation is merged directly to Swift-Sim main at
+`de25757d10c1624b9d4f0166dcd928dfabbda455`; engine main is the pinned revision
+above. Zenics main `f1bd828` updates only its SDK pin; the pre-existing local
+Debug linker workaround remains uncommitted and unchanged. Xcode resolved the
+exact SDK and engine revisions, and the signed Zenics Debug 37 OTA update is
+ready with 866 compiler registrations. Its exported IPA signature verifies,
+Debug entitlement is enabled, and bundle/team identity matches the existing
+app. Its four changed SDK source files match the reviewed source byte for byte.
+No app uninstall or product Swift edit was required. Installation and phone
+acceptance remain unconfirmed. Companion 25 needs no update for this menu.
+
+The primary installed CLI was rebuilt from main. The native Codex marketplace
+plugin was refreshed through its supported installer; the installed skill and
+on-demand developer-menu reference match the reviewed source. The existing
+helper and updated product engine remain running. The task simulator is shut
+down and the verification fixture is stopped. Only inactive task-owned generated
+engine, preview and Swift-test caches were removed; phone-build artifacts and
+live compiler authority are preserved.
