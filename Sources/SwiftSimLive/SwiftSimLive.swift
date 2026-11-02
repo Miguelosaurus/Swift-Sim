@@ -35,10 +35,11 @@ private struct SwiftSimLiveModifier: ViewModifier {
     // Subscribe to delivery feedback before the root observer opens readiness.
     @ObservedObject private var feedback = SwiftSimDeliveryFeedbackObserver.shared
     @ObservedObject private var observer = SwiftSimLiveObserver.shared
+    @State private var manualRevision = 0
 
     func body(content: Content) -> some View {
         AnyView(content)
-            .id(observer.revision)
+            .id(SwiftSimRootIdentity(nativeRevision: observer.revision, manualRevision: manualRevision))
             .overlay {
                 if let state = feedback.presentation {
                     SwiftSimDeliveryFeedbackEffect(state: state, estimatedRemaining: feedback.estimatedRemaining) {
@@ -47,6 +48,14 @@ private struct SwiftSimLiveModifier: ViewModifier {
                         .id(state.requestID)
                 }
             }
+            #if canImport(UIKit) && os(iOS)
+            .background {
+                SwiftSimDeveloperMenuAttachment(feedback: feedback.reducer.current) {
+                    manualRevision &+= 1
+                }
+                .frame(width: 0, height: 0)
+            }
+            #endif
     }
 }
 #endif

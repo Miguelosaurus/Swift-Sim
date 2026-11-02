@@ -1,6 +1,6 @@
 ---
 name: remote-simulator-companion
-description: Use when a Codex, Cursor, Claude Code, or OpenCode agent should deliver a Swift edit to a remote iPhone, build or update a signed iOS app through Swift Sim, configure Swift Sim, or preview an iOS Simulator.
+description: Use when a Codex, Cursor, Claude Code, or OpenCode agent should deliver a Swift edit to a remote iPhone, inspect a connected Debug app or saved developer-menu report on demand, build or update a signed iOS app through Swift Sim, configure Swift Sim, or preview an iOS Simulator.
 ---
 
 # Remote Simulator Companion
@@ -104,6 +104,12 @@ without Tailscale; live phone edits and Simulator preview require the private
 Tailnet.
 
 ## First use, drift, and lazy references
+
+For requested phone debugging, the agent can pull scoped app context directly
+with `swift-sim app-context`, `--screenshot`, or `--report latest`. Do not ask the
+user to upload a screenshot or copy a report ID when this access is available.
+Read [developer-menu context](references/developer-menu.md) only for that task;
+never fetch or inject it into ordinary chats or the normal warm delivery path.
 
 Ordinary waiting is not a reconnect failure. Requesting a change from ChatGPT
 on the same iPhone backgrounds the target app. Submit once, report its typed
