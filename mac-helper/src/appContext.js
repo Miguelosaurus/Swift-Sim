@@ -54,7 +54,7 @@ export async function performAppTool({ appearance, refresh = false, project, wor
 }
 
 // One-shot only. No helper runtime registration, subscriptions, or setup probes.
-export async function readAppContext({ project, workspace, scheme, screenshot = false, report,
+export async function readAppContext({ project, workspace, scheme, screenshot = false, elements = false, report,
   cwd = process.cwd(), capturePath = join(homedir(), ".swift-sim/live/compilations.json"),
   artifactRoot = join(homedir(), ".swift-sim"), control, now = () => Date.now(),
   saveImage = (value) => saveContextImage(value, { rootPath: artifactRoot, now }),
@@ -62,7 +62,7 @@ export async function readAppContext({ project, workspace, scheme, screenshot = 
   try {
     if (project && workspace) throw failure("APP_CONTEXT_SCOPE_REQUIRED");
     if (report !== undefined && report !== "latest" && !UUID.test(report)) throw failure("APP_CONTEXT_REPORT_INVALID");
-    if (screenshot && report) throw failure("APP_CONTEXT_OPTIONS_INVALID");
+    if ((screenshot || elements) && report) throw failure("APP_CONTEXT_OPTIONS_INVALID");
     const capture = readCapture(capturePath);
     const selected = workspace || project;
     const binding = capture.binding;
@@ -113,11 +113,64 @@ export async function readAppContext({ project, workspace, scheme, screenshot = 
       if (!identity.is_active || !identity.root_ready || !data.screenshot) throw failure("APP_CONTEXT_CAPTURE_UNAVAILABLE");
       result.screenshot = await saveImage(data.screenshot);
     }
+    if (elements) {
+      if (!data.capabilities.includes("developer-inspection-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
+      if (!identity.is_active || !identity.root_ready) throw failure("APP_CONTEXT_FOREGROUND_REQUIRED");
+      const operation = randomUUID();
+      const inspected = validateResponse(await request({ action: "developer_tool", ...selector,
+        process_nonce: identity.process_nonce, connection_nonce: identity.connection_nonce,
+        operation_id: operation, tool: "inspect",
+      }, { timeoutMs: 10_000 }), expected);
+      if (inspected.operation_id !== operation || inspected.identity.process_nonce !== identity.process_nonce
+        || inspected.identity.connection_nonce !== identity.connection_nonce
+        || inspected.identity.root_revision !== identity.root_revision
+        || inspected.result?.success !== true) throw failure("APP_CONTEXT_INSPECTION_UNAVAILABLE");
+      result.screen = validateInspection(inspected.result.inspection, identity.root_revision, now());
+      // A screenshot and element list are separate timestamped observations,
+      // not an atomic capture of business/UI state.
+    }
     return result;
   } catch (error) {
     const code = error?.code && Object.hasOwn(GUIDANCE, error.code) ? error.code : "APP_CONTEXT_UNAVAILABLE";
     return { schemaVersion: 1, outcome: "needs-user-action", code, guidance: GUIDANCE[code] };
   }
+}
+
+function validateInspection(value, revision, now) {
+  if (!value || value.schemaVersion !== 1 || Buffer.byteLength(JSON.stringify(value)) > 32 * 1024
+    || value.revision !== revision || !Number.isFinite(value.capturedAt)
+    || value.capturedAt > now + 60_000 || now - value.capturedAt > 30_000
+    || ![value.width, value.height].every(n => Number.isFinite(n) && n > 0 && n <= 20_000)
+    || typeof value.truncated !== "boolean" || !Array.isArray(value.elements) || value.elements.length > 64) throw failure("APP_CONTEXT_INVALID");
+  const ids = new Set();
+  const elements = value.elements.map(item => {
+    if (!item || !/^e[1-9][0-9]?$/.test(item.id) || ids.has(item.id)
+      || !["secure-input", "text-input", "button", "switch", "adjustable", "heading", "link", "image", "text", "element"].includes(item.role)
+      || !["accessibility", "uikit"].includes(item.source)
+      || !Array.isArray(item.frame) || item.frame.length !== 4 || !item.frame.every(Number.isFinite)
+      || item.frame[0] < 0 || item.frame[1] < 0 || item.frame[2] <= 0 || item.frame[3] <= 0
+      || item.frame[0] + item.frame[2] > value.width + 1 || item.frame[1] + item.frame[3] > value.height + 1
+      || (item.enabled != null && typeof item.enabled !== "boolean") || typeof item.selected !== "boolean") throw failure("APP_CONTEXT_INVALID");
+    ids.add(item.id);
+    const clean = { id: item.id, role: item.role, frame: item.frame, selected: item.selected, source: item.source };
+    if (item.enabled != null) clean.enabled = item.enabled;
+    for (const key of ["label", "identifier"]) {
+      if (item[key] == null) continue;
+      if (typeof item[key] !== "string" || Buffer.byteLength(item[key]) > 160) throw failure("APP_CONTEXT_INVALID");
+      clean[key] = item[key];
+    }
+    // Never forward arbitrary values or strings from text inputs.
+    if (item.value != null && ["switch", "adjustable"].includes(item.role)) {
+      if (typeof item.value !== "string" || item.value.length > 32) throw failure("APP_CONTEXT_INVALID");
+      clean.value = item.value;
+    }
+    return clean;
+  });
+  if (value.selectedElement != null && !ids.has(value.selectedElement)) throw failure("APP_CONTEXT_INVALID");
+  return { capturedAt: new Date(value.capturedAt).toISOString(), revision, width: value.width, height: value.height,
+    coordinateSpace: "app-window-points", elements, truncated: value.truncated,
+    ...(value.selectedElement != null ? { selectedElement: value.selectedElement } : {}),
+    coverage: "Public accessibility and UIKit candidates; custom drawing and some SwiftUI elements may be absent. Geometry does not prove hittability. IDs are snapshot-local; no source-file mapping." };
 }
 
 function validateResponse(response, expected) {
@@ -274,7 +327,8 @@ const GUIDANCE = {
   APP_CONTEXT_REPORT_NOT_FOUND: "There is no saved user report for this Debug build. Use --screenshot to inspect the running app directly; no report from another app was returned.",
   APP_CONTEXT_REPORT_EXPIRED: "The saved report has expired. Request current app context instead.",
   APP_CONTEXT_REPORT_INVALID: "Use --report latest or the exact report ID.",
-  APP_CONTEXT_OPTIONS_INVALID: "Choose either a current --screenshot or a saved --report, not both.",
+  APP_CONTEXT_OPTIONS_INVALID: "Choose current --screenshot/--elements or a saved --report.",
+  APP_CONTEXT_INSPECTION_UNAVAILABLE: "Screen inspection is unavailable, busy, or changed during the request. No screen interaction or code delivery was performed.",
   APP_CONTEXT_INVALID: "The app returned incomplete context. No success or screenshot was inferred.",
   APP_CONTEXT_CAPTURE_UNAVAILABLE: "The app cannot provide a current foreground screenshot. Context capture does not open or navigate the app.",
   APP_CONTEXT_IMAGE_INVALID: "The screenshot failed its format or size checks and was not saved.",

@@ -70,11 +70,11 @@ async function main() {
   if (command === "app-context") {
     const { values } = parseArgs({ args, options: {
       project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" },
-      screenshot: { type: "boolean" }, report: { type: "string" },
+      screenshot: { type: "boolean" }, elements: { type: "boolean" }, report: { type: "string" },
     } });
     const { readAppContext } = await import("../src/appContext.js");
     const result = await readAppContext({ project: values.project, workspace: values.workspace,
-      scheme: values.scheme, screenshot: values.screenshot, report: values.report });
+      scheme: values.scheme, screenshot: values.screenshot, elements: values.elements, report: values.report });
     console.log(JSON.stringify(result, null, 2));
     if (result.outcome !== "context-ready") process.exitCode = 1;
     return;
@@ -923,7 +923,7 @@ Usage:
   swift-sim build-device ...      Build a signed iPhone install
   swift-sim resume-device-build   Finish a preserved Debug build with --build-id
   swift-sim live-status ...       Check remote on-device hot reload readiness
-  swift-sim app-context ...       Read this Debug app's context; --screenshot or --report latest on demand
+  swift-sim app-context ...       Read Debug context; --elements, --screenshot or --report latest on demand
   swift-sim app-tools ...         Deliberately set --appearance or request --refresh-screen in this Debug app
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload

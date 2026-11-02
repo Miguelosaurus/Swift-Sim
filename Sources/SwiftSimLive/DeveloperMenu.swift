@@ -70,6 +70,7 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
     private var refresh: (() -> Void)?
     private var feedback: SwiftSimDeliveryFeedbackState?
     private weak var sheet: UIViewController?
+    private var inspector: SwiftSimInspectionOverlay?
 
     @Published private(set) var page = Page.menu
     @Published private(set) var connection = "Not connected to Mac"
@@ -104,6 +105,7 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
     }
 
     func update(feedback: SwiftSimDeliveryFeedbackState?, refresh: @escaping () -> Void) {
+        if let feedback, feedback.phase.rank != 3 { closeInspection() }
         self.feedback = feedback
         self.refresh = refresh
         refreshAllowed = feedback == nil || feedback!.phase.rank == 3
@@ -206,7 +208,7 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         // The menu and accessibility launcher do not recursively activate the gesture.
-        guard sheet == nil, !UIAccessibility.isVoiceOverRunning,
+        guard sheet == nil, inspector == nil, !UIAccessibility.isVoiceOverRunning,
               !UIAccessibility.isSwitchControlRunning else { return false }
         return true
     }
@@ -307,7 +309,7 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
 
     private func performRemoteTool(_ info: [AnyHashable: Any]?) {
         guard let info, let id = info["operation_id"] as? String, UUID(uuidString: id) != nil,
-              let tool = info["tool"] as? String, ["appearance", "refresh"].contains(tool) else { return }
+              let tool = info["tool"] as? String, ["appearance", "refresh", "inspect"].contains(tool) else { return }
         // Ignore broadcasts owned by another coordinator; its negative reply
         // must not race the selected scene's actual result.
         guard let window, let target = info["target_scene"] as? String,
@@ -334,7 +336,38 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
         }
         remoteOperation = id
         defer { remoteOperation = nil }
-        if tool == "appearance" {
+        if tool == "inspect" {
+            guard sheet == nil else {
+                _ = InjectionCompleteDeveloperTool(id, ["success": false, "error": "DEVELOPER_INSPECTION_UNAVAILABLE"])
+                return
+            }
+            let ticket = operation
+            captureTask = Task { [weak self, weak window] in
+                guard let self, let window else {
+                    _ = InjectionCompleteDeveloperTool(id, ["success": false, "error": "DEVELOPER_INSPECTION_UNAVAILABLE"])
+                    return
+                }
+                let snapshot = await self.inspectWhenReady(window: window)
+                guard self.operation == ticket else {
+                    _ = InjectionCompleteDeveloperTool(id, ["success": false, "error": "DEVELOPER_INSPECTION_UNAVAILABLE"])
+                    return
+                }
+                self.captureTask = nil
+                let current = InjectionDeveloperConnectionState() as? [String: Any] ?? [:]
+                guard !Task.isCancelled, self.refreshAllowed,
+                      current["connection_nonce"] as? String == expectedNonce,
+                      current["root_ready"] as? Bool == true, current["is_active"] as? Bool == true,
+                      let snapshot, let data = snapshot.dictionary(),
+                      self.captureIdentity().nativeRevision == expectedRevision,
+                      ProcessInfo.processInfo.systemUptime < expiry else {
+                    _ = InjectionCompleteDeveloperTool(id, ["success": false, "error": "DEVELOPER_INSPECTION_UNAVAILABLE"])
+                    return
+                }
+                _ = InjectionCompleteDeveloperTool(id, ["success": true, "tool": tool, "inspection": data])
+            }
+        } else if inspector != nil {
+            _ = InjectionCompleteDeveloperTool(id, ["success": false, "error": "DEVELOPER_BUSY"])
+        } else if tool == "appearance" {
             let mode: Appearance
             switch info["value"] as? String {
             case "app-default": mode = .appDefault
@@ -367,7 +400,7 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
     }
 
     @objc func open() {
-        guard sheet == nil else { return }
+        guard sheet == nil, inspector == nil else { return }
         resetReport()
         page = .menu
         present()
@@ -394,10 +427,59 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
     }
 
     func close(animated: Bool = true) {
+        closeInspection()
         let presented = sheet
         sheet = nil
         resetReport()
         presented?.dismiss(animated: animated && !UIAccessibility.isReduceMotionEnabled)
+        updateLauncher()
+    }
+
+    private func inspect(window: UIWindow) async -> SwiftSimScreenInspection? {
+        guard inspector?.presentingPicker != true else { return nil }
+        let excluded = [launcher, inspector].compactMap { $0 }
+        return await SwiftSimScreenInspector.capture(window: window, excluding: excluded,
+            revision: captureIdentity().nativeRevision, selection: inspector?.selectionPoint,
+            selectedCandidate: inspector?.selectedCandidate)
+    }
+
+    private func inspectWhenReady(window: UIWindow) async -> SwiftSimScreenInspection? {
+        let identity = captureIdentity()
+        guard !Task.isCancelled, refreshAllowed else { return nil }
+        let snapshot = await inspect(window: window)
+        guard !Task.isCancelled, captureIdentity() == identity, refreshAllowed,
+              self.window === window, window.isKeyWindow,
+              window.windowScene?.activationState == .foregroundActive else { return nil }
+        return snapshot
+    }
+
+    func inspectScreen() {
+        guard refreshAllowed, inspector == nil, let window, let presented = sheet else { return }
+        sheet = nil
+        resetReport()
+        let ticket = operation
+        presented.dismiss(animated: !UIAccessibility.isReduceMotionEnabled) { [weak self, weak window] in
+            guard let self, let window, self.operation == ticket, self.refreshAllowed else { return }
+            self.captureTask = Task { [weak self, weak window] in
+                guard let self, let window else { return }
+                let snapshot = await self.inspectWhenReady(window: window)
+                guard !Task.isCancelled, self.operation == ticket, self.refreshAllowed else { return }
+                self.captureTask = nil
+                guard let snapshot else { return }
+                let overlay = SwiftSimInspectionOverlay(snapshot: snapshot) { [weak self] in self?.closeInspection() }
+                self.inspector = overlay
+                overlay.frame = window.bounds
+                overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                window.addSubview(overlay)
+                self.launcher?.isHidden = true
+            }
+        }
+    }
+
+    private func closeInspection() {
+        guard inspector != nil else { return }
+        inspector?.removeFromSuperview()
+        inspector = nil
         updateLauncher()
     }
 

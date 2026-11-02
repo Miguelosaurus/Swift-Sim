@@ -9,6 +9,11 @@ Release apps do not include the menu.
 
 ## Menu actions
 
+- **Inspect screen** takes a temporary element snapshot and outlines exposed
+  controls and text. Tap an outline or choose **Elements** for details. **Done**
+  restores interaction. The underlying app keeps running; this is not a freeze
+  or a live layout monitor. Rotation, backgrounding or a new hot reload closes
+  the overlay. No app actions are invoked by inspecting an element.
 - **Share a problem** captures the current app screen and a small Swift Sim
   diagnostic snapshot. Review the preview, optionally add a note, and choose
   **Save to Mac**. Notes are optional. The agent can retrieve the latest report
@@ -41,6 +46,36 @@ When diagnosing a visual problem, request the current screenshot:
 ```sh
 swift-sim app-context --screenshot
 ```
+
+Read the currently exposed screen elements without opening the menu:
+
+```sh
+swift-sim app-context --elements
+```
+
+This returns a bounded, timestamped list of labels, available identifiers,
+roles, app-window frames and known enabled/selected states. It reads public
+accessibility containers with a UIKit fallback; custom drawing and some SwiftUI
+content may be absent. Visibility means geometric intersection, not verified
+hittability. Unknown enabled state is omitted. IDs such as `e1` belong only to
+that snapshot and must not become durable automation selectors. There is no
+source-file mapping or remote tap/type action. Text-entry values are omitted;
+native switch/slider values may be included. Labels can still contain app data.
+
+If the phone inspector has a selected element, a fresh agent observation includes
+the selection only while its label, role, identifier and frame still match.
+`--elements --screenshot` is allowed, but produces separate observations, not an
+atomic image/element pair. Saved reports do not implicitly contain an element
+tree. The inspector's own controls and the Swift Sim launcher are excluded.
+
+Inspection runs only on request, with no observers or persistent scan loop.
+Limits are 64 elements, 512 visited objects, depth 24, and 32 KiB of JSON. An
+eight-millisecond work slice yields between host API calls, retaining progress
+within a single request, with a 250-millisecond overall scan budget. Arbitrary
+host getters cannot be preempted, so these are not hard latency guarantees.
+The UI keeps running during the scan; an element list is not an atomic app-state snapshot.
+Truncated results say so. Native response caches retain no inspection content.
+It requires the updated SDK and an engine with `developer-inspection-v1`.
 
 When the user saved a report, retrieve it without asking them for an ID:
 

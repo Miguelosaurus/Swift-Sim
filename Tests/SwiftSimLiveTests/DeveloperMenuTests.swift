@@ -110,4 +110,36 @@ func changedNativeRevisionOrDeliverySequenceInvalidatesAnEncodedCapture() {
     #expect(captured != SwiftSimDeveloperCaptureIdentity(nativeRevision: 7, deliverySequence: 13))
     #expect(captured == SwiftSimDeveloperCaptureIdentity(nativeRevision: 7, deliverySequence: 12))
 }
+
+@Test
+func inspectionClipsGeometryAndPicksTheSmallestCandidateWithoutClaimingHittability() {
+    let visible = CGRect(x: 0, y: 0, width: 390, height: 844)
+    #expect(SwiftSimScreenInspection.clippedFrame(CGRect(x: -20, y: 10, width: 70, height: 40), inside: visible) == [0, 10, 50, 40])
+    #expect(SwiftSimScreenInspection.clippedFrame(CGRect(x: 10, y: 900, width: 10, height: 10), inside: visible) == nil)
+    #expect(SwiftSimScreenInspection.clippedFrame(CGRect(x: CGFloat.infinity, y: 0, width: 10, height: 10), inside: visible) == nil)
+    let elements = [
+        SwiftSimScreenInspection.Element(id: "e1", role: "element", label: nil, identifier: nil, value: nil,
+            frame: [0, 0, 300, 300], enabled: nil, selected: false, source: "accessibility"),
+        SwiftSimScreenInspection.Element(id: "e2", role: "button", label: "Save", identifier: nil, value: nil,
+            frame: [20, 20, 100, 44], enabled: false, selected: false, source: "uikit"),
+    ]
+    #expect(SwiftSimScreenInspection.selection(at: CGPoint(x: 30, y: 30), in: elements) == "e2")
+    #expect(SwiftSimScreenInspection.selection(at: CGPoint(x: 380, y: 800), in: elements) == nil)
+}
+
+@Test
+func inspectionBoundsEscapedMetadataAndDropsSelectionWhenItsElementIsTrimmed() {
+    let elements = (1...64).map { i in
+        SwiftSimScreenInspection.Element(id: "e\(i)", role: "button", label: String(repeating: "\u{0001}", count: 160),
+            identifier: String(repeating: "\\", count: 160), value: nil, frame: [0, 0, 100, 44],
+            enabled: true, selected: false, source: "accessibility")
+    }
+    let snapshot = SwiftSimScreenInspection(schemaVersion: 1, capturedAt: 1, revision: 0, width: 390, height: 844,
+        elements: elements, truncated: false, selectedElement: "e64", coverage: SwiftSimScreenInspection.coverageNote)
+    let dictionary = snapshot.dictionary()!
+    #expect((try! JSONSerialization.data(withJSONObject: dictionary)).count <= SwiftSimScreenInspection.maxBytes)
+    #expect(dictionary["truncated"] as? Bool == true)
+    #expect(dictionary["selectedElement"] == nil)
+    #expect(SwiftSimScreenInspection.text(String(repeating: "🩵", count: 100))!.utf8.count <= 160)
+}
 #endif

@@ -106,7 +106,7 @@ Tailnet.
 ## First use, drift, and lazy references
 
 For requested phone debugging, the agent can pull scoped app context directly
-with `swift-sim app-context`, `--screenshot`, or `--report latest`. Do not ask the
+with `swift-sim app-context`, `--elements`, `--screenshot`, or `--report latest`. Do not ask the
 user to upload a screenshot or copy a report ID when this access is available.
 Read [developer-menu context](references/developer-menu.md) only for that task;
 never fetch or inject it into ordinary chats or the normal warm delivery path.

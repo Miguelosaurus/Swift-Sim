@@ -20,6 +20,7 @@ final class SwiftSimDeveloperMenuSheetController: UIViewController, UITextFieldD
     private let status = UILabel()
     private let save = UIButton(type: .system)
     private var refreshButton: UIButton?
+    private var inspectButton: UIButton?
     private var shareButton: UIButton?
     private var imageRow: UIView?
     private var imageHeight: NSLayoutConstraint?
@@ -102,6 +103,9 @@ final class SwiftSimDeveloperMenuSheetController: UIViewController, UITextFieldD
 
         let actions = UIStackView(); actions.axis = .vertical; actions.spacing = 8
         actions.addArrangedSubview(button("Share a problem", symbol: "bubble.left.and.text.bubble.right") { [weak self] in self?.model.prepareReport() })
+        let inspect = button("Inspect screen", symbol: "viewfinder") { [weak self] in self?.model.inspectScreen() }
+        inspectButton = inspect
+        actions.addArrangedSubview(inspect)
         let refresh = button("Refresh screen", symbol: "arrow.clockwise") { [weak self] in self?.model.refreshScreen() }
         refresh.accessibilityIdentifier = "swiftSimRefreshScreen"
         refresh.accessibilityHint = "Recreates the screen; may reset temporary screen state."
@@ -173,6 +177,7 @@ final class SwiftSimDeveloperMenuSheetController: UIViewController, UITextFieldD
             UIAction(title: item.rawValue, state: item == model.appearance ? .on : .off) { [weak model] _ in model?.appearance = item }
         })
         refreshButton?.isEnabled = model.refreshAllowed
+        inspectButton?.isEnabled = model.refreshAllowed
         shareButton?.isEnabled = !model.isSaving && !model.didSave
         screenshot.image = model.image
         screenshot.isHidden = model.image == nil; imageRow?.isHidden = model.image == nil

@@ -215,3 +215,61 @@ test("lost tool replies and native timeouts preserve uncertainty instead of reco
     }
   } finally { f.cleanup(); }
 });
+
+function inspection(overrides = {}) {
+  return { schemaVersion: 1, capturedAt: Date.now(), revision: 2, width: 390, height: 844,
+    truncated: false, elements: [{ id: "e1", role: "button", label: "Save", identifier: "save",
+      frame: [20, 40, 100, 44], enabled: false, selected: false, source: "accessibility" }], ...overrides };
+}
+function inspectionControl(snapshot, mutate = value => value) {
+  return async request => request.action === "developer_context"
+    ? response({ capabilities: [...capabilities, "developer-inspection-v1"] })
+    : mutate(response({ operation_id: request.operation_id, result: { success: true, inspection: snapshot } }));
+}
+
+test("on-demand elements use exact connection without UI actions and allowlist native metadata", async () => {
+  const f = fixture();
+  try {
+    const snapshot = inspection(); snapshot.elements[0].rawSecret = "omit";
+    snapshot.elements.push({ id: "e2", role: "secure-input", value: "must-not-forward", frame: [20, 100, 100, 44], selected: false, source: "uikit" });
+    snapshot.selectedElement = "e1";
+    const requests = [];
+    const control = inspectionControl(snapshot);
+    const value = await readAppContext({ ...f.options, elements: true, control: async request => { requests.push(request); return control(request); } });
+    assert.equal(value.outcome, "context-ready"); assert.equal(value.screen.elements[0].enabled, false);
+    assert.equal(value.screen.selectedElement, "e1");
+    assert.equal(value.screen.elements[1].value, undefined); assert.equal(value.screen.elements[0].rawSecret, undefined);
+    assert.equal(requests.length, 2); assert.equal(requests[1].tool, "inspect");
+    assert.equal(requests[1].connection_nonce, identity.connection_nonce);
+    assert.equal(readdirSync(f.root).length, 2);
+  } finally { f.cleanup(); }
+});
+
+test("inspection rejects oversized, stale, malformed geometry, duplicate ids and fabricated selection", async () => {
+  const f = fixture();
+  try {
+    const element = inspection().elements[0];
+    for (const snapshot of [inspection({ capturedAt: Date.now() - 31_000 }), inspection({ revision: 3 }),
+      inspection({ elements: Array(65).fill(element) }), inspection({ elements: [element, element] }),
+      inspection({ selectedElement: "e3" }), inspection({ elements: [{ ...element, frame: [0, 0, Infinity, 40] }] }),
+      inspection({ elements: [{ ...element, frame: [380, 0, 100, 40] }] }),
+      inspection({ elements: [{ ...element, label: "a".repeat(161) }] }), inspection({ arbitrary: "a".repeat(33_000) })]) {
+      const value = await readAppContext({ ...f.options, elements: true, control: inspectionControl(snapshot) });
+      assert.equal(value.outcome, "needs-user-action"); assert.equal(value.screen, undefined);
+    }
+  } finally { f.cleanup(); }
+});
+
+test("inspection refuses unsupported, changed-process, changed-revision, wrong-operation and report combinations", async () => {
+  const f = fixture();
+  try {
+    assert.equal((await readAppContext({ ...f.options, elements: true })).code, "APP_CONTEXT_UPDATE_REQUIRED");
+    assert.equal(f.requests.length, 1);
+    assert.equal((await readAppContext({ ...f.options, elements: true, report: "latest" })).code, "APP_CONTEXT_OPTIONS_INVALID");
+    for (const mutate of [v => ({ ...v, data: { ...v.data, operation_id: "wrong" } }),
+      v => ({ ...v, data: { ...v.data, identity: { ...identity, root_revision: 3 } } }),
+      v => ({ ...v, data: { ...v.data, identity: { ...identity, process_nonce: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" } } })]) {
+      assert.equal((await readAppContext({ ...f.options, elements: true, control: inspectionControl(inspection(), mutate) })).code, "APP_CONTEXT_INSPECTION_UNAVAILABLE");
+    }
+  } finally { f.cleanup(); }
+});

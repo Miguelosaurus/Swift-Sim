@@ -28,7 +28,7 @@ The normal rules are:
 ## Installation And Version Updates
 
 For an active phone-debugging task, use `swift-sim app-context` from the app
-project. Add `--screenshot` when visual evidence is needed, or `--report latest`
+project. Add `--elements` for exposed controls/layout, `--screenshot` when visual evidence is needed, or `--report latest`
 when the user saved a developer-menu report. The agent retrieves scoped context
 without copied IDs or manual image uploads. Nothing is inserted into other chats.
 See [Developer tools](DEVELOPER_MENU.md). Do not add these calls before ordinary
