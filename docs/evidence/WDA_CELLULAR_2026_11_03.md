@@ -110,3 +110,65 @@ this test, so its phone connectivity is not inferred from these results.
 
 Private command results and ownership records are retained under the ignored
 task evidence directory. No evidence was uploaded or posted externally.
+
+## Explicit-connection preparation checkpoint
+
+The user requested continuing beyond the discovery diagnosis. The selected
+phone was online in Tailscale during a further bounded availability check of
+only the documented RemotePairing candidate range, TCP 49152–49167, over its
+tailnet IPv4 and IPv6 addresses. Of 32 checks, 31 were refused and one timed
+out; none connected. No application data, authentication attempt, or UI action
+was sent. This is a range-limited observation, not proof that every possible
+developer endpoint is unavailable. The user's current network state was asked
+separately and was not inferred from Tailscale's online flag.
+
+A task-local copy of MIT-licensed **iOS OTA 1.3.1** was downloaded at commit
+`d50141ad7af63acf74f92f967f17e942488c666b`. Its reviewed build script fetched
+the hash-pinned Go 1.26.5 toolchain and pinned go-ios source
+`3ebc297691a9e364772aef027744ebc0c49421a5`, then applied the repository's
+existing downstream patch. Toolchains, dependency caches, workspace, executable,
+and logs remain under the ignored task directory; nothing was installed into
+the user's PATH or login services. Compilation concurrency was limited to two.
+The executable's version metadata and hashes are retained privately.
+
+The upstream verification script passed: affected dependency package tests,
+module tests, race checks, and vet. Physical-device tests were not enabled.
+These results qualify local preparation only, not transport or input on this
+phone. Source inspection confirms that `run-tests` uses the authenticated
+explicit tunnel's native testmanagerd/appservice channels without looking up
+an Xcode destination. Its stock test selector can address the existing
+`UITestingUITests/testRunner` method; actual WDA execution through this bridge
+remains untested. The earlier signed WDA app does not need a source change.
+
+The required bridge identity is absent on this Mac. Existing Xcode trust is
+not automatically imported by this bridge. Its documented device-initiated
+bootstrap creates a separate trusted RemotePairing identity on the same LAN;
+it requires complete host identity fields, including `host_alt_irk`, which
+the simpler host-initiated pair-record recipe does not supply. Do not fabricate
+those fields, extract native private keys, overwrite another pairing, or reset
+trust to skip this step. Pairing was not attempted in this checkpoint.
+
+The next private qualification plan records these details:
+
+1. Bootstrap one separate trusted identity with the phone available locally;
+   preserve the existing Xcode pairing and display pairing codes locally.
+2. Use a short owner-only profile path: a Unix socket beside the profile would
+   exceed macOS's path limit if placed under this long checkout path.
+3. Acquire one foreground bridge while the phone is associated with Wi-Fi.
+   Verify authenticated device identity and fresh developer-service discovery.
+   A tunnel with installation services alone is insufficient.
+4. Switch to cellular, install only the temporary signed runner, and launch
+   its unchanged native test through the bridge. For WDA, use the runner as
+   both app and runner identifier. Without the earlier Xcode environment
+   overrides, WDA uses its default HTTP port 8100, not the old trial's 28100.
+5. Observe native input and its results, shut down WDA, then restart it through
+   the still-active bridge on cellular. Separately stop the outer bridge and
+   test cellular cold recovery. Keep those acceptance claims distinct.
+6. Remove only the temporary runner and close task-owned connections/workers.
+
+No foreground bridge, pairing listener, test runner, persistent service, public
+relay, or product integration was started. Build/test workers exited, and the
+existing helper listener retained its original process. Both apps, the Debug
+SDK, hot reload, and notification code remain unchanged. Warm handoff may be
+useful, but a mandatory always-running bridge would be a new lifecycle and
+memory tradeoff; it is not silently authorized as a production solution.

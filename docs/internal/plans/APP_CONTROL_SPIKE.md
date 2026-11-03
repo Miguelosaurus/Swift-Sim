@@ -64,7 +64,11 @@ Subsequent research identified existing explicitly addressed RemotePairing
 implementations over Tailscale. Upstream reports distinguish other-Wi-Fi
 operation and a warm Wi-Fi-to-cellular handoff from unsupported pure-cellular
 cold startup. The cellular report records a bounded candidate-endpoint check
-and the next qualification; no such bridge was installed. Automatic Xcode
+and the next qualification. An isolated pinned iOS OTA bridge now builds and
+passes its upstream local tests/race checks/vet. It has not been installed as
+a service, paired, or used to launch WDA on this phone. Its separate initial
+trusted pairing requires local phone access; cellular cold recovery remains
+unqualified. Automatic Xcode
 discovery failure must not be described as proof that Tailscale cannot carry
 Apple developer traffic.
 
