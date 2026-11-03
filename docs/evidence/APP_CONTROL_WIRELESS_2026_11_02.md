@@ -3,6 +3,10 @@
 ## Decision
 
 **The wireless input gate failed. Do not ship the physical-device integration.**
+This report concerns `agent-device`. The later user-authorized
+[stock WebDriverAgent experiment](WDA_WIRELESS_2026_11_02.md) passed its separate
+same-Wi-Fi input gate without modifying either app.
+
 The stock provider can open and inspect the app wirelessly, but the first tap
 lost its transport response. This is functional observation evidence only;
 typing, scrolling, reconnect acceptance, and an edit/test loop remain unqualified.

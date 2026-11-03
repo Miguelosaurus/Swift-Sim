@@ -7,6 +7,8 @@ consolidation program.
 ## Constraints
 
 - One day of work, using a stock framework. No fork or custom input driver.
+- The subsequently authorized stock WebDriverAgent alternative has a one-hour
+  qualification limit and must add nothing to the existing apps.
 - Wireless physical iPhone control is a release gate. A Simulator pass or a USB
   pass cannot satisfy it. Wait for explicit phone availability before device work.
 - Use the existing coding agent through a CLI. Add no model, AI service, agent,
@@ -32,14 +34,22 @@ development script; no production command or agent-skill promise is published.
 The subsequent [physical wireless trial](../../evidence/APP_CONTROL_WIRELESS_2026_11_02.md)
 failed the input gate on the stock release. App opening and semantic screen
 reads worked; the tap lost its transport response and its effect was not
-observed. The temporary runner was stopped and removed. **This spike is stopped
-at the evidence checkpoint; physical-device integration is not approved for
-shipping.** Resume qualification after an upstream stock fix or documented
-configuration addresses this failure, without expanding into a custom driver.
+observed. The temporary runner was stopped and removed. **The agent-device lane
+is stopped at the evidence checkpoint.** Its physical-device integration is not
+approved for shipping; resume that provider only after a stock fix or documented
+configuration addresses the failure.
+
+The user then authorized a separate one-hour stock **WebDriverAgent** experiment.
+That [same-Wi-Fi physical trial passed](../../evidence/WDA_WIRELESS_2026_11_02.md),
+including native input in the companion, a reversible Zenics UI change, a full
+runner restart, repeated input, and verified cleanup. No provider source or
+app/SDK code changed. WDA is a viable candidate for a thin Mac-only integration;
+the production command, access boundary, cross-network support, and full
+hot reload edit/test loop remain unqualified.
 
 ## Remaining gates, in order
 
-1. **Physical wireless transport — failed; repeat after a stock fix.** Once the user says the phone is available,
+1. **Physical wireless transport — WDA same-Wi-Fi passed; agent-device failed.** For further qualification, once the user says the phone is available,
    select the exact paired device. Confirm Apple network transport with USB
    disconnected. Observe the app, tap, enter text, scroll, verify the result,
    and close. Repeat after reconnect. A successful observation alone is
