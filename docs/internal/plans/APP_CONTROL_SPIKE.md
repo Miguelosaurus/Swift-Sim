@@ -72,6 +72,17 @@ unqualified. Automatic Xcode
 discovery failure must not be described as proof that Tailscale cannot carry
 Apple developer traffic.
 
+The subsequent [explicit Tailscale bridge qualification](../../evidence/WDA_TAILNET_BRIDGE_2026_11_03.md)
+passed on the physical phone: bootstrap through existing trusted network
+lockdown, Wi-Fi-to-cellular handoff, runner installation/startup, native input,
+runner restart and repeated input, restoration, and verified removal. No new
+phone pairing screen or app code was required. Both native test runs passed.
+Fresh outer-bridge acquisition on cellular still failed. Foreground switching
+also exposed a stock WDA scope hazard; the private harness now checks actual
+foreground independently of its pinned target. No production integration or
+permanent bridge was added. The conditional pass does not satisfy unrestricted
+cellular cold recovery.
+
 ## Remaining gates, in order
 
 1. **Physical wireless transport — WDA same-Wi-Fi passed; agent-device failed.** For further qualification, once the user says the phone is available,
@@ -79,7 +90,7 @@ Apple developer traffic.
    disconnected. Observe the app, tap, enter text, scroll, verify the result,
    and close. Repeat after reconnect. A successful observation alone is
    insufficient: input and its resulting UI must be observed.
-2. **Required remote connection gate — stock cellular cold-start failed.** Qualify another-network access
+2. **Required remote connection gate — warm cellular runner startup/restart passed; outer-bridge cold recovery failed.** Qualify another-network access
    through Tailscale or an explicitly approved replacement transport. Existing
    Swift Sim hot reload over Tailscale is not evidence for XCTest transport.
    The runner's HTTP commands and Apple's test-runner startup/control connection

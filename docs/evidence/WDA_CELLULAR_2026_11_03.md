@@ -2,6 +2,14 @@
 
 ## Current result
 
+**Later explicit-bridge qualification passed cellular runner installation,
+startup, input, and restart after Wi-Fi acquisition. Fresh outer-bridge startup
+on cellular still failed.** See the
+[physical bridge qualification](WDA_TAILNET_BRIDGE_2026_11_03.md) for current
+evidence, successful trusted-network pairing without another phone screen,
+foreground-interruption handling, and verified cleanup. The earlier tests and
+preparation checkpoints below remain historical evidence.
+
 **The awake-cellular retry failed before the runner could install or launch.**
 The first attempt was confounded: after initially confirming the expected
 state, the user clarified that the phone had been off and requested another
