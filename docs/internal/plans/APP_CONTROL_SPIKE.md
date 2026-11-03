@@ -54,9 +54,11 @@ hot reload edit/test loop remain unqualified.
 
 The [November 3 cellular cold-start check](../../evidence/WDA_CELLULAR_2026_11_03.md)
 failed at Apple developer-device discovery despite successful tailnet pings.
-No runner installed or started. A warm-runner Wi-Fi-to-cellular handoff check
-is pending the user's network change, to isolate HTTP input from Apple startup.
-The required already-remote cold-start/restart gate remains failed on this setup.
+The user corrected the first attempt's phone state, so it was treated as
+inconclusive; a fresh requested awake-cellular retry produced the same discovery
+failure. No runner installed or started. A proposed warm-runner handoff check
+was cancelled because the user was away from home. The required already-remote
+cold-start/restart gate remains unqualified on this setup.
 
 ## Remaining gates, in order
 

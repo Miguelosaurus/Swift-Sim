@@ -2,11 +2,18 @@
 
 ## Current result
 
-**Stock remote cold-start failed before the runner could install or launch.**
-The user confirmed the iPhone was unlocked, on cellular with Wi-Fi off, and
-connected to Tailscale. The Mac's Tailscale client was running. The phone
-answered tailnet discovery and ICMP pings, but Apple's developer connection
-was unavailable and Xcode could not select it as a test destination.
+**The awake-cellular retry failed before the runner could install or launch.**
+The first attempt was confounded: after initially confirming the expected
+state, the user clarified that the phone had been off and requested another
+attempt. That first result alone is inconclusive. The user was away from home
+and could not return to the Mac's Wi-Fi for a handoff test.
+
+The fresh retry again obtained a tailnet ICMP response, but Apple's developer
+connection remained unavailable. Direct Apple lockdown connections were refused
+over both tailnet IPv4 and IPv6; the live CoreDevice query failed with error
+1011; Xcode again exited 70 because it could not find the specified destination.
+The host could not independently read the phone's lock state because that
+developer connection was unavailable. No automatic UI action was dispatched.
 
 This does not supersede the successful
 [same-Wi-Fi qualification](WDA_WIRELESS_2026_11_02.md). It establishes that the
@@ -27,9 +34,9 @@ integration should be advertised as supporting this workflow.
 | Same endpoint over tailnet IPv6 | Connection refused |
 | Stock `xcodebuild test-without-building` | Exited 70: no destination matching the explicit paired device |
 
-The bounded Xcode attempt used the same prepared, signed stock WDA 16.17.8
+Both bounded Xcode attempts used the same prepared, signed stock WDA 16.17.8
 configuration as the successful Wi-Fi test, with a 20-second destination
-discovery limit. The failure happened before running the provider's test code;
+discovery limit. They failed before running the provider's test code;
 it is not an observed WDA tap, typing, or scrolling failure.
 
 CoreDevice's general device-details query returned saved metadata successfully
@@ -48,15 +55,18 @@ a running WDA HTTP server cannot be reached over Tailscale.
 
 ## Next isolation check
 
-The user was asked to restore Wi-Fi temporarily so a separate runner can be
-started through the known-working local Apple connection. After that, switch
-back to cellular and test the running WDA server specifically through the
-phone's tailnet address. This would distinguish remote HTTP input from remote
-Apple test-runner startup. It cannot turn this failed cold-start into a pass.
+The proposed warm-runner handoff check was cancelled when the user clarified
+they were away from home. No Wi-Fi restoration is pending and no local runner
+was started. The lower-level Apple remote-device list also had no entries;
+there was no hidden existing developer connection available to reuse.
 
-That warm-runner handoff check is pending the user's network change. No runner
-was started while waiting. A production acceptance still requires cold-start
-and restart while the phone is already remote, not just a warm handoff.
+A future controlled handoff could distinguish running WDA HTTP input from
+Apple startup. It cannot turn these unsuccessful startup attempts into a pass.
+Production acceptance still requires cold-start and restart while the phone is
+already remote. An existing supported way to establish that Apple developer
+connection over the tailnet must be qualified before shipping this feature;
+no replacement launcher, custom driver, app modification, or public relay was
+added in this test.
 
 ## Resource and product state
 
