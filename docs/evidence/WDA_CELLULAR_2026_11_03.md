@@ -68,6 +68,38 @@ connection over the tailnet must be qualified before shipping this feature;
 no replacement launcher, custom driver, app modification, or public relay was
 added in this test.
 
+## Explicit RemotePairing research and bounded endpoint check
+
+The stock discovery failure does not establish that developer traffic cannot
+travel through Tailscale. It did not test an explicitly addressed, authenticated
+modern RemotePairing tunnel. The lockdown endpoint above is a different service.
+
+Two upstream implementations document a narrower available route:
+
+- [iOS OTA](https://github.com/zjz-connect/ios-ota#current-network-boundary)
+  reports acquiring an authenticated RemotePairing bridge while the phone is
+  connected to any Wi-Fi, then retaining that session after a switch to 5G.
+  Its README explicitly excludes cold startup on pure 5G and requires Wi-Fi
+  again if the outer session is lost. It does not register a native Xcode run
+  destination. Installation support alone therefore does not qualify WDA startup.
+- [Omarchy Apple Dev](https://github.com/joshuaswarren/omarchy-apple-dev/blob/main/docs/OVER-TAILNET.md#what-was-measured-ios-2701-2026-10-10)
+  reports install/launch over Tailscale from another subnet on iOS 27.0.1, but
+  refused RemotePairing connections with Wi-Fi off and cellular active.
+
+These are upstream reports, not reproduction on this phone. A bounded check
+here tried only their documented candidate RemotePairing TCP port 49152 over
+the selected phone's tailnet IPv4 and IPv6 addresses. Both connections were
+refused. No protocol data, pairing operation, or UI action was sent. The port
+can vary; this check is not exhaustive and does not prove all modern developer
+endpoints unavailable. Private results are retained with the task evidence.
+
+The next useful qualification is explicit trusted RemotePairing while the
+phone is associated with any Wi-Fi, followed by a controlled cellular handoff
+and separate runner restart test. A session surviving a handoff is distinct
+from recovering after that session drops. Neither is currently proven here.
+No upstream bridge, persistent daemon, pairing change, or source fork was
+installed as part of this research.
+
 ## Resource and product state
 
 The failed Xcode worker exited. No app-control action was sent, no task runner

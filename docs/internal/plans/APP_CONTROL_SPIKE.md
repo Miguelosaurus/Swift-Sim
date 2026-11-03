@@ -60,6 +60,14 @@ failure. No runner installed or started. A proposed warm-runner handoff check
 was cancelled because the user was away from home. The required already-remote
 cold-start/restart gate remains unqualified on this setup.
 
+Subsequent research identified existing explicitly addressed RemotePairing
+implementations over Tailscale. Upstream reports distinguish other-Wi-Fi
+operation and a warm Wi-Fi-to-cellular handoff from unsupported pure-cellular
+cold startup. The cellular report records a bounded candidate-endpoint check
+and the next qualification; no such bridge was installed. Automatic Xcode
+discovery failure must not be described as proof that Tailscale cannot carry
+Apple developer traffic.
+
 ## Remaining gates, in order
 
 1. **Physical wireless transport — WDA same-Wi-Fi passed; agent-device failed.** For further qualification, once the user says the phone is available,
