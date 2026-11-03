@@ -38,6 +38,7 @@ Phase 2 and later architecture PRs remain draft/unmerged until the controlling v
 
 ## Other Plans
 
+- [Native App-Control Spike](plans/APP_CONTROL_SPIKE.md): optional stock-provider evaluation and wireless acceptance gates
 - [Agent Fast-Path Plan](plans/HOT_RELOAD_AGENT_FAST_PATH_PLAN.md)
 - [Remote Hot Reload Benchmark Plan](plans/HOT_RELOAD_BENCHMARK_PLAN.md)
 
