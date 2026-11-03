@@ -52,6 +52,12 @@ app/SDK code changed. WDA is a viable candidate for a thin Mac-only integration;
 the production command, access boundary, cross-network support, and full
 hot reload edit/test loop remain unqualified.
 
+The [November 3 cellular cold-start check](../../evidence/WDA_CELLULAR_2026_11_03.md)
+failed at Apple developer-device discovery despite successful tailnet pings.
+No runner installed or started. A warm-runner Wi-Fi-to-cellular handoff check
+is pending the user's network change, to isolate HTTP input from Apple startup.
+The required already-remote cold-start/restart gate remains failed on this setup.
+
 ## Remaining gates, in order
 
 1. **Physical wireless transport — WDA same-Wi-Fi passed; agent-device failed.** For further qualification, once the user says the phone is available,
@@ -59,7 +65,7 @@ hot reload edit/test loop remain unqualified.
    disconnected. Observe the app, tap, enter text, scroll, verify the result,
    and close. Repeat after reconnect. A successful observation alone is
    insufficient: input and its resulting UI must be observed.
-2. **Required remote connection gate — pending.** Qualify another-network access
+2. **Required remote connection gate — stock cellular cold-start failed.** Qualify another-network access
    through Tailscale or an explicitly approved replacement transport. Existing
    Swift Sim hot reload over Tailscale is not evidence for XCTest transport.
    The runner's HTTP commands and Apple's test-runner startup/control connection
