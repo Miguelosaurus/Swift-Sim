@@ -88,7 +88,19 @@ Follow-up fresh-start probes also failed with Wi-Fi enabled but unassociated
 and with Zenics Debug foregrounded on cellular. Both probes were stopped and
 no app actions were sent. Fresh cellular acquisition remains a release blocker;
 do not substitute an always-running bridge or integrate the conditional path
-as if it met the requirement. No qualified replacement transport has been found.
+as if it met the requirement. No qualified replacement transport had been found
+at that checkpoint.
+
+A later [standalone iCTRL qualification](../../evidence/STANDALONE_CELLULAR_2026_11_03.md)
+found a different working startup path: the user opens the separately signed
+runner on the phone while already on cellular. After a supported complete stop
+and refused runner/Apple ports, this startup, authenticated Tailscale requests,
+native typing, navigation, swipe, restoration, and shutdown passed. The phone
+reported cellular/VPN interfaces with no Wi-Fi interface. No retained Mac bridge
+or target-app changes were used. The initial Wi-Fi launch is explicitly excluded
+from the cellular proof. This establishes phone-initiated fresh process startup;
+silent Mac-initiated wake and cellular-only developer-image remount after phone
+reboot remain unqualified. The trial helper remains installed but stopped.
 
 ## Remaining gates, in order
 
@@ -97,7 +109,7 @@ as if it met the requirement. No qualified replacement transport has been found.
    disconnected. Observe the app, tap, enter text, scroll, verify the result,
    and close. Repeat after reconnect. A successful observation alone is
    insufficient: input and its resulting UI must be observed.
-2. **Required remote connection gate — warm cellular runner startup/restart passed; outer-bridge cold recovery failed.** Qualify another-network access
+2. **Required remote connection gate — phone-initiated fresh cellular startup passed with standalone runner; silent wake/reboot recovery unqualified.** Qualify another-network access
    through Tailscale or an explicitly approved replacement transport. Existing
    Swift Sim hot reload over Tailscale is not evidence for XCTest transport.
    The runner's HTTP commands and Apple's test-runner startup/control connection

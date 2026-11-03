@@ -2,6 +2,12 @@
 
 ## Result
 
+**Later work found a standalone, phone-initiated startup path on cellular.** See
+[the standalone runner qualification](STANDALONE_CELLULAR_2026_11_03.md). It
+starts the native test on the phone without opening a Mac developer bridge.
+The original WDA/bridge results below remain valid for that architecture; the
+later pass has explicit phone-start and developer-image prerequisites.
+
 **Cellular runner installation, startup, input, and restart passed through an
 Apple connection acquired on Wi-Fi. Fresh outer-connection startup on cellular
 still failed.** No app or SDK changes were needed. This is a conditional physical
