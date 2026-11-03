@@ -11,6 +11,11 @@ consolidation program.
   qualification limit and must add nothing to the existing apps.
 - Wireless physical iPhone control is a release gate. A Simulator pass or a USB
   pass cannot satisfy it. Wait for explicit phone availability before device work.
+- The user clarified that **different-network access is mandatory**, consistent
+  with Swift Sim's remote purpose. A same-Wi-Fi pass is preliminary evidence,
+  not completion. Qualify remote runner startup, input, and restart while the
+  phone is already on a different network; also distinguish a previously
+  running runner surviving a network change from remote cold-start support.
 - Use the existing coding agent through a CLI. Add no model, AI service, agent,
   or harness-specific dependency.
 - Keep automation out of the Debug SDK and the companion. Add no polling to hot
@@ -54,10 +59,13 @@ hot reload edit/test loop remain unqualified.
    disconnected. Observe the app, tap, enter text, scroll, verify the result,
    and close. Repeat after reconnect. A successful observation alone is
    insufficient: input and its resulting UI must be observed.
-2. **Connection scope.** Record whether success requires local Apple Wi-Fi
-   pairing. Test another-network/Tailscale access separately if it is to be
-   advertised. Existing Swift Sim hot reload over Tailscale is not evidence for
-   the XCTest transport. Do not expose the runner publicly or invent a relay.
+2. **Required remote connection gate — pending.** Qualify another-network access
+   through Tailscale or an explicitly approved replacement transport. Existing
+   Swift Sim hot reload over Tailscale is not evidence for XCTest transport.
+   The runner's HTTP commands and Apple's test-runner startup/control connection
+   are separate paths: both must work remotely, including restart. Do not expose
+   raw runner/engine ports publicly. A managed application relay is a research
+   candidate, not authorization to deploy or replace the current trust boundary.
 3. **Lean integration.** If wireless input passes, add a lazy reference to the
    existing agent skill using the stock CLI. Reuse the matching app identity;
    select the device explicitly and refuse ambiguous selection. Pin the qualified
@@ -71,6 +79,33 @@ hot reload edit/test loop remain unqualified.
 If physical wireless input needs a framework patch, USB fallback, bespoke
 driver, or prolonged investigation, stop this feature at the evidence checkpoint.
 Do not expand the project to make the provider work.
+
+## Efficiency and connection research
+
+The [measured WDA output/timing analysis](../../evidence/WDA_EFFICIENCY_ANALYSIS_2026_11_02.md)
+supports optimizing the Mac-side representation before forking native code.
+It is not an end-to-end token comparison with regular computer use.
+
+The user requested evaluating T3 Connect/T3 Code as a general Swift Sim
+connection reference. T3's MIT-licensed repository documents a hosted identity
+and discovery control plane, proof-bound environment sessions, managed
+Cloudflare tunnels, and LAN/Tailscale route selection. This is an application
+connection model rather than a replacement mesh VPN. Its host tunnel does not
+by itself establish remote access to an iPhone's Apple test services.
+
+Evaluate narrow reuse of pairing, scoped authorization, connection recovery,
+and route selection. Preserve agent independence and avoid importing T3's agent
+orchestration/UI stack. Cloud transit, optional persistence, and application-level
+encryption need an explicit design against the user's no-upload requirement;
+the inspected T3 authentication documents do not establish payload E2E encryption.
+No T3 service was installed, account linked, tunnel started, or deployment made.
+
+Primary source references:
+
+- [T3 Connect architecture](https://github.com/pingdotgg/t3code/blob/main/docs/internals/t3-connect.md)
+- [Environment authentication](https://github.com/pingdotgg/t3code/blob/main/docs/internals/environment-auth.md)
+- [Remote access and route selection](https://github.com/pingdotgg/t3code/blob/main/docs/user/remote-access.md)
+- [Repository license](https://github.com/pingdotgg/t3code/blob/main/LICENSE)
 
 ## Research sources
 
