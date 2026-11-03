@@ -83,6 +83,13 @@ foreground independently of its pinned target. No production integration or
 permanent bridge was added. The conditional pass does not satisfy unrestricted
 cellular cold recovery.
 
+The user explicitly rejected treating this retained connection as sufficient.
+Follow-up fresh-start probes also failed with Wi-Fi enabled but unassociated
+and with Zenics Debug foregrounded on cellular. Both probes were stopped and
+no app actions were sent. Fresh cellular acquisition remains a release blocker;
+do not substitute an always-running bridge or integrate the conditional path
+as if it met the requirement. No qualified replacement transport has been found.
+
 ## Remaining gates, in order
 
 1. **Physical wireless transport — WDA same-Wi-Fi passed; agent-device failed.** For further qualification, once the user says the phone is available,

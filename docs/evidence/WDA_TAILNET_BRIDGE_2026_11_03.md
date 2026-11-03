@@ -109,6 +109,52 @@ native results, and resource receipts remain in the ignored task directory.
 There is no extra idle worker. A permanent warm bridge would be a separate
 lifecycle/memory decision and has not been installed.
 
+## Fresh-cellular follow-up
+
+The user explicitly reaffirmed that warm continuity is insufficient: **fresh
+startup while already on cellular remains mandatory**. The conditional result
+above must not be treated as acceptance of a retained-bridge product.
+
+Two additional physical conditions were checked without UI automation or app
+changes:
+
+- The user enabled the Wi-Fi radio, disconnected it through Control Center,
+  and confirmed cellular data with Tailscale connected. The known RemotePairing
+  listener refused new connections over both tailnet IPv4 and IPv6. A fresh
+  bridge process using the saved trusted pairing returned
+  `waiting_for_listener` / `remote_pairing_cold`, then exited cleanly.
+- The user opened Zenics Debug while remaining on cellular with Wi-Fi
+  disconnected. Both RemotePairing and lockdown refused new connections.
+  Another bounded fresh bridge probe returned the same cold-listener failure
+  and exited. Launching this development app did not wake the required service.
+
+These checks distinguish a disabled Wi-Fi radio from an enabled but unassociated
+radio on this phone. They do not independently identify the device daemon's
+internal policy or prove that every possible Apple transport is unavailable.
+No broad port scan, protocol change, authentication bypass, or identity reset
+was attempted. Both probes and their forwarders were verified stopped.
+
+Further primary-source review did not identify a working replacement:
+
+- [RoamRun at `210260b`](https://github.com/mh-mobile/RoamRun/blob/210260b71bb5ddfcd34b61318b2ad4a2f66092ab/README.md#working-away-from-the-mac)
+  requires associated Wi-Fi for initial acquisition. Its cellular option keeps
+  an already-ready session; it does not provide fresh cellular startup. The
+  README also excludes the phone's own hotspot from its initial-acquisition path.
+- [Appium's preinstalled-WDA guide](https://github.com/appium/appium-xcuitest-driver/blob/master/docs/guides/run-preinstalled-wda.md#additional-requirement-for-real-devices-on-iostvos-17)
+  avoids `xcodebuild` but still launches through RemoteXPC developer transport.
+  It therefore does not remove the unreachable Apple entry point. Its documented
+  `devicectl` launch fallback is disabled on iOS 27 for a separate runner issue.
+- [Impactor issue 307](https://github.com/claration/impactor/issues/307)
+  independently reports both entry points closed on cellular with iOS 27.0.1.
+  That report supports the observed boundary; it is not proof on this phone.
+
+No qualified Mac-only fresh-cellular path has been found under the current
+constraints. Do not replace the user's requirement with a permanent warm
+bridge, claim another VPN/client library fixes it, or add an unproven phone-side
+bootstrap to the companion/SDK. A new candidate must explain how it obtains
+an authenticated developer connection while those listeners are unavailable
+and then pass fresh startup/recovery on the physical phone.
+
 ## References
 
 - [Pinned iOS OTA source](https://github.com/zjz-connect/ios-ota/tree/d50141ad7af63acf74f92f967f17e942488c666b)
