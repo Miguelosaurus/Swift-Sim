@@ -93,6 +93,10 @@ of the automation implementation.
 
 ## Next gate
 
+The subsequent [physical wireless trial](APP_CONTROL_WIRELESS_2026_11_02.md)
+failed input on the stock release. Its separate report records the stop
+decision, observed screen reads, and cleanup.
+
 The [bounded implementation plan](../internal/plans/APP_CONTROL_SPIKE.md)
 requires explicit phone availability, observed wireless input, and cleanup
 before publishing any physical-device integration. Simulator success does not
