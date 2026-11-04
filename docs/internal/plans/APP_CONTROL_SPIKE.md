@@ -102,6 +102,15 @@ from the cellular proof. This establishes phone-initiated fresh process startup;
 silent Mac-initiated wake and cellular-only developer-image remount after phone
 reboot remain unqualified. The trial helper remains installed but stopped.
 
+The subsequent [helper-free native-control experiment](../../evidence/NATIVE_CONTROL_TAILNET_2026_11_04.md)
+passed direct, mutually authenticated RemotePairing/RSD over Tailscale while the
+phone was on Wi-Fi. Native HID/display services were absent with the mounted
+518.33 developer image; newer image preparation is required before native input
+can be qualified. A completely fresh cellular connection again failed at the
+Apple listener over both tailnet address families. No phone input or capture was
+performed, and the existing image was preserved. Do not replace the working
+standalone runner or publish a second native backend on discovery evidence alone.
+
 ## Remaining gates, in order
 
 1. **Physical wireless transport — WDA same-Wi-Fi passed; agent-device failed.** For further qualification, once the user says the phone is available,
