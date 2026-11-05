@@ -91,13 +91,19 @@ def check_root(root, create=False):
     return True
 
 @contextlib.contextmanager
-def exclusive(root):
+def exclusive(root, wait_seconds=0):
     fd = os.open(root / "operation.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.getuid(): fail("PRIVATE_STATE_REQUIRED")
-        try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError: fail("SESSION_BUSY")
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline: fail("SESSION_BUSY")
+                time.sleep(0.05)
         yield
     finally: os.close(fd)
 
@@ -294,7 +300,7 @@ def execute(args, root, provider_factory=Provider):
     if not check_root(root, create=a.command in ["pair", "configure"]):
         if a.command == "status": return {"outcome": "disabled", "configured": False, "backgroundWorker": False}
         fail("NOT_CONFIGURED")
-    with exclusive(root):
+    with exclusive(root, wait_seconds=30 if a.command in ["request-cancel", "close"] else 0):
         if a.command.startswith("request-"): return testing_request(root, a, provider_factory)
         if a.command == "status":
             configured = (root / "profile.json").exists()

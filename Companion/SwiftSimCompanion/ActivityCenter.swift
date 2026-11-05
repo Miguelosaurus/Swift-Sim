@@ -388,7 +388,7 @@ final class ActivityCenter: ObservableObject {
         guard let mac, item.isValid, ["approve", "cancel"].contains(action) else { throw URLError(.badURL) }
         let expected = generation
         let body = try JSONSerialization.data(withJSONObject: ["deviceId": deviceId, "action": action])
-        let data = try await request(url: mac.baseURL.appending(path: "api/app-testing/\(item.id)"), method: "POST", body: body, mac: mac)
+        let data = try await request(url: mac.baseURL.appending(path: "api/app-testing/\(item.id)"), method: "POST", body: body, mac: mac, timeout: action == "cancel" ? 55 : 12)
         struct Envelope: Decodable { let macID: String; let outcome: String }
         let value = try JSONDecoder().decode(Envelope.self, from: data)
         guard isCurrent(mac, expected), value.macID == cache.installationId,
@@ -456,11 +456,11 @@ final class ActivityCenter: ObservableObject {
         guard let cacheKey, let data = try? JSONEncoder().encode(cache), data.count < 512 * 1024 else { return }
         defaults.set(data, forKey: cacheKey)
     }
-    private func request(url: URL, method: String, body: Data?, mac: PairedMac) async throws -> Data {
+    private func request(url: URL, method: String, body: Data?, mac: PairedMac, timeout: TimeInterval = 12) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
-        request.timeoutInterval = 12
+        request.timeoutInterval = timeout
         request.setValue("Bearer \(mac.token)", forHTTPHeaderField: "Authorization")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let transport {
@@ -469,7 +469,7 @@ final class ActivityCenter: ObservableObject {
             return data
         }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForResource = 20
+        configuration.timeoutIntervalForResource = timeout + 8
         let session = URLSession(configuration: configuration, delegate: ActivityRedirectFence(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(for: request)

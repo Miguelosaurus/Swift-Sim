@@ -43,10 +43,29 @@ provider's phone-enforced ten-minute lifetime remains unchanged.
   No public delivery gateway was listening during this check; public exclusion
   is covered locally, not claimed as a live gateway test.
 
-## Remaining physical proof
+## Physical approval qualification
 
-The new build's actual notification action, return, approval, one-use session
-admission and Stop flow still need phone qualification. APNs acceptance alone
-must not be reported as notification delivery or user approval. The earlier
-fresh cellular check qualifies the installed runner, not this new approval UI.
+On the user's Wi-Fi-ready phone, a new request was accepted by APNs. The user
+completed the phone flow; local state changed from pending to approved. Opening
+the exact request admitted one bounded session and consumed it. The native tree
+reported Swift Sim in front, its Stop Testing button, and the matching approval
+confirmation. This proves the integrated approval and admission path on Wi-Fi;
+it does not independently distinguish the notification action from tap followed
+by the in-app Allow button, or qualify this new UI on fresh cellular.
+
+One agent-driven tap of Stop Testing returned ACTION_UNCONFIRMED. It was not
+repeated. The request remained consumed and the runner still accepted a TCP
+connection. A subsequent explicit Mac cancellation returned request-cancelled;
+connection refusal and removal of the local session independently confirmed
+shutdown. The exact cause of the native RPC failure is not established.
+
+Review found a reproducible contention problem: Stop could immediately return
+SESSION_BUSY while an agent action held the command lock. Shutdown now allows
+up to thirty seconds to acquire that same lock; ordinary commands still fail
+immediately on contention. A real threaded regression verifies cancellation
+waits without repeating input. The companion permits the bounded stop response
+to finish and displays Stopping Testing. Build 30 includes those changes; its
+physical user-driven Stop confirmation is pending. No helper restart or change
+to normal notification timeouts is needed for this refinement.
+
 Cellular-only developer-image recovery after reboot remains unsupported.

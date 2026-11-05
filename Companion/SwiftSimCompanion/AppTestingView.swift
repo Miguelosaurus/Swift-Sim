@@ -17,7 +17,7 @@ struct AppTestingView: View {
     @State private var approved = false
 
     private var actionTitle: String {
-        if launching { return "Opening App Testing…" }
+        if launching { return approved ? "Stopping Testing…" : "Opening App Testing…" }
         if approved { return "Stop Testing" }
         if approvalToRetry != nil { return "Retry Connection" }
         if let request { return request.canAllow ? "Allow App Testing" : "Testing Finished" }

@@ -233,4 +233,20 @@ class ControlTests(unittest.TestCase):
         self.configure()
         with c.exclusive(self.root):self.code('SESSION_BUSY',lambda:self.run_control('status'))
 
+    def test_shutdown_waits_for_inflight_action_without_repeating_input(self):
+        request=self.request();started=threading.Event();release=threading.Event()
+        def action():
+            with c.exclusive(self.root):
+                started.set();release.wait(timeout=2)
+        thread=threading.Thread(target=action);thread.start();self.assertTrue(started.wait(timeout=1))
+        timer=threading.Timer(0.15,release.set);timer.start()
+        try:
+            # Ordinary work still fails immediately; only shutdown opts into waiting.
+            self.code('SESSION_BUSY',lambda:self.run_control('status'))
+            result=self.run_control('request-cancel','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
+            self.assertEqual(result['outcome'],'request-cancelled');self.assertTrue(release.is_set())
+            self.assertEqual(self.fake.calls,[])
+        finally:
+            release.set();thread.join(timeout=2);timer.join(timeout=2)
+
 if __name__ == '__main__': unittest.main()
