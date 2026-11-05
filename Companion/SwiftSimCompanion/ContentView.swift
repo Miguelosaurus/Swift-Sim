@@ -40,6 +40,10 @@ struct ContentView: View {
             MacSettingsSheet()
                 .environmentObject(sessionStore)
         }
+        .sheet(isPresented: $sessionStore.isAppTestingPresented) {
+            AppTestingView(appName: sessionStore.appTestingAppName)
+                .environmentObject(sessionStore)
+        }
     }
 }
 
@@ -629,6 +633,17 @@ private struct ManagedAppDetailView: View {
                 Label(statusText, systemImage: statusSymbol)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(statusColor)
+                Button {
+                    sessionStore.appTestingAppName = app.displayName.swiftSimDisplayName
+                    sessionStore.isAppTestingPresented = true
+                } label: {
+                    Label("Test with Agent", systemImage: "iphone.and.arrow.forward")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
             }
 
             Spacer(minLength: 0)
@@ -1894,6 +1909,14 @@ private struct MacSettingsSheet: View {
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 8)
                         }
+                    }
+                }
+
+                Section {
+                    NavigationLink {
+                        AppTestingView()
+                    } label: {
+                        Label("App Testing", systemImage: "iphone.and.arrow.forward")
                     }
                 }
 

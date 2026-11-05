@@ -22,6 +22,15 @@ struct SwiftSimCompanionApp: App {
                 .environmentObject(sessionStore)
                 .environmentObject(sessionStore.activity)
                 .onOpenURL { url in
+                    if AppTestingHandoff.handles(url) {
+                        // Incoming links can present setup, never authorize input
+                        // or start the runner without the developer's own tap.
+                        if url.path == "/return" { sessionStore.appTestingReturnURL = url }
+                        if !sessionStore.isMacSettingsPresented {
+                            sessionStore.isAppTestingPresented = true
+                        }
+                        return
+                    }
                     if PairingInvite(url: url) != nil {
                         _ = sessionStore.open(url)
                         return

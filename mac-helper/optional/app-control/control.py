@@ -40,6 +40,8 @@ GUIDANCE = {
     "CAPTURE_UNAVAILABLE": "An app-only image could not be confirmed. No full-screen fallback was saved or returned.",
     "STOP_UNCONFIRMED": "Runner shutdown is unconfirmed. The session is retained; check the phone and close it before starting another.",
     "PROVIDER_INVALID": "The packaged testing client does not match its pinned source. Reinstall Swift Sim before using app control.",
+    "PHONE_LOCKED": "Unlock your iPhone before starting app testing.",
+    "CONNECTION_UNCONFIRMED": "Open App Testing in Swift Sim and tap Start App Testing. If it closes immediately, check Apple developer support before reinstalling. A closed connection alone does not identify the cause.",
 }
 
 class ControlError(Exception):
@@ -186,7 +188,7 @@ def read_profile(root):
 
 def parse(args):
     parser = argparse.ArgumentParser(add_help=False, exit_on_error=False)
-    parser.add_argument("command", choices=["pair", "configure", "status", "open", "screen", "tap", "type", "scroll", "screenshot", "close"])
+    parser.add_argument("command", choices=["pair", "configure", "status", "check", "open", "screen", "tap", "type", "scroll", "screenshot", "close"])
     for option in ["host", "key-file", "record", "device-id", "app", "session", "filter", "text", "text-file", "type", "observation", "direction"]:
         parser.add_argument("--" + option)
     for option in ["port", "minutes"]: parser.add_argument("--" + option, type=int)
@@ -200,7 +202,7 @@ def execute(args, root, provider_factory=Provider):
     a = parse(args)
     allowed = {
         "pair": {"host", "port"}, "configure": {"host", "port", "key_file", "record", "device_id"},
-        "status": set(), "open": {"app", "minutes"}, "screen": {"session", "filter"},
+        "status": set(), "check": set(), "open": {"app", "minutes"}, "screen": {"session", "filter"},
         "tap": {"session", "text", "type", "observation", "x", "y"},
         "type": {"session", "text", "text_file", "observation", "clear", "submit"},
         "scroll": {"session", "observation", "direction"}, "screenshot": {"session"}, "close": {"session"},
@@ -246,6 +248,15 @@ def execute(args, root, provider_factory=Provider):
             return {"outcome": "configured", "configured": True, "provider": "ictrl", "version": VERSION}
         profile = read_profile(root)
         provider = provider_factory(root, profile)
+        if a.command == "check":
+            try: info = checked_info(provider, profile)
+            except ControlError as error:
+                if error.code != "UNAVAILABLE": raise
+                fail("CONNECTION_UNCONFIRMED")
+            except Exception: fail("CONNECTION_UNCONFIRMED")
+            if info.get("system", {}).get("screen_locked") is not False: fail("PHONE_LOCKED")
+            return {"outcome": "ready", "phoneConnection": "authenticated", "phoneUnlocked": True,
+                "inputAuthorized": False, "backgroundWorker": False, "provider": "ictrl", "version": VERSION}
         if a.command == "open":
             if not a.app or not BUNDLE.fullmatch(a.app) or a.app.startswith("com.apple."): fail("INVALID_OPTIONS")
             if (root / "session.json").exists(): fail("SESSION_BUSY")

@@ -29,6 +29,35 @@ test("optional help never launches a worker", async () => {
   assert.match(output[0], /separate signed/);
 });
 
+test(
+  "native launch handoff validates callbacks without a Simulator",
+  {
+    skip: process.platform !== "darwin",
+  },
+  () => {
+    const root = mkdtempSync(join(tmpdir(), "swift-sim-testing-handoff-"));
+    try {
+      const binary = join(root, "handoff-tests");
+      const built = spawnSync(
+        "xcrun",
+        [
+          "swiftc",
+          "Companion/SwiftSimCompanion/AppTestingHandoff.swift",
+          "test/optional/AppTestingHandoffTests.swift",
+          "-o",
+          binary,
+        ],
+        { encoding: "utf8", timeout: 60_000 },
+      );
+      assert.equal(built.status, 0, built.stderr);
+      const tested = spawnSync(binary, [], { encoding: "utf8", timeout: 5_000 });
+      assert.equal(tested.status, 0, tested.stderr);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
 test("worker failure output never leaks raw process output", async () => {
   const output = [];
   const code = await runAppControlCli(["status"], {

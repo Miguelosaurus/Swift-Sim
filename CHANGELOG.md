@@ -24,6 +24,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- An explicit App Testing launch/return flow in the companion, with **Test with
+  Agent** on each app page, and an on-demand authenticated `app-control check`.
+  Callback correlation prevents old or unrelated return links from counting as
+  a launch receipt; a receipt never grants input or proves Mac connectivity.
+
 - Optional `app-control` commands for explicit iPhone testing over Tailscale with
   the separately installed iCTRL runner. Native inspection, scoped taps, typing,
   scrolling and local screenshots use bounded sessions and explicit shutdown.

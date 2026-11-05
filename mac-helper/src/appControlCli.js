@@ -7,6 +7,7 @@ const HELP = `Optional iPhone app testing (separate signed iCTRL 1.98.16 runner)
 swift-sim app-control pair --host <phone-tailnet-ip>
 swift-sim app-control configure --host <ip> --key-file <private-store> --device-id <id> [--record <entry>]
 swift-sim app-control status
+swift-sim app-control check
 swift-sim app-control open --app <bundle-id>
 swift-sim app-control screen --session <id> [--filter <text>]
 swift-sim app-control tap --session <id> --text <label> [--type <element-type>]
@@ -16,7 +17,9 @@ swift-sim app-control scroll --session <id> --observation <id> --direction down|
 swift-sim app-control screenshot --session <id>
 swift-sim app-control close --session <id>
 
-Open the runner on the phone to begin. A developer image must be available;
+Open App Testing in Swift Sim to begin (swift-sim://app-testing).
+Check authenticates readiness without opening an app, reading its UI or authorizing input.
+A developer image must be available;
 silent remote launch and post-reboot cellular preparation are not promised.
 Only test while the user has made the phone available. Always close the session.
 No automatic install, daemon, recording, cloud service, or hot reload hook.

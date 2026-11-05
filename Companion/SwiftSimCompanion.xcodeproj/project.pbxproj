@@ -21,6 +21,8 @@
 		00000000000000000000010B /* ActivityCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000213 /* ActivityCenter.swift */; };
 		00000000000000000000010C /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000214 /* ActivityView.swift */; };
 		00000000000000000000010D /* ActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000215 /* ActivityTests.swift */; };
+		00000000000000000000010F /* AppTestingHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000217 /* AppTestingHandoff.swift */; };
+		000000000000000000000110 /* AppTestingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000218 /* AppTestingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +44,8 @@
 		000000000000000000000213 /* ActivityCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityCenter.swift; sourceTree = "<group>"; };
 		000000000000000000000214 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		000000000000000000000215 /* ActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTests.swift; sourceTree = "<group>"; };
+		000000000000000000000217 /* AppTestingHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTestingHandoff.swift; sourceTree = "<group>"; };
+		000000000000000000000218 /* AppTestingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTestingView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -94,6 +98,8 @@
 				000000000000000000000214 /* ActivityView.swift */,
 				000000000000000000000213 /* ActivityCenter.swift */,
 				000000000000000000000216 /* AppIcon.swift */,
+				000000000000000000000218 /* AppTestingView.swift */,
+				000000000000000000000217 /* AppTestingHandoff.swift */,
 				000000000000000000000206 /* Info.plist */,
 				000000000000000000000207 /* SwiftSimCompanion.entitlements */,
 				000000000000000000000209 /* Assets.xcassets */,
@@ -223,6 +229,8 @@
 				00000000000000000000010C /* ActivityView.swift in Sources */,
 				00000000000000000000010B /* ActivityCenter.swift in Sources */,
 				00000000000000000000010E /* AppIcon.swift in Sources */,
+				000000000000000000000110 /* AppTestingView.swift in Sources */,
+				00000000000000000000010F /* AppTestingHandoff.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

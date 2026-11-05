@@ -12,11 +12,18 @@ upgrade, change developer images or expand phone permissions during ordinary
 delivery. Never print/copy pairing keys or fetch untrusted provider updates.
 
 1. Confirm the user has made the phone available for this testing session.
-   The user opens the runner. If it crashes after reboot, developer-image
+   Bring up the feature when testing is requested: in Swift Sim, open the app
+   page, tap **Test with Agent**, then **Start App Testing**. The fallback is
+   Mac Connection → App Testing; `swift-sim://app-testing` presents the same
+   screen without starting the runner or granting access. Never ask the user
+   to find a hidden notification menu again after initial setup.
+   If it crashes after reboot, developer-image
    preparation may be missing; diagnose rather than repeatedly launching it.
    If ready but unreachable, check a full relaunch and the remote-access control;
    do not claim connectivity from a notification alone.
-2. `swift-sim app-control status` is local-only. If configured, run
+2. `swift-sim app-control status` is local-only. Once the user starts testing,
+   use explicit `app-control check` to authenticate readiness without UI input;
+   a launch callback is not proof of a reachable runner. If configured, run
    `swift-sim app-control open --app <exact-bundle-id>` and retain the returned
    `session` and `observation`. A runner connection alone is not UI proof.
 3. Prefer the returned bounded native tree. Use `screen --session ... --filter

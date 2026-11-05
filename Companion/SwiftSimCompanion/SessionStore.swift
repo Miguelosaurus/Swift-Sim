@@ -15,6 +15,10 @@ struct LibraryActionNotice: Equatable {
 final class SessionStore: ObservableObject {
     let activity = ActivityCenter()
 
+    @Published var isAppTestingPresented = false
+    @Published var appTestingReturnURL: URL?
+    @Published var appTestingAppName: String?
+
     @Published var currentSession: SimulatorSession?
     @Published var currentDeviceBuild: DeviceBuildSession?
     @Published var isConnected = false

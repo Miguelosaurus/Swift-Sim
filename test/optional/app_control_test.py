@@ -21,11 +21,12 @@ class Fake:
     def __init__(self):
         self.calls = []; self.front = APP; self.device = 'fixture-phone'; self.version = c.VERSION
         self.text = 'TextField, value: empty'; self.broken = None; self.capture_scope = 'app'; self.source_app = APP
+        self.locked = False
     def call(self, method, params=None):
         params = params or {}; self.calls.append((method, params))
         if method == self.broken: raise RuntimeError('SECRET provider failure must not escape')
         if method == 'device_info': return {'server_version':self.version,'protocol_version':1,'device_id':self.device,
-            'capabilities':CAPS,'point_width':390,'point_height':844,'system':{'screen_locked':False,'foreground_app':self.front}}
+            'capabilities':CAPS,'point_width':390,'point_height':844,'system':{'screen_locked':self.locked,'foreground_app':self.front}}
         if method == 'activate_app': return {'foreground_app':self.front}
         if method == 'page_source': return {'bundle_id':self.source_app,'source':self.text,'keyboard':{'visible':False},'channel':{'recommended':'tree'}}
         if method == 'find_element': return {'exists':True,'hittable':True,'ref':'app-bound-reference'}
@@ -54,6 +55,20 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(list(records),['swift-sim']); self.assertNotIn('do-not-import',json.dumps(records))
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode),0o700)
         for name in ['profile.json','credentials.json','operation.lock']:self.assertEqual(stat.S_IMODE((self.root/name).stat().st_mode),0o600)
+    def test_explicit_check_authenticates_without_ui_or_session(self):
+        self.configure();self.fake.calls=[]
+        result=self.run_control('check')
+        self.assertEqual(result['outcome'],'ready');self.assertFalse(result['inputAuthorized'])
+        self.assertEqual([m for m,_ in self.fake.calls],['device_info'])
+        self.assertFalse((self.root/'session.json').exists())
+    def test_readiness_preserves_identity_lock_and_ambiguous_connection_boundaries(self):
+        self.configure();self.fake.locked=True
+        self.code('PHONE_LOCKED',lambda:self.run_control('check'))
+        self.fake.locked=False;self.fake.device='different-phone'
+        self.code('DEVICE_CHANGED',lambda:self.run_control('check'))
+        self.fake.device='fixture-phone';self.fake.broken='device_info'
+        self.code('CONNECTION_UNCONFIRMED',lambda:self.run_control('check'))
+        self.assertTrue(all(m=='device_info' for m,_ in self.fake.calls))
     def test_public_or_named_endpoints_rejected_without_rpc(self):
         for host in ['8.8.8.8','127.0.0.1','192.168.1.2','example.test','100.64.0.2@evil','http://100.64.0.2']:
             self.code('INVALID_OPTIONS',lambda:c.endpoint(host,8200))
