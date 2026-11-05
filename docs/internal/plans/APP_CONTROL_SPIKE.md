@@ -111,6 +111,16 @@ Apple listener over both tailnet address families. No phone input or capture was
 performed, and the existing image was preserved. Do not replace the working
 standalone runner or publish a second native backend on discovery evidence alone.
 
+The [November 5 optional integration](../../evidence/APP_CONTROL_INTEGRATION_2026_11_05.md)
+adds the lazy `app-control` command using the unchanged qualified iCTRL client.
+App-scoped native inspection, taps, typing, scrolling, restoration and verified
+shutdown passed on the physical phone. Fresh user-opened cellular startup and
+input also passed through the compiled CLI with no Wi-Fi interface. A reported
+launch crash was traced to a missing developer image and recovered through the
+normal existing-image mount; no app replacement was needed. The separate runner
+and preparation limits remain explicit. No normal delivery/notification hook or
+helper-free backend is enabled, and this qualification sent no hot reload edit.
+
 ## Remaining gates, in order
 
 1. **Physical wireless transport — WDA same-Wi-Fi passed; agent-device failed.** For further qualification, once the user says the phone is available,

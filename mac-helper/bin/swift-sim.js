@@ -54,6 +54,13 @@ async function main() {
   if (command === "setup") return setup(args);
   if (command === "doctor" || command === "status") return doctor(args);
   if (command === "update") return update();
+  if (command === "app-control") {
+    const { runAppControlCli } = await import("../src/appControlCli.js");
+    const { NodeCommandRunner } = await import("../src/infrastructure/nodeCommandRunner.js");
+    const runner = new NodeCommandRunner({ spawn, spawnSync });
+    process.exitCode = await runAppControlCli(args, { run: (request) => runner.run(request) });
+    return;
+  }
   if (command === "notifications") {
     const [action = "status", ...options] = args;
     if (action === "status") return console.log(JSON.stringify({ ...apnsConfigurationStatus(), delivery: createActivityStore().notificationDiagnostics() }));
@@ -925,6 +932,7 @@ Usage:
   swift-sim resume-device-build   Finish a preserved Debug build with --build-id
   swift-sim live-status ...       Check remote on-device hot reload readiness
   swift-sim app-context ...       Read Debug context; --elements, --screenshot or --report latest on demand
+  swift-sim app-control ...       Optional, on-demand testing through a separately installed phone runner
   swift-sim app-tools ...         Deliberately set --appearance or request --refresh-screen in this Debug app
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload

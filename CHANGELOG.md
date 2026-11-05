@@ -24,6 +24,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Optional `app-control` commands for explicit iPhone testing over Tailscale with
+  the separately installed iCTRL runner. Native inspection, scoped taps, typing,
+  scrolling and local screenshots use bounded sessions and explicit shutdown.
+  No app SDK, helper startup, hot reload or notification hooks are added.
+
 - Debug hot reload feedback with a clockwise reveal of flowing teal edge light,
   soft inward bloom, and a held final gap that closes only after confirmed refresh.
   The exact contact frame starts a broad refractive live-glass wave, with

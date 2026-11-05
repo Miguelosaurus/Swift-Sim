@@ -1,0 +1,8 @@
+{
+  "provider": "OpenMinis/iCTRL",
+  "version": "1.98.16",
+  "revision": "c1e4268859ba858d1579f7b846a56cb40641b7f6",
+  "file": "Scripts/ictrl_rpc.py",
+  "sha256": "ba1941a841755412c4afa3d0932fcec817e46a188e11ff408c5aeb819e6a2b51",
+  "license": "Apache-2.0"
+}

@@ -105,6 +105,10 @@ Tailnet.
 
 ## First use, drift, and lazy references
 
+For requested phone UI tests, read [optional app control](references/app-control.md).
+Its separate runner is opt-in. Never load or invoke it for ordinary coding,
+hot reload, delivery, or notifications.
+
 For requested phone debugging, the agent can pull scoped app context directly
 with `swift-sim app-context`, `--elements`, `--screenshot`, or `--report latest`. Do not ask the
 user to upload a screenshot or copy a report ID when this access is available.
