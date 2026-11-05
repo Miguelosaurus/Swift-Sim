@@ -66,11 +66,15 @@ adds the reproducible optional installer and phone-enforced lifetime. The source
 build/sign path passed locally. The complete installed CLI subsequently
 installed the public-template runner on the selected physical phone, preserved
 the private Mac pairing files, and left the runner stopped. Its fresh runtime
-check is pending; independent app inventory timed out. The separately packaged
+check subsequently authenticated the exact installed build recipe on cellular
+and Tailscale interfaces with no Wi-Fi interface, then verified shutdown without
+app input. Independent app inventory timed out. The separately packaged
 bounded runtime authenticated and was
 found stopped after the deadline without Mac requests or a stop command. The
-notification request/approval UI and cellular-only reboot recovery remain
-unimplemented. Explicit phone startup and verified shutdown remain available.
+notification request/approval UI is implemented and passing local checks;
+physical notification-to-approval qualification is next. Cellular-only reboot
+recovery remains unsupported. Explicit phone startup and verified shutdown
+remain available.
 
 ## References
 

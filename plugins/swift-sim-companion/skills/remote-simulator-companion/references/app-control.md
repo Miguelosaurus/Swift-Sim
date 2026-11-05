@@ -21,7 +21,19 @@ Do not auto-install,
 upgrade, change developer images or expand phone permissions during ordinary
 delivery. Never print/copy pairing keys or fetch untrusted provider updates.
 
-1. Confirm the user has made the phone available for this testing session.
+1. For a requested phone test, prefer `swift-sim app-control request --app
+   <exact-bundle-id>`. It sends one private testing notification to the selected
+   registered phone and returns a five-minute request identifier. The user can
+   choose **Allow Testing** in its notification, or tap it and then Allow in
+   Swift Sim. A push acceptance is neither delivery nor permission. Use
+   `status --request <id>` to read approval without contacting the phone; when
+   approved, use `open --app <same-bundle-id> --request <id>`. Never substitute a
+   manual open to bypass a missing approval. The matching request is consumed
+   once, and pairing changes invalidate admission. `cancel-request --request
+   <id>` cancels an unused request or stops its owned session. No extra model,
+   broker, watcher or normal-notification polling is added.
+
+   For a separately agreed manual session, confirm the phone is available.
    Bring up the feature when testing is requested: in Swift Sim, open the app
    page, tap **Test with Agent**, then **Start App Testing**. The fallback is
    Mac Connection → App Testing; `swift-sim://app-testing` presents the same
@@ -36,6 +48,8 @@ delivery. Never print/copy pairing keys or fetch untrusted provider updates.
    a launch callback is not proof of a reachable runner. If configured, run
    `swift-sim app-control open --app <exact-bundle-id>` and retain the returned
    `session` and `observation`. A runner connection alone is not UI proof.
+   For notification approval, retain `--request <id>` on open instead. The
+   companion submits approval only after its correlated runner return.
 3. Prefer the returned bounded native tree. Use `screen --session ... --filter
    <text>` for a targeted read; `tap --session ... --text <label> --type button`
    re-resolves a scoped native reference. Type/scroll/coordinate taps require

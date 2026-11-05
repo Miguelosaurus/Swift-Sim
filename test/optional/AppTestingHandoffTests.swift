@@ -32,6 +32,18 @@ enum AppTestingHandoffTests {
         }
         let restored = try JSONDecoder().decode(AppTestingHandoff.self, from: JSONEncoder().encode(handoff))
         precondition(restored == handoff)
+        let request = AppTestingRequest(id: UUID().uuidString.lowercased(), app: "dev.fixture.app", name: "Fixture",
+            expiresAt: Date().timeIntervalSince1970 + 300, state: "pending")
+        precondition(request.isValid && request.canAllow)
+        let intent = AppTestingHandoff(approval: request)
+        let savedIntent = try JSONDecoder().decode(AppTestingHandoff.self, from: JSONEncoder().encode(intent))
+        precondition(savedIntent.approval == request)
+        let push: [AnyHashable: Any] = ["appTestingRequestId": request.id, "macID": "mac-one", "allowOnOpen": true]
+        precondition(AppTestingPushTarget(userInfo: push)?.allowOnOpen == false)
+        precondition(AppTestingPushTarget(userInfo: push, allowOnOpen: true)?.allowOnOpen == true)
+        precondition(AppTestingPushTarget(userInfo: ["appTestingRequestId": "../other", "macID": "mac-one"]) == nil)
+        precondition(!AppTestingRequest(id: request.id, app: "com.apple.springboard", name: "Fixture", expiresAt: request.expiresAt, state: "pending").isValid)
+        precondition(!AppTestingRequest(id: request.id, app: request.app, name: request.name, expiresAt: 1, state: "pending").canAllow)
         print("App testing handoff: launch encoding, cold return, nonce, expiry and untrusted callbacks passed")
     }
 }

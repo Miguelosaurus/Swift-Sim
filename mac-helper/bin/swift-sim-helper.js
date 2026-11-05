@@ -177,6 +177,12 @@ function initializeCompatibilityRuntime() {
 }
 
 async function main(argv) {
+  if (argv[0] === "app-testing-command") {
+    const service = await testingRequests();
+    try { console.log(JSON.stringify(await service.command(argv.slice(1)))); }
+    catch { console.log(JSON.stringify({ schemaVersion: 1, outcome: "needs-user-action", code: "APP_CONTROL_REQUEST_UNAVAILABLE", guidance: "This testing request could not be created or verified. Check the selected app, phone notification registration and testing setup." })); }
+    return;
+  }
   if (argv[0] === "prune-build-caches") {
     if (argv.slice(1).some(value => value !== "--apply") || argv.length > 2) throw new Error("Use prune-build-caches [--apply]. Without --apply, no cache is removed.");
     const service = deviceBuildArtifactRetention.compilerCaches;
@@ -401,6 +407,15 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
         return notFound(res, "Not found.");
       }
 
+      if (url.pathname.startsWith("/api/app-testing/")) {
+        if (!pairingTokenMatches(req, url)) return badRequest(res, 401, "Connect the paired Mac to use app testing.");
+        const { handleTestingRequestRoutes } = await import("../optional/app-control/requests.js");
+        await handleTestingRequestRoutes({ req, res, url, authorize: pairingTokenMatches,
+          service: await testingRequests(), privateHelper: !deviceBuildsOnly,
+          installationId: () => pairingStore.current().installationID });
+        return;
+      }
+
       if (activity && await handleActivityRoutes({ req, res, url, service: activity, authorize: pairingTokenMatches, privateHelper: !deviceBuildsOnly })) return;
 
       if (await handleHelperControlRoutes({ req, res, url, service: helperControlService })) return;
@@ -429,6 +444,18 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     throw error;
   }
   await lifecycle.wait();
+}
+
+async function testingRequests() {
+  const { createTestingRequests } = await import("../optional/app-control/requests.js");
+  const runner = new NodeCommandRunner({ spawn, spawnSync });
+  return createTestingRequests({
+    authority: () => { const pairing = pairingStore.current(); return {
+      epoch: createHash("sha256").update(pairing.token).digest("hex"), installationId: pairing.installationID,
+    }; },
+    builds: () => deviceBuildStore.readOnly(activityBuildView),
+    run: (request) => runner.run(request), lockManager: liveRuntimeLockManager,
+  });
 }
 
 async function verifyDeviceBuild(build) {

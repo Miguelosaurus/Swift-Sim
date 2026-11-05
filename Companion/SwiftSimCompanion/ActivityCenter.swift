@@ -365,6 +365,36 @@ final class ActivityCenter: ObservableObject {
         publishCache()
     }
 
+    // On-demand only: ordinary activity refresh/registration never calls these.
+    func testingRequest(id: String? = nil, app: String? = nil, expectedMacID: String? = nil) async throws -> AppTestingRequest? {
+        guard let mac else { throw URLError(.userAuthenticationRequired) }
+        let expected = generation
+        if cache.installationId == nil { await refresh(fromBeginning: true) }
+        guard isCurrent(mac, expected), let installation = cache.installationId,
+              expectedMacID == nil || expectedMacID == installation else { throw URLError(.userAuthenticationRequired) }
+        var url = mac.baseURL.appending(path: "api/app-testing/\(id ?? "pending")")
+        var items = [URLQueryItem(name: "deviceId", value: deviceId)]
+        if let app { items.append(.init(name: "app", value: app)) }
+        url = url.appending(queryItems: items)
+        let data = try await request(url: url, method: "GET", body: nil, mac: mac)
+        struct Envelope: Decodable { let macID: String; let request: AppTestingRequest?; let maximumSeconds: Int? }
+        let value = try JSONDecoder().decode(Envelope.self, from: data)
+        guard isCurrent(mac, expected), value.macID == installation,
+              value.request == nil || (value.maximumSeconds == 600 && value.request?.isValid == true) else { throw URLError(.badServerResponse) }
+        return value.request
+    }
+
+    func respondToTesting(_ item: AppTestingRequest, action: String) async throws {
+        guard let mac, item.isValid, ["approve", "cancel"].contains(action) else { throw URLError(.badURL) }
+        let expected = generation
+        let body = try JSONSerialization.data(withJSONObject: ["deviceId": deviceId, "action": action])
+        let data = try await request(url: mac.baseURL.appending(path: "api/app-testing/\(item.id)"), method: "POST", body: body, mac: mac)
+        struct Envelope: Decodable { let macID: String; let outcome: String }
+        let value = try JSONDecoder().decode(Envelope.self, from: data)
+        guard isCurrent(mac, expected), value.macID == cache.installationId,
+              (action == "approve" ? ["request-approved", "request-consumed"].contains(value.outcome) : value.outcome == "request-cancelled") else { throw URLError(.badServerResponse) }
+    }
+
     func open(_ requestedEvent: ActivityEvent) async {
         // A row can stay on screen while its build expires or is removed.
         // Route using the current authenticated event, never that stale row.
@@ -459,6 +489,7 @@ final class CompanionNotifications: ObservableObject {
     static let shared = CompanionNotifications()
     @Published private(set) var deviceToken: String?
     @Published private(set) var pendingTap: ActivityPushTarget?
+    @Published private(set) var pendingTestingTap: AppTestingPushTarget?
     @Published private(set) var foregroundUpdate: ActivityPushTarget?
     @Published private(set) var authorization: UNAuthorizationStatus = .notDetermined
     @Published private(set) var registrationMessage: String?
@@ -535,6 +566,8 @@ final class CompanionNotifications: ObservableObject {
         if foreground { foregroundUpdate = target } else { pendingTap = target }
     }
     func clearTap(_ target: ActivityPushTarget) { if pendingTap == target { pendingTap = nil } }
+    func receivedTesting(_ target: AppTestingPushTarget) { pendingTestingTap = target }
+    func clearTestingTap(_ target: AppTestingPushTarget) { if pendingTestingTap == target { pendingTestingTap = nil } }
     private static func authorizationValue(_ value: UNAuthorizationStatus) -> String {
         switch value {
         case .authorized: return "authorized"
@@ -594,6 +627,10 @@ struct CompanionNotificationDiagnostics: Codable, Equatable {
 final class CompanionNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        let allow = UNNotificationAction(identifier: "ALLOW_APP_TESTING", title: "Allow Testing", options: [.foreground, .authenticationRequired])
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: "SWIFT_SIM_APP_TESTING", actions: [allow], intentIdentifiers: [])
+        ])
         return true
     }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -603,11 +640,19 @@ final class CompanionNotificationDelegate: NSObject, UIApplicationDelegate, UNUs
         Task { @MainActor in CompanionNotifications.shared.failedRegistration() }
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        if AppTestingPushTarget(userInfo: notification.request.content.userInfo) != nil {
+            completionHandler([.banner, .sound]); return
+        }
         let target = ActivityPushTarget(userInfo: notification.request.content.userInfo)
         if let target { Task { @MainActor in CompanionNotifications.shared.received(target, foreground: true) } }
         completionHandler([])
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        if let testing = AppTestingPushTarget(userInfo: response.notification.request.content.userInfo,
+            allowOnOpen: response.actionIdentifier == "ALLOW_APP_TESTING") {
+            Task { @MainActor in CompanionNotifications.shared.receivedTesting(testing) }
+            completionHandler(); return
+        }
         let target = ActivityPushTarget(userInfo: response.notification.request.content.userInfo)
         if let target { Task { @MainActor in CompanionNotifications.shared.received(target, foreground: false) } }
         completionHandler()

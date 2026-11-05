@@ -18,6 +18,46 @@ final class SessionStore: ObservableObject {
     @Published var isAppTestingPresented = false
     @Published var appTestingReturnURL: URL?
     @Published var appTestingAppName: String?
+    @Published var appTestingBundleID: String?
+    @Published var appTestingRequest: AppTestingRequest?
+    @Published var appTestingAutoAllowRequestID: String?
+    private var openingTestingNotification: AppTestingPushTarget?
+    private var testingPresentationPending = false
+
+    func presentPendingTestingRequest() {
+        guard testingPresentationPending else { return }
+        testingPresentationPending = false
+        isAppTestingPresented = true
+    }
+
+    func openTestingNotification(_ target: AppTestingPushTarget) async {
+        guard let mac = pairedMac, openingTestingNotification != target else { return }
+        openingTestingNotification = target
+        defer { openingTestingNotification = nil }
+        let revision = pairingRevision
+        activity.connect(to: mac)
+        do {
+            let loaded = try await activity.testingRequest(id: target.requestID, expectedMacID: target.macID)
+            guard Self.pairingResponseIsCurrent(current: pairedMac, expected: mac, currentRevision: pairingRevision, expectedRevision: revision) else { return }
+            guard let request = loaded else {
+                activity.notifications.clearTestingTap(target)
+                showLibraryAction("This testing request has ended. Ask your agent to start a new one.", kind: .information)
+                return
+            }
+            appTestingAppName = request.name
+            appTestingBundleID = request.app
+            appTestingRequest = request
+            appTestingAutoAllowRequestID = target.allowOnOpen ? request.id : nil
+            testingPresentationPending = activity.isPresented || isMacSettingsPresented
+            activity.isPresented = false
+            isMacSettingsPresented = false
+            if !testingPresentationPending { isAppTestingPresented = true }
+            activity.notifications.clearTestingTap(target)
+        } catch {
+            guard Self.pairingResponseIsCurrent(current: pairedMac, expected: mac, currentRevision: pairingRevision, expectedRevision: revision) else { return }
+            showLibraryAction("This testing request could not be verified. Check that the original Mac is connected.", kind: .information)
+        }
+    }
 
     @Published var currentSession: SimulatorSession?
     @Published var currentDeviceBuild: DeviceBuildSession?

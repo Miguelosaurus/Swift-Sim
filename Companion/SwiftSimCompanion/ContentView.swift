@@ -32,16 +32,16 @@ struct ContentView: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: sessionStore.libraryActionNotice)
-        .sheet(item: $activity.presentation) { _ in
+        .sheet(item: $activity.presentation, onDismiss: sessionStore.presentPendingTestingRequest) { _ in
             ActivityInboxView()
                 .environmentObject(activity)
         }
-        .sheet(isPresented: $sessionStore.isMacSettingsPresented) {
+        .sheet(isPresented: $sessionStore.isMacSettingsPresented, onDismiss: sessionStore.presentPendingTestingRequest) {
             MacSettingsSheet()
                 .environmentObject(sessionStore)
         }
         .sheet(isPresented: $sessionStore.isAppTestingPresented) {
-            AppTestingView(appName: sessionStore.appTestingAppName)
+            AppTestingView(appName: sessionStore.appTestingAppName, appBundleID: sessionStore.appTestingBundleID)
                 .environmentObject(sessionStore)
         }
     }
@@ -635,6 +635,9 @@ private struct ManagedAppDetailView: View {
                     .foregroundStyle(statusColor)
                 Button {
                     sessionStore.appTestingAppName = app.displayName.swiftSimDisplayName
+                    sessionStore.appTestingBundleID = app.bundleIdentifier
+                    sessionStore.appTestingRequest = nil
+                    sessionStore.appTestingAutoAllowRequestID = nil
                     sessionStore.isAppTestingPresented = true
                 } label: {
                     Label("Test with Agent", systemImage: "iphone.and.arrow.forward")

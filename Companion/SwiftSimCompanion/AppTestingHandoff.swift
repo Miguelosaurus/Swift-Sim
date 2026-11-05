@@ -5,13 +5,15 @@ import Foundation
 struct AppTestingHandoff: Codable, Equatable {
     let attempt: UUID
     let startedAt: Date
+    let approval: AppTestingRequest?
 
     static let storageKey = "swiftSim.appTesting.pendingLaunch"
     static let lifetime: TimeInterval = 90
 
-    init(attempt: UUID = UUID(), startedAt: Date = Date()) {
+    init(attempt: UUID = UUID(), startedAt: Date = Date(), approval: AppTestingRequest? = nil) {
         self.attempt = attempt
         self.startedAt = startedAt
+        self.approval = approval
     }
 
     var launchURL: URL {
@@ -48,5 +50,34 @@ struct AppTestingHandoff: Codable, Equatable {
         case "failed": return .failed
         default: return nil
         }
+    }
+}
+
+struct AppTestingRequest: Codable, Equatable {
+    let id: String
+    let app: String
+    let name: String
+    let expiresAt: TimeInterval
+    let state: String
+
+    var isValid: Bool {
+        UUID(uuidString: id) != nil && id.count == 36 && !app.isEmpty && app.count <= 256
+            && app.range(of: #"^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$"#, options: .regularExpression) != nil
+            && !app.hasPrefix("com.apple.") && !name.isEmpty && name.count <= 80
+            && expiresAt.isFinite && ["pending", "approved", "consumed", "cancelled", "closed"].contains(state)
+    }
+    var canAllow: Bool { isValid && Date().timeIntervalSince1970 < expiresAt && ["pending", "approved"].contains(state) }
+}
+
+struct AppTestingPushTarget: Equatable {
+    let requestID: String
+    let macID: String
+    let allowOnOpen: Bool
+    init?(userInfo: [AnyHashable: Any], allowOnOpen: Bool = false) {
+        guard let id = userInfo["appTestingRequestId"] as? String, id.count == 36, UUID(uuidString: id) != nil,
+              let mac = userInfo["macID"] as? String, !mac.isEmpty, mac.count <= 128 else { return nil }
+        requestID = id
+        macID = mac
+        self.allowOnOpen = allowOnOpen
     }
 }

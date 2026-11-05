@@ -76,6 +76,23 @@ test("worker failure output never leaks raw process output", async () => {
   assert.doesNotMatch(output.join(""), /PRIVATE/);
 });
 
+test("structured testing refusal remains a failing CLI result", async () => {
+  const output = [];
+  const code = await runAppControlCli(["status", "--request", "missing"], {
+    run: async () => ({
+      code: 0,
+      stdout: JSON.stringify({
+        schemaVersion: 1,
+        outcome: "needs-user-action",
+        code: "APP_CONTROL_REQUEST_REQUIRED",
+      }),
+    }),
+    write: (line) => output.push(line),
+  });
+  assert.equal(code, 1);
+  assert.equal(JSON.parse(output[0]).code, "APP_CONTROL_REQUEST_REQUIRED");
+});
+
 test(
   "phone lifetime expires with a blocked UI thread and cannot be renewed",
   {
@@ -132,9 +149,12 @@ test("normal delivery and notification imports never load optional testing modul
       loader,
       `export function resolve(s,c,n){if(s.includes('appControlCli')||s.includes('optional/app-control'))throw Error('optional control loaded');return n(s,c);}`,
     );
-    const modules = ["liveReload.js", "changeDelivery.js", "apnsProvider.js"].map(
-      (name) => pathToFileURL(resolve("mac-helper/src", name)).href,
-    );
+    const modules = [
+      "liveReload.js",
+      "changeDelivery.js",
+      "apnsProvider.js",
+      "../bin/swift-sim-helper.js",
+    ].map((name) => pathToFileURL(resolve("mac-helper/src", name)).href);
     const script = modules.map((url) => `await import(${JSON.stringify(url)});`).join("\n");
     const result = spawnSync(
       process.execPath,

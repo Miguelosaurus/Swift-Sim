@@ -9,6 +9,10 @@ swift-sim app-control configure --host <ip> --key-file <private-store> --device-
 swift-sim app-control setup --device <paired-device> --team-id <development-team> [--profile <file>] [--bundle-id <existing-runner-id>]
 swift-sim app-control status
 swift-sim app-control check
+swift-sim app-control request --app <bundle-id>
+swift-sim app-control status --request <request-id>
+swift-sim app-control open --app <bundle-id> --request <request-id>
+swift-sim app-control cancel-request --request <request-id>
 swift-sim app-control open --app <bundle-id>
 swift-sim app-control screen --session <id> [--filter <text>]
 swift-sim app-control tap --session <id> --text <label> [--type <element-type>]
@@ -32,6 +36,7 @@ export async function runAppControlCli(
     run,
     write = (line) => console.log(line),
     stateRoot = join(homedir(), ".swift-sim", "app-control"),
+    internalWorker = false,
   } = {},
 ) {
   if (!args.length || ["help", "--help", "-h"].includes(args[0])) {
@@ -42,9 +47,19 @@ export async function runAppControlCli(
     dirname(fileURLToPath(import.meta.url)),
     `../optional/app-control/${args[0] === "setup" ? "setup.py" : "control.py"}`,
   );
+  const requestCommand =
+    !internalWorker &&
+    (["request", "cancel-request"].includes(args[0]) ||
+      (["status", "open"].includes(args[0]) && args.includes("--request")));
   const result = await run({
-    executable: "/usr/bin/env",
-    args: ["python3", "-I", "-B", worker],
+    executable: requestCommand ? process.execPath : "/usr/bin/env",
+    args: requestCommand
+      ? [
+          join(dirname(fileURLToPath(import.meta.url)), "../bin/swift-sim-helper-entry.js"),
+          "app-testing-command",
+          ...args,
+        ]
+      : ["python3", "-I", "-B", worker],
     input: JSON.stringify({ args, stateRoot }),
     environment: {
       inherit: ["PATH", "HOME", "TMPDIR", "SYSTEMROOT"],
@@ -70,11 +85,13 @@ export async function runAppControlCli(
         code: "APP_CONTROL_WORKER_UNAVAILABLE",
         guidance: result.timedOut
           ? "The testing command timed out. Inspect the app before retrying any input."
-          : "App testing needs Python 3.9 or later. Normal Swift Sim delivery is unaffected.",
+          : requestCommand
+            ? "The testing request could not be verified. Check the installed Swift Sim helper before retrying."
+            : "App testing needs Python 3.9 or later. Normal Swift Sim delivery is unaffected.",
       }),
     );
     return 1;
   }
   write(JSON.stringify(value));
-  return result.code === 0 ? 0 : 1;
+  return result.code === 0 && value.outcome !== "needs-user-action" ? 0 : 1;
 }

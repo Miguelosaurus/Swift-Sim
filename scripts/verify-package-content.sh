@@ -23,6 +23,7 @@ const required = [
   "dist/mac-helper/src/appControlCli.js",
   "dist/mac-helper/optional/app-control/control.py",
   "dist/mac-helper/optional/app-control/setup.py",
+  "dist/mac-helper/optional/app-control/requests.js",
   "dist/mac-helper/optional/app-control/runner/provenance.json",
   "dist/mac-helper/optional/app-control/runner/lifetime.patch",
   "dist/mac-helper/optional/app-control/runner/SwiftSimTestingLifetime.swift",

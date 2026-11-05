@@ -19,6 +19,7 @@ import stat
 import sys
 import time
 import urllib.request
+import uuid
 
 VERSION = "1.98.16"
 BOUNDED_VERSION = "1.98.16-swiftsim.1"
@@ -44,6 +45,9 @@ GUIDANCE = {
     "PHONE_LOCKED": "Unlock your iPhone before starting app testing.",
     "CONNECTION_UNCONFIRMED": "Open App Testing in Swift Sim and tap Start App Testing. If it closes immediately, check Apple developer support before reinstalling. A closed connection alone does not identify the cause.",
     "SESSION_ENDING": "This phone testing session is ending. Let it stop, then tap Start App Testing for a fresh session; reconnecting does not extend its deadline.",
+    "REQUEST_REQUIRED": "This testing request is missing, expired, or belongs to another phone or Mac pairing. Start a new request; no input was sent.",
+    "APPROVAL_REQUIRED": "Allow this exact testing request in Swift Sim before the agent uses the phone.",
+    "BOUNDED_SETUP_REQUIRED": "Use optional app-control setup and private pairing before requesting phone approval. Automatic requests require the bounded Swift Sim testing runner.",
 }
 
 class ControlError(Exception):
@@ -204,8 +208,8 @@ def read_profile(root):
 
 def parse(args):
     parser = argparse.ArgumentParser(add_help=False, exit_on_error=False)
-    parser.add_argument("command", choices=["pair", "configure", "status", "check", "open", "screen", "tap", "type", "scroll", "screenshot", "close"])
-    for option in ["host", "key-file", "record", "device-id", "app", "session", "filter", "text", "text-file", "type", "observation", "direction"]:
+    parser.add_argument("command", choices=["pair", "configure", "status", "check", "open", "screen", "tap", "type", "scroll", "screenshot", "close", "request-create", "request-get", "request-approve", "request-cancel"])
+    for option in ["host", "key-file", "record", "device-id", "app", "session", "filter", "text", "text-file", "type", "observation", "direction", "request", "authority", "audience", "name"]:
         parser.add_argument("--" + option)
     for option in ["port", "minutes"]: parser.add_argument("--" + option, type=int)
     for option in ["x", "y"]: parser.add_argument("--" + option, type=float)
@@ -214,14 +218,76 @@ def parse(args):
         with contextlib.redirect_stderr(io.StringIO()): return parser.parse_args(args)
     except (argparse.ArgumentError, SystemExit): fail("INVALID_OPTIONS")
 
+def testing_request(root, a, provider_factory=Provider):
+    path = root / "request.json"
+    now = time.time()
+    if not a.authority or not re.fullmatch(r"[a-f0-9]{64}", a.authority): fail("REQUEST_REQUIRED")
+    value = private_read(path) if path.exists() else None
+    if value and a.command in ["request-get", "request-cancel"] and a.request == value.get("id") and a.authority == value.get("authority") and (not a.audience or a.audience == value.get("audience")) and value.get("state") in ["closed", "cancelled"]:
+        if a.command == "request-cancel": value["state"] = "cancelled"
+        return {"outcome": "request-" + value["state"], "request": {k: value[k] for k in ["id", "app", "name", "expiresAt", "state"]}, "maximumSeconds": 600}
+    active = value and value.get("authority") == a.authority and value.get("createdAt", now + 1) <= now < value.get("expiresAt", 0) and value.get("state") in ["pending", "approved", "consumed"]
+    if a.command == "request-create":
+        if (root / "session.json").exists() or active: fail("SESSION_BUSY")
+        installed = private_read(root / "installation.json") if (root / "installation.json").exists() else {}
+        if installed.get("version") != BOUNDED_VERSION: fail("BOUNDED_SETUP_REQUIRED")
+        profile = read_profile(root)
+        if not a.app or not BUNDLE.fullmatch(a.app) or a.app.startswith("com.apple.") or not a.name or not 1 <= len(a.name) <= 80: fail("INVALID_OPTIONS")
+        try: uuid.UUID(a.audience)
+        except (ValueError, TypeError, AttributeError): fail("INVALID_OPTIONS")
+        value = {"id": str(uuid.uuid4()), "app": a.app, "name": a.name, "authority": a.authority,
+            "audience": a.audience, "deviceId": profile["deviceId"], "createdAt": now, "expiresAt": now + 300, "state": "pending"}
+        private_write(path, value)
+    else:
+        if not active or (a.request and value["id"] != a.request) or (a.app and value["app"] != a.app) or (a.audience and value["audience"] != a.audience): fail("REQUEST_REQUIRED")
+        if a.command == "request-approve":
+            if a.audience != value["audience"]: fail("REQUEST_REQUIRED")
+            if value["state"] == "pending":
+                value["state"] = "approved"
+                private_write(path, value)
+        elif a.command == "request-cancel":
+            if value["state"] in ["approved", "consumed"]:
+                session = private_read(root / "session.json") if (root / "session.json").exists() else {}
+                if session and session.get("request") != value["id"]: fail("SESSION_BUSY")
+                if value["state"] == "consumed" and not session: fail("REQUEST_REQUIRED")
+                profile = read_profile(root)
+                if profile["deviceId"] != value["deviceId"]: fail("DEVICE_CHANGED")
+                close_runner(provider_factory(root, profile), profile, root, allow_unleased=True)
+            value["state"] = "cancelled"
+            private_write(path, value)
+    return {"outcome": "request-" + value["state"], "request": {k: value[k] for k in ["id", "app", "name", "expiresAt", "state"]}, "maximumSeconds": 600}
+
+def close_runner(provider, profile, root, allow_unleased=False):
+    session = private_read(root / "session.json") if (root / "session.json").exists() else {}
+    if not session and not allow_unleased: fail("SESSION_REQUIRED")
+    try: provider.call("config", {"stop_server": True})
+    except BaseException: pass
+    closed = False
+    for _ in range(8):
+        try:
+            with socket.create_connection((profile["host"], profile["port"]), timeout=0.4): pass
+        except ConnectionRefusedError: closed = True; break
+        except OSError: break
+        time.sleep(0.2)
+    if not closed: fail("STOP_UNCONFIRMED")
+    if session.get("request") and (root / "request.json").exists():
+        request = private_read(root / "request.json")
+        if request.get("id") == session["request"]:
+            request["state"] = "closed"
+            private_write(root / "request.json", request)
+    if (root / "session.json").exists(): (root / "session.json").unlink()
+    return {"outcome": "session-closed", "runnerStopped": True}
+
 def execute(args, root, provider_factory=Provider):
     a = parse(args)
     allowed = {
         "pair": {"host", "port"}, "configure": {"host", "port", "key_file", "record", "device_id"},
-        "status": set(), "check": set(), "open": {"app", "minutes"}, "screen": {"session", "filter"},
+        "status": set(), "check": set(), "open": {"app", "minutes", "request", "authority"}, "screen": {"session", "filter"},
         "tap": {"session", "text", "type", "observation", "x", "y"},
         "type": {"session", "text", "text_file", "observation", "clear", "submit"},
         "scroll": {"session", "observation", "direction"}, "screenshot": {"session"}, "close": {"session"},
+        "request-create": {"app", "name", "authority", "audience"}, "request-get": {"app", "request", "authority", "audience"},
+        "request-approve": {"request", "authority", "audience"}, "request-cancel": {"request", "authority", "audience"},
     }
     if any(k != "command" and v is not None and v is not False and k not in allowed[a.command] for k,v in vars(a).items()): fail("INVALID_OPTIONS")
     if not root.is_absolute(): fail("INVALID_OPTIONS")
@@ -229,6 +295,7 @@ def execute(args, root, provider_factory=Provider):
         if a.command == "status": return {"outcome": "disabled", "configured": False, "backgroundWorker": False}
         fail("NOT_CONFIGURED")
     with exclusive(root):
+        if a.command.startswith("request-"): return testing_request(root, a, provider_factory)
         if a.command == "status":
             configured = (root / "profile.json").exists()
             if configured: read_profile(root)
@@ -281,10 +348,25 @@ def execute(args, root, provider_factory=Provider):
             if not 1 <= minutes <= 15: fail("INVALID_OPTIONS")
             info = checked_info(provider, profile)
             remaining = phone_lifetime(info)
+            if a.request:
+                saved_command = a.command
+                a.command = "request-get"
+                testing_request(root, a)
+                a.command = saved_command
+                request = private_read(root / "request.json")
+                if request["state"] != "approved": fail("APPROVAL_REQUIRED")
+                if request["deviceId"] != profile["deviceId"]: fail("DEVICE_CHANGED")
+                if remaining is None: fail("BOUNDED_SETUP_REQUIRED")
+            elif a.authority: fail("INVALID_OPTIONS")
             seconds = min(minutes * 60, max(0, remaining - 2)) if remaining is not None else minutes * 60
             session = {"id": secrets.token_hex(16), "app": a.app, "expiresAt": time.time() + seconds,
                 "automaticStopOnPhone": remaining is not None}
+            if a.request: session["request"] = a.request
             private_write(root / "session.json", session)
+            if a.request:
+                request["state"] = "consumed"
+                request["expiresAt"] = session["expiresAt"]
+                private_write(root / "request.json", request)
             try:
                 provider.call("activate_app", {"bundle_id": a.app})
                 observed = observation(provider, profile, session, root)
@@ -296,18 +378,7 @@ def execute(args, root, provider_factory=Provider):
                 "automaticStopOnPhone": remaining is not None, **observed}
         session = session_for(root, a.session, allow_expired=a.command == "close")
         if a.command == "close":
-            try: provider.call("config", {"stop_server": True})
-            except BaseException: pass
-            closed = False
-            for _ in range(8):
-                try:
-                    with socket.create_connection((profile["host"], profile["port"]), timeout=0.4): pass
-                except ConnectionRefusedError: closed = True; break
-                except OSError: break
-                time.sleep(0.2)
-            if not closed: fail("STOP_UNCONFIRMED")
-            (root / "session.json").unlink()
-            return {"outcome": "session-closed", "runnerStopped": True}
+            return close_runner(provider, profile, root)
         if a.command == "screen": return {"outcome": "observed", **observation(provider, profile, session, root, a.filter)}
         if a.command == "screenshot":
             info = checked_info(provider, profile, session["app"])

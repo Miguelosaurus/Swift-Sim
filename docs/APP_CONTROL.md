@@ -81,6 +81,33 @@ missing developer image or justify reinstalling the runner.
 
 ## Agent workflow
 
+For an app already connected to Swift Sim, the agent can request availability:
+
+```sh
+swift-sim app-control request --app <bundle-id>
+swift-sim app-control status --request <request-id>
+swift-sim app-control open --app <bundle-id> --request <request-id>
+```
+
+The phone notification identifies the app and offers **Allow Testing**. A
+normal tap opens Swift Sim's confirmation; the notification action can perform
+the explicit Allow directly. The phone launches the runner and submits approval
+only after its correlated return. Push receipt, a link, and an arbitrary
+callback alone grant no input. The helper verifies the current Mac pairing,
+selected notification registration, app and request before admitting a session.
+Requests expire after five minutes and are consumed once. Approval retries are
+idempotent and never extend the phone's ten-minute limit. Updating normal Swift
+Sim pairing invalidates unused requests; the testing runner's separate client
+authorization is managed on the runner itself.
+
+One registered phone is selected automatically; ambiguous registrations require
+an explicit `--notification-device`. The agent handles selection. Request state
+stays private on the Mac. It is read only during explicit testing operations;
+there is no new background service or testing poll in ordinary notifications.
+Use `cancel-request --request <id>` to cancel or stop that request's owned
+session, or **Stop Testing** in its Swift Sim screen. Keep explicit `close` as
+the normal agent cleanup. This flow requires the current companion update.
+
 Only begin after the user makes the phone available for testing. Select one app
 by bundle identifier and keep the returned session/observation identifiers:
 

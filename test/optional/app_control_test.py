@@ -63,6 +63,53 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(result['outcome'],'ready');self.assertFalse(result['inputAuthorized'])
         self.assertEqual([m for m,_ in self.fake.calls],['device_info'])
         self.assertFalse((self.root/'session.json').exists())
+
+    def request(self):
+        self.configure();self.fake.version=c.BOUNDED_VERSION;self.fake.caps.append('swift_sim_lifetime_v1')
+        c.private_write(self.root/'installation.json',{'version':c.BOUNDED_VERSION})
+        value=self.run_control('request-create','--app',APP,'--name','Fixture','--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
+        self.fake.calls=[]
+        return value['request']['id']
+
+    def test_request_requires_exact_phone_approval_before_any_app_input(self):
+        request=self.request()
+        self.code('APPROVAL_REQUIRED',lambda:self.run_control('open','--app',APP,'--request',request,'--authority','a'*64))
+        self.assertNotIn('activate_app',[m for m,_ in self.fake.calls])
+        self.code('REQUEST_REQUIRED',lambda:self.run_control('request-approve','--request',request,'--authority','a'*64,'--audience','another-phone'))
+        self.run_control('request-approve','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
+        before=c.private_read(self.root/'request.json')['expiresAt']
+        self.run_control('request-approve','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
+        self.assertEqual(c.private_read(self.root/'request.json')['expiresAt'],before)
+        opened=self.run_control('open','--app',APP,'--request',request,'--authority','a'*64)
+        self.assertEqual(c.private_read(self.root/'request.json')['state'],'consumed')
+        self.assertEqual(c.private_read(self.root/'session.json')['request'],request)
+        replay=self.run_control('request-approve','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
+        self.assertEqual(replay['outcome'],'request-consumed')
+        with patch.object(c.socket,'create_connection',side_effect=ConnectionRefusedError):self.run_control('close','--session',opened['session'])
+        self.assertEqual(self.run_control('request-get','--request',request,'--authority','a'*64)['outcome'],'request-closed')
+        self.assertEqual(self.run_control('request-cancel','--request',request,'--authority','a'*64)['outcome'],'request-cancelled')
+
+    def test_expiry_wrong_pairing_and_other_app_invalidate_request(self):
+        request=self.request()
+        self.code('REQUEST_REQUIRED',lambda:self.run_control('request-get','--request',request,'--authority','b'*64))
+        self.code('REQUEST_REQUIRED',lambda:self.run_control('request-get','--request',request,'--authority','a'*64,'--app','dev.other.app'))
+        self.code('SESSION_BUSY',lambda:self.run_control('request-create','--app',APP,'--name','Other task','--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001'))
+        value=c.private_read(self.root/'request.json');value['expiresAt']=time.time()-1;c.private_write(self.root/'request.json',value)
+        self.code('REQUEST_REQUIRED',lambda:self.run_control('request-approve','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001'))
+        self.assertEqual(self.fake.calls,[])
+
+    def test_phone_stop_cancels_only_its_owned_session(self):
+        request=self.request()
+        self.run_control('request-approve','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
+        self.run_control('open','--app',APP,'--request',request,'--authority','a'*64)
+        session=c.private_read(self.root/'session.json');session['request']='another-request';c.private_write(self.root/'session.json',session)
+        self.fake.calls=[]
+        self.code('SESSION_BUSY',lambda:self.run_control('request-cancel','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001'))
+        self.assertEqual(self.fake.calls,[])
+        session['request']=request;c.private_write(self.root/'session.json',session)
+        with patch.object(c.socket,'create_connection',side_effect=ConnectionRefusedError):
+            stopped=self.run_control('request-cancel','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
+        self.assertEqual(stopped['outcome'],'request-cancelled');self.assertFalse((self.root/'session.json').exists())
     def test_bounded_runner_shortens_local_lease_without_renewing_phone(self):
         self.fake.version=c.BOUNDED_VERSION;self.fake.caps.append('swift_sim_lifetime_v1')
         opened=self.opened()

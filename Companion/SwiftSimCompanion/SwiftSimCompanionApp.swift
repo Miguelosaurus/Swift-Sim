@@ -45,6 +45,10 @@ struct SwiftSimCompanionApp: App {
                         pairingAlert = .failure(error.localizedDescription)
                     }
                 }
+                .onReceive(sessionStore.activity.notifications.$pendingTestingTap) { target in
+                    guard let target else { return }
+                    Task { await sessionStore.openTestingNotification(target) }
+                }
                 .alert(item: $pairingAlert) { item in
                     switch item {
                     case .confirmation(let pairing):
@@ -73,6 +77,9 @@ struct SwiftSimCompanionApp: App {
                 .task {
                     sessionStore.activity.connect(to: sessionStore.pairedMac)
                     sessionStore.activity.setActive(scenePhase == .active)
+                    if let target = sessionStore.activity.notifications.pendingTestingTap {
+                        await sessionStore.openTestingNotification(target)
+                    }
                 }
                 .onChange(of: sessionStore.pairedMac) { _, mac in
                     sessionStore.activity.connect(to: mac)

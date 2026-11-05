@@ -63,8 +63,13 @@ submitted for installation; the build-only host was not submitted.
 
 Separate exact-bundle app-inventory queries timed out while enabling developer
 services, so no inventory result is claimed. A fresh launch/authentication check
-of this reproducibly installed build is pending; the earlier lifetime check used
-the separately packaged candidate.
+of this reproducibly installed build subsequently passed. Authentication reported
+the bounded version and exact expected build-recipe fingerprint. Its authenticated
+network configuration listed cellular and Tailscale interfaces with no Wi-Fi
+interface, independently qualifying fresh cellular startup of the installed
+variant. No session, UI capture, activation, taps or edits were sent. An explicit
+stop was followed by connection refusal. The earlier unattended lifetime check
+used the separately packaged candidate.
 
 The optional client validates both version and the finite lifetime capability
 before claiming phone shutdown support. It caps its local lease to the phone's
