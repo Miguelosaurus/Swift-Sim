@@ -64,8 +64,19 @@ SESSION_BUSY while an agent action held the command lock. Shutdown now allows
 up to thirty seconds to acquire that same lock; ordinary commands still fail
 immediately on contention. A real threaded regression verifies cancellation
 waits without repeating input. The companion permits the bounded stop response
-to finish and displays Stopping Testing. Build 30 includes those changes; its
-physical user-driven Stop confirmation is pending. No helper restart or change
-to normal notification timeouts is needed for this refinement.
+to finish and displays Stopping Testing. The focused suite passed 39 tests;
+the final Python suite passed 27 cases. Build 30 includes those changes.
+
+The user installed build 30 and repeated approval on Wi-Fi. The exact request
+was approved and consumed by one authenticated session, with the native tree
+showing Stop Testing and phone-enforced expiry. No agent taps were sent during
+this repetition. When the user switched away, a scoped screen read refused
+with FOREGROUND_REQUIRED rather than reading another app. After returning to
+Swift Sim, the user pressed Stop and confirmed the session-ended message.
+Independent Mac verification then showed request-cancelled, no local session,
+and runner TCP connection refusal. This qualifies the user-driven Stop flow;
+the refinement's simultaneous-action contention behavior is locally tested,
+not claimed as a second physical overlapping-action test. No helper restart or
+change to normal notification timeouts was needed for this refinement.
 
 Cellular-only developer-image recovery after reboot remains unsupported.

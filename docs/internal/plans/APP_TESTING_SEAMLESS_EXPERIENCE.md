@@ -71,11 +71,13 @@ and Tailscale interfaces with no Wi-Fi interface, then verified shutdown without
 app input. Independent app inventory timed out. The separately packaged
 bounded runtime authenticated and was
 found stopped after the deadline without Mac requests or a stop command. The
-notification request/approval UI passed physical Wi-Fi approval and session
-admission. A contention refinement is in build 30; physical user-driven Stop
-confirmation is next. Cellular-only reboot
-recovery remains unsupported. Explicit phone startup and verified shutdown
-remain available.
+notification request/approval UI passed physical Wi-Fi approval, session
+admission and user-driven Stop in build 30. Independent checks confirmed
+request cancellation, removal of the local lease and runner connection refusal.
+The contention refinement also passed local regression tests. Fresh cellular
+runner startup is qualified separately; this approval UI was qualified on
+Wi-Fi. Cellular-only reboot recovery remains unsupported. Explicit phone
+startup and verified shutdown remain available.
 
 ## References
 
