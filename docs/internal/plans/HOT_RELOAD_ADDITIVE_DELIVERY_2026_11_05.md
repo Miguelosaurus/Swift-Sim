@@ -84,3 +84,24 @@ PID 86692 are still the existing processes; the helper feature code is not yet
 activated. Phone availability was requested asynchronously and remains pending.
 Source and proof files are under `.build/additive-delivery-20261105/`; retained
 frontend command evidence and capture backups are private mode 0600.
+
+Candidate implementation commit: `3e1fcfe`. Compiled checks passed 794 tests
+plus three hermetic runtime cases; the new compiled additive routing cases also
+passed. Package-content, isolated archive installation and Homebrew syntax gates
+passed. The destructive clean Homebrew installation gate was not enabled.
+The final independent code review found no concrete blocker. No phone patch has
+been submitted and the new helper code is not activated or merged into main yet.
+
+To finish after phone availability: activate the reviewed compiled candidate in
+the primary checkout, after fresh active-build/session/current-binary pending
+checks. Replace only the existing normal helper gracefully; preserve engine
+PID/identity and the foreign uncertain fence. Then run the explicit phone
+qualifier with `--phone-ready`, using
+`.build/additive-delivery-20261105/captured-root-final/snapshots.json` and a fresh
+output directory. It performs initial private function/type/SDK-import delivery,
+helper-only follow-up and restoration through ordinary durable delivery. Verify
+native complete coverage, preserved-refresh receipts, increasing revisions and
+same binary/process. Retain any cleanup obligation if a request becomes uncertain.
+Record physical evidence, merge/push main without a PR and update the Codex
+plugin to `0.6.1+codex.20261105.6` only after qualification. No new app install
+is expected: the existing Debug SDK/stateful ABI is unchanged.
