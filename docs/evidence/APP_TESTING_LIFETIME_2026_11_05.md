@@ -51,9 +51,20 @@ path. Actual device/profile/keychain-identity matching also passed. The public
 release template's executable text section
 and linked libraries match the known trial host after signature removal on
 disposable copies; the complete normalized files differ, so they are not
-claimed byte-identical. The automated install path still needs its separate
-physical check. The earlier successful install used the manually prepared
-candidate, not this command.
+claimed byte-identical.
+
+After the user reconnected the selected phone to the Mac's Wi-Fi, the installed
+global CLI's complete setup command downloaded, built, signed and installed the
+public-template variant successfully. The command returned `runner-installed`
+with `launched: false`; it created no testing session. The private Mac profile
+and credential files remained byte-identical. A subsequent connection attempt
+was refused, confirming the runner remained stopped. Only the signed runner was
+submitted for installation; the build-only host was not submitted.
+
+Separate exact-bundle app-inventory queries timed out while enabling developer
+services, so no inventory result is claimed. A fresh launch/authentication check
+of this reproducibly installed build is pending; the earlier lifetime check used
+the separately packaged candidate.
 
 The optional client validates both version and the finite lifetime capability
 before claiming phone shutdown support. It caps its local lease to the phone's

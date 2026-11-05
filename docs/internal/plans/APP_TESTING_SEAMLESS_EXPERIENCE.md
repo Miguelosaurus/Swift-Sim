@@ -63,8 +63,11 @@ than independently measured. See the [handoff evidence](../../evidence/APP_TESTI
 
 The subsequent [lifetime/setup checkpoint](../../evidence/APP_TESTING_LIFETIME_2026_11_05.md)
 adds the reproducible optional installer and phone-enforced lifetime. The source
-build/sign path passed locally; the automated installer still needs its
-physical check. The separately installed bounded runtime authenticated and was
+build/sign path passed locally. The complete installed CLI subsequently
+installed the public-template runner on the selected physical phone, preserved
+the private Mac pairing files, and left the runner stopped. Its fresh runtime
+check is pending; independent app inventory timed out. The separately packaged
+bounded runtime authenticated and was
 found stopped after the deadline without Mac requests or a stop command. The
 notification request/approval UI and cellular-only reboot recovery remain
 unimplemented. Explicit phone startup and verified shutdown remain available.
