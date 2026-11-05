@@ -25,6 +25,25 @@ function fixture() {
   return { directory, rootPath, fileStore, queue: createLiveDeliveryQueue(options), reopen: () => createLiveDeliveryQueue(options), tick(ms) { clock += ms; }, cleanup() { rmSync(directory, { recursive: true, force: true }); } };
 }
 async function queued(f, requestId = "request-1", files = sources) { return f.queue.enqueue({ requestId, scope, files, baselineRevision: 0 }); }
+
+test("compiler projection keeps installed source without changing accepted intent or digest", async () => {
+  const f = fixture();
+  try {
+    const first = await queued(f);
+    const next = [{ path: sources[0].path, beforeSource: sources[0].afterSource,
+      afterSource: sources[0].afterSource.replace('"new"', '"latest"') }];
+    const second = await queued(f, "request-2", next);
+    const compiled = f.queue.compilationRecord(second.requestId);
+    assert.equal(compiled.files[0].installedBaseline, sources[0].beforeSource);
+    assert.equal(compiled.files[0].beforeSource, next[0].beforeSource);
+    assert.equal(compiled.files[0].afterSource, next[0].afterSource);
+    assert.equal(compiled.snapshotDigest, second.snapshotDigest);
+    assert.deepEqual(f.queue.get(second.requestId), second);
+    assert.equal(f.queue.get(second.requestId).files[0].installedBaseline, undefined);
+    assert.deepEqual(f.queue.compilationRecord(first.requestId), first);
+    assert.throws(() => f.queue.compilationRecord("missing"), { code: "QUEUE_REQUEST_NOT_FOUND" });
+  } finally { f.cleanup(); }
+});
 async function prepare(f, requestId = "request-1") {
   const claim = await f.queue.claimNext({ scope, currentRevision: 0, workerId: "compiler" });
   assert.equal(claim.requestId, requestId);

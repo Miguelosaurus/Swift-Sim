@@ -38,7 +38,9 @@ branch. Never force a different linker for every project or change Release.
 
 Implementation bodies, SwiftUI layout/modifier changes, computed helpers,
 generic/parameterized functions, accessors, actor/extension members, UIKit
-callbacks, and qualified replacement can be live. Imports, added helper/type declarations,
+callbacks, and qualified replacement can be live. Complete delivery also supports
+new private/fileprivate helpers, top-level private structs/enums/typealiases and
+imports available in the captured compiler/SDK context. Other additions, existing
 stored state, signatures, macros, resources, packages, build settings,
 Info.plist, capabilities, entitlements, signing, and mixed edits rebuild.
 Implementation-local bindings do not change existing-instance storage. The live
@@ -46,6 +48,12 @@ compiler represents whole callable bodies, including supported async/throws,
 generic, accessor and callback forms. Exact signature/isolation and all-member
 coverage are required. An unsupported implementation rejects the entire patch; it cannot
 be silently skipped while other members are reported applied.
+
+Additions require concurrency-aware capture metadata (`compilerContextProtocol: 2`).
+An older capture reports `LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED`. Recover its
+exact registered frontend map and refresh the metadata; never guess actor defaults
+from current project settings or automatically rebuild merely to repair capture.
+The installed binary and stateful ABI can remain unchanged.
 
 Require current-request compile/load proof, `applied: true` where applicable,
 nonzero replacements unless interposition is used, `refresh_acknowledged`, and
@@ -58,8 +66,9 @@ applications are never retried.
 
 Matching Debug builds automatically add observation and body erasure through a
 private compiler overlay, without editing repository app files or per-screen
-annotations. Preservation currently selects only edits entirely within eligible
-instrumented concrete SwiftUI View.body members. Other callables use the normal
+annotations. Preservation selects eligible instrumented concrete SwiftUI view
+bodies and instance functions on those same captured view owners. New patch-local
+helpers can accompany those replacements. Other callables use the normal
 root reset; manual Refresh screen also resets deliberately.
 
 SwiftUI identity still applies: replacing a subtree's type/ID can discard that
@@ -113,4 +122,6 @@ implementation evidence. Every changed member must be covered, with the same
 request, signed digest, claim attempt, binary/process, refresh ACK and increased
 revision. Old receipt-v2 installations require an explicit update for this path.
 Generated callback aliases are unique for each patch and restoration. Stored
-layout, signatures, imports and additive declarations keep their rebuild fences.
+layout and signatures keep their rebuild fences. Bounded private additions use
+the same signed image, immutable source and complete replacement proof; restoring
+behavior does not unload old patch metadata or invalidate escaped values.

@@ -52,6 +52,38 @@ test("complete artifacts compile immutable snapshots and bind cached machine-cod
   assert.equal(f.state.inspected, inspected, "byte mutation must reject before trusting the same symbol inventory");
 });
 
+test("additive compilation requires the exact captured baseline and preserves private source scopes", t => {
+  const f = fixture(t);
+  const file = f.record.files[0];
+  file.installedBaseline = file.beforeSource;
+  file.afterSource += "\nprivate func helper() -> Int { 3 }";
+  const manifest = JSON.parse(fixtureFiles.readTextSync(f.options.manifestPath));
+  manifest.sourceBaselines = { [file.path]: hash(file.installedBaseline) };
+  manifest.compilerContextProtocol = 2;
+  writeFileSync(f.options.manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+  f.options.compiler.generate = input => {
+    f.state.generatedInputs.push(input);
+    return { sources: ["generated"], additiveProtocol: 1, requiresPrivateScopes: true };
+  };
+  let command;
+  f.options.runner.runSync = request => {
+    command = request;
+    writeFileSync(request.args[request.args.indexOf("-o") + 1], "unsigned image", { mode: 0o600 });
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const raw = f.prepare();
+  assert.equal(raw.additiveProtocol, 1);
+  assert.equal(f.state.generatedInputs[0].allowAdditive, true);
+  assert.equal(f.state.generatedInputs[0].files[0].installedBaseline, file.beforeSource);
+  assert(!command.args.includes("-disable-access-control"));
+  f.seal(raw);
+  assert.doesNotThrow(() => validateCompleteQueuedLivePatchCoverage(f.record));
+  f.record.preparedPatch.additiveProtocol = 0;
+  assert.throws(() => validateCompleteQueuedLivePatchCoverage(f.record));
+  file.installedBaseline = "forged source";
+  assert.throws(f.prepare, { code: "PATCH_ARTIFACT_INVALID" });
+});
+
 test("signing explicitly seals the unsigned-to-signed transition before reuse or apply", t => {
   const f = fixture(t); const raw = f.prepare(); const signed = f.seal(raw);
   const marker = JSON.parse(fixtureFiles.readTextSync(raw.path + ".json"));

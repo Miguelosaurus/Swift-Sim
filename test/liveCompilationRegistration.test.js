@@ -7,11 +7,32 @@ import { join } from "node:path";
 import { createServer } from "node:net";
 import { chmodSync } from "node:fs";
 import { once } from "node:events";
-import { inspectLiveBuildResult, registerLiveBuildResult, queuedLiveEngineControl, LIVE_COMPILER_REGISTRATION_TIMEOUT_MS, LIVE_COMPILER_REGISTRATION_BUDGET_MS } from "../mac-helper/src/liveReload.js";
+import { inspectLiveBuildResult, registerLiveBuildResult, queuedLiveEngineControl, capturedFrontendCompilationMap, enrichCapturedCompilerContext, LIVE_COMPILER_REGISTRATION_TIMEOUT_MS, LIVE_COMPILER_REGISTRATION_BUDGET_MS } from "../mac-helper/src/liveReload.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 const fixtureFileStore = new NodeAtomicFileStore();
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
+
+test("compiler capture preserves concurrency semantics and exact-map enrichment rejects substitutions", () => {
+  const f = fixture({ commands: 1, sources: 1 });
+  try {
+    const line = `/usr/bin/swift-frontend -frontend -c -module-name Fixture -sdk /tmp/iPhoneOS.sdk -target arm64-apple-ios16.0 -swift-version 5 -default-isolation=MainActor -strict-concurrency=complete -package-name Example -module-alias Public=Implementation ${f.sourcePaths[0]} -file-compilation-dir ${f.root}`;
+    const recovered = capturedFrontendCompilationMap({ emittedOutput: line });
+    const args = recovered.compilations[0].compilerArguments;
+    assert.equal(args[args.indexOf("-default-isolation") + 1], "MainActor");
+    assert(args.includes("-strict-concurrency=complete"));
+    assert.equal(args[args.indexOf("-package-name") + 1], "Example");
+    assert.equal(args[args.indexOf("-module-alias") + 1], "Public=Implementation");
+    const old = { compilations: recovered.compilations.map(context => ({ ...context,
+      compilerArguments: context.compilerArguments.filter(value => !["-default-isolation", "MainActor"].includes(value)) })),
+      registration: { mapDigest: sha(JSON.stringify(recovered.commands)) } };
+    const upgraded = enrichCapturedCompilerContext(old, recovered.commands);
+    assert.equal(upgraded.compilerContextProtocol, 2);
+    assert.deepEqual(upgraded.compilations, recovered.compilations);
+    assert.equal(old.compilerContextProtocol, undefined);
+    assert.throws(() => enrichCapturedCompilerContext(old, [{ ...recovered.commands[0], working_directory: "/changed" }]), { code: "PATCH_ARTIFACT_INVALID" });
+  } finally { f.cleanup(); }
+});
 function engineFixture() {
   let clock = 1_000_000;
   const state = { nonce: "registration-engine-one", generation: 0, operations: new Map(), current: null, pending: null, activations: 0, registerCalls: 0, queries: 0, failReply: false, hang: false, protocol: 1, receiptMutation: null, capturedCommands: [], terminalState: "committed" };

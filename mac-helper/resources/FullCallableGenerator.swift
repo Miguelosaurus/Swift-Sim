@@ -4,11 +4,14 @@ import SwiftParser
 import SwiftSyntax
 
 struct Input: Decodable {
-    struct File: Decodable { let path: String; let before: String; let after: String }
+    struct File: Decodable { let path: String; let before: String; let after: String; let installedBaseline: String? }
     let module: String
     let generation: String
     let files: [File]
     let statefulBodies: [String: [String]]?
+    let allowAdditive: Bool?
+    let availableModules: [String]?
+    let preserveViewFunctions: Bool?
 }
 
 struct InstrumentInput: Decodable {
@@ -266,6 +269,112 @@ func surface(_ tree: SourceFileSyntax, inventory: Inventory) -> String {
         !inventory.members.contains { token.position.utf8Offset >= $0.lower && token.endPosition.utf8Offset <= $0.upper }
     }.map(\.text).joined(separator: " ")
 }
+// Additions are removed only for structural comparison. Their original source
+// and private lexical boundaries are emitted into the corresponding patch unit.
+final class AdditiveSyntaxGuard: SyntaxVisitor {
+    var unsafe = false
+    init() { super.init(viewMode: .sourceAccurate) }
+    override func visit(_ node: MacroDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
+    override func visit(_ node: MacroExpansionDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
+    override func visit(_ node: MacroExpansionExprSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
+    override func visit(_ node: IfConfigDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
+    override func visit(_ node: AttributeSyntax) -> SyntaxVisitorContinueKind {
+        if !["available", "MainActor", "Sendable", "escaping", "autoclosure"].contains(node.attributeName.trimmedDescription) { unsafe = true }
+        return .visitChildren
+    }
+}
+func additiveNominal(_ node: DeclSyntax) -> (String, [DeclSyntax])? {
+    if let n = node.as(StructDeclSyntax.self) { return (n.name.text, n.memberBlock.members.map(\.decl)) }
+    if let n = node.as(ClassDeclSyntax.self) { return (n.name.text, n.memberBlock.members.map(\.decl)) }
+    if let n = node.as(EnumDeclSyntax.self) { return (n.name.text, n.memberBlock.members.map(\.decl)) }
+    if let n = node.as(ActorDeclSyntax.self) { return (n.name.text, n.memberBlock.members.map(\.decl)) }
+    if let n = node.as(ProtocolDeclSyntax.self) { return (n.name.text, n.memberBlock.members.map(\.decl)) }
+    return nil
+}
+func additiveKey(_ node: DeclSyntax) -> String {
+    if let (name, _) = additiveNominal(node) { return "nominal:" + name }
+    if var n = node.as(FunctionDeclSyntax.self) { n.body = nil; return "function:" + tokens(n) }
+    if var n = node.as(SubscriptDeclSyntax.self) { n.accessorBlock = nil; return "subscript:" + tokens(n) }
+    if var n = node.as(VariableDeclSyntax.self) {
+        n.bindings = PatternBindingListSyntax(n.bindings.map { binding in
+            var value = binding; value.accessorBlock = nil; return value
+        })
+        return "variable:" + tokens(n)
+    }
+    if var n = node.as(ExtensionDeclSyntax.self) { n.memberBlock.members = []; return "extension:" + tokens(n) }
+    if let n = node.as(ImportDeclSyntax.self) { return "import:" + tokens(n) }
+    if let n = node.as(TypeAliasDeclSyntax.self) { return "typealias:" + n.name.text }
+    return "opaque:" + tokens(node)
+}
+final class AdditiveDeclarations {
+    var emitted: [String] = []
+    var additions: [[String: String]] = []
+    var ranges: [Range<Int>] = []
+    let availableModules: Set<String>
+    let file: String
+    init(file: String, modules: [String]) { self.file = file; availableModules = Set(modules) }
+    func privateOnly(_ modifiers: DeclModifierListSyntax) -> Bool {
+        modifiers.contains { ["private", "fileprivate"].contains($0.name.text) }
+    }
+    func declarations(_ tree: SourceFileSyntax) throws -> [DeclSyntax] {
+        try tree.statements.map {
+            guard let node = $0.item.as(DeclSyntax.self) else { throw Failure(description: "top-level execution is not additive") }
+            return node
+        }
+    }
+    func compare(_ previous: [DeclSyntax], _ current: [DeclSyntax], owner: String = "") throws {
+        let keys = previous.map(additiveKey), newKeys = current.map(additiveKey)
+        let originalKeys = Set(keys)
+        guard Set(keys).count == keys.count, Set(newKeys).count == newKeys.count,
+              originalKeys.isSubset(of: Set(newKeys)), newKeys.filter({ originalKeys.contains($0) }) == keys else {
+            throw Failure(description: "existing declaration order, layout or signature changed")
+        }
+        let old = Dictionary(uniqueKeysWithValues: zip(keys, previous))
+        for node in current {
+            let key = additiveKey(node)
+            if let before = old[key] {
+                if tokens(before) == tokens(node) { continue }
+                if let (name, oldMembers) = additiveNominal(before), let (_, newMembers) = additiveNominal(node) {
+                    guard !node.is(ProtocolDeclSyntax.self) else { throw Failure(description: "existing protocol changed") }
+                    try compare(oldMembers, newMembers, owner: owner.isEmpty ? name : owner + "." + name)
+                } else if let a = before.as(ExtensionDeclSyntax.self), let b = node.as(ExtensionDeclSyntax.self) {
+                    try compare(a.memberBlock.members.map(\.decl), b.memberBlock.members.map(\.decl), owner: b.extendedType.trimmedDescription)
+                }
+                continue
+            }
+            let check = AdditiveSyntaxGuard(); check.walk(node)
+            guard !check.unsafe else { throw Failure(description: "additive macros, conditional declarations or unsupported attributes") }
+            if let n = node.as(ImportDeclSyntax.self) {
+                guard owner.isEmpty, n.attributes.isEmpty, n.importKindSpecifier == nil, n.path.count == 1,
+                      let module = n.path.first?.name.text, availableModules.contains(module) else {
+                    throw Failure(description: "added import is unavailable in the captured context")
+                }
+            } else if let n = node.as(FunctionDeclSyntax.self) {
+                guard privateOnly(n.modifiers), n.body != nil else { throw Failure(description: "added function must be private with a body") }
+                emitted.append(owner.isEmpty ? n.trimmedDescription : "extension \(owner) {\n\(n.trimmedDescription)\n}")
+            } else if let n = node.as(StructDeclSyntax.self), owner.isEmpty, privateOnly(n.modifiers) {
+                emitted.append(n.trimmedDescription)
+            } else if let n = node.as(EnumDeclSyntax.self), owner.isEmpty, privateOnly(n.modifiers) {
+                emitted.append(n.trimmedDescription)
+            } else if let n = node.as(TypeAliasDeclSyntax.self), owner.isEmpty, privateOnly(n.modifiers) {
+                emitted.append(n.trimmedDescription)
+            } else { throw Failure(description: "unsupported added declaration") }
+            ranges.append(node.position.utf8Offset..<node.endPosition.utf8Offset)
+            additions.append(["file": file, "owner": owner, "declaration": key])
+        }
+    }
+    func strip(baseline: String, desired: String) throws -> String {
+        let before = Parser.parse(source: baseline), after = Parser.parse(source: desired)
+        guard !before.hasError, !after.hasError else { throw Failure(description: "invalid additive syntax") }
+        try compare(declarations(before), declarations(after))
+        var bytes = Array(desired.utf8)
+        for range in ranges {
+            for index in range where bytes[index] != 10 && bytes[index] != 13 { bytes[index] = 32 }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+}
+
 func generate(_ input: Input) throws -> [String: Any] {
     guard input.module.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil,
           input.generation.range(of: "^[a-f0-9]{24,64}$", options: .regularExpression) != nil,
@@ -277,11 +386,30 @@ func generate(_ input: Input) throws -> [String: Any] {
     }
     var generated: [String] = []
     var coverage: [[String: Any]] = []
+    var additions: [[String: String]] = []
+    var additiveContext = false
     for (fileIndex, file) in input.files.enumerated() {
-        let before = Parser.parse(source: file.before), after = Parser.parse(source: file.after)
+        let baseline = input.allowAdditive == true ? (file.installedBaseline ?? file.before) : file.before
+        let plan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [])
+        let priorPlan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [])
+        let desiredSource = input.allowAdditive == true ? try plan.strip(baseline: baseline, desired: file.after) : file.after
+        let previousSource = input.allowAdditive == true ? try priorPlan.strip(baseline: baseline, desired: file.before) : file.before
+        additions += plan.additions
+        additiveContext = additiveContext || !plan.additions.isEmpty || !priorPlan.additions.isEmpty
+        let before = Parser.parse(source: baseline), after = Parser.parse(source: desiredSource)
         guard !before.hasError, !after.hasError else { throw Failure(description: "parse error in file \(fileIndex)") }
-        let old = Inventory(file.before, fileIndex: fileIndex, generation: input.generation), new = Inventory(file.after, fileIndex: fileIndex, generation: input.generation)
+        let old = Inventory(baseline, fileIndex: fileIndex, generation: input.generation), new = Inventory(desiredSource, fileIndex: fileIndex, generation: input.generation)
         old.walk(before); new.walk(after)
+        let prior: Inventory
+        if previousSource == baseline { prior = old }
+        else {
+            prior = Inventory(previousSource, fileIndex: fileIndex, generation: input.generation)
+            let previousTree = Parser.parse(source: previousSource)
+            prior.walk(previousTree)
+            guard surface(before, inventory: old) == surface(previousTree, inventory: prior) else {
+                throw Failure(description: "previous intent differs from installed structure")
+            }
+        }
         // Conditional declarations stay opaque in the surface comparison. An
         // edit inside one rejects; unchanged directives do not block other members.
         guard surface(before, inventory: old) == surface(after, inventory: new) else {
@@ -293,11 +421,14 @@ func generate(_ input: Input) throws -> [String: Any] {
             throw Failure(description: "member/signature/accessor shape changed in file \(fileIndex)")
         }
         let previous = Dictionary(uniqueKeysWithValues: old.members.map { ($0.key, $0) })
-        let imports = after.statements.compactMap { $0.item.as(ImportDeclSyntax.self)?.trimmedDescription }
+        guard Set(prior.members.map(\.key)).count == prior.members.count else { throw Failure(description: "ambiguous previous callable") }
+        let incremental = Dictionary(uniqueKeysWithValues: prior.members.map { ($0.key, $0) })
+        let importTree = desiredSource == file.after ? after : Parser.parse(source: file.after)
+        let imports = importTree.statements.compactMap { $0.item.as(ImportDeclSyntax.self)?.trimmedDescription }
         let filename = URL(fileURLWithPath: file.path).lastPathComponent
         let encoded = String(data: try JSONEncoder().encode(filename), encoding: .utf8)!
-        var chunks = ["@_private(sourceFile: \(encoded)) import \(input.module)"] + imports
-        for member in new.members where previous[member.key]?.body != member.body {
+        var chunks = ["@_private(sourceFile: \(encoded)) import \(input.module)"] + imports + plan.emitted
+        for member in new.members where previous[member.key]?.body != member.body || incremental[member.key]?.body != member.body {
             // Local nominal declarations need their own metadata/coexistence proof.
             let bodyTree = Parser.parse(source: member.replacement)
             let localTypes = LocalTypes(); localTypes.walk(bodyTree)
@@ -325,14 +456,17 @@ func generate(_ input: Input) throws -> [String: Any] {
         generated.append(chunks.joined(separator: "\n"))
     }
     let preserving = !coverage.isEmpty && coverage.allSatisfy {
-        guard let owner = $0["owner"] as? String, $0["member"] as? String == "body",
+        guard let owner = $0["owner"] as? String,
+              ($0["member"] as? String == "body" || ((input.allowAdditive == true || input.preserveViewFunctions == true) && $0["kind"] as? String == "function" && $0["isStatic"] as? Bool == false)),
               let filename = $0["file"] as? String else { return false }
         return input.files.contains { file in URL(fileURLWithPath: file.path).lastPathComponent == filename
             && input.statefulBodies?[file.path]?.contains(owner) == true }
     }
     return ["schemaVersion": 1, "capability": "full-callable-v1", "generation": input.generation, "module": input.module,
             "refreshStrategy": preserving ? "preserve-state-v1" : "remount",
-            "changedMemberCount": coverage.count, "members": coverage, "sources": generated]
+            "changedMemberCount": coverage.count, "members": coverage, "sources": generated,
+            "additiveProtocol": additiveContext ? 1 : 0, "additions": additions,
+            "requiresPrivateScopes": additiveContext]
 }
 final class LocalTypes: SyntaxVisitor {
     var found = false

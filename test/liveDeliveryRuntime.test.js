@@ -14,6 +14,16 @@ const firstEdit = original.replace('first: String { "old" }', 'first: String { "
 const secondEdit = firstEdit.replace('second: String { "old" }', 'second: String { "new" }');
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
+test("private additions require complete engine coverage before accepting intent", async () => {
+  const f = fixture();
+  try {
+    await assert.rejects(() => f.service.enqueue({ files: f.files(), requiresCompleteCoverage: true }), { code: "LIVE_ENGINE_UPDATE_REQUIRED" });
+    assert.equal(f.queue.list().length, 0);
+    assert.equal(f.calls.prepare.length, 0);
+    assert.equal(f.calls.apply.length, 0);
+  } finally { f.cleanup(); }
+});
+
 test("an older prepared artifact is revalidated before the applying barrier", async () => {
   const f = fixture();
   try {

@@ -20,7 +20,14 @@ export async function deliverChange({ files = [], project = "", workspace = "", 
 
 async function deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, runtimeCheck, verbose, now }) {
   const startedAt = now();
-  const change = classifyEditSet({ files });
+  let change;
+  try { change = classifyEditSet({ files, allowAdditive: true }); }
+  catch (error) {
+    if (!/^(?:FULL_CALLABLE_|LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED$)/.test(error?.code || "")) throw error;
+    return deliveryEnvelope({ outcome: "needs-user-action", reasonCode: error.code,
+      message: "The hot reload compiler could not be verified. Restore its tooling before retrying; no build was started.",
+      error: { code: error.code, message: "The hot reload compiler could not be verified. No patch or signed build was started." } });
+  }
   if (change.route === "no-change") return finish(deliveryEnvelope({ outcome: "no-change", message: "No Swift source changes need delivery.", timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { route: "none" }) }), !verbose);
   const health = await checkRuntime(runtimeCheck);
   if (!health.ok) return finish(deliveryEnvelope({ outcome: health.userAction ? "needs-user-action" : "failed", message: health.message, reasonCode: health.code, error: { code: health.code, message: health.message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { runtime: health.diagnostic || { code: health.code } }) }), !verbose);
@@ -34,7 +41,8 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
   try {
     // Compatible intent is durable before compilation/application. Device
     // absence, refresh uncertainty and compile failure never invoke a builder.
-    const result = await queueLive({ files: files.filter((_, index) => change.changes[index]?.route === "hot-reload"), project, host, scheme });
+    const result = await queueLive({ files: files.filter((_, index) => change.changes[index]?.route === "hot-reload"), project, host, scheme,
+      ...(change.requiresCompleteCoverage ? { requiresCompleteCoverage: true } : {}) });
     return finish({ ...result, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { action: "queue-live", reasonCode: result.reasonCode || "IMPLEMENTATION_ONLY" }) }, !verbose);
   } catch (error) {
     const code = /^[A-Z][A-Z0-9_]{1,79}$/.test(error?.code || "") ? error.code : "LIVE_QUEUE_FAILED";

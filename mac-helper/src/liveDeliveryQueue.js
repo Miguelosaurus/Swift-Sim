@@ -130,6 +130,19 @@ export function createLiveDeliveryQueue({
       const binding = normalizeScope(scope);
       return clone(read().binaryBaselines.find((item) => sameBinaryScope(item.scope, binding))?.files.find((file) => file.path === path) || null);
     },
+    compilationRecord(requestId) {
+      const journal = read();
+      const record = journal.records.find(item => item.requestId === requestId);
+      if (!record) throw queueError("QUEUE_REQUEST_NOT_FOUND");
+      const original = journal.binaryBaselines.find(item => sameBinaryScope(item.scope, record.scope));
+      const projected = clone(record);
+      projected.files = projected.files.map(file => {
+        const baseline = original?.files.find(item => item.path === file.path);
+        if (!baseline || baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
+        return baseline.beforeSource === file.beforeSource ? file : { ...file, installedBaseline: baseline.beforeSource };
+      });
+      return projected;
+    },
     async enqueue({ requestId = newId(), scope, files, baselineRevision = 0, expiresAt } = {}) {
       validateId(requestId);
       const binding = normalizeScope(scope);

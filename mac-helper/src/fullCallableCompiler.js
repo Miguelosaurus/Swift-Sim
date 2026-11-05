@@ -19,7 +19,9 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     const result = runner.runSync({ executable, args,
       environment: { inherit: ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR"], overrides: {}, unset: ["SDKROOT"] },
       ...(input === undefined ? {} : { input: typeof input === "string" ? Buffer.from(input) : input }),
-      policy: { timeoutMs, outputLimitBytes: OUTPUT_LIMIT, processGroup: "inherit", acceptedExitCodes: [0] } });
+      policy: { timeoutMs, outputLimitBytes: OUTPUT_LIMIT, processGroup: "inherit", acceptedExitCodes: args[0] === "--full-callable-generator-v1" ? [0, 1] : [0] } });
+    if (result?.code === 1 && !result.error && !result.timedOut && args[0] === "--full-callable-generator-v1"
+      && typeof result.stderr === "string" && result.stderr.startsWith("full-callable generator rejected:")) throw unsupported();
     if (result?.code !== 0 || result.error || result.timedOut || typeof result.stdout !== "string" || Buffer.byteLength(result.stdout) > OUTPUT_LIMIT) {
       throw unsupported(result?.timedOut ? "FULL_CALLABLE_COMPILER_TIMEOUT" : "FULL_CALLABLE_COMPILER_UNAVAILABLE");
     }
@@ -187,6 +189,12 @@ function ensurePrivateDirectory(path) {
 function validateInput(input) {
   if (!input || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(input.module || "") || !/^[a-f0-9]{24,64}$/.test(input.generation || "") || !Array.isArray(input.files) || !input.files.length || input.files.length > 32) throw unsupported();
   for (const file of input.files) if (typeof file.path !== "string" || typeof file.before !== "string" || typeof file.after !== "string" || Buffer.byteLength(file.before) > 1024 * 1024 || Buffer.byteLength(file.after) > 1024 * 1024) throw unsupported();
+  if (input.allowAdditive !== undefined && typeof input.allowAdditive !== "boolean") throw unsupported();
+  if (input.preserveViewFunctions !== undefined && typeof input.preserveViewFunctions !== "boolean") throw unsupported();
+  if (input.availableModules !== undefined && (!Array.isArray(input.availableModules) || input.availableModules.length > 128
+    || input.availableModules.some(name => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))) throw unsupported();
+  if (input.files.some(file => file.installedBaseline !== undefined && (input.allowAdditive !== true
+    || typeof file.installedBaseline !== "string" || Buffer.byteLength(file.installedBaseline) > 1024 * 1024))) throw unsupported();
   if (input.statefulBodies !== undefined && (!input.statefulBodies || typeof input.statefulBodies !== "object" || Array.isArray(input.statefulBodies)
     || Object.entries(input.statefulBodies).some(([path, owners]) => !isAbsolute(path) || !Array.isArray(owners) || owners.length > 1024
       || owners.some(owner => !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(owner))))) throw unsupported();
@@ -198,6 +206,12 @@ function validateGeneration(value, input) {
     || !Array.isArray(value.sources) || (input && value.sources.length !== input.files.length) || value.sources.some(source => typeof source !== "string")
     || !Array.isArray(value.members) || value.members.length !== value.changedMemberCount) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   const names = new Set();
+  if (value.additiveProtocol !== undefined && ![0, 1].includes(value.additiveProtocol)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+  if (value.additiveProtocol === 1 && ((input && input.allowAdditive !== true) || value.requiresPrivateScopes !== true
+    || !Array.isArray(value.additions) || value.additions.length > 512 || value.additions.some(item => !item
+      || typeof item.file !== "string" || !item.file.endsWith(".swift") || typeof item.owner !== "string"
+      || typeof item.declaration !== "string" || item.declaration.length > 4096
+      || (input && !input.files.some(file => file.path.split("/").at(-1) === item.file))))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.refreshStrategy !== undefined && !["remount", "preserve-state-v1"].includes(value.refreshStrategy)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   for (const member of value.members) {
     if (!member || !["function", "property", "subscript"].includes(member.kind) || typeof member.isStatic !== "boolean" || typeof member.owner !== "string" || typeof member.member !== "string"
@@ -205,7 +219,8 @@ function validateGeneration(value, input) {
       || !Array.isArray(member.accessors) || member.accessors.some(name => !["getter", "setter"].includes(name))
       || (member.kind !== "function" && !member.accessors.length)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
     names.add(member.replacementName);
-    if (input && value.refreshStrategy === "preserve-state-v1" && (member.member !== "body"
+    if (input && value.refreshStrategy === "preserve-state-v1" && ((member.member !== "body"
+      && !((input.allowAdditive === true || input.preserveViewFunctions === true) && member.kind === "function" && !member.isStatic))
       || !input.files.some(file => file.path.split("/").at(-1) === member.file && input.statefulBodies?.[file.path]?.includes(member.owner)))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   }
 }

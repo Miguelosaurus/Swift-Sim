@@ -141,7 +141,8 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       if (observed.engineReachable && !observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The installed engine cannot process durable live edits. Activate the matching engine and SDK before using the queued workflow; no build was started.");
       if (observed.clientPresent && !observed.supportsReceipts) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "The connected Debug app needs the matching reconnect and receipt SDK. Complete its one-time Debug update; no automatic rebuild was started.");
       if (observed.completeEngine && observed.clientPresent && !observed.completeClient) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "This Debug app needs the complete replacement receipt SDK. Install its one-time Debug update before using broader hot reload; no automatic rebuild was started.");
-      return { scope: observed.matchesBinary ? observed.scope : scope, revision: observed.revision || 0, verifiedProcess: observed.matchesBinary && observed.connected, sourceBaselines: manifest.sourceBaselines };
+      return { scope: observed.matchesBinary ? observed.scope : scope, revision: observed.revision || 0, verifiedProcess: observed.matchesBinary && observed.connected,
+        sourceBaselines: manifest.sourceBaselines, completeCoverage: observed.completeEngine };
     },
     inspect,
     async prepare(record, options) {
@@ -153,6 +154,8 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       if (!/^[0-9a-f]{64}$/.test(digest) || hash(readFileSync(raw.path)) !== digest) throw deliveryError("PATCH_SIGNING_FAILED", "The queued patch could not be signed and verified. No app build or install was started.");
       if (raw.replacementProof) sealCompleteQueuedLivePatch(record, raw, digest);
       return { path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
+        ...(raw.additiveProtocol === 1 ? { additiveProtocol: 1 } : {}),
+        ...(raw.compilerContextDigest ? { compilerContextDigest: raw.compilerContextDigest } : {}),
         ...(raw.refreshStrategy ? { refreshStrategy: raw.refreshStrategy } : {}),
         ...(raw.replacementProof ? { replacementProof: normalizeReplacementProof(raw.replacementProof), coverageDigest: raw.coverageDigest, compilerResourceDigest: raw.compilerResourceDigest } : {}) };
     },

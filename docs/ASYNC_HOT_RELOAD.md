@@ -30,8 +30,10 @@ are no per-screen annotations or serialized state snapshots. Compatible edits
 to instrumented bodies redraw without resetting the root, preserving state held
 by unchanged SwiftUI identities, such as drafts, counters, navigation and scroll.
 
-The initial opt-in is body-only. Other callable edits retain the normal root
-reset. Generic/conditional view declarations, extensions and source-context
+Preservation covers bodies and instance functions on captured eligible concrete
+SwiftUI views, including edits that use new patch-local private helpers. Other
+callable edits retain the normal root reset. Generic/conditional view declarations,
+extensions and source-context
 macros keep their existing behavior. Changing a subtree's type or explicit ID
 can reset that subtree under SwiftUI's normal identity rules. Manual Refresh
 screen remains an intentional reset. Release builds exclude the hooks.
@@ -90,7 +92,7 @@ uncertain.
 
 Local constants, mutable variables and pattern bindings inside an existing
 implementation belong to that body, rather than the object's stored layout.
-Stored properties, signatures and nominal declarations retain rebuild fences.
+Existing stored properties, signatures and nominal layouts retain rebuild fences.
 The live compiler must represent every changed implementation in one complete
 replacement. Whole supported async/throws bodies, generic members, accessors
 and UIKit callbacks use compiler-backed syntax generation. Unrecognized forms
@@ -101,8 +103,21 @@ Signed-build outcomes may include an optional `rebuildReason` explaining the
 first rejected file/member and the number of additional rejected files. This is
 an additive schema-2 field; older readers may ignore it. Live-only rejections
 include the same explanation in `error.message`; verbose output contains bounded,
-sanitized per-file reasons. Imports and additive helpers remain unsupported;
-they are distinguished from changes to installed storage or signatures.
+sanitized per-file reasons. The complete compiler additionally supports new
+private/fileprivate functions, top-level private structs/enums/typealiases, and
+ordinary imports available in the captured compiler/SDK context. Public/internal
+additions, new classes/actors/protocols, existing-type conformance additions,
+macros and stored-layout changes retain their rebuild fences.
+
+Every generation compiles these additions against the immutable installed source,
+carrying its current per-file dependency declarations. A helper-only follow-up
+therefore re-emits its original consumers, and restoration explicitly replaces
+those consumers even when desired source again equals the installed baseline.
+Private declarations keep separate source files and lexical scope. Previous
+patch-local nominal values can remain alive with their own identities; restoring
+method behavior does not unload their images or remove registered metadata.
+This adds compiler work on demand on the Mac, with no new phone SDK, idle worker,
+app-content upload or per-screen annotation.
 
 Delivery envelope schema **2** adds `queued` as an incomplete outcome. Save its
 opaque `delivery.requestId`. Status can be read without repeating delivery:

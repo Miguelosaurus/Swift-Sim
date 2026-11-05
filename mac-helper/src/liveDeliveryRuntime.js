@@ -16,8 +16,11 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   let lastCleanup = -Infinity;
   let work = { phase: "idle" };
 
-  async function enqueue({ files, project = "", scheme = "", host = "", requestId } = {}) {
+  async function enqueue({ files, project = "", scheme = "", host = "", requestId, requiresCompleteCoverage = false } = {}) {
     const binding = await adapter.binding({ project, scheme, host });
+    if (requiresCompleteCoverage && binding.completeCoverage !== true) throw Object.assign(
+      new Error("Private additions require the matching complete-replacement live engine. Update that component; no patch or app build was started."),
+      { code: "LIVE_ENGINE_UPDATE_REQUIRED" });
     let history = queue.list().filter((record) => sameBinary(record.scope, binding.scope));
     const desires = queue.desiredStates().filter((item) => sameBinary(item.scope, binding.scope));
     if (binding.verifiedProcess && binding.revision === 0 && (history.length || desires.length) && !history.some((record) => record.scope.sessionIdentity === binding.scope.sessionIdentity)
@@ -163,7 +166,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           work = { phase: "compiling", activeRequestId: record.requestId, phaseDeadlineAt: now() + 180_000 };
           await queue.observeWorker?.({ workerId, ...work }).catch(() => {});
           try {
-            const preparedPatch = await adapter.prepare(record, { cancellationSignal: cancellation.signal });
+            const preparedPatch = await adapter.prepare(queue.compilationRecord?.(record.requestId) || record, { cancellationSignal: cancellation.signal });
             await queue.transition(record.requestId, { claimToken, state: matched && observed.connected && (!observed.foreground || !observed.rootReady) ? "waiting-for-foreground" : "waiting-for-device", preparedPatch });
           } catch (error) {
             if (stopping) {

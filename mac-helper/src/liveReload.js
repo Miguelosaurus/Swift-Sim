@@ -33,6 +33,7 @@ import { readLocalEngineCandidate, validateLocalEngineAppMetadata } from "./live
 import { createFullCallableCompiler, compilerResourceDigest } from "./fullCallableCompiler.js";
 import { normalizeReplacementProof, replacementCoverageDigest } from "./replacementProof.js";
 import { inspectStatefulBuild, statefulBodyIndex } from "./statefulBuild.js";
+import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 2;
@@ -43,6 +44,7 @@ export const LIVE_COMPILER_REGISTRATION_BUDGET_MS = 180_000;
 export const LIVE_REASON_CODES = Object.freeze({
   NO_CHANGE: "NO_CHANGE",
   IMPLEMENTATION_ONLY: "IMPLEMENTATION_ONLY",
+  PRIVATE_ADDITIVE: "PRIVATE_ADDITIVE",
   NON_SWIFT_FILE: "NON_SWIFT_FILE",
   FILE_ADDED_OR_REMOVED: "FILE_ADDED_OR_REMOVED",
   IMPORT_CHANGED: "IMPORT_CHANGED",
@@ -76,6 +78,7 @@ const LIVE_PATCH_ROOT = join(LIVE_ROOT, "patches");
 
 export function classifyLiveChange({ beforePath, afterPath }) {
   return classifyEditSet({
+    allowAdditive: true,
     files: [{
       path: afterPath || beforePath,
       status: "modified",
@@ -91,6 +94,7 @@ export function classifyLiveChanges({ beforePaths = [], afterPaths = [] }) {
     throw new Error("Pass the same nonzero number of --before and --after Swift files.");
   }
   return classifyEditSet({
+    allowAdditive: true,
     files: beforePaths.map((beforePath, index) => ({
       path: afterPaths[index] || beforePath,
       status: "modified",
@@ -106,7 +110,7 @@ export function classifyLiveChanges({ beforePaths = [], afterPaths = [] }) {
  * by the benchmark and by the compatibility wrappers above. A single
  * structural or non-Swift member makes the complete operation rebuild-safe.
  */
-export function classifyEditSet({ files = [] } = {}) {
+export function classifyEditSet({ files = [], allowAdditive = false, additiveOptions } = {}) {
   if (!Array.isArray(files) || files.length === 0) {
     throw new Error("Pass a nonempty edit set.");
   }
@@ -114,6 +118,10 @@ export function classifyEditSet({ files = [] } = {}) {
   const changes = files.map((file) => classifyEditFile(file));
   const rebuild = changes.find((change) => change.route === "rebuild-required");
   if (rebuild) {
+    if (allowAdditive) {
+      const additive = classifyPrivateAdditiveEditSet(files, additiveOptions);
+      if (additive) return additive;
+    }
     return normalizedClassification({
       route: "rebuild-required",
       hotReloadable: false,
@@ -138,6 +146,66 @@ export function classifyEditSet({ files = [] } = {}) {
       : LIVE_REASON_CODES.NO_CHANGE,
     changes,
   });
+}
+
+// This path runs only after the cheap implementation classifier rejects a
+// requested durable delivery. It creates no worker, engine, phone or watcher.
+export function classifyPrivateAdditiveEditSet(files, { manifest: suppliedManifest, compiler,
+  baselineForFile, manifestPath = LIVE_MANIFEST } = {}) {
+  try {
+    if (!Array.isArray(files) || !files.length || files.length > 32 || files.some(file =>
+      String(file.kind || "swift").toLowerCase() !== "swift" || String(file.status || "modified").toLowerCase() !== "modified"
+      || !String(file.path || file.afterPath || "").endsWith(".swift"))) return null;
+    let manifest = suppliedManifest;
+    if (!manifest) {
+      const stats = lstatSync(manifestPath);
+      if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1 || (stats.mode & 0o077)
+        || stats.size > 8 * 1024 * 1024 || (process.getuid && stats.uid !== process.getuid())) return null;
+      manifest = readJSONFile(manifestPath);
+    }
+    const identity = normalizedLiveBinaryIdentity(manifest.binaryIdentity);
+    const binaryIdentity = `${identity.executable_uuid}:${identity.debug_dylib_uuid}`;
+    let queue;
+    const snapshots = files.map(file => {
+      const path = resolve(file.path || file.afterPath);
+      const before = file.beforeSource ?? readFileSync(file.beforePath, "utf8");
+      const after = file.afterSource ?? readFileSync(file.afterPath, "utf8");
+      const expected = manifest.sourceBaselines?.[path];
+      if (!/^[a-f0-9]{64}$/.test(expected || "")) throw completeArtifactError();
+      let installedBaseline = before;
+      if (createHash("sha256").update(before).digest("hex") !== expected) {
+        if (baselineForFile) installedBaseline = baselineForFile(path);
+        else {
+          queue ||= createLiveDeliveryQueue();
+          const scope = queue.list().find(record => record.scope.binaryIdentity === binaryIdentity
+            && record.files.some(value => value.path === path))?.scope;
+          installedBaseline = scope ? queue.binaryBaseline(scope, path)?.beforeSource : null;
+        }
+      }
+      if (typeof installedBaseline !== "string" || createHash("sha256").update(installedBaseline).digest("hex") !== expected) throw completeArtifactError();
+      return { path, before, after, installedBaseline };
+    });
+    const contexts = snapshots.map(file => manifest.compilations?.find(context => context.sources?.includes(file.path)));
+    const reference = contexts[0];
+    if (!reference || contexts.some(context => !context || context.moduleName !== reference.moduleName
+      || context.workingDirectory !== reference.workingDirectory || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments))) return null;
+    const fullCompiler = compiler || createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }), cacheRoot: join(LIVE_ROOT, "compiler-cache") });
+    const generation = fullCompiler.generate({ module: reference.moduleName,
+      generation: createHash("sha256").update(JSON.stringify(snapshots)).digest("hex").slice(0, 32),
+      allowAdditive: true, availableModules: availableAdditiveModules(reference, snapshots.map(file => ({ ...file, beforeSource: file.before }))),
+      files: snapshots });
+    if (generation.additiveProtocol !== 1 || generation.requiresPrivateScopes !== true) return null;
+    if (manifest.compilerContextProtocol !== 2) throw registrationError("LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED",
+      "Private additions need the concurrency-aware compiler capture. Re-capture the original build metadata before retrying; no app rebuild was started.");
+    const changes = files.map((file, index) => result(snapshots[index].before === snapshots[index].after ? "no-change" : "hot-reload", true,
+      "Private additions have complete callable representation against the installed source baseline.",
+      { path: file.path || file.afterPath, beforePath: file.beforePath, afterPath: file.afterPath }, LIVE_REASON_CODES.PRIVATE_ADDITIVE));
+    return { ...normalizedClassification({ route: "hot-reload", hotReloadable: true,
+      reason: "Private additions and their callable consumers can hot reload.", reasonCode: LIVE_REASON_CODES.PRIVATE_ADDITIVE, changes }), requiresCompleteCoverage: true };
+  } catch (error) {
+    if (/^(?:FULL_CALLABLE_|LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED$)/.test(error?.code || "")) throw error;
+    return null;
+  }
 }
 
 function classifyEditFile(file = {}) {
@@ -539,6 +607,23 @@ export function capturedFrontendCompilationMap(log) {
   return { commands, compilations };
 }
 
+// Pure metadata enrichment. The exact already-registered map digest is the
+// authority; a project setting or guessed compiler default is insufficient.
+export function enrichCapturedCompilerContext(manifest, commands) {
+  if (!Array.isArray(commands) || !commands.length || commands.length > 1024
+    || createHash("sha256").update(JSON.stringify(commands)).digest("hex") !== manifest?.registration?.mapDigest) throw completeArtifactError();
+  const compilations = commands.map(dynamicReplacementContext).filter(Boolean);
+  if (compilations.length !== manifest.compilations?.length || compilations.some((context, index) => {
+    const previous = manifest.compilations[index];
+    if (context.moduleName !== previous.moduleName || context.workingDirectory !== previous.workingDirectory
+      || JSON.stringify(context.sources) !== JSON.stringify(previous.sources)) return true;
+    let cursor = 0;
+    for (const argument of context.compilerArguments) if (argument === previous.compilerArguments[cursor]) cursor += 1;
+    return cursor !== previous.compilerArguments.length;
+  })) throw completeArtifactError();
+  return { ...manifest, compilations, compilerContextProtocol: 2 };
+}
+
 export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath = "", scheme = "", runtime = {} }) {
   const path = resolve(resultBundle || "");
   if (!resultBundle || !existsSync(path) || lstatSync(path).isSymbolicLink()) throw registrationError("LIVE_CAPTURE_RESULT_MISSING", "The preserved Xcode result bundle is missing or unsafe.");
@@ -644,6 +729,7 @@ async function registerLiveBuildResultUnlocked(options) {
       await fileStore.writeJSON(manifestPath, {
         version: 1, capturedAt: new Date(clock()).toISOString(), compilations: capture.compilations, presentation: capture.presentation,
         ...(capture.stateful ? { stateful: capture.stateful } : {}),
+        compilerContextProtocol: 2,
         ...(capture.provenance.binaryIdentity ? { binaryIdentity: capture.provenance.binaryIdentity, sourceBaselines, binding: { projectPath: capture.provenance.projectPath, scheme: capture.provenance.scheme, projectRoot: projectRootFor(capture.provenance.projectPath) } } : {}),
         registration: { requestId, mapDigest, provenanceDigest, engineNonce, commandCount: receipt.command_count },
       }, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
@@ -742,7 +828,7 @@ export function prepareQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, 
 // their qualified compiler; new requests never infer coverage from nonzero TX.
 export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, "queued-artifacts"), manifestPath = LIVE_MANIFEST,
   runner = new NodeCommandRunner({ spawn, spawnSync }), compiler, patchRoot = LIVE_PATCH_ROOT } = {}) {
-  assertCompleteEditSet(record);
+  assertCompleteEditSet(record, { allowAdditive: true });
   const manifest = readJSONFile(manifestPath);
   const identity = normalizedLiveBinaryIdentity(manifest?.binaryIdentity);
   if (`${identity.executable_uuid}:${identity.debug_dylib_uuid}` !== record.scope.binaryIdentity) throw completeArtifactError();
@@ -750,16 +836,30 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const reference = contexts[0];
   if (!reference || contexts.some(context => !context || context.moduleName !== reference.moduleName
     || context.workingDirectory !== reference.workingDirectory || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments))) throw completeArtifactError();
+  const baselinesVerified = record.files.every(file => typeof manifest.sourceBaselines?.[file.path] === "string"
+    && createHash("sha256").update(file.installedBaseline ?? file.beforeSource).digest("hex") === manifest.sourceBaselines[file.path]);
+  if (!baselinesVerified && record.files.some(file => file.installedBaseline !== undefined)) throw completeArtifactError();
+  assertCompleteEditSet(record, { allowAdditive: baselinesVerified });
+  const needsAdditive = baselinesVerified && (classifyEditSet({ files: record.files.map(file => ({ ...file, kind: "swift", status: "modified" })) }).route === "rebuild-required"
+    || record.files.some(file => file.installedBaseline !== undefined && classifySwiftSource(file.installedBaseline, file.beforeSource).route === "rebuild-required"));
+  if (needsAdditive && manifest.compilerContextProtocol !== 2) throw registrationError("LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED", "The original compiler context needs its concurrency-aware metadata update. No patch was compiled.");
+  const availableModules = needsAdditive ? availableAdditiveModules(reference, record.files) : [];
   const resourceDigest = compilerResourceDigest();
   const stateful = statefulBodyIndex(manifest.stateful, reference.moduleName);
-  const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest, stateful.digest])).digest("hex");
+  const compilerContextDigest = createHash("sha256").update(JSON.stringify([reference.moduleName, reference.workingDirectory,
+    reference.compilerArguments, manifest.compilerContextProtocol || 1, manifest.registration?.mapDigest || "",
+    record.files.map(file => [file.path, manifest.sourceBaselines?.[file.path] || ""])])).digest("hex");
+  const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest, stateful.digest, compilerContextDigest])).digest("hex");
   const path = join(artifactRoot, `eval_injection_swift_sim_dynamic_${key}.dylib`);
   const marker = `${path}.json`;
   ensureDirectoryModeSync(artifactRoot, 0o700);
   const fullCompiler = compiler || createFullCallableCompiler({ runner, cacheRoot: join(LIVE_ROOT, "compiler-cache") });
   const generation = fullCompiler.generate({ module: reference.moduleName, generation: key.slice(0, 32),
     statefulBodies: stateful.bodies,
-    files: record.files.map(file => ({ path: file.path, before: file.beforeSource, after: file.afterSource })) });
+    ...(baselinesVerified ? { preserveViewFunctions: true } : {}),
+    ...(needsAdditive ? { allowAdditive: true, availableModules } : {}),
+    files: record.files.map(file => ({ path: file.path, before: file.beforeSource, after: file.afterSource,
+      ...(!needsAdditive || file.installedBaseline === undefined ? {} : { installedBaseline: file.installedBaseline }) })) });
   const refreshStrategy = generation.refreshStrategy || "remount";
   const moduleName = `SwiftSimLivePatch_${key}`;
   const previous = existsSync(marker) ? readCompleteMarker(marker) : null;
@@ -772,7 +872,9 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
     if (previous.artifactDigest !== createHash("sha256").update(readFileSync(path)).digest("hex")) throw completeArtifactError();
     const coverage = fullCompiler.inspectCoverage({ dylibPath: path, generation, moduleName });
     if (coverage.coverageDigest !== previous.coverageDigest) throw completeArtifactError();
-    return completePrepared(path, coverage, resourceDigest, refreshStrategy);
+    if ((previous.additiveProtocol || 0) !== (generation.additiveProtocol || 0)) throw completeArtifactError();
+    if (previous.compilerContextDigest !== compilerContextDigest) throw completeArtifactError();
+    return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest);
   }
   const volume = statfsSync(artifactRoot);
   const initialUsage = queuedArtifactUsage(artifactRoot, patchRoot);
@@ -782,7 +884,9 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const directory = join(patchRoot, `queued_${key}`);
   ensureDirectoryModeSync(directory, 0o700);
   const owner = { version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest,
-    binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest, refreshStrategy, statefulDigest: stateful.digest };
+    binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest, refreshStrategy, statefulDigest: stateful.digest,
+    additiveProtocol: generation.additiveProtocol || 0 };
+  owner.compilerContextDigest = compilerContextDigest;
   writeCompleteMarker(marker, owner);
   const paths = generation.sources.map((source, index) => {
     const generatedPath = join(directory, `Replacement${index}.swift`);
@@ -794,7 +898,8 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const dylibPath = join(directory, `eval_injection_swift_sim_dynamic_queued_${key}.dylib`);
   if (existsSync(dylibPath)) { assertCompleteFile(dylibPath, false); rmSync(dylibPath); }
   const result = runner.runSync({ executable: "/usr/bin/xcrun", args: ["swiftc", "-emit-library", ...paths, "-module-name", moduleName,
-    ...reference.compilerArguments, "-Xfrontend", "-disable-access-control", "-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup", "-o", dylibPath],
+    ...reference.compilerArguments, ...(generation.requiresPrivateScopes ? [] : ["-Xfrontend", "-disable-access-control"]),
+    "-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup", "-o", dylibPath],
     cwd: reference.workingDirectory,
     environment: { inherit: ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "TOOLCHAINS"], overrides: {}, unset: ["SDKROOT"] },
     policy: { timeoutMs: 60_000, outputLimitBytes: 32 * 1024 * 1024, processGroup: "inherit", acceptedExitCodes: [0] } });
@@ -806,18 +911,36 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   }
   writeFileSync(path, readFileSync(dylibPath), { mode: 0o600, flag: "wx" });
   writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest });
-  return completePrepared(path, coverage, resourceDigest, refreshStrategy);
+  return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest);
 }
 
-function assertCompleteEditSet(record) {
+function availableAdditiveModules(context, files) {
+  const modules = new Set();
+  const requested = new Set(files.flatMap(file => [...[file.beforeSource ?? file.before ?? "", file.afterSource ?? file.after ?? ""].join("\n").matchAll(/^\s*import\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/gm)].map(match => match[1])));
+  const args = context.compilerArguments || [];
+  const sdk = args[args.indexOf("-sdk") + 1];
+  if (typeof sdk === "string" && sdk.startsWith("/")) {
+    if (!existsSync(sdk)) throw Object.assign(new Error("The captured Swift SDK is unavailable. Restore that compiler context before retrying."), { code: "FULL_CALLABLE_COMPILER_UNAVAILABLE" });
+    for (const name of [...requested].slice(0, 128)) {
+      if (existsSync(join(sdk, "System/Library/Frameworks", `${name}.framework`, "Modules"))) modules.add(name);
+    }
+  }
+  return [...modules].sort().slice(0, 128);
+}
+function assertCompleteEditSet(record, { allowAdditive = record.preparedPatch?.additiveProtocol === 1 } = {}) {
+  if (allowAdditive && Array.isArray(record.files) && record.files.length > 0 && record.files.length <= 32
+    && record.files.every(file => typeof file.path === "string" && file.path.endsWith(".swift")
+      && typeof file.beforeSource === "string" && typeof file.afterSource === "string"
+      && Buffer.byteLength(file.beforeSource) <= 1024 * 1024 && Buffer.byteLength(file.afterSource) <= 1024 * 1024)) return;
   if (classifyEditSet({ files: record.files.map(file => ({ ...file, kind: "swift", status: "modified" })) }).route !== "hot-reload") {
     throw Object.assign(new Error("The queued snapshot changes compiled structure."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
   }
 }
-function completePrepared(path, coverage, resourceDigest, refreshStrategy) {
+function completePrepared(path, coverage, resourceDigest, refreshStrategy, additiveProtocol, compilerContextDigest) {
   const replacementProof = normalizeReplacementProof(coverage.replacementProof);
   return { path, mode: "swift-complete-replacement-bundle", replacementProof,
-    coverageDigest: replacementCoverageDigest(replacementProof), compilerResourceDigest: resourceDigest, artifactDigest: coverage.artifactDigest, refreshStrategy };
+    coverageDigest: replacementCoverageDigest(replacementProof), compilerResourceDigest: resourceDigest, artifactDigest: coverage.artifactDigest, refreshStrategy,
+    compilerContextDigest, ...(additiveProtocol === 1 ? { additiveProtocol: 1 } : {}) };
 }
 function completeArtifactError() { return Object.assign(new Error("The complete patch artifact is not trusted."), { code: "PATCH_ARTIFACT_INVALID" }); }
 
@@ -830,6 +953,8 @@ export function validateCompleteQueuedLivePatchCoverage(record) {
   assertCompleteFile(path);
   const marker = readCompleteMarker(`${path}.json`);
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity
+    || (marker.additiveProtocol || 0) !== (record.preparedPatch.additiveProtocol || 0)
+    || !/^[a-f0-9]{64}$/.test(record.preparedPatch.compilerContextDigest || "") || marker.compilerContextDigest !== record.preparedPatch.compilerContextDigest
     || marker.resourceDigest !== record.preparedPatch.compilerResourceDigest || marker.coverageDigest !== record.preparedPatch.coverageDigest
     || (marker.refreshStrategy || "remount") !== (record.preparedPatch.refreshStrategy || "remount")
     || marker.artifactDigest !== record.preparedPatch.patchDigest
@@ -840,6 +965,7 @@ export function sealCompleteQueuedLivePatch(record, raw, signedDigest) {
   assertCompleteFile(raw.path);
   const marker = readCompleteMarker(`${raw.path}.json`);
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity || marker.artifactDigest !== raw.artifactDigest
+    || marker.compilerContextDigest !== raw.compilerContextDigest
     || marker.coverageDigest !== raw.coverageDigest || marker.resourceDigest !== raw.compilerResourceDigest
     || (marker.refreshStrategy || "remount") !== (raw.refreshStrategy || "remount")
     || !/^[a-f0-9]{64}$/.test(signedDigest) || createHash("sha256").update(readFileSync(raw.path)).digest("hex") !== signedDigest) throw completeArtifactError();
@@ -919,7 +1045,7 @@ export async function prepareQueuedLivePatchAsync(record, { cancellationSignal, 
   if (result.code !== 0 || result.timedOut || result.cancellationError) {
     let failure;
     try { failure = JSON.parse(result.stderr.trim()); } catch {}
-    const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID"];
+    const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID", "LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED"];
     const code = !result.timedOut && !result.cancellationError && allowed.includes(failure?.code) ? failure.code : "PATCH_COMPILE_FAILED";
     throw Object.assign(new Error("The queued replacement could not be prepared. No patch was applied or app rebuild started."), { code });
   }
@@ -963,6 +1089,7 @@ function dynamicReplacementContext(command) {
   const valueFlags = new Set([
     "-I", "-F", "-Fsystem", "-L", "-D", "-swift-version", "-module-cache-path", "-resource-dir",
     "-enable-upcoming-feature", "-enable-experimental-feature",
+    "-default-isolation", "-strict-concurrency", "-package-name", "-module-alias",
   ]);
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
@@ -978,6 +1105,11 @@ function dynamicReplacementContext(command) {
       }
       index += 1;
     }
+    const joined = value.match(/^-(default-isolation|package-name|module-alias)=(.+)$/);
+    if (joined) compilerArguments.push(`-${joined[1]}`, joined[2]);
+    if (/^-strict-concurrency=(?:minimal|targeted|complete)$/.test(value)
+      || ["-enable-actor-data-race-checks", "-warn-concurrency", "-application-extension", "-enable-library-evolution", "-enable-bare-slash-regex"].includes(value)) compilerArguments.push(value);
+    if (["-enable-anonymous-context-mangled-names", "-disable-clang-spi"].includes(value)) compilerArguments.push("-Xfrontend", value);
   }
   return {
     moduleName,

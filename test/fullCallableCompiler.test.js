@@ -64,6 +64,25 @@ test("preservation is valid only for captured instrumented body owners", t => {
   assert.throws(() => f.compiler.generate({ ...qualified, statefulBodies: { [path]: "Probe" } }));
 });
 
+test("additive output requires explicit scope proof and preserved helpers stay on instrumented views", t => {
+  const f = fixture(t); const path = join(f.root, "Fixture.swift");
+  Object.assign(f.state.generated, { additiveProtocol: 1, requiresPrivateScopes: true,
+    additions: [{ file: "Fixture.swift", owner: "Probe", declaration: "private-helper" }] });
+  assert.throws(() => f.compiler.generate(input), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  const allowed = { ...input, allowAdditive: true, availableModules: ["Foundation"],
+    files: [{ ...input.files[0], path, installedBaseline: "installed" }] };
+  assert.equal(f.compiler.generate(allowed).requiresPrivateScopes, true);
+  f.state.generated.requiresPrivateScopes = false;
+  assert.throws(() => f.compiler.generate(allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  f.state.generated.requiresPrivateScopes = true;
+  f.state.generated.refreshStrategy = "preserve-state-v1";
+  const captured = { ...allowed, statefulBodies: { [path]: ["Probe"] } };
+  assert.equal(f.compiler.generate(captured).refreshStrategy, "preserve-state-v1");
+  assert.throws(() => f.compiler.generate({ ...captured, statefulBodies: {} }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  f.state.generated.members[0].isStatic = true;
+  assert.throws(() => f.compiler.generate(captured), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+});
+
 test("unsafe cache paths, malformed generator output and unavailable/timeout tools fail closed", t => {
   const f = fixture(t);
   f.state.fail = "--find"; assert.throws(() => f.compiler.generate(input), { code: "FULL_CALLABLE_COMPILER_UNAVAILABLE" });
