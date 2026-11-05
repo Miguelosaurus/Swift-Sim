@@ -79,6 +79,7 @@ remain available.
 ## References
 
 - [Current integration proof](../../evidence/APP_CONTROL_INTEGRATION_2026_11_05.md)
+- [Request approval checkpoint](../../evidence/APP_TESTING_APPROVAL_2026_11_05.md)
 - [Optional testing contract](../../APP_CONTROL.md)
 - [Pinned upstream URL handler](https://github.com/OpenMinis/iCTRL/blob/c1e4268859ba858d1579f7b846a56cb40641b7f6/iCTRLUITests/iCTRLUITests.swift)
 - [Upstream on-device mounting requirements](https://github.com/OpenMinis/iCTRL#option-3--the-ictrl-app)
