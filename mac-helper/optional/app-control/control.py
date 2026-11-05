@@ -22,7 +22,9 @@ import urllib.request
 import uuid
 
 VERSION = "1.98.16"
-BOUNDED_VERSION = "1.98.16-swiftsim.1"
+LEGACY_BOUNDED_VERSION = "1.98.16-swiftsim.1"
+BOUNDED_VERSION = "1.98.16-swiftsim.2"
+DURATIONS = [5, 10, 30, 60]
 MAX_FILE = 64 * 1024
 BUNDLE = re.compile(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\Z")
 GUIDANCE = {
@@ -47,7 +49,7 @@ GUIDANCE = {
     "SESSION_ENDING": "This phone testing session is ending. Let it stop, then tap Start App Testing for a fresh session; reconnecting does not extend its deadline.",
     "REQUEST_REQUIRED": "This testing request is missing, expired, or belongs to another phone or Mac pairing. Start a new request; no input was sent.",
     "APPROVAL_REQUIRED": "Allow this exact testing request in Swift Sim before the agent uses the phone.",
-    "BOUNDED_SETUP_REQUIRED": "Use optional app-control setup and private pairing before requesting phone approval. Automatic requests require the bounded Swift Sim testing runner.",
+    "BOUNDED_SETUP_REQUIRED": "Update the optional testing runner with app-control setup --reinstall using this phone's existing signing settings. Adjustable approval requires Swift Sim App Testing 1.98.16-swiftsim.2.",
 }
 
 class ControlError(Exception):
@@ -143,17 +145,21 @@ class Provider:
             return self.client.pair(self.host, "Swift Sim App Testing", plain=False, timeout=85, store_key="swift-sim")
 
 def phone_lifetime(value):
-    if value.get("server_version") != BOUNDED_VERSION: return None
+    if value.get("server_version") not in [LEGACY_BOUNDED_VERSION, BOUNDED_VERSION]: return None
     if "swift_sim_lifetime_v1" not in value.get("capabilities", []): fail("UPDATE_REQUIRED")
     lifetime = value.get("swift_sim_lifetime", {})
     seconds = lifetime.get("seconds_remaining")
-    if lifetime.get("maximum_seconds") != 600 or isinstance(seconds, bool) or not isinstance(seconds, (float, int)) or not math.isfinite(seconds) or not 0 <= seconds <= 600:
+    adjustable = value.get("server_version") == BOUNDED_VERSION
+    maximum = 3600 if adjustable else 600
+    duration = lifetime.get("duration_seconds") if adjustable else 600
+    if adjustable and ("swift_sim_duration_v1" not in value.get("capabilities", []) or isinstance(duration, bool) or duration not in [m * 60 for m in DURATIONS]): fail("UPDATE_REQUIRED")
+    if lifetime.get("maximum_seconds") != maximum or isinstance(seconds, bool) or not isinstance(seconds, (float, int)) or not math.isfinite(seconds) or not 0 <= seconds <= duration:
         fail("UPDATE_REQUIRED")
     if seconds < 5: fail("SESSION_ENDING")
     return seconds
 
 def validate_provider_info(value):
-    if value.get("server_version") not in [VERSION, BOUNDED_VERSION] or value.get("protocol_version") != 1: fail("UPDATE_REQUIRED")
+    if value.get("server_version") not in [VERSION, LEGACY_BOUNDED_VERSION, BOUNDED_VERSION] or value.get("protocol_version") != 1: fail("UPDATE_REQUIRED")
     if not {"envelope_v1", "remote_ui", "find_element_ref", "stop_server"}.issubset(value.get("capabilities", [])): fail("UPDATE_REQUIRED")
     phone_lifetime(value)
 
@@ -231,7 +237,7 @@ def testing_request(root, a, provider_factory=Provider):
     value = private_read(path) if path.exists() else None
     if value and a.command in ["request-get", "request-cancel"] and a.request == value.get("id") and a.authority == value.get("authority") and (not a.audience or a.audience == value.get("audience")) and value.get("state") in ["closed", "cancelled"]:
         if a.command == "request-cancel": value["state"] = "cancelled"
-        return {"outcome": "request-" + value["state"], "request": {k: value[k] for k in ["id", "app", "name", "expiresAt", "state"]}, "maximumSeconds": 600}
+        return {"outcome": "request-" + value["state"], "request": {k: value[k] for k in ["id", "app", "name", "expiresAt", "state", "minutes"] if k in value}, "maximumSeconds": 3600}
     active = value and value.get("authority") == a.authority and value.get("createdAt", now + 1) <= now < value.get("expiresAt", 0) and value.get("state") in ["pending", "approved", "consumed"]
     if a.command == "request-create":
         if (root / "session.json").exists() or active: fail("SESSION_BUSY")
@@ -248,8 +254,12 @@ def testing_request(root, a, provider_factory=Provider):
         if not active or (a.request and value["id"] != a.request) or (a.app and value["app"] != a.app) or (a.audience and value["audience"] != a.audience): fail("REQUEST_REQUIRED")
         if a.command == "request-approve":
             if a.audience != value["audience"]: fail("REQUEST_REQUIRED")
+            minutes = 10 if a.minutes is None else a.minutes
+            if minutes not in DURATIONS: fail("INVALID_OPTIONS")
+            if value["state"] != "pending" and minutes != value.get("minutes", 10): fail("REQUEST_REQUIRED")
             if value["state"] == "pending":
                 value["state"] = "approved"
+                value["minutes"] = minutes
                 private_write(path, value)
         elif a.command == "request-cancel":
             if value["state"] in ["approved", "consumed"]:
@@ -261,7 +271,7 @@ def testing_request(root, a, provider_factory=Provider):
                 close_runner(provider_factory(root, profile), profile, root, allow_unleased=True)
             value["state"] = "cancelled"
             private_write(path, value)
-    return {"outcome": "request-" + value["state"], "request": {k: value[k] for k in ["id", "app", "name", "expiresAt", "state"]}, "maximumSeconds": 600}
+    return {"outcome": "request-" + value["state"], "request": {k: value[k] for k in ["id", "app", "name", "expiresAt", "state", "minutes"] if k in value}, "maximumSeconds": 3600}
 
 def close_runner(provider, profile, root, allow_unleased=False):
     session = private_read(root / "session.json") if (root / "session.json").exists() else {}
@@ -293,7 +303,7 @@ def execute(args, root, provider_factory=Provider):
         "type": {"session", "text", "text_file", "observation", "clear", "submit"},
         "scroll": {"session", "observation", "direction"}, "screenshot": {"session"}, "close": {"session"},
         "request-create": {"app", "name", "authority", "audience"}, "request-get": {"app", "request", "authority", "audience"},
-        "request-approve": {"request", "authority", "audience"}, "request-cancel": {"request", "authority", "audience"},
+        "request-approve": {"request", "authority", "audience", "minutes"}, "request-cancel": {"request", "authority", "audience"},
     }
     if any(k != "command" and v is not None and v is not False and k not in allowed[a.command] for k,v in vars(a).items()): fail("INVALID_OPTIONS")
     if not root.is_absolute(): fail("INVALID_OPTIONS")
@@ -351,7 +361,7 @@ def execute(args, root, provider_factory=Provider):
             if not a.app or not BUNDLE.fullmatch(a.app) or a.app.startswith("com.apple."): fail("INVALID_OPTIONS")
             if (root / "session.json").exists(): fail("SESSION_BUSY")
             minutes = 10 if a.minutes is None else a.minutes
-            if not 1 <= minutes <= 15: fail("INVALID_OPTIONS")
+            if not 1 <= minutes <= 60: fail("INVALID_OPTIONS")
             info = checked_info(provider, profile)
             remaining = phone_lifetime(info)
             if a.request:
@@ -363,6 +373,11 @@ def execute(args, root, provider_factory=Provider):
                 if request["state"] != "approved": fail("APPROVAL_REQUIRED")
                 if request["deviceId"] != profile["deviceId"]: fail("DEVICE_CHANGED")
                 if remaining is None: fail("BOUNDED_SETUP_REQUIRED")
+                if info.get("server_version") != BOUNDED_VERSION: fail("BOUNDED_SETUP_REQUIRED")
+                chosen = request.get("minutes", 10)
+                if a.minutes is not None and a.minutes > chosen: fail("APPROVAL_REQUIRED")
+                if info.get("swift_sim_lifetime", {}).get("duration_seconds") != chosen * 60: fail("UPDATE_REQUIRED")
+                minutes = chosen if a.minutes is None else a.minutes
             elif a.authority: fail("INVALID_OPTIONS")
             seconds = min(minutes * 60, max(0, remaining - 2)) if remaining is not None else minutes * 60
             session = {"id": secrets.token_hex(16), "app": a.app, "expiresAt": time.time() + seconds,

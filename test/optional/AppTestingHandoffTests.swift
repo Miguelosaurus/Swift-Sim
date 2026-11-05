@@ -7,7 +7,8 @@ enum AppTestingHandoffTests {
         let handoff = AppTestingHandoff(startedAt: now)
         let launch = URLComponents(url: handoff.launchURL, resolvingAgainstBaseURL: false)!
         precondition(launch.scheme == "ictrl" && launch.host == "start")
-        precondition(launch.queryItems!.count == 1)
+        precondition(launch.queryItems!.count == 2)
+        precondition(launch.queryItems!.last?.value == "10")
         let callback = URL(string: launch.queryItems![0].value!)!
         precondition(handoff.receipt(from: callback, now: now) == nil)
         let ready = URL(string: callback.absoluteString + "&status=ready")!
@@ -35,9 +36,10 @@ enum AppTestingHandoffTests {
         let request = AppTestingRequest(id: UUID().uuidString.lowercased(), app: "dev.fixture.app", name: "Fixture",
             expiresAt: Date().timeIntervalSince1970 + 300, state: "pending")
         precondition(request.isValid && request.canAllow)
-        let intent = AppTestingHandoff(approval: request)
+        let intent = AppTestingHandoff(approval: request, minutes: 30)
         let savedIntent = try JSONDecoder().decode(AppTestingHandoff.self, from: JSONEncoder().encode(intent))
-        precondition(savedIntent.approval == request)
+        precondition(savedIntent.approval == request && savedIntent.durationMinutes == 30)
+        precondition(URLComponents(url: intent.launchURL, resolvingAgainstBaseURL: false)!.queryItems!.last?.value == "30")
         let push: [AnyHashable: Any] = ["appTestingRequestId": request.id, "macID": "mac-one", "allowOnOpen": true]
         precondition(AppTestingPushTarget(userInfo: push)?.allowOnOpen == false)
         precondition(AppTestingPushTarget(userInfo: push, allowOnOpen: true)?.allowOnOpen == true)

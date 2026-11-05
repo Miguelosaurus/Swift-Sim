@@ -111,7 +111,7 @@ export function createTestingRequests({
             category: "SWIFT_SIM_APP_TESTING",
             alert: {
               title: `Test ${request.name}`,
-              body: "Your agent is ready. Tap to allow app testing for up to 10 minutes.",
+              body: "Your agent is ready. Choose how long to allow app testing in Swift Sim.",
             },
             sound: "default",
           },
@@ -137,8 +137,16 @@ export function createTestingRequests({
         ...(audience ? ["--audience", audience] : []),
       ]);
     },
-    async approve(id, deviceId) {
-      return worker(["request-approve", "--request", id, "--audience", deviceId]);
+    async approve(id, deviceId, minutes = 10) {
+      return worker([
+        "request-approve",
+        "--request",
+        id,
+        "--audience",
+        deviceId,
+        "--minutes",
+        String(minutes),
+      ]);
     },
     async cancel(id, deviceId) {
       return worker(["request-cancel", "--request", id, "--audience", deviceId]);
@@ -189,18 +197,20 @@ export async function handleTestingRequestRoutes({
       const body = await readJson(req, { maxBytes: 2048 });
       if (
         !body ||
-        Object.keys(body).some((key) => !["deviceId", "action"].includes(key)) ||
+        Object.keys(body).some((key) => !["deviceId", "action", "minutes"].includes(key)) ||
         typeof body.deviceId !== "string" ||
         body.deviceId.length > 64 ||
         !["approve", "cancel"].includes(body.action) ||
-        match[1] === "pending"
+        match[1] === "pending" ||
+        (body.minutes !== undefined &&
+          (body.action !== "approve" || ![5, 10, 30, 60].includes(body.minutes)))
       )
         throw Error("Invalid testing approval.");
       if (!(await authorized())) {
         unauthorized(res);
         return;
       }
-      result = await service[body.action](match[1], body.deviceId);
+      result = await service[body.action](match[1], body.deviceId, body.minutes);
     }
     if (!(await authorized())) {
       unauthorized(res);

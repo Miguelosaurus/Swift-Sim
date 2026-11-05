@@ -380,14 +380,16 @@ final class ActivityCenter: ObservableObject {
         struct Envelope: Decodable { let macID: String; let request: AppTestingRequest?; let maximumSeconds: Int? }
         let value = try JSONDecoder().decode(Envelope.self, from: data)
         guard isCurrent(mac, expected), value.macID == installation,
-              value.request == nil || (value.maximumSeconds == 600 && value.request?.isValid == true) else { throw URLError(.badServerResponse) }
+              value.request == nil || ([600, 3600].contains(value.maximumSeconds ?? 0) && value.request?.isValid == true) else { throw URLError(.badServerResponse) }
         return value.request
     }
 
     func respondToTesting(_ item: AppTestingRequest, action: String) async throws {
         guard let mac, item.isValid, ["approve", "cancel"].contains(action) else { throw URLError(.badURL) }
         let expected = generation
-        let body = try JSONSerialization.data(withJSONObject: ["deviceId": deviceId, "action": action])
+        var payload: [String: Any] = ["deviceId": deviceId, "action": action]
+        if action == "approve" { payload["minutes"] = item.minutes ?? 10 }
+        let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await request(url: mac.baseURL.appending(path: "api/app-testing/\(item.id)"), method: "POST", body: body, mac: mac, timeout: action == "cancel" ? 55 : 12)
         struct Envelope: Decodable { let macID: String; let outcome: String }
         let value = try JSONDecoder().decode(Envelope.self, from: data)

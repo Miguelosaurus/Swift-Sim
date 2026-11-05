@@ -15,8 +15,13 @@ struct AppTestingView: View {
     @State private var request: AppTestingRequest?
     @State private var approvalToRetry: AppTestingRequest?
     @State private var approved = false
+    @State private var checkingRequest = true
+    @AppStorage("appTesting.durationMinutes") private var selectedMinutes = 10
+
+    private var sessionMinutes: Int { approved ? (request?.minutes ?? 10) : selectedMinutes }
 
     private var actionTitle: String {
+        if checkingRequest { return "Checking Request…" }
         if launching { return approved ? "Stopping Testing…" : "Opening App Testing…" }
         if approved { return "Stop Testing" }
         if approvalToRetry != nil { return "Retry Connection" }
@@ -31,6 +36,14 @@ struct AppTestingView: View {
                     Label((request?.name ?? appName).map { "Test \($0)" } ?? "Test with your coding agent", systemImage: "iphone.and.arrow.forward")
                         .font(.headline)
                     Text("Make your iPhone available while your agent checks an app. Your agent connects privately through Tailscale and stops testing when it finishes.")
+                    if !approved {
+                        Picker("Duration", selection: $selectedMinutes) {
+                            ForEach([5, 10, 30, 60], id: \.self) { minutes in
+                                Text(minutes == 60 ? "1 hour" : "\(minutes) minutes").tag(minutes)
+                            }
+                        }
+                        .disabled(checkingRequest || launching || approvalToRetry != nil)
+                    }
                     Button(action: start) {
                         HStack {
                             Text(actionTitle)
@@ -39,14 +52,14 @@ struct AppTestingView: View {
                             else { Image(systemName: "arrow.up.forward.app") }
                         }
                     }
-                    .disabled(launching || (request != nil && !approved && approvalToRetry == nil && request?.canAllow != true))
+                    .disabled(checkingRequest || launching || (request != nil && !approved && approvalToRetry == nil && request?.canAllow != true))
                     if let message {
                         Label(message, systemImage: returned ? "checkmark.circle" : "info.circle")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
                 } footer: {
-                    Text(request != nil ? "Allow gives your agent this app for testing. The phone stops testing automatically within ten minutes. Stop at any time." : "Opening testing does not give an agent permission to use your phone. Begin only when you have agreed to a testing session.")
+                    Text(request != nil ? "Allow gives your agent this app for testing. Testing stops automatically after \(sessionMinutes) minutes. Stop sooner at any time." : "Testing stops automatically after \(selectedMinutes) minutes. Opening testing does not give an agent permission to use your phone. Begin only when you have agreed to a testing session.")
                 }
                 Section {
                     DisclosureGroup("Setup & Recovery") {
@@ -60,12 +73,19 @@ struct AppTestingView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task {
+                defer { checkingRequest = false }
+                if ![5, 10, 30, 60].contains(selectedMinutes) { selectedMinutes = 10 }
                 request = sessionStore.appTestingRequest
                 approved = request?.state == "consumed" || request?.state == "approved"
                 consumeReturn()
-                if request == nil, pending == nil, approvalToRetry == nil, !approved {
-                    request = try? await sessionStore.activity.testingRequest(app: appBundleID)
-                    approved = request?.state == "consumed" || request?.state == "approved"
+                if pending == nil, approvalToRetry == nil, !launching {
+                    do {
+                        request = try await sessionStore.activity.testingRequest(id: request?.id, app: appBundleID)
+                        approved = request?.state == "consumed" || request?.state == "approved"
+                    } catch {
+                        message = "The testing request could not be refreshed. Check your Mac connection."
+                        return
+                    }
                 }
                 if let request, sessionStore.appTestingAutoAllowRequestID == request.id, request.canAllow {
                     sessionStore.appTestingAutoAllowRequestID = nil
@@ -111,7 +131,9 @@ struct AppTestingView: View {
             returned = false
             return
         }
-        let launch = AppTestingHandoff(approval: request)
+        var intent = request
+        intent?.minutes = selectedMinutes
+        let launch = AppTestingHandoff(approval: intent, minutes: selectedMinutes)
         pending = launch
         UserDefaults.standard.set(try? JSONEncoder().encode(launch), forKey: AppTestingHandoff.storageKey)
         launching = true
@@ -156,7 +178,8 @@ struct AppTestingView: View {
                 try await sessionStore.activity.respondToTesting(item, action: "approve")
                 approved = true
                 approvalToRetry = nil
-                message = "Your agent can now test \(item.name). Testing stops automatically within ten minutes."
+                request = item
+                message = "Your agent can now test \(item.name). Testing stops automatically after \(item.minutes ?? 10) minutes."
             } catch { message = "The Mac could not confirm approval. Retry Connection when it reconnects; testing will not start automatically." }
             launching = false
         }

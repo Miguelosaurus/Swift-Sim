@@ -10,19 +10,30 @@
 +            _exit(0)
 +        }
 +
-@@ -1216,0 +1225 @@
+@@ -689,0 +698,8 @@
++        }
++
++        if callbackURL.scheme?.lowercased() == "swift-sim",
++           callbackURL.host?.lowercased() == "app-testing",
++           items.filter({ $0.name == "swiftSimMinutes" }).count == 1,
++           let raw = items.first(where: { $0.name == "swiftSimMinutes" })?.value,
++           let minutes = Int(raw) {
++            SwiftSimTestingLifetime.shared.select(minutes: minutes)
+@@ -1216,0 +1233 @@
 +            guard SwiftSimTestingLifetime.shared.secondsRemaining > 0 else { _exit(0) }
 --- a/iCTRLUITests/ActionHandler.swift
 +++ b/iCTRLUITests/ActionHandler.swift
-@@ -1377,0 +1378,4 @@
+@@ -1377,0 +1378,5 @@
 +            "swift_sim_lifetime": .object([
 +                "maximum_seconds": .int(Int(SwiftSimTestingLifetime.maximumSeconds)),
++                "duration_seconds": .int(Int(SwiftSimTestingLifetime.shared.durationSeconds)),
 +                "seconds_remaining": .double(SwiftSimTestingLifetime.shared.secondsRemaining),
 +            ]),
 --- a/iCTRLKit/RPCMethod.swift
 +++ b/iCTRLKit/RPCMethod.swift
 @@ -380 +380 @@
 -    static let serverVersion = "1.98.16"
-+    static let serverVersion = "1.98.16-swiftsim.1"
-@@ -399,0 +400 @@
++    static let serverVersion = "1.98.16-swiftsim.2"
+@@ -399,0 +400,2 @@
 +        "swift_sim_lifetime_v1",
++        "swift_sim_duration_v1",

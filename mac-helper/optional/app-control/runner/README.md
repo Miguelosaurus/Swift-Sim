@@ -8,8 +8,10 @@ Upstream attribution/license are packaged in `../vendor/LICENSE` and remain in
 the downloaded source. These files do not enter any developer's app or Debug SDK.
 
 `lifetime.patch` starts one ten-minute monotonic timer in the runner when its
-test body begins. Repeated launch callbacks and client connections cannot
-renew it. A guard also checks the deadline when dispatching RPCs. Expiry exits
+test body begins. Its first Swift Sim launch may select 5, 10, 30 or 60 minutes,
+measured from that same start time. The selection is immutable; repeated launch
+callbacks and client connections cannot renew it. No selection leaves the
+ten-minute default. A guard also checks the deadline when dispatching RPCs. Expiry exits
 the testing process off the UI queue using `_exit`, so it does not wait on a
 stalled UI call, log lock, teardown handler, or Mac request. Normal teardown
 cancels the timer. This bounds this runner, not other automation software on

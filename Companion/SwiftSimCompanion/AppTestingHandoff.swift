@@ -6,14 +6,17 @@ struct AppTestingHandoff: Codable, Equatable {
     let attempt: UUID
     let startedAt: Date
     let approval: AppTestingRequest?
+    let durationMinutes: Int?
 
     static let storageKey = "swiftSim.appTesting.pendingLaunch"
     static let lifetime: TimeInterval = 90
 
-    init(attempt: UUID = UUID(), startedAt: Date = Date(), approval: AppTestingRequest? = nil) {
+    init(attempt: UUID = UUID(), startedAt: Date = Date(), approval: AppTestingRequest? = nil, minutes: Int = 10) {
+        precondition([5, 10, 30, 60].contains(minutes))
         self.attempt = attempt
         self.startedAt = startedAt
         self.approval = approval
+        self.durationMinutes = minutes
     }
 
     var launchURL: URL {
@@ -25,7 +28,8 @@ struct AppTestingHandoff: Codable, Equatable {
         var launch = URLComponents()
         launch.scheme = "ictrl"
         launch.host = "start"
-        launch.queryItems = [URLQueryItem(name: "callback", value: callback.url!.absoluteString)]
+        launch.queryItems = [URLQueryItem(name: "callback", value: callback.url!.absoluteString),
+                             URLQueryItem(name: "swiftSimMinutes", value: String(durationMinutes ?? 10))]
         return launch.url!
     }
 
@@ -59,12 +63,14 @@ struct AppTestingRequest: Codable, Equatable {
     let name: String
     let expiresAt: TimeInterval
     let state: String
+    var minutes: Int? = nil
 
     var isValid: Bool {
         UUID(uuidString: id) != nil && id.count == 36 && !app.isEmpty && app.count <= 256
             && app.range(of: #"^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$"#, options: .regularExpression) != nil
             && !app.hasPrefix("com.apple.") && !name.isEmpty && name.count <= 80
             && expiresAt.isFinite && ["pending", "approved", "consumed", "cancelled", "closed"].contains(state)
+            && (minutes == nil || [5, 10, 30, 60].contains(minutes!))
     }
     var canAllow: Bool { isValid && Date().timeIntervalSince1970 < expiresAt && ["pending", "approved"].contains(state) }
 }

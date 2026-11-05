@@ -23,6 +23,7 @@ swift-sim app-control screenshot --session <id>
 swift-sim app-control close --session <id>
 
 Open App Testing in Swift Sim to begin (swift-sim://app-testing).
+Choose 5, 10, 30 or 60 minutes on the phone. Approval and reconnects do not renew it.
 Check authenticates readiness without opening an app, reading its UI or authorizing input.
 A developer image must be available;
 silent remote launch and post-reboot cellular preparation are not promised.

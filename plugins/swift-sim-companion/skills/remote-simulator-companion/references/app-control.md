@@ -5,7 +5,7 @@ Read only for an explicit request to exercise an app's UI. Normal coding,
 Use the existing agent; do not add another model, agent, server or watcher.
 
 The optional backend is separately signed iCTRL **1.98.16** or the bounded
-**Swift Sim App Testing 1.98.16-swiftsim.1** variant. No
+**Swift Sim App Testing 1.98.16-swiftsim.2** variant. No
 target-app code is added. Setup requires normal Apple developer support, the
 phone runner, private Tailscale access and one named client approval. Use
 `swift-sim app-control help` for setup/command options. When setup is explicitly
@@ -29,7 +29,10 @@ delivery. Never print/copy pairing keys or fetch untrusted provider updates.
    `status --request <id>` to read approval without contacting the phone; when
    approved, use `open --app <same-bundle-id> --request <id>`. Never substitute a
    manual open to bypass a missing approval. The matching request is consumed
-   once, and pairing changes invalidate admission. `cancel-request --request
+   once, and pairing changes invalidate admission. The phone selects 5, 10,
+   30 or 60 minutes and remembers its preference; notification Allow uses that
+   preference. Read the approved minutes from request status and respect it.
+   Repeated approval and reconnects cannot extend it. `cancel-request --request
    <id>` cancels an unused request or stops its owned session. No extra model,
    broker, watcher or normal-notification polling is added.
 
@@ -67,9 +70,9 @@ delivery. Never print/copy pairing keys or fetch untrusted provider updates.
 
 The lease coordinates this Mac's Swift Sim tasks. Foreground checks plus native
 refs reduce mistakes but are not an atomic guard for every coordinate, typing
-or scroll event; reserve the phone and avoid concurrent input. The ten-minute
+or scroll event; reserve the phone and avoid concurrent input. The bounded
 lease blocks expired input without a background worker. Only the bounded
-variant enforces shutdown on the phone, at most ten minutes from runner start;
+variant enforces the chosen phone duration, at most one hour from runner start;
 reconnects do not extend it. Check `automaticStopOnPhone`, never infer it from
 local lease support. Keep the session identifier for explicit cleanup.
 

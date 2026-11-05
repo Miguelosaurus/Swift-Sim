@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "version": "1.98.16-swiftsim.1",
+  "version": "1.98.16-swiftsim.2",
   "upstreamRevision": "c1e4268859ba858d1579f7b846a56cb40641b7f6",
   "sourceURL": "https://codeload.github.com/OpenMinis/iCTRL/tar.gz/c1e4268859ba858d1579f7b846a56cb40641b7f6",
   "sourceSHA256": "04fe874ce0cc79deddeab80ec3715a208118f31d8211379c78293e91f2190a21",
   "templateURL": "https://github.com/OpenMinis/iCTRL/releases/download/v1.98.16/iCTRLUITests-Runner.ipa",
   "templateSHA256": "67450de1524837b137b1ba0175ed16c8850b951ef0127c7c765aa8f3c4702652",
-  "maximumSeconds": 600,
+  "maximumSeconds": 3600,
   "license": "Apache-2.0",
   "assets": {
     "BuildHost.swift": "53795923650779a46283f326b7f0440bc207901d7655a53d0657d8e1b7aa9396",
-    "README.md": "0444a736ecec9ae1971758c6d914f0147ab61fa17da7cb2c8acfcc26ea63596f",
+    "README.md": "d8ec0e85a7033a848c0c96b2271c89551edd779ffdf30840cc62c383e74f0cb8",
     "SwiftSimTesting.xcodeproj/project.pbxproj": "98644eee262d42c035d95be4c177777703199925df04a5a755746fb62a8bfce9",
     "SwiftSimTesting.xcodeproj/xcshareddata/xcschemes/SwiftSimTesting.xcscheme": "a890d61931882a29d1716ca1cf17dca08201b04827ed40e00f1026389822fc7a",
-    "SwiftSimTestingLifetime.swift": "e3a4568792063aa9a6b83fccaf95c20e006405211826408ffc28b8179fabe2d2",
-    "lifetime.patch": "1572ad4ac1e6435133c45474ef4b6838b69ee223fc9f525c0d788ac7859eda08"
+    "SwiftSimTestingLifetime.swift": "d5ef907215c7ef7acfa8aeb33f788c422b1da37fe6a934b3f5ea40f9d04d18c2",
+    "lifetime.patch": "3956186398690c472cdc9ee81f683d57139ad6ce7bbbcb83b832a671f980bf6a"
   }
 }

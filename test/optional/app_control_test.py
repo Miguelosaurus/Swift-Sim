@@ -22,13 +22,13 @@ class Fake:
         self.calls = []; self.front = APP; self.device = 'fixture-phone'; self.version = c.VERSION
         self.text = 'TextField, value: empty'; self.broken = None; self.capture_scope = 'app'; self.source_app = APP
         self.locked = False
-        self.caps = list(CAPS); self.lifetime = 480
+        self.caps = list(CAPS); self.lifetime = 480; self.duration = 600
     def call(self, method, params=None):
         params = params or {}; self.calls.append((method, params))
         if method == self.broken: raise RuntimeError('SECRET provider failure must not escape')
         if method == 'device_info': return {'server_version':self.version,'protocol_version':1,'device_id':self.device,
             'capabilities':self.caps,'point_width':390,'point_height':844,'system':{'screen_locked':self.locked,'foreground_app':self.front},
-            'swift_sim_lifetime':{'maximum_seconds':600,'seconds_remaining':self.lifetime}}
+            'swift_sim_lifetime':{'maximum_seconds':3600 if self.version==c.BOUNDED_VERSION else 600,'duration_seconds':self.duration,'seconds_remaining':self.lifetime}}
         if method == 'activate_app': return {'foreground_app':self.front}
         if method == 'page_source': return {'bundle_id':self.source_app,'source':self.text,'keyboard':{'visible':False},'channel':{'recommended':'tree'}}
         if method == 'find_element': return {'exists':True,'hittable':True,'ref':'app-bound-reference'}
@@ -65,7 +65,7 @@ class ControlTests(unittest.TestCase):
         self.assertFalse((self.root/'session.json').exists())
 
     def request(self):
-        self.configure();self.fake.version=c.BOUNDED_VERSION;self.fake.caps.append('swift_sim_lifetime_v1')
+        self.configure();self.fake.version=c.BOUNDED_VERSION;self.fake.caps.extend(['swift_sim_lifetime_v1','swift_sim_duration_v1'])
         c.private_write(self.root/'installation.json',{'version':c.BOUNDED_VERSION})
         value=self.run_control('request-create','--app',APP,'--name','Fixture','--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
         self.fake.calls=[]
@@ -110,8 +110,29 @@ class ControlTests(unittest.TestCase):
         with patch.object(c.socket,'create_connection',side_effect=ConnectionRefusedError):
             stopped=self.run_control('request-cancel','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001')
         self.assertEqual(stopped['outcome'],'request-cancelled');self.assertFalse((self.root/'session.json').exists())
+
+    def test_duration_is_phone_selected_immutable_and_bounds_agent_lease(self):
+        request=self.request()
+        approval=['request-approve','--request',request,'--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001']
+        self.code('INVALID_OPTIONS',lambda:self.run_control(*approval,'--minutes','120'))
+        self.run_control(*approval,'--minutes','30')
+        self.code('REQUEST_REQUIRED',lambda:self.run_control(*approval,'--minutes','60'))
+        self.fake.calls=[]
+        self.code('UPDATE_REQUIRED',lambda:self.run_control('open','--app',APP,'--request',request,'--authority','a'*64))
+        self.assertNotIn('activate_app',[m for m,_ in self.fake.calls])
+        self.fake.duration=1800;self.fake.lifetime=1790
+        self.code('APPROVAL_REQUIRED',lambda:self.run_control('open','--app',APP,'--request',request,'--authority','a'*64,'--minutes','60'))
+        opened=self.run_control('open','--app',APP,'--request',request,'--authority','a'*64)
+        self.assertEqual(opened['expiresInSeconds'],1788)
+        self.assertEqual(c.private_read(self.root/'request.json')['minutes'],30)
+
+    def test_legacy_bounded_runner_remains_available_for_manual_sessions(self):
+        self.configure();self.fake.version=c.LEGACY_BOUNDED_VERSION;self.fake.caps.append('swift_sim_lifetime_v1')
+        self.assertTrue(self.run_control('check')['automaticStopOnPhone'])
+        c.private_write(self.root/'installation.json',{'version':c.LEGACY_BOUNDED_VERSION})
+        self.code('BOUNDED_SETUP_REQUIRED',lambda:self.run_control('request-create','--app',APP,'--name','Fixture','--authority','a'*64,'--audience','00000000-0000-4000-8000-000000000001'))
     def test_bounded_runner_shortens_local_lease_without_renewing_phone(self):
-        self.fake.version=c.BOUNDED_VERSION;self.fake.caps.append('swift_sim_lifetime_v1')
+        self.fake.version=c.BOUNDED_VERSION;self.fake.caps.extend(['swift_sim_lifetime_v1','swift_sim_duration_v1'])
         opened=self.opened()
         self.assertTrue(opened['automaticStopOnPhone']);self.assertEqual(opened['expiresInSeconds'],478)
         self.assertNotIn('config',[m for m,_ in self.fake.calls])
@@ -119,7 +140,7 @@ class ControlTests(unittest.TestCase):
     def test_bounded_claim_requires_capability_and_finite_remaining_time(self):
         self.configure();self.fake.version=c.BOUNDED_VERSION
         self.code('UPDATE_REQUIRED',lambda:self.run_control('check'))
-        self.fake.caps.append('swift_sim_lifetime_v1')
+        self.fake.caps.extend(['swift_sim_lifetime_v1','swift_sim_duration_v1'])
         for invalid in [float('nan'),float('inf'),True,601,-1]:
             self.fake.lifetime=invalid
             self.code('UPDATE_REQUIRED',lambda:self.run_control('check'))

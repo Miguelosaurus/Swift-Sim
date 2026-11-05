@@ -178,3 +178,30 @@ test("pairing rotation during asynchronous body receipt refuses approval", async
   assert.equal(res.statusCode, 401);
   assert.equal(effects, 0);
 });
+
+test("approval carries only a supported phone-selected duration", async () => {
+  for (const minutes of [5, 10, 30, 60, 0, 120, "30", null]) {
+    const req = Readable.from([JSON.stringify({ deviceId: ID, action: "approve", minutes })]);
+    req.method = "POST";
+    req.headers = {};
+    const res = response();
+    let selected;
+    await handleTestingRequestRoutes({
+      req,
+      res,
+      url: new URL(`http://private/api/app-testing/${ID}`),
+      privateHelper: true,
+      authorize: async () => true,
+      service: {
+        approve: async (_id, _device, value) => {
+          selected = value;
+          return { outcome: "request-approved" };
+        },
+      },
+      installationId: () => "mac-one",
+    });
+    const valid = [5, 10, 30, 60].includes(minutes);
+    assert.equal(res.statusCode, valid ? 200 : 400);
+    assert.equal(selected, valid ? minutes : undefined);
+  }
+});
