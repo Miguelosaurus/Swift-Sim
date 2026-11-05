@@ -15,6 +15,14 @@ test("app-control adapter boundary and Python safety/lifecycle cases", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("optional setup preserves identity, signing and archive boundaries", () => {
+  const result = spawnSync("python3", ["-I", "-B", "test/optional/app_control_setup_test.py"], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("optional help never launches a worker", async () => {
   const output = [];
   assert.equal(
@@ -66,6 +74,54 @@ test("worker failure output never leaks raw process output", async () => {
   });
   assert.equal(code, 1);
   assert.doesNotMatch(output.join(""), /PRIVATE/);
+});
+
+test(
+  "phone lifetime expires with a blocked UI thread and cannot be renewed",
+  {
+    skip: process.platform !== "darwin",
+  },
+  () => {
+    const root = mkdtempSync(join(tmpdir(), "swift-sim-testing-lifetime-"));
+    try {
+      const binary = join(root, "lifetime-tests");
+      const built = spawnSync(
+        "xcrun",
+        [
+          "swiftc",
+          "mac-helper/optional/app-control/runner/SwiftSimTestingLifetime.swift",
+          "test/optional/AppTestingLifetimeTests.swift",
+          "-o",
+          binary,
+        ],
+        { encoding: "utf8", timeout: 60_000 },
+      );
+      assert.equal(built.status, 0, built.stderr);
+      for (const args of [[], ["blocked-main"]]) {
+        const tested = spawnSync(binary, args, { encoding: "utf8", timeout: 3_000 });
+        assert.equal(tested.status, 0, tested.stderr);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("setup selects a bounded one-shot worker without changing ordinary command policy", async () => {
+  const calls = [];
+  for (const args of [["setup"], ["status"]]) {
+    await runAppControlCli(args, {
+      run: async (request) => {
+        calls.push(request);
+        return { code: 0, stdout: JSON.stringify({ schemaVersion: 1, outcome: "fixture" }) };
+      },
+      write() {},
+    });
+  }
+  assert.match(calls[0].args.at(-1), /setup\.py$/);
+  assert.equal(calls[0].policy.timeoutMs, 420_000);
+  assert.match(calls[1].args.at(-1), /control\.py$/);
+  assert.equal(calls[1].policy.timeoutMs, 65_000);
 });
 
 test("normal delivery and notification imports never load optional testing modules", () => {

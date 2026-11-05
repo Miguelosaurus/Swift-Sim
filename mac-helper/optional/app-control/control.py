@@ -21,6 +21,7 @@ import time
 import urllib.request
 
 VERSION = "1.98.16"
+BOUNDED_VERSION = "1.98.16-swiftsim.1"
 MAX_FILE = 64 * 1024
 BUNDLE = re.compile(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\Z")
 GUIDANCE = {
@@ -42,6 +43,7 @@ GUIDANCE = {
     "PROVIDER_INVALID": "The packaged testing client does not match its pinned source. Reinstall Swift Sim before using app control.",
     "PHONE_LOCKED": "Unlock your iPhone before starting app testing.",
     "CONNECTION_UNCONFIRMED": "Open App Testing in Swift Sim and tap Start App Testing. If it closes immediately, check Apple developer support before reinstalling. A closed connection alone does not identify the cause.",
+    "SESSION_ENDING": "This phone testing session is ending. Let it stop, then tap Start App Testing for a fresh session; reconnecting does not extend its deadline.",
 }
 
 class ControlError(Exception):
@@ -130,10 +132,24 @@ class Provider:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return self.client.pair(self.host, "Swift Sim App Testing", plain=False, timeout=85, store_key="swift-sim")
 
+def phone_lifetime(value):
+    if value.get("server_version") != BOUNDED_VERSION: return None
+    if "swift_sim_lifetime_v1" not in value.get("capabilities", []): fail("UPDATE_REQUIRED")
+    lifetime = value.get("swift_sim_lifetime", {})
+    seconds = lifetime.get("seconds_remaining")
+    if lifetime.get("maximum_seconds") != 600 or isinstance(seconds, bool) or not isinstance(seconds, (float, int)) or not math.isfinite(seconds) or not 0 <= seconds <= 600:
+        fail("UPDATE_REQUIRED")
+    if seconds < 5: fail("SESSION_ENDING")
+    return seconds
+
+def validate_provider_info(value):
+    if value.get("server_version") not in [VERSION, BOUNDED_VERSION] or value.get("protocol_version") != 1: fail("UPDATE_REQUIRED")
+    if not {"envelope_v1", "remote_ui", "find_element_ref", "stop_server"}.issubset(value.get("capabilities", [])): fail("UPDATE_REQUIRED")
+    phone_lifetime(value)
+
 def checked_info(provider, profile, foreground=None):
     value = provider.call("device_info")
-    if value.get("server_version") != VERSION or value.get("protocol_version") != 1: fail("UPDATE_REQUIRED")
-    if not {"envelope_v1", "remote_ui", "find_element_ref", "stop_server"}.issubset(value.get("capabilities", [])): fail("UPDATE_REQUIRED")
+    validate_provider_info(value)
     if value.get("device_id") != profile.get("deviceId"): fail("DEVICE_CHANGED")
     if foreground is not None:
         system = value.get("system", {})
@@ -241,7 +257,7 @@ def execute(args, root, provider_factory=Provider):
                 provider = provider_factory(root, profile)
                 provider.pair()
                 value = provider.call("device_info")
-                if value.get("server_version") != VERSION or value.get("protocol_version") != 1: fail("UPDATE_REQUIRED")
+                validate_provider_info(value)
                 profile["deviceId"] = value.get("device_id")
             if not isinstance(profile["deviceId"], str) or not 1 <= len(profile["deviceId"]) <= 128: fail("INVALID_OPTIONS")
             private_write(root / "profile.json", profile); read_profile(root)
@@ -256,14 +272,18 @@ def execute(args, root, provider_factory=Provider):
             except Exception: fail("CONNECTION_UNCONFIRMED")
             if info.get("system", {}).get("screen_locked") is not False: fail("PHONE_LOCKED")
             return {"outcome": "ready", "phoneConnection": "authenticated", "phoneUnlocked": True,
-                "inputAuthorized": False, "backgroundWorker": False, "provider": "ictrl", "version": VERSION}
+                "inputAuthorized": False, "backgroundWorker": False, "provider": "ictrl", "version": info["server_version"],
+                "automaticStopOnPhone": phone_lifetime(info) is not None}
         if a.command == "open":
             if not a.app or not BUNDLE.fullmatch(a.app) or a.app.startswith("com.apple."): fail("INVALID_OPTIONS")
             if (root / "session.json").exists(): fail("SESSION_BUSY")
             minutes = 10 if a.minutes is None else a.minutes
             if not 1 <= minutes <= 15: fail("INVALID_OPTIONS")
-            checked_info(provider, profile)
-            session = {"id": secrets.token_hex(16), "app": a.app, "expiresAt": time.time() + minutes * 60}
+            info = checked_info(provider, profile)
+            remaining = phone_lifetime(info)
+            seconds = min(minutes * 60, max(0, remaining - 2)) if remaining is not None else minutes * 60
+            session = {"id": secrets.token_hex(16), "app": a.app, "expiresAt": time.time() + seconds,
+                "automaticStopOnPhone": remaining is not None}
             private_write(root / "session.json", session)
             try:
                 provider.call("activate_app", {"bundle_id": a.app})
@@ -272,7 +292,8 @@ def execute(args, root, provider_factory=Provider):
                 # Keep the lease so an uncertain launch still has an owned cleanup path.
                 return {"outcome": "needs-user-action", "code": "APP_CONTROL_FOREGROUND_REQUIRED", "session": session["id"],
                     "guidance": GUIDANCE["FOREGROUND_REQUIRED"] + " Use this session to inspect or close."}
-            return {"outcome": "session-open", "session": session["id"], "expiresInSeconds": minutes * 60, **observed}
+            return {"outcome": "session-open", "session": session["id"], "expiresInSeconds": int(seconds),
+                "automaticStopOnPhone": remaining is not None, **observed}
         session = session_for(root, a.session, allow_expired=a.command == "close")
         if a.command == "close":
             try: provider.call("config", {"stop_server": True})

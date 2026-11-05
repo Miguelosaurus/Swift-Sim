@@ -1,0 +1,28 @@
+--- a/iCTRLUITests/iCTRLUITests.swift
++++ b/iCTRLUITests/iCTRLUITests.swift
+@@ -360,0 +361 @@
++        SwiftSimTestingLifetime.shared.end()
+@@ -371,0 +373,7 @@
++
++        SwiftSimTestingLifetime.shared.arm {
++            // Exit off the UI queue: a stalled accessibility call or a lost Mac
++            // connection must not keep testing alive past the phone deadline.
++            _exit(0)
++        }
++
+@@ -1216,0 +1225 @@
++            guard SwiftSimTestingLifetime.shared.secondsRemaining > 0 else { _exit(0) }
+--- a/iCTRLUITests/ActionHandler.swift
++++ b/iCTRLUITests/ActionHandler.swift
+@@ -1377,0 +1378,4 @@
++            "swift_sim_lifetime": .object([
++                "maximum_seconds": .int(Int(SwiftSimTestingLifetime.maximumSeconds)),
++                "seconds_remaining": .double(SwiftSimTestingLifetime.shared.secondsRemaining),
++            ]),
+--- a/iCTRLKit/RPCMethod.swift
++++ b/iCTRLKit/RPCMethod.swift
+@@ -380 +380 @@
+-    static let serverVersion = "1.98.16"
++    static let serverVersion = "1.98.16-swiftsim.1"
+@@ -399,0 +400 @@
++        "swift_sim_lifetime_v1",

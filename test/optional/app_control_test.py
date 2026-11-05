@@ -22,11 +22,13 @@ class Fake:
         self.calls = []; self.front = APP; self.device = 'fixture-phone'; self.version = c.VERSION
         self.text = 'TextField, value: empty'; self.broken = None; self.capture_scope = 'app'; self.source_app = APP
         self.locked = False
+        self.caps = list(CAPS); self.lifetime = 480
     def call(self, method, params=None):
         params = params or {}; self.calls.append((method, params))
         if method == self.broken: raise RuntimeError('SECRET provider failure must not escape')
         if method == 'device_info': return {'server_version':self.version,'protocol_version':1,'device_id':self.device,
-            'capabilities':CAPS,'point_width':390,'point_height':844,'system':{'screen_locked':self.locked,'foreground_app':self.front}}
+            'capabilities':self.caps,'point_width':390,'point_height':844,'system':{'screen_locked':self.locked,'foreground_app':self.front},
+            'swift_sim_lifetime':{'maximum_seconds':600,'seconds_remaining':self.lifetime}}
         if method == 'activate_app': return {'foreground_app':self.front}
         if method == 'page_source': return {'bundle_id':self.source_app,'source':self.text,'keyboard':{'visible':False},'channel':{'recommended':'tree'}}
         if method == 'find_element': return {'exists':True,'hittable':True,'ref':'app-bound-reference'}
@@ -61,6 +63,22 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(result['outcome'],'ready');self.assertFalse(result['inputAuthorized'])
         self.assertEqual([m for m,_ in self.fake.calls],['device_info'])
         self.assertFalse((self.root/'session.json').exists())
+    def test_bounded_runner_shortens_local_lease_without_renewing_phone(self):
+        self.fake.version=c.BOUNDED_VERSION;self.fake.caps.append('swift_sim_lifetime_v1')
+        opened=self.opened()
+        self.assertTrue(opened['automaticStopOnPhone']);self.assertEqual(opened['expiresInSeconds'],478)
+        self.assertNotIn('config',[m for m,_ in self.fake.calls])
+        self.assertTrue(self.run_control('check')['automaticStopOnPhone'])
+    def test_bounded_claim_requires_capability_and_finite_remaining_time(self):
+        self.configure();self.fake.version=c.BOUNDED_VERSION
+        self.code('UPDATE_REQUIRED',lambda:self.run_control('check'))
+        self.fake.caps.append('swift_sim_lifetime_v1')
+        for invalid in [float('nan'),float('inf'),True,601,-1]:
+            self.fake.lifetime=invalid
+            self.code('UPDATE_REQUIRED',lambda:self.run_control('check'))
+        self.fake.lifetime=2
+        self.code('SESSION_ENDING',lambda:self.run_control('open','--app',APP))
+        self.assertNotIn('activate_app',[m for m,_ in self.fake.calls])
     def test_readiness_preserves_identity_lock_and_ambiguous_connection_boundaries(self):
         self.configure();self.fake.locked=True
         self.code('PHONE_LOCKED',lambda:self.run_control('check'))

@@ -6,6 +6,7 @@ const HELP = `Optional iPhone app testing (separate signed iCTRL 1.98.16 runner)
 
 swift-sim app-control pair --host <phone-tailnet-ip>
 swift-sim app-control configure --host <ip> --key-file <private-store> --device-id <id> [--record <entry>]
+swift-sim app-control setup --device <paired-device> --team-id <development-team> [--profile <file>] [--bundle-id <existing-runner-id>]
 swift-sim app-control status
 swift-sim app-control check
 swift-sim app-control open --app <bundle-id>
@@ -22,7 +23,7 @@ Check authenticates readiness without opening an app, reading its UI or authoriz
 A developer image must be available;
 silent remote launch and post-reboot cellular preparation are not promised.
 Only test while the user has made the phone available. Always close the session.
-No automatic install, daemon, recording, cloud service, or hot reload hook.
+Installation is explicit. No daemon, recording, cloud service, or hot reload hook.
 `;
 
 export async function runAppControlCli(
@@ -39,7 +40,7 @@ export async function runAppControlCli(
   }
   const worker = join(
     dirname(fileURLToPath(import.meta.url)),
-    "../optional/app-control/control.py",
+    `../optional/app-control/${args[0] === "setup" ? "setup.py" : "control.py"}`,
   );
   const result = await run({
     executable: "/usr/bin/env",
@@ -51,7 +52,7 @@ export async function runAppControlCli(
       unset: [],
     },
     policy: {
-      timeoutMs: args[0] === "pair" ? 100_000 : 65_000,
+      timeoutMs: args[0] === "setup" ? 420_000 : args[0] === "pair" ? 100_000 : 65_000,
       outputLimitBytes: 256 * 1024,
       processGroup: "new",
       acceptedExitCodes: [0, 1, 2],

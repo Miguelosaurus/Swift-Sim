@@ -24,6 +24,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Explicit optional testing-runner setup using pinned assets and existing
+  development signing, plus a small runner variant with a phone-enforced
+  ten-minute lifetime. The client validates the capability and never extends
+  it on reconnect. No testing worker or library enters normal delivery/apps.
+
 - An explicit App Testing launch/return flow in the companion, with **Test with
   Agent** on each app page, and an on-demand authenticated `app-control check`.
   Callback correlation prevents old or unrelated return links from counting as

@@ -1,6 +1,6 @@
 ---
 name: remote-simulator-companion
-description: Use when a Codex, Cursor, Claude Code, or OpenCode agent should deliver a Swift edit to a remote iPhone, inspect a connected Debug app or saved developer-menu report on demand, build or update a signed iOS app through Swift Sim, configure Swift Sim, or preview an iOS Simulator.
+description: Use when a Codex, Cursor, Claude Code, or OpenCode agent should deliver a Swift edit to a remote iPhone, test an iPhone app or inspect its Debug context, build or update a signed iOS app through Swift Sim, configure Swift Sim, or preview an iOS Simulator.
 ---
 
 # Remote Simulator Companion
@@ -105,9 +105,9 @@ Tailnet.
 
 ## First use, drift, and lazy references
 
-For requested phone UI tests, read [optional app control](references/app-control.md).
-Its separate runner is opt-in. Never load or invoke it for ordinary coding,
-hot reload, delivery, or notifications.
+For requested phone UI tests, read [optional app control](references/app-control.md)
+and introduce **Test with Agent**. Keep testing opt-in; never invoke it for
+ordinary coding, hot reload, delivery, or notifications.
 
 For requested phone debugging, the agent can pull scoped app context directly
 with `swift-sim app-context`, `--elements`, `--screenshot`, or `--report latest`. Do not ask the

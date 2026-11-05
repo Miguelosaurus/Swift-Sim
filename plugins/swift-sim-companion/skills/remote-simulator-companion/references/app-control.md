@@ -4,10 +4,20 @@ Read only for an explicit request to exercise an app's UI. Normal coding,
 `deliver-change`, hot reload and notifications use no app-control commands.
 Use the existing agent; do not add another model, agent, server or watcher.
 
-The optional backend is the separately signed iCTRL runner **1.98.16**. No
+The optional backend is separately signed iCTRL **1.98.16** or the bounded
+**Swift Sim App Testing 1.98.16-swiftsim.1** variant. No
 target-app code is added. Setup requires normal Apple developer support, the
 phone runner, private Tailscale access and one named client approval. Use
-`swift-sim app-control help` for setup/command options. Do not auto-install,
+`swift-sim app-control help` for setup/command options. When setup is explicitly
+requested, use `app-control setup --device <exact-paired-device> --team-id
+<existing-development-team>`; the agent obtains the signing values from the
+project and selected device, rather than asking the developer to copy them.
+The command verifies/builds/signs/installs the optional runner using an existing
+development profile. It creates no new certificate, account or idle worker.
+The first install needs an Apple developer connection; a missing developer
+image still needs normal preparation. Use `--bundle-id <existing-runner-id>`
+when adopting an existing trial; preserve its identity and pairing.
+Do not auto-install,
 upgrade, change developer images or expand phone permissions during ordinary
 delivery. Never print/copy pairing keys or fetch untrusted provider updates.
 
@@ -44,8 +54,10 @@ delivery. Never print/copy pairing keys or fetch untrusted provider updates.
 The lease coordinates this Mac's Swift Sim tasks. Foreground checks plus native
 refs reduce mistakes but are not an atomic guard for every coordinate, typing
 or scroll event; reserve the phone and avoid concurrent input. The ten-minute
-lease blocks expired input without a background worker; it does not terminate
-the phone runner. Keep the session identifier for cleanup.
+lease blocks expired input without a background worker. Only the bounded
+variant enforces shutdown on the phone, at most ten minutes from runner start;
+reconnects do not extend it. Check `automaticStopOnPhone`, never infer it from
+local lease support. Keep the session identifier for explicit cleanup.
 
 Fresh user-opened cellular startup was qualified; silent remote launch and
 developer-image remount after reboot on cellular were not. Do not present a

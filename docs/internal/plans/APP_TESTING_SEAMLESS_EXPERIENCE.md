@@ -61,9 +61,13 @@ Tailscale connected. Authentication, the Zenics context, correlated return and
 verified shutdown passed; network state in this run is user-confirmed rather
 than independently measured. See the [handoff evidence](../../evidence/APP_TESTING_HANDOFF_2026_11_05.md).
 
-The setup/install automation, notification request/approval UI, phone deadline,
-and reboot recovery are not implemented by this candidate. The working backend
-remains available, including explicit phone startup and verified shutdown.
+The subsequent [lifetime/setup checkpoint](../../evidence/APP_TESTING_LIFETIME_2026_11_05.md)
+adds the reproducible optional installer and phone-enforced lifetime. The source
+build/sign path passed locally; the automated installer still needs its
+physical check. The separately installed bounded runtime authenticated and was
+found stopped after the deadline without Mac requests or a stop command. The
+notification request/approval UI and cellular-only reboot recovery remain
+unimplemented. Explicit phone startup and verified shutdown remain available.
 
 ## References
 
