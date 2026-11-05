@@ -79,6 +79,11 @@ runner startup is qualified separately; this approval UI was qualified on
 Wi-Fi. Cellular-only reboot recovery remains unsupported. Explicit phone
 startup and verified shutdown remain available.
 
+Build 31 adds a remembered duration selector (5, 10, 30 or 60 minutes), enforced
+by the updated optional runner's existing timer. A physical thirty-minute
+approval, matching phone deadline, native confirmation and immediate verified
+close passed. See the [duration evidence](../../evidence/APP_TESTING_DURATION_2026_11_05.md).
+
 ## References
 
 - [Current integration proof](../../evidence/APP_CONTROL_INTEGRATION_2026_11_05.md)
