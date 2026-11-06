@@ -91,6 +91,7 @@ export function createHelperServiceLifecycle(dependencies) {
   let liveRunning = false;
   let livePending = false;
   let liveScheduled = false;
+  let liveDeferred = false;
 
   return Object.freeze({
     async prepare() {
@@ -138,7 +139,10 @@ export function createHelperServiceLifecycle(dependencies) {
             /* retain the polling fallback */
           }
           reconcileLive();
-          liveDeliveryTimer = resolved.runtime.scheduleInterval(reconcileLive, 1_000);
+          liveDeliveryTimer = resolved.runtime.scheduleInterval(() => {
+            liveDeferred = false;
+            reconcileLive();
+          }, 1_000);
           liveDeliveryTimer.unref?.();
         }
         if (resolved.reconcileActivity) {
@@ -182,7 +186,7 @@ export function createHelperServiceLifecycle(dependencies) {
   }
 
   function wakeLive() {
-    if (shuttingDown) return;
+    if (shuttingDown || liveDeferred) return;
     livePending = true;
     if (liveRunning || liveScheduled) return;
     liveScheduled = true;
@@ -193,7 +197,7 @@ export function createHelperServiceLifecycle(dependencies) {
   }
 
   function reconcileLive() {
-    if (shuttingDown) return;
+    if (shuttingDown || liveDeferred) return;
     try {
       liveWakeup?.refresh();
     } catch {
@@ -207,12 +211,23 @@ export function createHelperServiceLifecycle(dependencies) {
     livePending = false;
     void Promise.resolve()
       .then(() => resolved.reconcileLiveDeliveries?.())
+      .then((result) => {
+        // An authenticated no-admission race keeps the old polling cadence.
+        // Its own queue publication must not create an immediate retry loop.
+        liveDeferred = Boolean(
+          result &&
+          typeof result === "object" &&
+          "retryDeferred" in result &&
+          result.retryDeferred === true,
+        );
+      })
       .catch(() =>
         resolved.reportError("Live delivery reconciliation failed; queued intent is preserved."),
       )
       .finally(() => {
         liveRunning = false;
-        if (livePending) wakeLive();
+        if (liveDeferred) livePending = false;
+        else if (livePending) wakeLive();
       });
   }
 

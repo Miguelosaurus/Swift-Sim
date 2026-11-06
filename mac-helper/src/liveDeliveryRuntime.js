@@ -163,7 +163,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           const proof = await adapter.receipt(record, observed);
           if (proof?.noEffect) {
             await queue.releaseNoEffect(record.requestId, { claimToken: record.applyClaimToken, scope, receipt: proof.noEffect, verified: true });
-            return { processed: true, requestId: record.requestId };
+            return { processed: true, requestId: record.requestId, retryDeferred: true };
           }
           if (proof) {
             await queue.reconcileReceipt(record.requestId, { scope, proof, verified: true });
@@ -224,10 +224,12 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           await queue.transition(record.requestId, { claimToken, state: "failed", reasonCode: "QUEUE_LIMIT_REACHED" });
           return { processed: true, requestId: record.requestId };
         }
+        let retryDeferred = false;
         try {
           const proof = await adapter.apply(record, current, { cancellationSignal: cancellation.signal });
           if (proof?.noEffect) {
             await queue.releaseNoEffect(record.requestId, { claimToken, scope: current.scope, receipt: proof.noEffect, verified: true });
+            retryDeferred = true;
           } else if (!proof) {
             await queue.transition(record.requestId, { claimToken, state: "uncertain", reasonCode: "QUEUE_APPLY_UNCONFIRMED" });
           } else {
@@ -236,7 +238,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
         } catch {
           await queue.transition(record.requestId, { claimToken, state: "uncertain", reasonCode: "QUEUE_APPLY_UNCONFIRMED" });
         }
-        return { processed: true, requestId: record.requestId };
+        return { processed: true, requestId: record.requestId, ...(retryDeferred ? { retryDeferred: true } : {}) };
       }
       return { processed: false };
     };

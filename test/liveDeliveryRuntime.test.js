@@ -493,7 +493,8 @@ test("authenticated no-admission foreground race waits and retries the same iden
       } };
     };
     await f.service.enqueue({ requestId: "request-race-0001", files: f.files() });
-    await f.service.runOnce(); await f.service.runOnce();
+    await f.service.runOnce();
+    assert.equal((await f.service.runOnce()).retryDeferred, true);
     assert.equal(f.queue.get("request-race-0001").state, "waiting-for-foreground");
     assert.equal(f.service.status("request-race-0001").outcome, "queued");
     await f.service.runOnce();

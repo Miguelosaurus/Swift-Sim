@@ -33,6 +33,11 @@ and native receipt checks remain in the normal runtime. The one-second poll
 remains a fallback. Notification reconciliation keeps its separate five-second
 timer; no APNs/provider, phone SDK, engine or feedback-duration code changed.
 
+An authenticated no-admission readiness race explicitly defers journal hints to
+the existing fallback poll. A deterministic regression first reproduced the
+otherwise possible self-wake retry loop, then verified that the guard prevents
+it. Normal measured deliveries do not take that deferral branch.
+
 ## Phone proof and unavailable time
 
 The test ran three title edit/restore pairs before the change and repeated the

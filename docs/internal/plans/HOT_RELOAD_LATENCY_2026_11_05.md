@@ -45,3 +45,22 @@ normal helper health and restoration before merging/pushing main without a PR.
 
 Task artifacts: `.build/hot-reload-timing-20261105/`; private logs and snapshots
 are not committed. Initial disk headroom approximately 99 GiB. No simulator used.
+
+## Physical result
+
+Both optimized six-delivery batches completed and restored the original source.
+All 18 baseline/optimized requests shared one installed binary/process and proved
+complete preserved refresh at revisions 7–24. Warm median fell from 4.271 seconds
+(5 samples) to 3.210 seconds (10 samples), a 1.061-second / 24.8% reduction.
+Two initial optimized samples waited about 23 seconds wall-clock; the repeat's
+direct observations found no connected/foreground-ready matching client until
+about 22 seconds. These raw samples remain in evidence, separate from warm timing.
+
+Final scheduler review reproduced a possible readiness-race retry loop in a
+deterministic test: a no-admission result can itself publish another wake hint.
+The runtime now marks only that authenticated no-effect result as deferred;
+the existing poll resumes it, preventing rapid self-wakes while preserving normal
+immediate compilation/application. Notification callback isolation is tested
+under a 1,000-hint burst. No additional timers or native mutation paths were added.
+See [evidence](../../evidence/HOT_RELOAD_LATENCY_2026_11_05.md) for methodology,
+sample boundaries and retained local artifacts.

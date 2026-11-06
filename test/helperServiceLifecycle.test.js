@@ -323,6 +323,20 @@ test("subscription failure preserves startup and the existing one-second fallbac
   lifecycle.shutdown();
 });
 
+test("a foreground rejection cannot turn journal wake hints into a rapid retry loop", async () => {
+  let wake, calls = 0;
+  const harness = createHarness({ watchLiveDeliveries(callback) { wake = callback; return { refresh() {}, close() {} }; },
+    reconcileLiveDeliveries: async () => { calls++; wake(); return { processed: true, retryDeferred: true }; } });
+  const lifecycle = harness.lifecycle(); await lifecycle.prepare(); await lifecycle.start(() => {}); await tick();
+  assert.equal(calls, 1);
+  assert.equal(harness.immediates.length, 1, "only startup cleanup, no readiness retry");
+  for (let i = 0; i < 1000; i++) wake();
+  assert.equal(harness.immediates.length, 1);
+  harness.intervals.find(timer => timer.intervalMs === 1000).callback(); await tick();
+  assert.equal(calls, 2); assert.equal(harness.immediates.length, 1);
+  lifecycle.shutdown();
+});
+
 function createHarness({
   deviceBuildsOnly = false,
   listenError = null,
