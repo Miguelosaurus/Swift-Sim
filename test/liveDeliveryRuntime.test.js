@@ -91,6 +91,21 @@ test("pre-application failure does not establish an applied source baseline for 
   } finally { f.cleanup(); }
 });
 
+test("an explicit correction can still start from the latest rejected editor draft", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    const prepare = f.adapter.prepare;
+    f.adapter.prepare = async () => { throw Object.assign(new Error("compile failed"), { code: "PATCH_ARTIFACT_INVALID" }); };
+    await f.service.enqueue({ files: f.files() }); await f.service.runOnce();
+    f.adapter.prepare = prepare;
+    const next = await f.service.enqueue({ files: f.files(firstEdit, secondEdit) });
+    await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.service.status(next.delivery.requestId).outcome, "hot-reloaded");
+    assert.equal(f.calls.apply.length, 1);
+  } finally { f.cleanup(); }
+});
+
 test("a new request after expired history uses the fresh process revision and qualified original source", async () => {
   const f = fixture();
   try {

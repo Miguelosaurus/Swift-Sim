@@ -48,7 +48,14 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
         && (original?.beforeSource === "" || (!original && snapshot.beforeSource === ""))
         ? createHash("sha256").update("").digest("hex") : undefined;
       const expected = prior?.afterHash || desired?.afterHash || captured || emptyOrigin;
-      if (!expected || createHash("sha256").update(snapshot.beforeSource).digest("hex") !== expected) throw Object.assign(new Error("The edit's source baseline differs from the qualified Debug build or queued predecessor. No rebuild was started."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+      const beforeHash = createHash("sha256").update(snapshot.beforeSource).digest("hex");
+      // Keep the latest rejected editor draft usable for an explicit correction,
+      // while also accepting the unchanged installed/confirmed source. A failure
+      // before admission does not prove that draft was installed on the phone.
+      const latest = history.findLast(record => record.expiresAt > now() && !["expired", "superseded"].includes(record.state)
+        && record.files.some(file => file.path === snapshot.path));
+      const rejectedDraft = latest?.state === "failed" && latest.files.find(file => file.path === snapshot.path)?.afterHash === beforeHash;
+      if (!expected || (beforeHash !== expected && !rejectedDraft)) throw Object.assign(new Error("The edit's source baseline differs from the qualified Debug build or queued predecessor. No rebuild was started."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
       if (binding.verifiedProcess && binding.revision === 0 && !previous) {
         if (original) snapshot.beforeSource = original.beforeSource;
         if (createHash("sha256").update(snapshot.beforeSource).digest("hex") !== (captured || emptyOrigin)) throw Object.assign(new Error("The qualified original source baseline is unavailable for this fresh process."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
