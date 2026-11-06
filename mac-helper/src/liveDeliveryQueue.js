@@ -6,6 +6,7 @@ import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/n
 import { NodeLockManager } from "./infrastructure/nodeLockManager.js";
 import { createLiveDeliveryReadiness } from "./liveDeliveryReadiness.js";
 import { verifyReplacementProofReceipt } from "./replacementProof.js";
+import { compilationFiles, normalizeFiles, sameBinaryScope, LIVE_SOURCE_LIMITS } from "./liveDeliverySnapshots.js";
 
 export const LIVE_DELIVERY_QUEUE_SCHEMA = 1;
 export const LIVE_DELIVERY_STATES = Object.freeze([
@@ -14,7 +15,7 @@ export const LIVE_DELIVERY_STATES = Object.freeze([
 ]);
 const TERMINAL = new Set(["refreshed", "failed", "expired", "superseded", "uncertain"]);
 const PRE_APPLY = new Set(["queued", "waiting-for-device", "waiting-for-foreground", "compiling"]);
-const LIMITS = Object.freeze({ records: 256, files: 32, fileBytes: 1024 * 1024, requestBytes: 8 * 1024 * 1024, journalBytes: 32 * 1024 * 1024 });
+const LIMITS = Object.freeze({ records: 256, ...LIVE_SOURCE_LIMITS, journalBytes: 32 * 1024 * 1024 });
 const WRITE_OPTIONS = Object.freeze({ mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
 const SCOPE_FIELDS = ["project", "scheme", "appIdentity", "binaryIdentity", "sessionIdentity"];
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -573,33 +574,6 @@ function replaceDesired(journal, value) {
     journal.desiredStates.push(value);
   } else journal.desiredStates[index] = value;
 }
-function compilationFiles(journal, scope, incoming, sequence, time, requireOriginal = false) {
-  const requested = normalizeFiles(incoming);
-  const requestedPaths = new Set(requested.map(file => file.path));
-  const original = journal.binaryBaselines.find(item => sameBinaryScope(item.scope, scope));
-  const desired = journal.desiredStates.find(item => sameBinaryScope(item.scope, scope)
-    && item.confirmedThroughSequence < sequence);
-  const files = new Map();
-  const carry = (file) => files.set(file.path, { path: file.path, beforeSource: file.afterSource, afterSource: file.afterSource });
-  for (const file of !desired?.revoked && desired?.files || []) carry(file);
-  for (const record of journal.records) {
-    if (!sameBinaryScope(record.scope, scope) || record.sequence >= sequence || record.sequence <= (desired?.confirmedThroughSequence || 0)
-      || record.expiresAt <= time || ["failed", "expired", "superseded"].includes(record.state)) continue;
-    for (const file of record.desiredSnapshots || record.files) carry(file);
-  }
-  for (const file of requested) files.set(file.path, file);
-  const baselines = new Map();
-  const retained = [...files.values()].filter(file => {
-    const baseline = original?.files.find(item => item.path === file.path);
-    if (baseline) {
-      if (baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
-      baselines.set(file.path, baseline.beforeSource);
-    } else if (requireOriginal || !requestedPaths.has(file.path)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
-    return requestedPaths.has(file.path) || baseline.beforeSource !== file.afterSource;
-  });
-  return normalizeFiles(retained).map(file => baselines.has(file.path) && baselines.get(file.path) !== file.beforeSource
-    ? { ...file, installedBaseline: baselines.get(file.path) } : file);
-}
 function assertDesiredCapacity(journal, scope, incoming, time) {
   const desired = journal.desiredStates.find((item) => sameBinaryScope(item.scope, scope));
   const original = journal.binaryBaselines.find((item) => sameBinaryScope(item.scope, scope));
@@ -673,20 +647,6 @@ function normalizeScope(scope) {
     binding[field] = scope[field];
   }
   return binding;
-}
-function normalizeFiles(files) {
-  if (!Array.isArray(files) || files.length === 0 || files.length > LIMITS.files) throw queueError("QUEUE_SNAPSHOT_INVALID");
-  const seen = new Set(); let bytes = 0;
-  const snapshots = files.map((file) => {
-    if (!file || typeof file.path !== "string" || !file.path || file.path.length > 4096
-      || typeof file.beforeSource !== "string" || typeof file.afterSource !== "string" || seen.has(file.path)) throw queueError("QUEUE_SNAPSHOT_INVALID");
-    seen.add(file.path);
-    const beforeBytes = Buffer.byteLength(file.beforeSource); const afterBytes = Buffer.byteLength(file.afterSource);
-    bytes += beforeBytes + afterBytes;
-    if (beforeBytes > LIMITS.fileBytes || afterBytes > LIMITS.fileBytes || bytes > LIMITS.requestBytes) throw queueError("QUEUE_LIMIT_REACHED");
-    return { path: file.path, beforeSource: file.beforeSource, afterSource: file.afterSource, beforeHash: sha(file.beforeSource), afterHash: sha(file.afterSource) };
-  });
-  return snapshots.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 }
 function validateNoEffectReceipt(record, receipt) {
   const allowedKeys = new Set(["requestId", "patchDigest", "sessionIdentity", "binaryIdentity", "admitted", "applied", "reasonCode", "attemptId"]);
@@ -823,7 +783,6 @@ function validateId(value) { if (typeof value !== "string" || !/^[A-Za-z0-9_.:-]
 function validateRevision(value) { if (!Number.isSafeInteger(value) || value < 0) throw queueError("QUEUE_REVISION_INVALID"); }
 function parseExpiry(value) { const time = typeof value === "number" ? value : Date.parse(value); if (!Number.isSafeInteger(time)) throw queueError("QUEUE_EXPIRY_INVALID"); return time; }
 function scopeMatches(a, b) { return SCOPE_FIELDS.every((field) => a[field] === b[field]); }
-function sameBinaryScope(a, b) { return SCOPE_FIELDS.filter((field) => field !== "sessionIdentity").every((field) => a[field] === b[field]); }
 function safeReason(value) { return /^[A-Z0-9_]{0,80}$/.test(String(value)) ? String(value) : "QUEUE_OPERATION_FAILED"; }
 function sha(value) { return createHash("sha256").update(value).digest("hex"); }
 function digest(value) { return sha(JSON.stringify(value)); }
