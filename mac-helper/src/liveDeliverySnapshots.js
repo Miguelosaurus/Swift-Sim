@@ -59,7 +59,7 @@ export function projectCompilationRecord(journal, record, time) {
     || journal.records.some(item => sameBinaryScope(item.scope, record.scope) && item.sequence < record.sequence
       && item.sequence > (desired?.revoked ? desired.confirmedThroughSequence : 0)
       && item.expiresAt > time && !["failed", "expired", "superseded"].includes(item.state)
-      && (item.preparedPatch?.sharedAdditive === true || item.preparedPatch?.statefulComponentProtocol === 1));
+      && (item.preparedPatch?.sharedAdditive === true || item.preparedPatch?.statefulComponentProtocol === 1 || item.preparedPatch?.addedStateProtocol === 1));
   const origins = compilationStatefulOrigins(journal, record, time);
   if (origins.length) projected.statefulOrigins = origins;
   if (cohort) projected.files = compilationFiles(journal, record.scope, record.files, record.sequence, time, true);
@@ -72,6 +72,9 @@ export function projectCompilationRecord(journal, record, time) {
 }
 
 export function preparedStatefulOrigins(patch, scope) {
+  if ((patch?.addedStateProtocol !== undefined && patch.addedStateProtocol !== 1)
+    || (patch?.addedStateProtocol === 1 && (!Number.isSafeInteger(patch.addedStateGeneration) || patch.addedStateGeneration < 1))
+    || (patch?.addedStateGeneration !== undefined && patch.addedStateProtocol !== 1)) throw queueError("QUEUE_PATCH_INVALID");
   if (patch?.statefulOrigins === undefined && patch?.statefulComponentProtocol === undefined) return undefined;
   if (patch.statefulComponentProtocol !== 1) throw queueError("QUEUE_PATCH_INVALID");
   try {

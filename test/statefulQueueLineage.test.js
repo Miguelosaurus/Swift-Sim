@@ -155,3 +155,33 @@ test("bounded desired-lineage reserve rejects native admission before the journa
     assert(Buffer.byteLength(f.fileStore.readTextSync(path)) <= f.queue.limits.journalBytes);
   } finally { f.cleanup(); }
 });
+
+test("added State carries its source cohort through helper-only updates and desired-state GC",async()=>{
+  const f=fixture();
+  try {
+    await enqueue(f,"slots");let r=f.queue.get("slots");
+    await prepare(f,"slots",{addedStateProtocol:1,addedStateGeneration:r.sequence});
+    await enqueue(f,"helper",[helper]);
+    assert.equal(f.queue.compilationRecord("helper").files.length,2);
+    assert.equal(f.queue.compilationRecord("helper").statefulOrigins,undefined);
+    await refresh(f,"slots");r=f.queue.get("helper");
+    await prepare(f,"helper",{addedStateProtocol:1,addedStateGeneration:r.sequence},scope,1);await refresh(f,"helper",scope,1);
+    assert.equal(f.queue.desiredStates()[0].requiresCohort,true);
+    f.tick(24*60*60*1000+1);
+    await enqueue(f,"later",[{...helper,beforeSource:helper.afterSource,afterSource:"latest-helper"}],scope,2);
+    assert.equal(f.queue.get("slots"),null);
+    const compiled=f.reopen().compilationRecord("later");
+    assert.equal(compiled.files.length,2);assert.equal(compiled.files.find(x=>x.path===file.path).afterSource,file.afterSource);
+    assert.equal(f.queue.pollingSnapshot().statefulOrigins.length,0,"slots store no user values or module origins in the journal");
+  }finally{f.cleanup();}
+});
+
+test("added State protocol and generation are validated against the immutable request sequence",async()=>{
+ for(const metadata of [{addedStateProtocol:2,addedStateGeneration:1},{addedStateProtocol:1},{addedStateGeneration:1},{addedStateProtocol:1,addedStateGeneration:0},{addedStateProtocol:1,addedStateGeneration:2}]){
+  const f=fixture();try{
+   await enqueue(f,"slots");const claim=await f.queue.claimNext({scope,currentRevision:0,workerId:"compiler"});
+   await assert.rejects(f.queue.transition("slots",{claimToken:claim.claim.token,state:"waiting-for-device",preparedPatch:{patchDigest:"slots",...metadata}}),{code:"QUEUE_PATCH_INVALID"});
+   assert.equal(f.queue.get("slots").preparedPatch,null);
+  }finally{f.cleanup();}
+ }
+});

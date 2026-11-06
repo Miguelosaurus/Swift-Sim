@@ -59,6 +59,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     const statefulEngine = data?.state_preserving_refresh_protocol === 1;
     const statefulClient = capabilities.includes("state-preserving-refresh-v1");
     const statefulComponentClient = capabilities.includes("stateful-components-v1");
+    const addedStateClient = capabilities.includes("added-state-slots-v1");
     const client = data?.client_identity;
     const matchesBinary = liveBinaryMatches(manifest.binaryIdentity, client) && typeof client?.process_nonce === "string" && client.process_nonce.length >= 8;
     const revisionValid = Number.isSafeInteger(client?.root_revision) && client.root_revision >= 0;
@@ -70,13 +71,14 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       engineReachable: Boolean(data),
       completeEngine,
       completeClient,
-      statefulEngine, statefulClient, statefulComponentClient,
+      statefulEngine, statefulClient, statefulComponentClient, addedStateClient,
       clientPresent: Boolean(data?.has_connected_client),
       supportsReceipts: REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value)),
       matchesBinary,
       connected: Boolean(data?.has_connected_client && matchesBinary && revisionValid && REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value))
         && (!requiresComplete || (completeEngine && completeClient)) && (!preserveState || (statefulEngine && statefulClient))
-        && (record.preparedPatch?.statefulComponentProtocol !== 1 || statefulComponentClient)),
+        && (record.preparedPatch?.statefulComponentProtocol !== 1 || statefulComponentClient)
+        && (record.preparedPatch?.addedStateProtocol !== 1 || addedStateClient)),
       foreground: client?.is_active === true,
       rootReady: client?.root_ready === true,
       revision: revisionValid ? client.root_revision : null,
@@ -144,13 +146,16 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       if (observed.clientPresent && !observed.supportsReceipts) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "The connected Debug app needs the matching reconnect and receipt SDK. Complete its one-time Debug update; no automatic rebuild was started.");
       if (observed.completeEngine && observed.clientPresent && !observed.completeClient) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "This Debug app needs the complete replacement receipt SDK. Install its one-time Debug update before using broader hot reload; no automatic rebuild was started.");
       return { scope: observed.matchesBinary ? observed.scope : scope, revision: observed.revision || 0, verifiedProcess: observed.matchesBinary && observed.connected,
-        sourceBaselines: manifest.sourceBaselines, completeCoverage: observed.completeEngine };
+        sourceBaselines: manifest.sourceBaselines, completeCoverage: observed.completeEngine,
+        addedStateSupported: observed.clientPresent && observed.matchesBinary ? observed.addedStateClient : undefined };
     },
     inspect,
     async prepare(record, options) {
       const observed = await inspect(record);
       if (!observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The matching live engine is unavailable. No patch was compiled or sent.");
       const raw = await compile(record, { ...options, completeCoverage: observed.completeEngine });
+      if (raw.addedStateProtocol === 1 && observed.clientPresent && observed.matchesBinary && !observed.addedStateClient)
+        throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "Adding State needs the matching Debug state-slot SDK. Install its one-time Debug update; no patch was sent or automatic build started.");
       const response = await control({ action: "prepare_dylib", path: raw.path }, { timeoutMs: 30_000 });
       const digest = response?.success ? response.data?.patch_digest : "";
       if (!/^[0-9a-f]{64}$/.test(digest) || hash(readFileSync(raw.path)) !== digest) throw deliveryError("PATCH_SIGNING_FAILED", "The queued patch could not be signed and verified. No app build or install was started.");
@@ -158,6 +163,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       return { ...sealed, path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
         ...(raw.additiveProtocol === 1 ? { additiveProtocol: 1 } : {}),
         ...(raw.sharedAdditive === true ? { sharedAdditive: true } : {}),
+        ...(raw.addedStateProtocol === 1 ? { addedStateProtocol: 1, addedStateGeneration: raw.addedStateGeneration } : {}),
         ...(raw.compilerContextDigest ? { compilerContextDigest: raw.compilerContextDigest } : {}),
         ...(raw.refreshStrategy ? { refreshStrategy: raw.refreshStrategy } : {}),
         ...(raw.replacementProof ? { replacementProof: normalizeReplacementProof(raw.replacementProof), coverageDigest: raw.coverageDigest, compilerResourceDigest: raw.compilerResourceDigest } : {}) };

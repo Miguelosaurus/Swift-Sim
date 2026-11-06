@@ -5,6 +5,9 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 const FIELDS = ["path", "owner", "module", "sourceFile", "layoutDigest", "modulePath", "moduleDigest", "artifactPath", "artifactDigest", "requestId", "processIdentity", "binaryIdentity", "resourceDigest"];
 const HASHES = ["layoutDigest", "moduleDigest", "artifactDigest", "resourceDigest"];
 export const STATEFUL_COMPONENT_PROTOCOL = 1;
+export const validStateNames = value => Array.isArray(value) && value.length <= 32
+  && value.every(name => typeof name === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name))
+  && new Set(value).size === value.length;
 export const statefulOriginsDigest = origins => digest(JSON.stringify(normalizeStatefulOrigins(origins)));
 
 export function normalizeStatefulOrigins(value, scope) {
@@ -13,7 +16,8 @@ export function normalizeStatefulOrigins(value, scope) {
   if (!Array.isArray(value) || value.length > 32 || Buffer.byteLength(serialized) > 65_536) throw invalid();
   const seen = new Set();
   return value.map(origin => {
-    if (!origin || Array.isArray(origin) || Object.keys(origin).some(key => !FIELDS.includes(key)) || FIELDS.some(key => typeof origin[key] !== "string" || !origin[key] || origin[key].length > 4096 || /[\x00-\x1f]/.test(origin[key]))
+    if (!origin || Array.isArray(origin) || Object.keys(origin).some(key => !FIELDS.includes(key) && key !== "stateNames") || FIELDS.some(key => typeof origin[key] !== "string" || !origin[key] || origin[key].length > 4096 || /[\x00-\x1f]/.test(origin[key]))
+      || (origin.stateNames !== undefined && !validStateNames(origin.stateNames))
       || HASHES.some(key => !/^[a-f0-9]{64}$/.test(origin[key]))
       || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.owner) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.module)
       || !/^Replacement(?:[0-9]|[12][0-9]|3[01])\.swift$/.test(origin.sourceFile)
@@ -22,7 +26,8 @@ export function normalizeStatefulOrigins(value, scope) {
       || (scope && (origin.processIdentity !== scope.sessionIdentity || origin.binaryIdentity !== scope.binaryIdentity))) throw invalid();
     const key = origin.path + "#" + origin.owner;
     if (seen.has(key)) throw invalid(); seen.add(key);
-    return Object.fromEntries(FIELDS.map(key => [key, origin[key]]));
+    return { ...Object.fromEntries(FIELDS.map(key => [key, origin[key]])),
+      ...(origin.stateNames === undefined ? {} : { stateNames: [...origin.stateNames].sort() }) };
   }).sort((a, b) => {
     const left = a.path + "#" + a.owner, right = b.path + "#" + b.owner;
     return left < right ? -1 : left > right ? 1 : 0;

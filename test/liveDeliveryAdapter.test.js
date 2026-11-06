@@ -291,3 +291,19 @@ test("new stateful components require their exact native slot-count capability",
     assert.equal((await f.adapter.inspect(f.record)).connected, true);
   } finally { f.cleanup(); }
 });
+
+test("state-slot capability gates only patches that need added State and reports known-old bootstrap", async () => {
+  const f = await fixture();
+  try {
+    assert.equal((await f.adapter.inspect(f.record)).connected, true);
+    assert.equal((await f.adapter.binding({})).addedStateSupported, false);
+    f.record.preparedPatch.addedStateProtocol = 1;
+    f.record.preparedPatch.addedStateGeneration = 1;
+    assert.equal((await f.adapter.inspect(f.record)).connected, false);
+    f.status.client_capabilities.push("added-state-slots-v1");
+    assert.equal((await f.adapter.inspect(f.record)).connected, true);
+    assert.equal((await f.adapter.binding({})).addedStateSupported, true);
+    f.status.has_connected_client = false;
+    assert.equal((await f.adapter.binding({})).addedStateSupported, undefined, "absence is not an old-SDK attestation");
+  } finally { f.cleanup(); }
+});

@@ -16,11 +16,14 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   let lastCleanup = -Infinity;
   let work = { phase: "idle" };
 
-  async function enqueue({ files, project = "", scheme = "", host = "", requestId, requiresCompleteCoverage = false } = {}) {
+  async function enqueue({ files, project = "", scheme = "", host = "", requestId, requiresCompleteCoverage = false, requiresAddedState = false } = {}) {
     const binding = await adapter.binding({ project, scheme, host });
     if (requiresCompleteCoverage && binding.completeCoverage !== true) throw Object.assign(
       new Error("Private additions require the matching complete-replacement live engine. Update that component; no patch or app build was started."),
       { code: "LIVE_ENGINE_UPDATE_REQUIRED" });
+    if (requiresAddedState && binding.addedStateSupported === false) throw Object.assign(
+      new Error("Adding State needs this Debug app's updated state-slot SDK. Install its one-time Debug update; no patch or automatic build was started."),
+      { code: "LIVE_CLIENT_UPDATE_REQUIRED" });
     let history = queue.list().filter((record) => sameBinary(record.scope, binding.scope));
     const desires = queue.desiredStates().filter((item) => sameBinary(item.scope, binding.scope));
     if (binding.verifiedProcess && binding.revision === 0 && (history.length || desires.length) && !history.some((record) => record.scope.sessionIdentity === binding.scope.sessionIdentity)
@@ -137,6 +140,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           : first.preparedPatch?.replacementProof && !observed.completeEngine ? "LIVE_ENGINE_UPDATE_REQUIRED"
           : observed.completeEngine && observed.clientPresent && observed.completeClient === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
           : first.preparedPatch?.statefulComponentProtocol === 1 && observed.clientPresent && observed.statefulComponentClient === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
+          : first.preparedPatch?.addedStateProtocol === 1 && observed.clientPresent && observed.addedStateClient === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
           : observed.clientPresent && observed.supportsReceipts === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
           : observed.clientPresent && !observed.matchesBinary ? "LIVE_TARGET_APP_MISMATCH"
           : "LIVE_READY";

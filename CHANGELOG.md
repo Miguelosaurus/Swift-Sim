@@ -24,6 +24,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Hot reload new `@State` fields on eligible installed and pinned SwiftUI views
+  after one Debug SDK bootstrap. Ordinary State/bindings use a lazy view-local
+  slot with bounded literal value support; existing layout and unsupported
+  migration fences remain. No polling, value upload or notification changes.
+
 - Explicit optional testing-runner setup using pinned assets and existing
   development signing, plus a small runner variant with a phone-enforced
   ten-minute lifetime. The client validates the capability and never extends

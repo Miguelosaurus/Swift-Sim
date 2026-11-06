@@ -175,9 +175,14 @@ export function classifyPrivateAdditiveEditSet(files, { manifest: suppliedManife
     const projected = queue.compilationPreview({ binaryIdentity, files: deltas });
     const { snapshots, reference } = additiveSnapshots(projected, manifest, { baselineForFile, queue, binaryIdentity });
     const fullCompiler = compiler || createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }), cacheRoot: join(LIVE_ROOT, "compiler-cache") });
+    let addedStateBodies;
+    try { addedStateBodies = statefulBodyIndex(manifest.stateful, reference.moduleName).bodies; }
+    catch { throw registrationError("FULL_CALLABLE_STATEFUL_ABI_INVALID", "The captured state-preserving view ABI could not be verified. No patch or signed build was started."); }
     const generation = generateAdditive(fullCompiler, { module: reference.moduleName,
       generation: createHash("sha256").update(JSON.stringify(snapshots)).digest("hex").slice(0, 32),
-      allowAdditive: true, availableModules: availableAdditiveModules(reference, snapshots), files: snapshots },
+      allowAdditive: true, allowAddedState: true, stateGeneration: 1,
+      statefulBodies: addedStateBodies,
+      availableModules: availableAdditiveModules(reference, snapshots), files: snapshots },
     () => sharedModuleSources(manifest, reference, snapshots, { baselineForFile, queue, binaryIdentity }));
     if (generation.additiveProtocol !== 1 || generation.requiresPrivateScopes !== true) return null;
     if (manifest.compilerContextProtocol !== 2) throw registrationError("LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED",
@@ -186,7 +191,7 @@ export function classifyPrivateAdditiveEditSet(files, { manifest: suppliedManife
     const changes = deltas.map(file => result(file.beforeSource === file.afterSource ? "no-change" : "hot-reload", true,
       "Additions have complete callable representation against the installed source baseline.", { path: file.path }, reasonCode));
     return { ...normalizedClassification({ route: "hot-reload", hotReloadable: true,
-      reason: "Additions and their callable consumers can hot reload.", reasonCode, changes }), requiresCompleteCoverage: true };
+      reason: "Additions and their callable consumers can hot reload.", reasonCode, changes }), requiresCompleteCoverage: true, ...(generation.addedStateProtocol === 1 ? { requiresAddedState: true } : {}) };
   } catch (error) {
     if (/^(?:FULL_CALLABLE_|LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED$)/.test(error?.code || "")) throw error;
     return null;
@@ -255,7 +260,7 @@ function generateAdditive(compiler, input, originals) {
     try { return compiler.generate(input); }
     catch (error) { if (error?.code !== "QUEUED_MECHANISM_UNSUPPORTED") throw error; }
   }
-  return compiler.generate({ ...input, allowSharedAdditive: true, allowStatefulAdditive: true, moduleSources: originals() });
+  return compiler.generate({ ...input, allowSharedAdditive: true, allowStatefulAdditive: true, allowAddedState: true, moduleSources: originals() });
 }
 
 function classifyEditFile(file = {}) {
@@ -902,7 +907,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const stateful = statefulBodyIndex(manifest.stateful, reference.moduleName);
   const componentInput = statefulCompilerOrigins(record, { artifactRoot, patchRoot, resourceDigest });
   const compilerContextDigest = createHash("sha256").update(JSON.stringify([reference.moduleName, reference.workingDirectory,
-    reference.compilerArguments, manifest.compilerContextProtocol || 1, manifest.registration?.mapDigest || "", componentInput.digest,
+    reference.compilerArguments, manifest.compilerContextProtocol || 1, manifest.registration?.mapDigest || "", componentInput.digest, record.sequence ?? 0,
     record.files.map(file => [file.path, manifest.sourceBaselines?.[file.path] || "",
       createHash("sha256").update(JSON.stringify([file.beforeSource, file.afterSource, file.installedBaseline ?? file.beforeSource])).digest("hex")])])).digest("hex");
   const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest, stateful.digest, compilerContextDigest])).digest("hex");
@@ -913,11 +918,15 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const generationInput = { module: reference.moduleName, generation: key.slice(0, 32),
     statefulBodies: stateful.bodies,
     ...(baselinesVerified ? { preserveViewFunctions: true } : {}),
-    ...(needsAdditive ? { allowAdditive: true, allowStatefulAdditive: true, statefulOrigins: componentInput.descriptors, availableModules } : {}),
+    ...(needsAdditive ? { allowAdditive: true, allowStatefulAdditive: true, allowAddedState: true, stateGeneration: record.sequence ?? 1, statefulOrigins: componentInput.descriptors, availableModules } : {}),
     files: snapshots };
   const generation = needsAdditive ? generateAdditive(fullCompiler, generationInput,
     () => sharedModuleSources(manifest, reference, snapshots, { queue: createLiveDeliveryQueue(), binaryIdentity: record.scope.binaryIdentity }))
     : fullCompiler.generate(generationInput);
+  const addedStateMetadata = generation.addedStateProtocol === 1
+    ? { addedStateProtocol: 1, addedStateGeneration: record.sequence } : {};
+  if (generation.addedStateProtocol === 1 && (!Number.isSafeInteger(record.sequence) || record.sequence < 1
+    || generation.addedStateGeneration !== record.sequence)) throw completeArtifactError();
   // Older helpers created the shared patch container as 0755. Tighten that
   // owned, non-writable container when first publishing private modules; never
   // weaken origin verification or follow a linked/foreign container.
@@ -949,8 +958,9 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
     if (previous.compilerContextDigest !== compilerContextDigest) throw completeArtifactError();
     const stateMetadata = metadata(coverage.artifactDigest);
     validateStatefulMarker(previous, stateMetadata, record);
+    validateAddedStateMarker(previous, addedStateMetadata, record);
     if (stateMetadata.statefulComponentProtocol === 1) verifyStatefulOrigins(stateMetadata.statefulOrigins, { scope: record.scope, artifactRoot, patchRoot, resourceDigest });
-    return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...stateMetadata };
+    return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...addedStateMetadata, ...stateMetadata };
   }
   const volume = statfsSync(artifactRoot);
   const initialUsage = queuedArtifactUsage(artifactRoot, patchRoot);
@@ -960,8 +970,9 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   ensureDirectoryModeSync(directory, 0o700);
   const owner = { version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest,
     binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest, refreshStrategy, statefulDigest: stateful.digest,
-    additiveProtocol: generation.additiveProtocol || 0, sharedAdditive: generation.sharedAdditive === true };
+    additiveProtocol: generation.additiveProtocol || 0, sharedAdditive: generation.sharedAdditive === true, ...addedStateMetadata };
   owner.compilerContextDigest = compilerContextDigest;
+  if (generation.addedStateProtocol === 1) owner.processIdentity = record.scope.sessionIdentity;
   if (generation.statefulComponentProtocol === 1) Object.assign(owner, { statefulComponentProtocol: 1, processIdentity: record.scope.sessionIdentity });
   writeCompleteMarker(marker, owner);
   const paths = generation.sources.map((source, index) => {
@@ -993,7 +1004,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const stateMetadata = metadata(coverage.artifactDigest);
   writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest,
     ...(stateMetadata.statefulComponentProtocol === 1 ? { statefulOriginsDigest: statefulOriginsDigest(stateMetadata.statefulOrigins) } : {}) });
-  return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...stateMetadata };
+  return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...addedStateMetadata, ...stateMetadata };
 }
 
 function availableAdditiveModules(context, files) {
@@ -1035,6 +1046,7 @@ export function validateCompleteQueuedLivePatchCoverage(record, { artifactRoot =
   assertCompleteFile(path);
   const marker = readCompleteMarker(`${path}.json`);
   validateStatefulMarker(marker, record.preparedPatch, record);
+  validateAddedStateMarker(marker, record.preparedPatch, record);
   if (record.preparedPatch.statefulComponentProtocol === 1) verifyStatefulOrigins(record.preparedPatch.statefulOrigins,
     { scope: record.scope, artifactRoot, patchRoot, resourceDigest: record.preparedPatch.compilerResourceDigest });
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity
@@ -1051,6 +1063,7 @@ export function sealCompleteQueuedLivePatch(record, raw, signedDigest) {
   assertCompleteFile(raw.path);
   const marker = readCompleteMarker(`${raw.path}.json`);
   validateStatefulMarker(marker, raw, record);
+  validateAddedStateMarker(marker, raw, record);
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity || marker.artifactDigest !== raw.artifactDigest
     || marker.compilerContextDigest !== raw.compilerContextDigest
     || marker.coverageDigest !== raw.coverageDigest || marker.resourceDigest !== raw.compilerResourceDigest
@@ -1060,6 +1073,14 @@ export function sealCompleteQueuedLivePatch(record, raw, signedDigest) {
   writeCompleteMarker(`${raw.path}.json`, { ...marker, unsignedArtifactDigest: marker.unsignedArtifactDigest || raw.artifactDigest, artifactDigest: signedDigest,
     ...(stateMetadata.statefulComponentProtocol === 1 ? { statefulOriginsDigest: statefulOriginsDigest(stateMetadata.statefulOrigins) } : {}) });
   return stateMetadata;
+}
+function validateAddedStateMarker(marker, patch, record) {
+  if ((marker.addedStateProtocol || 0) !== (patch.addedStateProtocol || 0)
+    || (patch.addedStateProtocol !== undefined && patch.addedStateProtocol !== 1)
+    || (patch.addedStateProtocol === 1 && (!Number.isSafeInteger(record.sequence) || record.sequence < 1
+      || marker.addedStateGeneration !== record.sequence || patch.addedStateGeneration !== record.sequence
+      || marker.processIdentity !== record.scope.sessionIdentity))
+    || (patch.addedStateProtocol !== 1 && (patch.addedStateGeneration !== undefined || marker.addedStateGeneration !== undefined))) throw completeArtifactError();
 }
 function assertCompleteFile(path, ownerOnly = true) {
   const stats = lstatSync(path);
@@ -1137,7 +1158,7 @@ export async function prepareQueuedLivePatchAsync(record, { cancellationSignal, 
   if (result.code !== 0 || result.timedOut || result.cancellationError) {
     let failure;
     try { failure = JSON.parse(result.stderr.trim()); } catch {}
-    const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID", "LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED", "LIVE_STATEFUL_ORIGIN_INVALID"];
+    const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID", "LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED", "LIVE_STATEFUL_ORIGIN_INVALID", "LIVE_CLIENT_UPDATE_REQUIRED"];
     const code = !result.timedOut && !result.cancellationError && allowed.includes(failure?.code) ? failure.code : "PATCH_COMPILE_FAILED";
     throw Object.assign(new Error("The queued replacement could not be prepared. No patch was applied or app rebuild started."), { code });
   }

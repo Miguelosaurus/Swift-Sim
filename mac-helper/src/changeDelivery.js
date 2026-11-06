@@ -42,7 +42,8 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
     // Compatible intent is durable before compilation/application. Device
     // absence, refresh uncertainty and compile failure never invoke a builder.
     const result = await queueLive({ files: files.filter((_, index) => change.changes[index]?.route === "hot-reload"), project, host, scheme,
-      ...(change.requiresCompleteCoverage ? { requiresCompleteCoverage: true } : {}) });
+      ...(change.requiresCompleteCoverage ? { requiresCompleteCoverage: true } : {}),
+      ...(change.requiresAddedState ? { requiresAddedState: true } : {}) });
     return finish({ ...result, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { action: "queue-live", reasonCode: result.reasonCode || "IMPLEMENTATION_ONLY" }) }, !verbose);
   } catch (error) {
     const code = /^[A-Z][A-Z0-9_]{1,79}$/.test(error?.code || "") ? error.code : "LIVE_QUEUE_FAILED";

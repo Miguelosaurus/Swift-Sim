@@ -83,12 +83,33 @@ New concrete, unnested views with `@State`, `@Binding` or `@Environment` use the
 additional `stateful-components-v1` capability. Pinning their first nominal type
 in the current verified app process preserves SwiftUI-owned values across body
 and shared-helper edits. No per-screen setup or separate state store is needed.
-Stored fields, defaults, wrapper arguments and initializer surface cannot change
+Original stored fields, defaults, wrapper arguments and initializer surface cannot change
 within that pinned type; these edits stop before application and require a new
 Debug build in this bounded workflow. A real app relaunch regenerates the type
 from confirmed desired source with normal fresh in-memory state; rejected edits
-are not confirmed source. Existing installed-type storage still needs a signed build. Generic/nested
+are not confirmed source. Generic/nested
 components, other wrappers and opaque helper returns remain unsupported.
+
+## Adding State fields
+
+The matching `added-state-slots-v1` Debug SDK reserves one optional SwiftUI-owned
+slot in the existing refresh hook. One signed bootstrap update is required; later
+supported new `@State` declarations on eligible installed or pinned views reload
+without another build or per-screen setup. Developer source uses ordinary State
+and projected bindings. Values remain in the app; nothing is uploaded.
+
+Initial support covers primitive values, optionals, arrays and dictionaries with
+pure literal defaults, up to 32 added fields per view. Existing fields retain their
+native layout. Custom object/effectful defaults, unsupported wrappers, backing
+storage access and ambiguous shadowed names reject before application. Type or
+default changes, removal and rename remain rebuild boundaries, except explicit
+whole-original-baseline restoration. Restoration does not cancel escaped callbacks
+or erase latent added values before the SwiftUI view lifetime ends. A real relaunch
+starts normal fresh in-memory state. Ordinary SwiftUI identity/remount rules apply.
+
+The slot remains empty until the first mutation; there is no registry, background
+worker, serialization or additional network round trip. Unsupported edits never
+partially apply. Require the same exact native replacement and refresh receipts.
 
 ## Asynchronous edits
 
@@ -143,7 +164,7 @@ The complete compiler accepts top-level internal/private functions,
 structs/enums/typealiases and new `.swift` source units inside the captured
 project. Stateless SwiftUI subviews can be extracted to a new file and call a
 shared helper from another file. Existing layout/signatures, public additions,
-classes/actors/protocols, global storage, macros/property wrappers and added
+classes/actors/protocols, global storage, unsupported macros/property wrappers and added
 conformances on installed types retain their fences.
 
 Deliver the completed logical change in one `--changes-manifest` operation.
@@ -159,7 +180,8 @@ accepted request or altering its snapshots. Shared names are checked against
 verified originals; `FULL_CALLABLE_ORIGINALS_UNAVAILABLE` needs exact source
 context recovery, not a guessed baseline or automatic rebuild.
 
-Eligible existing parents can preserve state. Introduced view types get a new
-patch-module identity each generation; their own subtree state may reset. This
+Eligible existing parents can preserve state. Stateless introduced view types get a new
+patch-module identity each generation; their subtree state may reset. Stateful
+components use the pinned identity described above. This
 adds no phone SDK, setup step, idle worker or notification overhead. Keep all
 normal receipt, foreground, uncertainty and restoration requirements.

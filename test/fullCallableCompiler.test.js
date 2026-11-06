@@ -244,3 +244,132 @@ test("pinned member modules and preservation require the exact admitted componen
   }
   assert.throws(() => f.compiler.generate({ ...allowed, allowStatefulAdditive: false }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
 });
+
+function addedStateFixture(t, fields = [{ name: "count", key: "a".repeat(64), type: "Swift.Int" }]) {
+  const f = fixture(t), path = join(f.root, "Fixture.swift");
+  Object.assign(f.state.generated, { additiveProtocol: 1, requiresPrivateScopes: true, refreshStrategy: "preserve-state-v1",
+    additions: [{ file: "Fixture.swift", owner: "Probe", declaration: "added-state" }],
+    addedStateProtocol: 1, addedStateGeneration: 7, addedStateOwners: [{ path, owner: "Probe", fields }] });
+  Object.assign(f.state.generated.members[0], { member: "body", kind: "property", accessors: ["getter"] });
+  const allowed = { ...input, allowAdditive: true, allowAddedState: true, stateGeneration: 7,
+    statefulBodies: { [path]: ["Probe"] }, files: [{ ...input.files[0], path, installedBaseline: "installed" }] };
+  return { ...f, allowed };
+}
+
+test("added state is admitted only for exact captured owners and the current positive generation", t => {
+  const f = addedStateFixture(t);
+  assert.equal(f.compiler.generate(f.allowed).addedStateGeneration, 7);
+  const calls = f.state.calls.length;
+  for (const change of [{ allowAddedState: false }, { allowAddedState: "true" }, { allowAdditive: false },
+    { stateGeneration: 0 }, { stateGeneration: -1 }, { stateGeneration: 1.5 }, { stateGeneration: Number.MAX_SAFE_INTEGER + 1 },
+    { stateGeneration: undefined }]) assert.throws(() => f.compiler.generate({ ...f.allowed, ...change }));
+  assert.equal(f.state.calls.length, calls, "invalid input rejects before any tool invocation");
+  for (const change of [{ allowAddedState: undefined, stateGeneration: undefined }, { stateGeneration: 8 },
+    { statefulBodies: {} }, { statefulBodies: { [f.allowed.files[0].path]: ["AnotherView"] } }]) {
+    assert.throws(() => f.compiler.generate({ ...f.allowed, ...change }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  }
+});
+
+test("added-state output cannot forge owners, field keys, shapes, or generation lineage", t => {
+  const f = addedStateFixture(t), original = structuredClone(f.state.generated);
+  const owner = original.addedStateOwners[0], field = owner.fields[0];
+  const changes = [
+    { addedStateProtocol: 2 }, { addedStateGeneration: 0 }, { addedStateGeneration: 8 }, { requiresPrivateScopes: false }, { additiveProtocol: 0 },
+    { addedStateOwners: [] }, { addedStateOwners: {} }, { addedStateOwners: [owner, owner] },
+    { addedStateOwners: [{ ...owner, path: join(f.root, "Other.swift") }] },
+    { addedStateOwners: [{ ...owner, owner: "Other" }] }, { addedStateOwners: [{ ...owner, owner: "Probe; sideEffect()" }] },
+    { addedStateOwners: [{ ...owner, fields: {} }] }, { addedStateOwners: [{ ...owner, fields: [field, field] }] },
+    { addedStateOwners: [{ ...owner, fields: [{ ...field, name: "unsafe-name" }] }] },
+    { addedStateOwners: [{ ...owner, fields: [{ ...field, key: "short" }] }] },
+    { addedStateOwners: [{ ...owner, fields: [{ ...field, type: "UncapturedType" }] }] },
+    { addedStateOwners: [{ ...owner, fields: Array.from({ length: 33 }, (_, i) => ({ name: `field${i}`, key: i.toString(16).padStart(64, "0"), type: "Bool" })) }] },
+  ];
+  for (const change of changes) {
+    f.state.generated = { ...original, ...change };
+    assert.throws(() => f.compiler.generate(f.allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  }
+});
+
+test("added-state restoration permits an empty field set without manufacturing replacement coverage", t => {
+  const f = addedStateFixture(t, []);
+  const generated = f.compiler.generate(f.allowed);
+  assert.equal(generated.addedStateOwners[0].fields.length, 0);
+  f.state.demangled = "dynamically replaceable variable for (extension in Patch):Fixture.Probe.__swiftSim_full_g0123456789abcdef0123456789abcdef_f0_0.getter : SwiftUI.AnyView\n";
+  const coverage = f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: generated, moduleName: "Patch" });
+  assert.equal(coverage.replacementProof.swift_replacements, 1);
+  assert.equal(coverage.members.length, 1);
+});
+
+test("added-state types stay in the bounded primitive, optional and collection surface", t => {
+  const f = addedStateFixture(t);
+  for (const type of ["Swift.Bool", "String", "Int64", "Swift.UInt32", "Float", "Swift.Double", "String?", "Swift.Optional<Int>",
+    "[Swift.Int]", "[String: Bool?]", "[[String: [UInt8]?]]", "[Swift.String: Swift.Optional<Double>]"]) {
+    f.state.generated.addedStateOwners[0].fields[0].type = type;
+    assert.equal(f.compiler.generate(f.allowed).addedStateProtocol, 1, type);
+  }
+  for (const type of ["", "Custom", "CGFloat", "Some.Type", "[String:Int:Bool]", "Optional<Custom>", "[Int", "[Int] trailing", "Int; fatalError()", "[".repeat(20) + "Int" + "]".repeat(20)]) {
+    f.state.generated.addedStateOwners[0].fields[0].type = type;
+    assert.throws(() => f.compiler.generate(f.allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" }, type);
+  }
+});
+
+test("ordinary generations cannot smuggle added-state fields or detached sequence metadata", t => {
+  const f = fixture(t), original = structuredClone(f.state.generated);
+  for (const change of [{ addedStateProtocol: 0, addedStateGeneration: 1 }, { addedStateGeneration: 1 }, { addedStateProtocol: 0, addedStateOwners: [{}] },
+    { addedStateOwners: {} }, { addedStateProtocol: false }]) {
+    f.state.generated = { ...original, ...change };
+    assert.throws(() => f.compiler.generate(input), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  }
+  f.state.generated = { ...original, addedStateProtocol: 0, addedStateOwners: [] };
+  assert.equal(f.compiler.generate(input).changedMemberCount, 1);
+  assert.throws(() => f.compiler.generate({ ...input, stateGeneration: 7 }));
+});
+
+test("original state-name metadata is bounded on generator origins and new component declarations", t => {
+  const f = fixture(t), path = join(f.root, "Fixture.swift");
+  const origin = { path, owner: "Card", module: "FirstPatch", sourceFile: "Replacement0.swift", layoutDigest: "a".repeat(64), stateNames: ["count"] };
+  const allowed = { ...input, files: [{ ...input.files[0], path }], allowAdditive: true, allowStatefulAdditive: true, statefulOrigins: [origin] };
+  assert.equal(f.compiler.generate(allowed).changedMemberCount, 1);
+  for (const stateNames of [null, "count", [""], ["bad-name"], ["count", "count"], ["x".repeat(65)], Array(33).fill("count")]) {
+    const calls = f.state.calls.length;
+    assert.throws(() => f.compiler.generate({ ...allowed, statefulOrigins: [{ ...origin, stateNames }] }));
+    assert.equal(f.state.calls.length, calls, "invalid names reject before executing tools");
+  }
+  Object.assign(f.state.generated, { additiveProtocol: 1, requiresPrivateScopes: true, additions: [], statefulComponentProtocol: 1,
+    statefulComponents: [{ path, owner: "Card", layoutDigest: "a".repeat(64), sourceFileIndex: 0, stateNames: ["count"],
+      slots: [{ member: "body", kind: "property", accessors: ["getter"], isStatic: false }] }], statefulOriginUses: [] });
+  assert.deepEqual(f.compiler.generate(allowed).statefulComponents[0].stateNames, ["count"]);
+  for (const stateNames of [null, "count", ["a", "a"], ["bad-name"], Array(33).fill("count")]) {
+    f.state.generated.statefulComponents[0].stateNames = stateNames;
+    assert.throws(() => f.compiler.generate(allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  }
+});
+
+test("added State on a pinned view needs exact origin scope and original-name metadata", t => {
+  const f = addedStateFixture(t), path = f.allowed.files[0].path;
+  const origin = { path, owner: "Probe", module: "FirstPatch", sourceFile: "Replacement0.swift", layoutDigest: "a".repeat(64), stateNames: ["originalCount"] };
+  const allowed = { ...f.allowed, statefulBodies: {}, allowStatefulAdditive: true, statefulOrigins: [origin] };
+  Object.assign(f.state.generated, { statefulComponentProtocol: 1, statefulComponents: [], statefulOriginUses: [origin] });
+  f.state.generated.members[0].targetModule = "FirstPatch";
+  assert.equal(f.compiler.generate(allowed).addedStateProtocol, 1);
+  const withoutNames = { ...origin }; delete withoutNames.stateNames;
+  assert.throws(() => f.compiler.generate({ ...allowed, statefulOrigins: [withoutNames] }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  for (const statefulOrigins of [[], [{ ...origin, path: join(f.root, "Other.swift") }], [{ ...origin, owner: "Other" }]]) {
+    assert.throws(() => f.compiler.generate({ ...allowed, statefulOrigins }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  }
+  assert.equal(f.compiler.generate({ ...allowed, statefulOrigins: [{ ...origin, stateNames: [] }] }).addedStateProtocol, 1);
+});
+
+test("concrete property accessors preserve added State only on their exact admitted view owner", t => {
+  const f = addedStateFixture(t);
+  Object.assign(f.state.generated.members[0], { member: "derived", kind: "property", accessors: ["getter"] });
+  assert.equal(f.compiler.generate(f.allowed).refreshStrategy, "preserve-state-v1");
+  f.state.generated.members[0].isStatic = true;
+  assert.throws(() => f.compiler.generate(f.allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  f.state.generated.members[0].isStatic = false;
+  f.state.generated.addedStateOwners[0].owner = "Other";
+  assert.throws(() => f.compiler.generate(f.allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  f.state.generated.addedStateOwners[0].owner = "Probe";
+  delete f.state.generated.addedStateProtocol; delete f.state.generated.addedStateGeneration; delete f.state.generated.addedStateOwners;
+  assert.throws(() => f.compiler.generate(f.allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+});

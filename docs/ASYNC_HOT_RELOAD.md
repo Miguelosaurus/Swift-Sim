@@ -122,7 +122,19 @@ drafts and bindings. No user values are copied or stored by Swift Sim. Other
 wrappers, generic/nested components, opaque helper return types and macros remain
 outside this bounded surface.
 
-A pinned component's stored fields, wrapper arguments, defaults and initializer
+The additional `added-state-slots-v1` SDK reserves one optional SwiftUI-owned
+slot in the existing Debug refresh hook. After one bootstrap update, new `@State`
+fields on eligible installed and pinned views can reload without another build.
+Primitive values, optionals, arrays and dictionaries with pure literal defaults
+are supported, up to 32 added fields per view; ordinary source and bindings work
+without per-screen setup. The optional box stays empty until the first mutation.
+There is no background worker, value upload, serialization or extra network request.
+Type/default changes, removal and rename remain fenced, except explicit restoration
+to the entire installed baseline. Restoration does not cancel older callbacks or
+clear latent values before the SwiftUI view lifetime ends. Normal identity and
+remount rules still apply. Custom object/effectful defaults require a build.
+
+A pinned component's original stored fields, wrapper arguments, defaults and initializer
 surface stay fixed. Incompatible edits reject before application and need a new Debug build in
 this bounded workflow. A real app restart regenerates types from confirmed
 source with normal fresh in-memory state; it does not migrate values or turn a

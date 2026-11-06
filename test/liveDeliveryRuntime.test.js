@@ -902,3 +902,32 @@ test("prepared bytes do not mask a missing or invalid qualified capture as ordin
     assert.equal(f.queue.get(pending.delivery.requestId).state, "waiting-for-device");
   } finally { f.cleanup(); }
 });
+
+test("adding State refuses a known-old SDK before publication without changing ordinary admission", async () => {
+  const f = fixture();
+  try {
+    const binding=f.adapter.binding;
+    f.adapter.binding=async()=>({...await binding(),completeCoverage:true,addedStateSupported:false});
+    await assert.rejects(f.service.enqueue({files:f.files(),requiresCompleteCoverage:true,requiresAddedState:true}),{code:"LIVE_CLIENT_UPDATE_REQUIRED"});
+    assert.equal(f.queue.list().length,0);assert.equal(f.calls.prepare.length,0);assert.equal(f.calls.apply.length,0);
+    const ordinary=await f.service.enqueue({files:f.files()});
+    assert.equal(ordinary.outcome,"queued");assert.equal(f.queue.list().length,1);
+  } finally {f.cleanup();}
+});
+
+test("prepared state-slot edits wait for their exact capability and keep the same queued identity", async () => {
+  const f=fixture();
+  try {
+    Object.assign(f.state,{clientPresent:true,addedStateClient:false,connected:true,foreground:true});
+    f.adapter.prepare=async record=>{f.calls.prepare.push(record.requestId);return{path:"fixture-owned",patchDigest:sha(record.snapshotDigest),addedStateProtocol:1,addedStateGeneration:record.sequence};};
+    const accepted=await f.service.enqueue({files:f.files()});
+    const requestId=accepted.delivery.requestId;
+    await f.service.runOnce();await f.service.runOnce();
+    assert.equal(f.calls.apply.length,0);assert.equal(f.queue.get(requestId).preparedPatch.addedStateProtocol,1);
+    assert.equal(f.queue.readiness(f.queue.get(requestId)).code,"LIVE_CLIENT_UPDATE_REQUIRED");
+    f.state.addedStateClient=true;
+    await f.service.runOnce();
+    assert.equal(f.calls.apply.length,1);assert.equal(f.queue.get(requestId).state,"refreshed");
+    assert.equal(f.queue.desiredStates()[0].requiresCohort,true);
+  } finally {f.cleanup();}
+});

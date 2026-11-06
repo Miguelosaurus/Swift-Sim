@@ -233,3 +233,16 @@ test("new-file removal resolves its original empty baseline rather than deleting
   assert.equal(f.calls[0].files.find(item => item.path === remove.path).isNewFile, true);
   assert.equal(f.calls[0].files.find(item => item.path === restore.path).installedBaseline, original);
 });
+
+test("added State classification negotiates its client support and uses captured body ownership",()=>{
+ const f=fixture();f.compiler.generate=input=>{f.calls.push(input);return{additiveProtocol:1,requiresPrivateScopes:true,addedStateProtocol:1};};
+ const classified=classifyPrivateAdditiveEditSet([file],f);
+ assert.equal(classified.requiresCompleteCoverage,true);assert.equal(classified.requiresAddedState,true);
+ assert.equal(f.calls[0].allowAddedState,true);assert.equal(f.calls[0].stateGeneration,1);assert.deepEqual(f.calls[0].statefulBodies,{});
+});
+
+test("an unverified installed body capture never falls back to a guessed additive classification",()=>{
+ const f=fixture();f.manifest.stateful={version:1,manifestPath:"/missing/state-capture.json"};
+ assert.throws(()=>classifyPrivateAdditiveEditSet([file],f),{code:"FULL_CALLABLE_STATEFUL_ABI_INVALID"});
+ assert.equal(f.calls.length,0);
+});

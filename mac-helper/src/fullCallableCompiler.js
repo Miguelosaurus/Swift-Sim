@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validStateNames } from "./liveStatefulOrigins.js";
 import { normalizeReplacementProof, replacementCoverageDigest } from "./replacementProof.js";
 import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 import { NodeArtifactStore } from "./infrastructure/nodeArtifactStore.js";
@@ -211,11 +212,15 @@ function validateInput(input) {
     || !input.moduleSources.length || input.moduleSources.length > 2048 || new Set(input.moduleSources.map(file => file.path)).size !== input.moduleSources.length
     || input.moduleSources.some(file => !isAbsolute(file.path || "") || typeof file.source !== "string" || Buffer.byteLength(file.source) > 1024 * 1024))) throw unsupported();
   if (input.preserveViewFunctions !== undefined && typeof input.preserveViewFunctions !== "boolean") throw unsupported();
+  if (input.allowAddedState !== undefined && (typeof input.allowAddedState !== "boolean" || input.allowAdditive !== true)) throw unsupported();
+  if (input.allowAddedState === true && (!Number.isSafeInteger(input.stateGeneration) || input.stateGeneration < 1)) throw unsupported();
+  if (input.stateGeneration !== undefined && (input.allowAddedState !== true || !Number.isSafeInteger(input.stateGeneration) || input.stateGeneration < 1)) throw unsupported();
   if (input.allowStatefulAdditive !== undefined && (typeof input.allowStatefulAdditive !== "boolean" || input.allowAdditive !== true)) throw unsupported();
   if (input.statefulOrigins !== undefined && (!Array.isArray(input.statefulOrigins) || input.statefulOrigins.length > 32
     || input.statefulOrigins.some(origin => !isAbsolute(origin?.path || "") || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.owner || "")
       || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.module || "") || !/^Replacement(?:[0-9]|[12][0-9]|3[01])\.swift$/.test(origin.sourceFile || "")
-      || !/^[a-f0-9]{64}$/.test(origin.layoutDigest || "")))) throw unsupported();
+      || !/^[a-f0-9]{64}$/.test(origin.layoutDigest || "")
+      || (origin.stateNames !== undefined && !validStateNames(origin.stateNames))))) throw unsupported();
   if (input.availableModules !== undefined && (!Array.isArray(input.availableModules) || input.availableModules.length > 128
     || input.availableModules.some(name => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))) throw unsupported();
   if (input.files.some(file => file.installedBaseline !== undefined && (input.allowAdditive !== true
@@ -240,6 +245,7 @@ function validateGeneration(value, input) {
       || typeof item.declaration !== "string" || item.declaration.length > 4096
       || (input && !input.files.some(file => file.path.split("/").at(-1) === item.file))))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.refreshStrategy !== undefined && !["remount", "preserve-state-v1"].includes(value.refreshStrategy)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+  validateAddedStateGeneration(value, input);
   if (value.statefulComponentProtocol !== undefined && ![0, 1].includes(value.statefulComponentProtocol)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.statefulComponentProtocol === 1) {
     if ((input && input.allowStatefulAdditive !== true) || value.additiveProtocol !== 1 || value.requiresPrivateScopes !== true
@@ -252,6 +258,7 @@ function validateGeneration(value, input) {
         || !/^[a-f0-9]{64}$/.test(component.layoutDigest || "") || !Number.isSafeInteger(component.sourceFileIndex)
         || component.sourceFileIndex < 0 || component.sourceFileIndex >= value.sources.length
         || (input && input.files[component.sourceFileIndex]?.path !== component.path)
+        || (component.stateNames !== undefined && !validStateNames(component.stateNames))
         || !Array.isArray(component.slots) || !component.slots.length || component.slots.length > 128
         || component.slots.some(slot => !slot || typeof slot.member !== "string" || !slot.member || slot.member.length > 4096
           || !["function", "property", "subscript"].includes(slot.kind) || typeof slot.isStatic !== "boolean"
@@ -278,9 +285,60 @@ function validateGeneration(value, input) {
       && origin.path.split("/").at(-1) === member.file);
     if (member.targetModule !== undefined && !pinned) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
     if (input && !pinned && value.refreshStrategy === "preserve-state-v1" && ((member.member !== "body"
-      && !((input.allowAdditive === true || input.preserveViewFunctions === true) && member.kind === "function" && !member.isStatic))
+      && !((input.allowAdditive === true || input.preserveViewFunctions === true) && member.kind === "function" && !member.isStatic)
+      && !(member.kind === "property" && !member.isStatic && value.addedStateOwners?.some(owner => owner.owner === member.owner
+        && owner.path.split("/").at(-1) === member.file)))
       || !input.files.some(file => file.path.split("/").at(-1) === member.file && input.statefulBodies?.[file.path]?.includes(member.owner)))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   }
+}
+function validateAddedStateGeneration(value, input) {
+  const invalid = () => { throw unsupported("FULL_CALLABLE_GENERATOR_INVALID"); };
+  if (value.addedStateProtocol !== undefined && ![0, 1].includes(value.addedStateProtocol)) invalid();
+  if (value.addedStateProtocol !== 1) {
+    if (value.addedStateGeneration !== undefined || (value.addedStateOwners !== undefined
+      && (!Array.isArray(value.addedStateOwners) || value.addedStateOwners.length))) invalid();
+    return;
+  }
+  if ((input && (input.allowAddedState !== true || value.addedStateGeneration !== input.stateGeneration))
+    || !Number.isSafeInteger(value.addedStateGeneration) || value.addedStateGeneration < 1
+    || value.additiveProtocol !== 1 || value.requiresPrivateScopes !== true
+    || !Array.isArray(value.addedStateOwners) || !value.addedStateOwners.length || value.addedStateOwners.length > 512) invalid();
+  const owners = new Set(), allKeys = new Set();
+  for (const owner of value.addedStateOwners) {
+    const identity = owner?.path + "#" + owner?.owner;
+    if (!owner || !isAbsolute(owner.path || "") || owner.path.length > 4096
+      || !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(owner.owner || "") || owners.has(identity)
+      || !Array.isArray(owner.fields) || owner.fields.length > 32
+      || (input && (!input.files.some(file => file.path === owner.path) || !(input.statefulBodies?.[owner.path]?.includes(owner.owner)
+        || input.statefulOrigins?.some(origin => origin.path === owner.path && origin.owner === owner.owner && validStateNames(origin.stateNames)))))) invalid();
+    owners.add(identity);
+    const names = new Set();
+    for (const field of owner.fields) {
+      if (!field || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(field.name || "") || names.has(field.name)
+        || !/^[a-f0-9]{64}$/.test(field.key || "") || allKeys.has(field.key) || !addedStateType(field.type)) invalid();
+      names.add(field.name); allKeys.add(field.key);
+    }
+  }
+}
+function addedStateType(value, depth = 0) {
+  if (typeof value !== "string" || !value || value.length > 1024 || depth > 16) return false;
+  const type = value.replaceAll(/\s+/g, "");
+  if (/^(?:Swift\.)?(?:Bool|String|Int(?:8|16|32|64)?|UInt(?:8|16|32|64)?|Float|Double)$/.test(type)) return true;
+  if (type.endsWith("?")) return addedStateType(type.slice(0, -1), depth + 1);
+  const optional = type.match(/^(?:Swift\.)?Optional<(.+)>$/);
+  if (optional) return addedStateType(optional[1], depth + 1);
+  if (!type.startsWith("[") || !type.endsWith("]")) return false;
+  const inner = type.slice(1, -1); let nesting = 0, separator = -1;
+  for (let index = 0; index < inner.length; index++) {
+    const char = inner[index];
+    if (char === "[" || char === "<") nesting++;
+    if (char === "]" || char === ">") nesting--;
+    if (nesting < 0) return false;
+    if (char === ":" && nesting === 0) { if (separator !== -1) return false; separator = index; }
+  }
+  if (nesting !== 0) return false;
+  return separator === -1 ? addedStateType(inner, depth + 1)
+    : addedStateType(inner.slice(0, separator), depth + 1) && addedStateType(inner.slice(separator + 1), depth + 1);
 }
 function identifierIn(text, identifier) {
   const offset = text.indexOf(identifier);

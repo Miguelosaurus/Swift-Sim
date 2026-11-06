@@ -8,8 +8,10 @@ import SwiftUI
 @propertyWrapper
 public struct SwiftSimRefresh: DynamicProperty {
     @ObservedObject private var observer = SwiftSimLiveObserver.shared
+    @State private var addedState: AddedViewState.Storage? = nil
     public init() {}
     public var wrappedValue: Int { observer.revision }
+    public var projectedValue: AddedViewState { AddedViewState(storage: $addedState) }
 }
 
 enum SwiftSimRootRefreshPolicy {

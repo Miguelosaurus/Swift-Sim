@@ -23,7 +23,7 @@ const observation=save('Observer.swift',`import SwiftUI
 @MainActor final class SwiftSimLiveObserver: ObservableObject { static let shared = SwiftSimLiveObserver(); @Published var revision = 0 }
 @MainActor public func qualificationRefresh() { SwiftSimLiveObserver.shared.revision += 1 }
 `);
-swift(['-D','DEBUG','-emit-library','-emit-module','-module-name','SwiftSimLive',observation,resolve('Sources/SwiftSimLive/StatePreservingRefresh.swift'),'-o',join(out,'libSwiftSimLive.dylib')]);
+swift(['-D','DEBUG','-emit-library','-emit-module','-module-name','SwiftSimLive',observation,resolve('Sources/SwiftSimLive/StatePreservingRefresh.swift'),resolve('Sources/SwiftSimLive/AddedViewState.swift'),'-o',join(out,'libSwiftSimLive.dylib')]);
 const module='StatefulFixture', path=join(out,'Host.swift'), helperPath=join(out,'Helper.swift');
 const original=`import SwiftUI
 @MainActor public final class Probe: ObservableObject {

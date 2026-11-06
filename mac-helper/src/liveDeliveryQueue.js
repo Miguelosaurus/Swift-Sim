@@ -255,6 +255,7 @@ export function createLiveDeliveryQueue({
           if (!preparedPatch || typeof preparedPatch !== "object" || Array.isArray(preparedPatch)
             || Buffer.byteLength(JSON.stringify(preparedPatch)) > 512 * 1024) throw queueError("QUEUE_PATCH_INVALID");
           const origins = preparedStatefulOrigins(preparedPatch, record.scope);
+          if (preparedPatch.addedStateProtocol === 1 && preparedPatch.addedStateGeneration !== record.sequence) throw queueError("QUEUE_PATCH_INVALID");
           record.preparedPatch = clone({ ...preparedPatch, ...(origins === undefined ? {} : { statefulOrigins: origins }) });
         }
         if (state === "applying") {
@@ -612,7 +613,7 @@ function retainDesiredState(journal, record, time) {
     scope: clone(record.scope), files: snapshots, confirmedThroughSequence: record.sequence,
     sourceRequestId: record.requestId, proof: clone(record.proof), confirmation: "refreshed", revoked: false,
     ...desiredStatefulOrigins(previous, record, snapshots),
-    ...((previous?.requiresCohort === true || record.preparedPatch?.sharedAdditive === true || record.preparedPatch?.statefulComponentProtocol === 1)
+    ...((previous?.requiresCohort === true || record.preparedPatch?.sharedAdditive === true || record.preparedPatch?.statefulComponentProtocol === 1 || record.preparedPatch?.addedStateProtocol === 1)
       && snapshots.some(file => file.beforeHash !== file.afterHash) ? { requiresCohort: true } : {}),
     createdAt: previous?.createdAt ?? time, updatedAt: time,
   });
@@ -678,6 +679,7 @@ function validateJournal(journal) {
         || typeof record.predecessorRequestId !== "string"
         || (record.preparedPatch !== null && (typeof record.preparedPatch !== "object" || Array.isArray(record.preparedPatch)))) throw queueError("QUEUE_JOURNAL_INVALID");
       preparedStatefulOrigins(record.preparedPatch, record.scope);
+      if (record.preparedPatch?.addedStateProtocol === 1 && record.preparedPatch.addedStateGeneration !== record.sequence) throw queueError("QUEUE_PATCH_INVALID");
       for (let index = 0; index < snapshots.length; index += 1) {
         if (snapshots[index].beforeHash !== record.files[index].beforeHash || snapshots[index].afterHash !== record.files[index].afterHash) throw queueError("QUEUE_JOURNAL_INVALID");
       }

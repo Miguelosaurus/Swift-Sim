@@ -4,7 +4,8 @@ import { ensureFileModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 import { normalizeStatefulOrigins, statefulOriginsDigest, verifyStatefulOrigins } from "./liveStatefulOrigins.js";
 
 const digest = value => createHash("sha256").update(value).digest("hex");
-const descriptor = origin => Object.fromEntries(["path", "owner", "module", "sourceFile", "layoutDigest"].map(key => [key, origin[key]]));
+const descriptor = origin => ({ ...Object.fromEntries(["path", "owner", "module", "sourceFile", "layoutDigest"].map(key => [key, origin[key]])),
+  ...(origin.stateNames === undefined ? {} : { stateNames: [...origin.stateNames] }) });
 export function statefulCompilerOrigins(record, roots) {
   const origins = verifyStatefulOrigins(record.statefulOrigins || [], { ...roots, scope: record.scope });
   return { origins, descriptors: origins.map(descriptor), digest: statefulOriginsDigest(origins),
@@ -24,7 +25,7 @@ export function completeStatefulMetadata(generation, inputOrigins, { record, mod
     const module = privateModule(modulePath);
     for (const component of generation.statefulComponents) origins.push({
       path: component.path, owner: component.owner, module: moduleName, sourceFile: `Replacement${component.sourceFileIndex}.swift`,
-      layoutDigest: component.layoutDigest, modulePath, moduleDigest: digest(module), artifactPath, artifactDigest,
+      layoutDigest: component.layoutDigest, ...(component.stateNames === undefined ? {} : { stateNames: component.stateNames }), modulePath, moduleDigest: digest(module), artifactPath, artifactDigest,
       requestId: record.requestId, processIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, resourceDigest,
     });
   }

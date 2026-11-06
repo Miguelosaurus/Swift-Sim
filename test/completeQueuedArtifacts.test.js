@@ -346,3 +346,81 @@ test("stateful publication refuses a writable patch container before compiling o
   assert.equal(f.state.compileCount,0);
   assert.equal(statSync(f.options.patchRoot).mode & 0o777,0o777);
 });
+
+function addedStateArtifactFixture(t) {
+  const f = fixture(t), file = f.record.files[0];
+  f.record.sequence = 7; f.record.scope.sessionIdentity = "added-state-phone-process";
+  file.installedBaseline = file.beforeSource;
+  file.afterSource += "\nprivate struct Placeholder { @State private var added = 0 }";
+  const manifest = fixtureFiles.readJSONSync(f.options.manifestPath);
+  Object.assign(manifest, { compilerContextProtocol: 2, sourceBaselines: { [file.path]: hash(file.installedBaseline) } });
+  writeFileSync(f.options.manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+  const output = { sources: ["generated"], additiveProtocol: 1, requiresPrivateScopes: true,
+    addedStateProtocol: 1, addedStateGeneration: f.record.sequence };
+  f.options.compiler.generate = input => { f.state.generatedInputs.push(input); return output; };
+  return { ...f, output, validate: () => validateCompleteQueuedLivePatchCoverage(f.record, f.options) };
+}
+
+test("added-state artifacts bind the immutable sequence and process without component modules", t => {
+  const f = addedStateArtifactFixture(t), raw = f.prepare();
+  assert.equal(raw.addedStateProtocol, 1); assert.equal(raw.addedStateGeneration, 7);
+  assert.equal(raw.statefulComponentProtocol, undefined); assert.equal(raw.statefulOrigins, undefined);
+  assert.equal(f.state.generatedInputs[0].allowAddedState, true);
+  assert.equal(f.state.generatedInputs[0].stateGeneration, 7);
+  assert.equal(f.prepare().path, raw.path); assert.equal(f.state.compileCount, 1);
+  const marker = fixtureFiles.readJSONSync(raw.path + ".json");
+  assert.equal(marker.addedStateProtocol, 1); assert.equal(marker.addedStateGeneration, 7);
+  assert.equal(marker.processIdentity, f.record.scope.sessionIdentity);
+  f.seal(raw); assert.doesNotThrow(f.validate);
+  assert.equal(f.prepare().addedStateGeneration, 7);
+  assert.equal(f.state.compileCount, 1);
+});
+
+test("an added-state compiler generation cannot drift from queue ownership before compilation", t => {
+  for (const sequence of [undefined, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, 8]) {
+    const f = addedStateArtifactFixture(t);
+    f.record.sequence = sequence;
+    assert.throws(f.prepare, { code: "PATCH_ARTIFACT_INVALID" });
+    assert.equal(f.state.compileCount, 0);
+  }
+});
+
+test("added-state marker and prepared sequence/protocol/process tampering rejects signing and admission", t => {
+  const changes = [
+    { target: "marker", patch: { addedStateProtocol: 0 } },
+    { target: "marker", patch: { addedStateGeneration: 8 } },
+    { target: "marker", patch: { processIdentity: "another-process" } },
+    { target: "prepared", patch: { addedStateProtocol: 0 } },
+    { target: "prepared", patch: { addedStateGeneration: 8 } },
+  ];
+  for (const change of changes) {
+    const beforeSign = addedStateArtifactFixture(t), raw = beforeSign.prepare();
+    if (change.target === "marker") {
+      const path = raw.path + ".json", marker = fixtureFiles.readJSONSync(path);
+      writeFileSync(path, JSON.stringify({ ...marker, ...change.patch }), { mode: 0o600 });
+    } else Object.assign(raw, change.patch);
+    assert.throws(() => beforeSign.seal(raw), { code: "PATCH_ARTIFACT_INVALID" });
+
+    const beforeApply = addedStateArtifactFixture(t), preparedRaw = beforeApply.prepare(); beforeApply.seal(preparedRaw);
+    if (change.target === "marker") {
+      const path = preparedRaw.path + ".json", marker = fixtureFiles.readJSONSync(path);
+      writeFileSync(path, JSON.stringify({ ...marker, ...change.patch }), { mode: 0o600 });
+    } else Object.assign(beforeApply.record.preparedPatch, change.patch);
+    assert.throws(beforeApply.validate, { code: "PATCH_ARTIFACT_INVALID" });
+  }
+  for (const mutate of [record => { record.sequence++; }, record => { record.scope.sessionIdentity = "new-process"; }]) {
+    const f = addedStateArtifactFixture(t), raw = f.prepare(); f.seal(raw); mutate(f.record);
+    assert.throws(f.validate, { code: "PATCH_ARTIFACT_INVALID" });
+  }
+});
+
+test("ordinary artifacts cannot acquire detached added-state generation metadata", t => {
+  for (const target of ["marker", "prepared"]) {
+    const f = fixture(t), raw = f.prepare(); f.seal(raw);
+    if (target === "marker") {
+      const path = raw.path + ".json", marker = fixtureFiles.readJSONSync(path);
+      writeFileSync(path, JSON.stringify({ ...marker, addedStateGeneration: 7 }), { mode: 0o600 });
+    } else f.record.preparedPatch.addedStateGeneration = 7;
+    assert.throws(() => validateCompleteQueuedLivePatchCoverage(f.record), { code: "PATCH_ARTIFACT_INVALID" });
+  }
+});

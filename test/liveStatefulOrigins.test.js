@@ -192,3 +192,19 @@ test("origin verification rejects missing, shared, linked, empty and oversized p
     });
   }
 });
+
+test("optional original state names are canonical, bounded, and preserve legacy origin digests", () => {
+  const legacy = origin();
+  assert.deepEqual(normalizeStatefulOrigins([legacy]), [legacy]);
+  assert.equal(statefulOriginsDigest([legacy]), hash(JSON.stringify([legacy])));
+  assert.equal(Object.hasOwn(normalizeStatefulOrigins([legacy])[0], "stateNames"), false);
+  const named = origin({ stateNames: ["draft", "count"] });
+  assert.deepEqual(normalizeStatefulOrigins([named])[0].stateNames, ["count", "draft"]);
+  assert.equal(statefulOriginsDigest([named]), statefulOriginsDigest([origin({ stateNames: ["count", "draft"] })]));
+  assert.notEqual(statefulOriginsDigest([named]), statefulOriginsDigest([legacy]));
+  assert.deepEqual(normalizeStatefulOrigins([origin({ stateNames: [] })])[0].stateNames, []);
+  for (const stateNames of [null, "count", {}, [""], ["bad-name"], ["a.b"], ["7name"], ["a", "a"], [1], ["x".repeat(65)],
+    Array.from({ length: 33 }, (_, i) => `field${i}`)]) invalid(() => normalizeStatefulOrigins([origin({ stateNames })]));
+  const largestNames = Array.from({ length: 32 }, (_, i) => `field${i}`.padEnd(64, "x"));
+  invalid(() => normalizeStatefulOrigins(Array.from({ length: 32 }, (_, i) => origin({ owner: `Card${i}`, stateNames: largestNames }))));
+});
