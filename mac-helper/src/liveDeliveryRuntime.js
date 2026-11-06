@@ -56,6 +56,15 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
         && record.files.some(file => file.path === snapshot.path));
       const rejectedDraft = latest?.state === "failed" && latest.files.find(file => file.path === snapshot.path)?.afterHash === beforeHash;
       if (!expected || (beforeHash !== expected && !rejectedDraft)) throw Object.assign(new Error("The edit's source baseline differs from the qualified Debug build or queued predecessor. No rebuild was started."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+      if (beforeHash !== expected && rejectedDraft) {
+        // Normalize before admission, not after snapshot publication. Compile
+        // all of the corrected desired source against the actual effective
+        // predecessor, including draft changes never applied by the failed job.
+        const effective = prior?.afterSource ?? desired?.afterSource ?? queue.binaryBaseline(scope, snapshot.path)?.beforeSource;
+        if (typeof effective !== "string" || createHash("sha256").update(effective).digest("hex") !== expected)
+          throw Object.assign(new Error("The effective source for the rejected draft is unavailable."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+        snapshot.beforeSource = effective;
+      }
       if (binding.verifiedProcess && binding.revision === 0 && !previous) {
         if (original) snapshot.beforeSource = original.beforeSource;
         if (createHash("sha256").update(snapshot.beforeSource).digest("hex") !== (captured || emptyOrigin)) throw Object.assign(new Error("The qualified original source baseline is unavailable for this fresh process."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });

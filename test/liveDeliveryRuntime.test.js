@@ -100,9 +100,31 @@ test("an explicit correction can still start from the latest rejected editor dra
     await f.service.enqueue({ files: f.files() }); await f.service.runOnce();
     f.adapter.prepare = prepare;
     const next = await f.service.enqueue({ files: f.files(firstEdit, secondEdit) });
+    assert.equal(f.queue.get(next.delivery.requestId).files[0].beforeSource, original);
     await f.service.runOnce(); await f.service.runOnce();
     assert.equal(f.service.status(next.delivery.requestId).outcome, "hot-reloaded");
     assert.equal(f.calls.apply.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test("success then rejection then correction compiles every desired change from the effective predecessor", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    await f.service.enqueue({ files: f.files() }); await f.service.runOnce(); await f.service.runOnce();
+    const prepare = f.adapter.prepare;
+    f.adapter.prepare = async () => { throw Object.assign(new Error("compile failed"), { code: "PATCH_ARTIFACT_INVALID" }); };
+    await f.service.enqueue({ files: f.files(firstEdit, secondEdit) }); await f.service.runOnce();
+    f.adapter.prepare = prepare;
+    const corrected = secondEdit.replace('first: String { "new" }', 'first: String { "fixed" }');
+    const next = await f.service.enqueue({ files: f.files(secondEdit, corrected) });
+    assert.equal(f.queue.get(next.delivery.requestId).files[0].beforeSource, firstEdit);
+    await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.service.status(next.delivery.requestId).outcome, "hot-reloaded");
+    const compilation = f.calls.prepare.at(-1);
+    assert.equal(compilation.files[0].beforeSource, firstEdit);
+    assert.equal(compilation.files[0].afterSource, corrected);
+    assert.equal(f.calls.apply.length, 2);
   } finally { f.cleanup(); }
 });
 
