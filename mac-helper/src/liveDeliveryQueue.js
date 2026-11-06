@@ -130,12 +130,31 @@ export function createLiveDeliveryQueue({
       const binding = normalizeScope(scope);
       return clone(read().binaryBaselines.find((item) => sameBinaryScope(item.scope, binding))?.files.find((file) => file.path === path) || null);
     },
+    // Additive admission can inspect the same bounded cumulative cohort that
+    // preparation will use, without publishing another intent or writing state.
+    compilationPreview({ binaryIdentity, files } = {}) {
+      if (typeof binaryIdentity !== "string" || !binaryIdentity) throw queueError("QUEUE_SCOPE_INVALID");
+      const journal = read();
+      const binding = journal.desiredStates.find(item => !item.revoked && item.scope.binaryIdentity === binaryIdentity)?.scope
+        || journal.records.findLast(item => item.scope.binaryIdentity === binaryIdentity)?.scope;
+      return clone(binding ? compilationFiles(journal, binding, files, Infinity, timestamp()) : normalizeFiles(files));
+    },
     compilationRecord(requestId) {
       const journal = read();
       const record = journal.records.find(item => item.requestId === requestId);
       if (!record) throw queueError("QUEUE_REQUEST_NOT_FOUND");
       const original = journal.binaryBaselines.find(item => sameBinaryScope(item.scope, record.scope));
       const projected = clone(record);
+      const desired = journal.desiredStates.find(item => sameBinaryScope(item.scope, record.scope));
+      const time = timestamp();
+      const cohort = (!desired?.revoked && desired?.requiresCohort === true && desired.confirmedThroughSequence < record.sequence)
+        || journal.records.some(item => sameBinaryScope(item.scope, record.scope) && item.sequence < record.sequence
+          && item.sequence > (desired?.revoked ? desired.confirmedThroughSequence : 0)
+          && item.expiresAt > time && !["failed", "expired", "superseded"].includes(item.state) && item.preparedPatch?.sharedAdditive === true);
+      if (cohort) {
+        projected.files = compilationFiles(journal, record.scope, record.files, record.sequence, time, true);
+        return projected;
+      }
       projected.files = projected.files.map(file => {
         const baseline = original?.files.find(item => item.path === file.path);
         if (!baseline || baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
@@ -554,6 +573,33 @@ function replaceDesired(journal, value) {
     journal.desiredStates.push(value);
   } else journal.desiredStates[index] = value;
 }
+function compilationFiles(journal, scope, incoming, sequence, time, requireOriginal = false) {
+  const requested = normalizeFiles(incoming);
+  const requestedPaths = new Set(requested.map(file => file.path));
+  const original = journal.binaryBaselines.find(item => sameBinaryScope(item.scope, scope));
+  const desired = journal.desiredStates.find(item => sameBinaryScope(item.scope, scope)
+    && item.confirmedThroughSequence < sequence);
+  const files = new Map();
+  const carry = (file) => files.set(file.path, { path: file.path, beforeSource: file.afterSource, afterSource: file.afterSource });
+  for (const file of !desired?.revoked && desired?.files || []) carry(file);
+  for (const record of journal.records) {
+    if (!sameBinaryScope(record.scope, scope) || record.sequence >= sequence || record.sequence <= (desired?.confirmedThroughSequence || 0)
+      || record.expiresAt <= time || ["failed", "expired", "superseded"].includes(record.state)) continue;
+    for (const file of record.desiredSnapshots || record.files) carry(file);
+  }
+  for (const file of requested) files.set(file.path, file);
+  const baselines = new Map();
+  const retained = [...files.values()].filter(file => {
+    const baseline = original?.files.find(item => item.path === file.path);
+    if (baseline) {
+      if (baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
+      baselines.set(file.path, baseline.beforeSource);
+    } else if (requireOriginal || !requestedPaths.has(file.path)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
+    return requestedPaths.has(file.path) || baseline.beforeSource !== file.afterSource;
+  });
+  return normalizeFiles(retained).map(file => baselines.has(file.path) && baselines.get(file.path) !== file.beforeSource
+    ? { ...file, installedBaseline: baselines.get(file.path) } : file);
+}
 function assertDesiredCapacity(journal, scope, incoming, time) {
   const desired = journal.desiredStates.find((item) => sameBinaryScope(item.scope, scope));
   const original = journal.binaryBaselines.find((item) => sameBinaryScope(item.scope, scope));
@@ -587,7 +633,7 @@ function assertJournalPublicationCapacity(journal, time) {
     // This is a byte-capacity projection, never persisted or treated as proof.
     // Reserve cumulative desired sources for ALL pending binary lanes, not
     // merely the delta that happens to fit in the journal at enqueue time.
-    replaceDesired(projected, { scope: record.scope, files, confirmedThroughSequence: record.sequence, sourceRequestId: record.requestId, proof: null, confirmation: "refreshed", revoked: false, createdAt: previous?.createdAt ?? time, updatedAt: time });
+    replaceDesired(projected, { scope: record.scope, files, confirmedThroughSequence: record.sequence, sourceRequestId: record.requestId, proof: null, confirmation: "refreshed", revoked: false, requiresCohort: true, createdAt: previous?.createdAt ?? time, updatedAt: time });
   }
   if (Buffer.byteLength(JSON.stringify(projected)) + receiptReserve > LIMITS.journalBytes) throw queueError("QUEUE_LIMIT_REACHED");
 }
@@ -605,6 +651,8 @@ function retainDesiredState(journal, record, time) {
   replaceDesired(journal, {
     scope: clone(record.scope), files: snapshots, confirmedThroughSequence: record.sequence,
     sourceRequestId: record.requestId, proof: clone(record.proof), confirmation: "refreshed", revoked: false,
+    ...((previous?.requiresCohort === true || record.preparedPatch?.sharedAdditive === true)
+      && snapshots.some(file => file.beforeHash !== file.afterHash) ? { requiresCohort: true } : {}),
     createdAt: previous?.createdAt ?? time, updatedAt: time,
   });
 }
@@ -713,7 +761,8 @@ function validateJournal(journal) {
       const key = digest(normalizeBinaryScope(desired.scope));
       if (desiredScopes.has(key) || !Number.isSafeInteger(desired.confirmedThroughSequence) || desired.confirmedThroughSequence < 0 || desired.confirmedThroughSequence >= journal.nextSequence
         || !Number.isSafeInteger(desired.createdAt) || desired.createdAt < 0 || !Number.isSafeInteger(desired.updatedAt) || desired.updatedAt < desired.createdAt
-        || typeof desired.revoked !== "boolean" || !Array.isArray(desired.files)) throw queueError("QUEUE_JOURNAL_INVALID");
+        || typeof desired.revoked !== "boolean" || !Array.isArray(desired.files)
+        || (desired.requiresCohort !== undefined && typeof desired.requiresCohort !== "boolean")) throw queueError("QUEUE_JOURNAL_INVALID");
       desiredScopes.add(key);
       if (desired.revoked) {
         if (desired.files.length || desired.proof !== null || desired.confirmation !== "revoked" || desired.sourceRequestId !== "") throw queueError("QUEUE_JOURNAL_INVALID");

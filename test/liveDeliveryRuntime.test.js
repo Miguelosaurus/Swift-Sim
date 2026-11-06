@@ -24,6 +24,26 @@ test("private additions require complete engine coverage before accepting intent
   } finally { f.cleanup(); }
 });
 
+test("only complete coverage admits an empty origin for a new Swift file", async () => {
+  const f = fixture();
+  try {
+    const binding = f.adapter.binding;
+    f.adapter.binding = async () => ({ ...await binding(), completeCoverage: true });
+    f.state.connected = true; f.state.foreground = true;
+    const path = join(f.path, "..", "Shared.swift");
+    const file = { path, beforeSource: "", afterSource: 'func label() -> String { "one" }' };
+    await assert.rejects(f.service.enqueue({ files: [file] }), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+    await assert.rejects(f.service.enqueue({ files: [{ ...file, beforeSource: "unknown original" }], requiresCompleteCoverage: true }), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+    const accepted = await f.service.enqueue({ files: [...f.files(), file], requiresCompleteCoverage: true });
+    assert.equal(f.queue.get(accepted.delivery.requestId).files.find(item => item.path.endsWith("Shared.swift")).beforeSource, "");
+    await f.service.runOnce(); await f.service.runOnce();
+    const next = await f.service.enqueue({ files: [{ ...file, beforeSource: file.afterSource, afterSource: file.afterSource.replace("one", "two") }], requiresCompleteCoverage: true });
+    assert.equal(f.queue.compilationRecord(next.delivery.requestId).files[0].installedBaseline, "");
+    await assert.rejects(f.service.enqueue({ files: [{ ...file, beforeSource: "", afterSource: "wrong branch" }], requiresCompleteCoverage: true }), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+    assert.equal(f.calls.apply.length, 1);
+  } finally { f.cleanup(); }
+});
+
 test("an older prepared artifact is revalidated before the applying barrier", async () => {
   const f = fixture();
   try {

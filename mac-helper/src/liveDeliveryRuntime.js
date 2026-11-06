@@ -38,12 +38,19 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
     for (const snapshot of snapshots) {
       const prior = history.flatMap((record) => record.files).findLast((file) => file.path === snapshot.path);
       const desired = queue.desiredStates().find((item) => sameBinary(item.scope, scope))?.files.find((file) => file.path === snapshot.path);
-      const expected = prior?.afterHash || desired?.afterHash || binding.sourceBaselines?.[snapshot.path];
+      const captured = binding.sourceBaselines?.[snapshot.path];
+      const original = captured === undefined || (binding.verifiedProcess && binding.revision === 0 && !previous)
+        ? queue.binaryBaseline(scope, snapshot.path) : null;
+      // Only complete-coverage admission can introduce a file absent from the
+      // installed binary, and its first snapshot must establish an empty origin.
+      const emptyOrigin = requiresCompleteCoverage && captured === undefined
+        && (original?.beforeSource === "" || (!original && snapshot.beforeSource === ""))
+        ? createHash("sha256").update("").digest("hex") : undefined;
+      const expected = prior?.afterHash || desired?.afterHash || captured || emptyOrigin;
       if (!expected || createHash("sha256").update(snapshot.beforeSource).digest("hex") !== expected) throw Object.assign(new Error("The edit's source baseline differs from the qualified Debug build or queued predecessor. No rebuild was started."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
       if (binding.verifiedProcess && binding.revision === 0 && !previous) {
-        const original = queue.binaryBaseline(scope, snapshot.path);
         if (original) snapshot.beforeSource = original.beforeSource;
-        if (createHash("sha256").update(snapshot.beforeSource).digest("hex") !== binding.sourceBaselines?.[snapshot.path]) throw Object.assign(new Error("The qualified original source baseline is unavailable for this fresh process."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
+        if (createHash("sha256").update(snapshot.beforeSource).digest("hex") !== (captured || emptyOrigin)) throw Object.assign(new Error("The qualified original source baseline is unavailable for this fresh process."), { code: "LIVE_SOURCE_BASELINE_MISMATCH" });
       }
     }
     const record = await queue.enqueue({ ...(requestId ? { requestId } : {}), scope, files: snapshots, baselineRevision: previous?.proof?.revision || binding.revision || 0 });

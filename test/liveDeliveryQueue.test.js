@@ -44,10 +44,10 @@ test("compiler projection keeps installed source without changing accepted inten
     assert.throws(() => f.queue.compilationRecord("missing"), { code: "QUEUE_REQUEST_NOT_FOUND" });
   } finally { f.cleanup(); }
 });
-async function prepare(f, requestId = "request-1") {
+async function prepare(f, requestId = "request-1", sharedAdditive = false) {
   const claim = await f.queue.claimNext({ scope, currentRevision: 0, workerId: "compiler" });
   assert.equal(claim.requestId, requestId);
-  await f.queue.transition(requestId, { claimToken: claim.claim.token, state: "waiting-for-device", preparedPatch: { path: "private-compiled-artifact", patchDigest: requestId } });
+  await f.queue.transition(requestId, { claimToken: claim.claim.token, state: "waiting-for-device", preparedPatch: { path: "private-compiled-artifact", patchDigest: requestId, ...(sharedAdditive ? { sharedAdditive: true } : {}) } });
 }
 async function begin(f, requestId = "request-1", currentRevision = 0) {
   const claim = await f.queue.claimNext({ scope, currentRevision, deviceConnected: true, foreground: true, workerId: "applier" });
@@ -56,6 +56,100 @@ async function begin(f, requestId = "request-1", currentRevision = 0) {
   return claim.claim.token;
 }
 function proof(requestId = "request-1", revision = 1, refreshed = true) { return { requestId, sessionIdentity: scope.sessionIdentity, binaryIdentity: scope.binaryIdentity, applied: true, refreshed, revision, patchDigest: requestId }; }
+
+test("shared helper follow-ups compile preceding consumers without accepting future intent", async () => {
+  const f = fixture();
+  try {
+    const consumer = { ...sources[0], afterSource: 'struct Card { var title: String { sharedTitle() } }' };
+    const helper = { path: "Shared.swift", beforeSource: "", afterSource: 'func sharedTitle() -> String { "one" }' };
+    await queued(f, "request-1", [consumer, helper]);
+    await prepare(f, "request-1", true);
+    const secondFiles = [{ ...helper, beforeSource: helper.afterSource, afterSource: helper.afterSource.replace("one", "two") }];
+    const second = await queued(f, "request-2", secondFiles);
+    await queued(f, "request-3", [{ ...helper, beforeSource: secondFiles[0].afterSource, afterSource: helper.afterSource.replace("one", "three") }]);
+    const bytes = f.fileStore.readTextSync(join(f.rootPath, "queue.json"));
+    const projected = f.queue.compilationRecord(second.requestId);
+    assert.equal(projected.snapshotDigest, second.snapshotDigest);
+    assert.equal(projected.files.length, 2);
+    assert.equal(projected.files[0].path, consumer.path);
+    assert.equal(projected.files[0].beforeSource, consumer.afterSource);
+    assert.equal(projected.files[0].afterSource, consumer.afterSource);
+    assert.equal(projected.files[0].installedBaseline, consumer.beforeSource);
+    assert.equal(projected.files[1].installedBaseline, "");
+    assert.equal(projected.files[1].beforeSource, helper.afterSource);
+    assert.equal(projected.files[1].afterSource, secondFiles[0].afterSource);
+    assert.doesNotMatch(JSON.stringify(projected.files), /three/);
+    assert.equal(f.queue.get(second.requestId).files.length, 1);
+    assert.deepEqual(f.queue.get(second.requestId), second);
+    const preview = f.queue.compilationPreview({ binaryIdentity: scope.binaryIdentity, files: [{ path: "Extra.swift", beforeSource: "", afterSource: "struct Extra {}" }] });
+    assert.equal(preview.length, 3);
+    assert.match(preview.find(file => file.path === helper.path).afterSource, /three/);
+    assert.equal(f.fileStore.readTextSync(join(f.rootPath, "queue.json")), bytes);
+  } finally { f.cleanup(); }
+});
+
+test("ordinary preparation retains its delta-only path despite earlier modified consumers", async () => {
+  const f = fixture();
+  try {
+    await queued(f, "request-1", [sources[0], { path: "Other.swift", beforeSource: "old", afterSource: "new" }]);
+    await prepare(f);
+    await queued(f, "request-2", [{ path: "Other.swift", beforeSource: "new", afterSource: "newer" }]);
+    assert.equal(f.queue.compilationRecord("request-2").files.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test("compilation previews cannot resurrect revoked or failed shared intent", async () => {
+  const f = fixture();
+  try {
+    await queued(f);
+    await prepare(f, "request-1", true);
+    const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    await f.queue.revokeDesired({ scope });
+    const next = { path: "Next.swift", beforeSource: "", afterSource: "struct Next {}" };
+    assert.deepEqual(f.queue.compilationPreview({ binaryIdentity: scope.binaryIdentity, files: [next] }).map(file => file.path), [next.path]);
+    await queued(f, "failed", [{ path: "Failed.swift", beforeSource: "", afterSource: "struct Failed {}" }]);
+    await prepare(f, "failed", true);
+    const claim = await f.queue.claimNext({ scope, currentRevision: 1, deviceConnected: true, foreground: true, workerId: "failure" });
+    await f.queue.transition("failed", { claimToken: claim.claim.token, state: "failed" });
+    assert.deepEqual(f.queue.compilationPreview({ binaryIdentity: scope.binaryIdentity, files: [next] }).map(file => file.path), [next.path]);
+  } finally { f.cleanup(); }
+});
+
+test("confirmed shared cohorts survive request GC and clear only after full restoration", async () => {
+  const f = fixture();
+  try {
+    const consumer = { ...sources[0], afterSource: 'struct Card { var title: String { sharedTitle() } }' };
+    const helper = { path: "Shared.swift", beforeSource: "", afterSource: 'func sharedTitle() -> String { "one" }' };
+    await queued(f, "request-1", [consumer, helper]);
+    await prepare(f, "request-1", true);
+    const firstToken = await begin(f);
+    await f.queue.transition("request-1", { claimToken: firstToken, state: "refreshed", proof: proof() });
+    assert.equal(f.queue.desiredStates()[0].requiresCohort, true);
+    f.tick(24 * 60 * 60 * 1000 + 1);
+    const secondHelper = { ...helper, beforeSource: helper.afterSource, afterSource: helper.afterSource.replace("one", "two") };
+    await f.queue.enqueue({ requestId: "request-2", scope, files: [secondHelper], baselineRevision: 1 });
+    assert.equal(f.queue.get("request-1"), null);
+    const projection = f.reopen().compilationRecord("request-2");
+    assert.equal(projection.files.length, 2);
+    assert.equal(projection.files.find(file => file.path === helper.path).installedBaseline, "");
+    await prepare(f, "request-2", true);
+    const secondToken = await begin(f, "request-2", 1);
+    await f.queue.transition("request-2", { claimToken: secondToken, state: "refreshed", proof: proof("request-2", 2) });
+    await f.queue.enqueue({ requestId: "restore", scope, baselineRevision: 2, files: [
+      { ...consumer, beforeSource: consumer.afterSource, afterSource: consumer.beforeSource },
+      { ...helper, beforeSource: secondHelper.afterSource, afterSource: "" },
+    ] });
+    const restoreProjection = f.queue.compilationRecord("restore");
+    assert.equal(restoreProjection.files.find(file => file.path === helper.path).installedBaseline, "");
+    await prepare(f, "restore", true);
+    const restoreToken = await begin(f, "restore", 2);
+    await f.queue.transition("restore", { claimToken: restoreToken, state: "refreshed", proof: proof("restore", 3) });
+    assert.equal(f.queue.desiredStates()[0].requiresCohort, undefined);
+    const preview = f.queue.compilationPreview({ binaryIdentity: scope.binaryIdentity, files: [{ path: "Next.swift", beforeSource: "", afterSource: "struct Next {}" }] });
+    assert.deepEqual(preview.map(file => file.path), ["Next.swift"]);
+  } finally { f.cleanup(); }
+});
 
 test("compiler cache references retain effective restoration and release only a proven return to the original source", async () => {
   const f = fixture();
