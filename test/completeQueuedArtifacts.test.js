@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, rmSync, symlinkSync, linkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { prepareCompleteQueuedLivePatch, sealCompleteQueuedLivePatch, validateCompleteQueuedLivePatchCoverage } from "../mac-helper/src/liveReload.js";
@@ -12,7 +12,7 @@ const fixtureFiles = new NodeAtomicFileStore();
 
 const hash = value => createHash("sha256").update(value).digest("hex");
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), "swift-sim-complete-artifact-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "swift-sim-complete-artifact-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const artifactRoot = join(root, "artifacts"), patchRoot = join(root, "patches"), manifestPath = join(root, "manifest.json");
   mkdirSync(artifactRoot, { mode: 0o700 }); mkdirSync(patchRoot, { mode: 0o700 });
@@ -40,6 +40,24 @@ function fixture(t) {
     return signedDigest;
   };
   return { root, record, state, prepare, seal, options };
+}
+
+function sharedFixture(t) {
+  const f = fixture(t), consumer = f.record.files[0];
+  consumer.installedBaseline = consumer.beforeSource;
+  consumer.afterSource = consumer.afterSource.replace("{ 2 }", "{ sharedValue() }");
+  const added = { path: join(f.root, "Shared.swift"), beforeSource: "", afterSource: "func sharedValue() -> Int { 2 }", installedBaseline: "" };
+  f.record.files.push(added);
+  const manifest = JSON.parse(fixtureFiles.readTextSync(f.options.manifestPath));
+  manifest.compilerContextProtocol = 2;
+  manifest.binding = { projectRoot: f.root };
+  manifest.sourceBaselines = { [consumer.path]: hash(consumer.installedBaseline) };
+  writeFileSync(f.options.manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+  f.options.compiler.generate = input => {
+    f.state.generatedInputs.push(input);
+    return { sources: input.files.map(file => file.after), additiveProtocol: 1, sharedAdditive: true, requiresPrivateScopes: true };
+  };
+  return { ...f, consumer, added, manifest };
 }
 
 test("complete artifacts compile immutable snapshots and bind cached machine-code bytes", t => {
@@ -129,4 +147,77 @@ test("artifact validation remains bound to request, snapshot and binary scope", 
   const wrongBinary = { ...f.record, scope: { binaryIdentity: "different-binary" } };
   assert.throws(() => prepareCompleteQueuedLivePatch(wrongBinary, f.options), { code: "PATCH_ARTIFACT_INVALID" });
   assert.match(basename(raw.path), /^eval_injection_swift_sim_dynamic_[a-f0-9]{64}\.dylib$/);
+});
+
+test("shared artifacts retain new-file and original-module authority through signing and validation", t => {
+  const f = sharedFixture(t), run = f.options.runner.runSync;
+  let command;
+  f.options.runner.runSync = request => { command = request; return run(request); };
+  const raw = f.prepare();
+  assert.equal(raw.sharedAdditive, true);
+  const input = f.state.generatedInputs[0];
+  assert.equal(input.allowSharedAdditive, true);
+  assert.deepEqual(input.moduleSources, [{ path: f.consumer.path, source: f.consumer.installedBaseline }]);
+  assert.equal(input.files.find(file => file.path === f.added.path).isNewFile, true);
+  assert.equal(input.files.find(file => file.path === f.added.path).installedBaseline, "");
+  assert(!command.args.includes("-disable-access-control"), "shared files retain compiler-enforced private access boundaries");
+  assert.equal(JSON.parse(fixtureFiles.readTextSync(raw.path + ".json")).sharedAdditive, true);
+  f.seal(raw);
+  assert.doesNotThrow(() => validateCompleteQueuedLivePatchCoverage(f.record));
+  f.record.preparedPatch.sharedAdditive = false;
+  assert.throws(() => validateCompleteQueuedLivePatchCoverage(f.record), { code: "PATCH_ARTIFACT_INVALID" });
+  f.record.preparedPatch.sharedAdditive = true;
+  const marker = JSON.parse(fixtureFiles.readTextSync(raw.path + ".json"));
+  marker.sharedAdditive = false;
+  writeFileSync(raw.path + ".json", JSON.stringify(marker), { mode: 0o600 });
+  assert.throws(() => validateCompleteQueuedLivePatchCoverage(f.record), { code: "PATCH_ARTIFACT_INVALID" });
+  assert.throws(f.prepare, { code: "PATCH_ARTIFACT_INVALID" });
+});
+
+test("implicit consumer snapshots bind artifact identity even when accepted delta identity is unchanged", t => {
+  const f = sharedFixture(t), accepted = { requestId: f.record.requestId, digest: f.record.snapshotDigest };
+  const first = f.prepare();
+  f.consumer.afterSource = f.consumer.afterSource.replace("sharedValue()", "sharedValue() + 10");
+  const second = f.prepare();
+  assert.equal(f.record.requestId, accepted.requestId);
+  assert.equal(f.record.snapshotDigest, accepted.digest);
+  assert.notEqual(first.compilerContextDigest, second.compilerContextDigest);
+  assert.notEqual(first.path, second.path);
+  assert.equal(f.state.compileCount, 2, "the old dylib cannot be reused for different implicit consumers");
+  assert.equal(f.state.generatedInputs[1].files.find(file => file.path === f.consumer.path).after, f.consumer.afterSource);
+});
+
+test("shared preparation rejects a missing or drifted original before compiling any code", t => {
+  const f = sharedFixture(t), missing = join(f.root, "Unchanged.swift"), source = "struct Unchanged {}";
+  f.manifest.compilations[0].sources.push(missing);
+  f.manifest.sourceBaselines[missing] = hash(source);
+  writeFileSync(f.options.manifestPath, JSON.stringify(f.manifest), { mode: 0o600 });
+  assert.throws(f.prepare, { code: "FULL_CALLABLE_ORIGINALS_UNAVAILABLE" });
+  assert.equal(f.state.generatedInputs.length, 0);
+  assert.equal(f.state.compileCount, 0);
+  writeFileSync(missing, "struct WrongOriginal {}");
+  assert.throws(f.prepare, { code: "FULL_CALLABLE_ORIGINALS_UNAVAILABLE" });
+  assert.equal(f.state.compileCount, 0);
+  writeFileSync(missing, source);
+  assert.equal(f.prepare().sharedAdditive, true);
+  assert.equal(f.state.compileCount, 1);
+});
+
+test("private additive preparation does not read unrelated module sources", t => {
+  const f = fixture(t), consumer = f.record.files[0];
+  consumer.installedBaseline = consumer.beforeSource;
+  consumer.afterSource += "\nprivate func localHelper() -> Int { 3 }";
+  const manifest = JSON.parse(fixtureFiles.readTextSync(f.options.manifestPath));
+  manifest.compilerContextProtocol = 2;
+  manifest.sourceBaselines = { [consumer.path]: hash(consumer.installedBaseline) };
+  manifest.compilations[0].sources.push(join(f.root, "Unavailable.swift"));
+  writeFileSync(f.options.manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+  f.options.compiler.generate = input => {
+    f.state.generatedInputs.push(input);
+    return { sources: ["private additive"], additiveProtocol: 1, requiresPrivateScopes: true };
+  };
+  assert.equal(f.prepare().additiveProtocol, 1);
+  assert.equal(f.state.generatedInputs.length, 1);
+  assert.equal(f.state.generatedInputs[0].allowSharedAdditive, undefined);
+  assert.equal(f.state.generatedInputs[0].moduleSources, undefined);
 });
