@@ -51,7 +51,7 @@ Read-only review child `/root/additive_review` supplied baseline/proof guidance
 and was interrupted after returning its findings. No phone action, simulator,
 watcher or server has been started for this work. Initial free disk: 99 GiB.
 
-## Implementation checkpoint
+## Pre-phone checkpoint (historical)
 
 The full compiler now strips/emits bounded additions in separate source files,
 uses verified installed baselines only in compilation projections, forces
@@ -105,3 +105,32 @@ same binary/process. Retain any cleanup obligation if a request becomes uncertai
 Record physical evidence, merge/push main without a PR and update the Codex
 plugin to `0.6.1+codex.20261105.6` only after qualification. No new app install
 is expected: the existing Debug SDK/stateful ABI is unchanged.
+
+## Completed phone qualification
+
+After the user's availability confirmation, the reviewed helper was activated
+without restarting the engine or rebuilding Zenics. All three immutable root
+tab-title generations received complete native replacement and preserved-refresh
+receipts on the same existing Zenics 40 binary/process, at revisions 1, 2 and 3.
+The final generation restored the original source/title; product source hashes
+are unchanged. No current-binary pending request, active claim, or restoration
+obligation remains. The foreign uncertain fence is preserved.
+
+The initial disconnected submission exposed a cached baseline-only process
+recovery marker that stranded later intent. Commit `d3460ec` fixes this only
+for new pre-apply intent and a verified revision-zero process, retaining existing
+lease/effect fences and accepted expiry. The original request was resumed through
+its replacement pointer, never resubmitted. The runner supports explicit resume
+with retained snapshot checks. An independent read-only review found no blocker.
+
+Final regression passed 1,370 tests; compiled checks passed 795 tests plus three
+hermetic runtime cases; four compiled additive-routing cases passed. Type, lint,
+source, architecture, docs and format gates passed. See
+[physical evidence](../../evidence/ADDITIVE_HOT_RELOAD_PHONE_2026_11_05.md) for
+proof boundaries and private artifact locations. The normal helper remains for
+hot reload and notifications; no additional persistent service was created.
+The prior resource PIDs and pending status above describe only the historical
+pre-phone checkpoint, not the completed qualification.
+Package contents, isolated archive installation, and Homebrew syntax/entrypoint
+checks also passed for the final code. The destructive clean Homebrew install
+gate remained disabled.
