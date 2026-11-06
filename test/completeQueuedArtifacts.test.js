@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, rmSync, symlinkSync, linkSync, existsSync, statSync } from "node:fs";
+import { mkdtempSync, chmodSync, mkdirSync, realpathSync, writeFileSync, rmSync, symlinkSync, linkSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { prepareCompleteQueuedLivePatch, sealCompleteQueuedLivePatch, validateCompleteQueuedLivePatchCoverage, cleanupQueuedLiveArtifacts } from "../mac-helper/src/liveReload.js";
@@ -327,4 +327,22 @@ test("serialized module outputs cannot follow existing hardlinks, symlinks, or d
     assert.equal(existsSync(foreign), kind !== "dangling");
     if (kind !== "dangling") assert.equal(fixtureFiles.readTextSync(foreign), "preserve foreign module");
   }
+});
+
+
+test("first stateful publication privately migrates a safe legacy patch container before admission", t => {
+  const f = statefulFixture(t);
+  mkdirSync(f.options.patchRoot, {recursive:true,mode:0o755});chmodSync(f.options.patchRoot,0o755);
+  const prepared=f.seal(f.prepare());
+  assert.doesNotThrow(f.validate);
+  assert.equal(statSync(f.options.patchRoot).mode & 0o777,0o700);
+  assert.equal(prepared.statefulOrigins.length,1);
+});
+
+test("stateful publication refuses a writable patch container before compiling or chmod", t => {
+  const f=statefulFixture(t);
+  mkdirSync(f.options.patchRoot,{recursive:true,mode:0o700});chmodSync(f.options.patchRoot,0o777);
+  assert.throws(f.prepare,{code:"PATCH_ARTIFACT_INVALID"});
+  assert.equal(f.state.compileCount,0);
+  assert.equal(statSync(f.options.patchRoot).mode & 0o777,0o777);
 });

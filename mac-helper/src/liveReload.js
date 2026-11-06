@@ -918,6 +918,17 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const generation = needsAdditive ? generateAdditive(fullCompiler, generationInput,
     () => sharedModuleSources(manifest, reference, snapshots, { queue: createLiveDeliveryQueue(), binaryIdentity: record.scope.binaryIdentity }))
     : fullCompiler.generate(generationInput);
+  // Older helpers created the shared patch container as 0755. Tighten that
+  // owned, non-writable container when first publishing private modules; never
+  // weaken origin verification or follow a linked/foreign container.
+  if (generation.statefulComponents?.length) {
+    if (existsSync(patchRoot)) {
+      const root = lstatSync(patchRoot);
+      if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o022)
+        || (process.getuid && root.uid !== process.getuid())) throw completeArtifactError();
+    }
+    ensureDirectoryModeSync(patchRoot, 0o700);
+  }
   const refreshStrategy = generation.refreshStrategy || "remount";
   const moduleName = `SwiftSimLivePatch_${key}`;
   const directory = join(patchRoot, `queued_${key}`);
