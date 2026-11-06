@@ -5,8 +5,7 @@ description: Use when a Codex, Cursor, Claude Code, or OpenCode agent should del
 
 # Remote Simulator Companion
 
-Swift Sim is a local delivery capability for the coding agent already running
-on the Mac:
+Swift Sim delivers local edits for the agent running on the Mac:
 
 - **Phone edit loop:** deliver one completed logical change with
   `swift-sim deliver-change`.

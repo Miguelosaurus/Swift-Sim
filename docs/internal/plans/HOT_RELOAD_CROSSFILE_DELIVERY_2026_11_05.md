@@ -51,3 +51,38 @@ Initial disk headroom approximately 100 GiB. No simulator or live phone action
 has been started. Task-owned artifacts: `.build/crossfile-delivery-20261105/`.
 Queue child owns only queue/runtime and their tests; host-qualification child
 owns only its new standalone script. Completed children must be interrupted.
+
+## Qualification checkpoint
+
+Implementation, native host execution and exact captured compilation passed.
+The host exercised four source units and three loaded generations, fifteen
+negative bundles, nominal coexistence, private boundaries and two ordinary
+optimized artifacts without replacement symbols. Exact device compilation
+passed all three variants with one replacement and preserved parent refresh.
+
+After user availability confirmation, physical delivery/rendering/restoration
+passed on Zenics 40 in the same process at revisions 4, 5 and 6. The helper-only
+request contained one delta and recompiled the root and badge as its cumulative
+cohort. Product files are unchanged, synthetic new source paths remain absent,
+and no phone restoration obligation remains. See
+[physical evidence](../../evidence/CROSSFILE_HOT_RELOAD_PHONE_2026_11_05.md).
+
+Review found a nested nominal guard gap and a rejected-draft correction edge
+case; both were fixed and qualified with focused tests. Pure source projection
+was extracted to keep the queue within the repository's 800-line size gate.
+The final follow-up review found no remaining blocker. All children completed
+and were interrupted. No simulator or additional persistent service was created.
+
+The first preactivation request failed before preparation because the operator
+launched the test after an activation preflight failure. Its no-admission
+evidence is preserved, rather than relabeled as a successful run. Subsequent
+activation verified installed candidate provenance before the new qualification.
+
+Final source regression passed 1,388 tests with zero failures. The compiled full
+gate passed 805 tests and three hermetic runtime cases; after the extraction and
+recovery corrections, 117 compiled queue/runtime/admission/artifact tests passed
+serially. Type, lint, source syntax, architecture, documentation, formatting and
+primary skill-size gates passed. The final helper includes the reviewed recovery
+correction; its existing normal service remains healthy and the engine process
+is unchanged. Package archive/install/Homebrew syntax checks use the separate
+final log; destructive clean Homebrew installation remains disabled.
