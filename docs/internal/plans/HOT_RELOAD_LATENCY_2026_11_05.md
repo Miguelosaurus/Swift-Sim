@@ -64,3 +64,14 @@ immediate compilation/application. Notification callback isolation is tested
 under a 1,000-hint burst. No additional timers or native mutation paths were added.
 See [evidence](../../evidence/HOT_RELOAD_LATENCY_2026_11_05.md) for methodology,
 sample boundaries and retained local artifacts.
+
+## Final validation
+
+Final regression passed 1,396 tests; compiled checks passed 816 tests plus three
+hermetic runtime cases. Focused wake-up, readiness-race and notification tests
+passed 85 cases. Type, lint, source syntax, architecture, docs and formatting
+checks passed. Package contents, isolated archive install and Homebrew syntax/
+entrypoint checks passed; destructive clean Homebrew install remained disabled.
+The final readiness-race guard is active in the existing helper. The engine,
+phone SDK, animation and notification cadence remain unchanged. All task-only
+measurement subscriptions and processes have exited, and the phone is restored.
