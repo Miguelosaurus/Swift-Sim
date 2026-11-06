@@ -4,7 +4,7 @@ import SwiftParser
 import SwiftSyntax
 
 struct Input: Decodable {
-    struct File: Decodable { let path: String; let before: String; let after: String; let installedBaseline: String? }
+    struct File: Decodable { let path: String; let before: String; let after: String; let installedBaseline: String?; let isNewFile: Bool? }
     let module: String
     let generation: String
     let files: [File]
@@ -12,6 +12,8 @@ struct Input: Decodable {
     let allowAdditive: Bool?
     let availableModules: [String]?
     let preserveViewFunctions: Bool?
+    let allowSharedAdditive: Bool?
+    let moduleSources: [InstrumentInput.File]?
 }
 
 struct InstrumentInput: Decodable {
@@ -274,6 +276,9 @@ func surface(_ tree: SourceFileSyntax, inventory: Inventory) -> String {
 final class AdditiveSyntaxGuard: SyntaxVisitor {
     var unsafe = false
     init() { super.init(viewMode: .sourceAccurate) }
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
+    override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
     override func visit(_ node: MacroDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
     override func visit(_ node: MacroExpansionDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
     override func visit(_ node: MacroExpansionExprSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
@@ -310,9 +315,18 @@ final class AdditiveDeclarations {
     var emitted: [String] = []
     var additions: [[String: String]] = []
     var ranges: [Range<Int>] = []
+    var sharedNames: [String] = []
+    let allowShared: Bool
     let availableModules: Set<String>
     let file: String
-    init(file: String, modules: [String]) { self.file = file; availableModules = Set(modules) }
+    init(file: String, modules: [String], allowShared: Bool = false) { self.file = file; availableModules = Set(modules); self.allowShared = allowShared }
+    func admitted(_ modifiers: DeclModifierListSyntax, owner: String, name: String) -> Bool {
+        if privateOnly(modifiers) { return true }
+        guard allowShared, owner.isEmpty,
+              !modifiers.contains(where: { ["public", "open", "package"].contains($0.name.text) }) else { return false }
+        sharedNames.append(name)
+        return true
+    }
     func privateOnly(_ modifiers: DeclModifierListSyntax) -> Bool {
         modifiers.contains { ["private", "fileprivate"].contains($0.name.text) }
     }
@@ -350,13 +364,13 @@ final class AdditiveDeclarations {
                     throw Failure(description: "added import is unavailable in the captured context")
                 }
             } else if let n = node.as(FunctionDeclSyntax.self) {
-                guard privateOnly(n.modifiers), n.body != nil else { throw Failure(description: "added function must be private with a body") }
+                guard admitted(n.modifiers, owner: owner, name: n.name.text), n.body != nil else { throw Failure(description: "added function must have bounded access and a body") }
                 emitted.append(owner.isEmpty ? n.trimmedDescription : "extension \(owner) {\n\(n.trimmedDescription)\n}")
-            } else if let n = node.as(StructDeclSyntax.self), owner.isEmpty, privateOnly(n.modifiers) {
+            } else if let n = node.as(StructDeclSyntax.self), owner.isEmpty, admitted(n.modifiers, owner: owner, name: n.name.text) {
                 emitted.append(n.trimmedDescription)
-            } else if let n = node.as(EnumDeclSyntax.self), owner.isEmpty, privateOnly(n.modifiers) {
+            } else if let n = node.as(EnumDeclSyntax.self), owner.isEmpty, admitted(n.modifiers, owner: owner, name: n.name.text) {
                 emitted.append(n.trimmedDescription)
-            } else if let n = node.as(TypeAliasDeclSyntax.self), owner.isEmpty, privateOnly(n.modifiers) {
+            } else if let n = node.as(TypeAliasDeclSyntax.self), owner.isEmpty, admitted(n.modifiers, owner: owner, name: n.name.text) {
                 emitted.append(n.trimmedDescription)
             } else { throw Failure(description: "unsupported added declaration") }
             ranges.append(node.position.utf8Offset..<node.endPosition.utf8Offset)
@@ -375,6 +389,30 @@ final class AdditiveDeclarations {
     }
 }
 
+// Compare names at module scope, including inactive conditional branches.
+// Instance members do not share this namespace.
+func moduleNames(_ tree: SourceFileSyntax) -> Set<String> {
+    final class Names: SyntaxVisitor {
+        var values = Set<String>()
+        init() { super.init(viewMode: .sourceAccurate) }
+        override func visit(_ n: StructDeclSyntax) -> SyntaxVisitorContinueKind { values.insert(n.name.text); return .skipChildren }
+        override func visit(_ n: ClassDeclSyntax) -> SyntaxVisitorContinueKind { values.insert(n.name.text); return .skipChildren }
+        override func visit(_ n: ActorDeclSyntax) -> SyntaxVisitorContinueKind { values.insert(n.name.text); return .skipChildren }
+        override func visit(_ n: EnumDeclSyntax) -> SyntaxVisitorContinueKind { values.insert(n.name.text); return .skipChildren }
+        override func visit(_ n: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { values.insert(n.name.text); return .skipChildren }
+        override func visit(_ n: FunctionDeclSyntax) -> SyntaxVisitorContinueKind { values.insert(n.name.text); return .skipChildren }
+        override func visit(_ n: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind { values.insert(n.name.text); return .skipChildren }
+        override func visit(_ n: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+        override func visit(_ n: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+            for binding in n.bindings { for token in binding.pattern.tokens(viewMode: .sourceAccurate) {
+                if case .identifier = token.tokenKind { values.insert(token.text) }
+            } }
+            return .skipChildren
+        }
+    }
+    let names = Names(); names.walk(tree); return names.values
+}
+
 func generate(_ input: Input) throws -> [String: Any] {
     guard input.module.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil,
           input.generation.range(of: "^[a-f0-9]{24,64}$", options: .regularExpression) != nil,
@@ -388,14 +426,19 @@ func generate(_ input: Input) throws -> [String: Any] {
     var coverage: [[String: Any]] = []
     var additions: [[String: String]] = []
     var additiveContext = false
+    var sharedNames: [String] = []
+    var sharedContext = false
     for (fileIndex, file) in input.files.enumerated() {
         let baseline = input.allowAdditive == true ? (file.installedBaseline ?? file.before) : file.before
-        let plan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [])
-        let priorPlan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [])
+        guard file.isNewFile != true || (input.allowSharedAdditive == true && baseline.isEmpty) else { throw Failure(description: "new file requires empty installed baseline and shared admission") }
+        let plan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true)
+        let priorPlan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true)
         let desiredSource = input.allowAdditive == true ? try plan.strip(baseline: baseline, desired: file.after) : file.after
         let previousSource = input.allowAdditive == true ? try priorPlan.strip(baseline: baseline, desired: file.before) : file.before
         additions += plan.additions
         additiveContext = additiveContext || !plan.additions.isEmpty || !priorPlan.additions.isEmpty
+        sharedNames += plan.sharedNames
+        sharedContext = sharedContext || file.isNewFile == true || !plan.sharedNames.isEmpty || !priorPlan.sharedNames.isEmpty
         let before = Parser.parse(source: baseline), after = Parser.parse(source: desiredSource)
         guard !before.hasError, !after.hasError else { throw Failure(description: "parse error in file \(fileIndex)") }
         let old = Inventory(baseline, fileIndex: fileIndex, generation: input.generation), new = Inventory(desiredSource, fileIndex: fileIndex, generation: input.generation)
@@ -455,6 +498,19 @@ func generate(_ input: Input) throws -> [String: Any] {
         }
         generated.append(chunks.joined(separator: "\n"))
     }
+    if sharedContext {
+        guard input.allowSharedAdditive == true, let originals = input.moduleSources, !originals.isEmpty, originals.count <= 2048,
+              Set(originals.map(\.path)).count == originals.count else { throw Failure(description: "shared additions require original module inventory") }
+        var installedNames = Set<String>()
+        for file in originals {
+            let tree = Parser.parse(source: file.source)
+            guard !tree.hasError else { throw Failure(description: "invalid original module inventory") }
+            installedNames.formUnion(moduleNames(tree))
+        }
+        guard Set(sharedNames).count == sharedNames.count, installedNames.isDisjoint(with: sharedNames) else {
+            throw Failure(description: "shared name collides with installed or added declaration")
+        }
+    }
     let preserving = !coverage.isEmpty && coverage.allSatisfy {
         guard let owner = $0["owner"] as? String,
               ($0["member"] as? String == "body" || ((input.allowAdditive == true || input.preserveViewFunctions == true) && $0["kind"] as? String == "function" && $0["isStatic"] as? Bool == false)),
@@ -465,8 +521,9 @@ func generate(_ input: Input) throws -> [String: Any] {
     return ["schemaVersion": 1, "capability": "full-callable-v1", "generation": input.generation, "module": input.module,
             "refreshStrategy": preserving ? "preserve-state-v1" : "remount",
             "changedMemberCount": coverage.count, "members": coverage, "sources": generated,
-            "additiveProtocol": additiveContext ? 1 : 0, "additions": additions,
-            "requiresPrivateScopes": additiveContext]
+            "additiveProtocol": additiveContext || sharedContext ? 1 : 0, "additions": additions,
+            "sharedAdditive": sharedContext,
+            "requiresPrivateScopes": additiveContext || sharedContext]
 }
 final class LocalTypes: SyntaxVisitor {
     var found = false

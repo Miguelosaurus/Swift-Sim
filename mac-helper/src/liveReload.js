@@ -45,6 +45,7 @@ export const LIVE_REASON_CODES = Object.freeze({
   NO_CHANGE: "NO_CHANGE",
   IMPLEMENTATION_ONLY: "IMPLEMENTATION_ONLY",
   PRIVATE_ADDITIVE: "PRIVATE_ADDITIVE",
+  SHARED_ADDITIVE: "SHARED_ADDITIVE",
   NON_SWIFT_FILE: "NON_SWIFT_FILE",
   FILE_ADDED_OR_REMOVED: "FILE_ADDED_OR_REMOVED",
   IMPORT_CHANGED: "IMPORT_CHANGED",
@@ -154,7 +155,7 @@ export function classifyPrivateAdditiveEditSet(files, { manifest: suppliedManife
   baselineForFile, manifestPath = LIVE_MANIFEST } = {}) {
   try {
     if (!Array.isArray(files) || !files.length || files.length > 32 || files.some(file =>
-      String(file.kind || "swift").toLowerCase() !== "swift" || String(file.status || "modified").toLowerCase() !== "modified"
+      String(file.kind || "swift").toLowerCase() !== "swift" || !["modified", "added", "removed"].includes(String(file.status || "modified").toLowerCase())
       || !String(file.path || file.afterPath || "").endsWith(".swift"))) return null;
     let manifest = suppliedManifest;
     if (!manifest) {
@@ -165,47 +166,94 @@ export function classifyPrivateAdditiveEditSet(files, { manifest: suppliedManife
     }
     const identity = normalizedLiveBinaryIdentity(manifest.binaryIdentity);
     const binaryIdentity = `${identity.executable_uuid}:${identity.debug_dylib_uuid}`;
-    let queue;
-    const snapshots = files.map(file => {
-      const path = resolve(file.path || file.afterPath);
-      const before = file.beforeSource ?? readFileSync(file.beforePath, "utf8");
-      const after = file.afterSource ?? readFileSync(file.afterPath, "utf8");
-      const expected = manifest.sourceBaselines?.[path];
-      if (!/^[a-f0-9]{64}$/.test(expected || "")) throw completeArtifactError();
-      let installedBaseline = before;
-      if (createHash("sha256").update(before).digest("hex") !== expected) {
-        if (baselineForFile) installedBaseline = baselineForFile(path);
-        else {
-          queue ||= createLiveDeliveryQueue();
-          const scope = queue.list().find(record => record.scope.binaryIdentity === binaryIdentity
-            && record.files.some(value => value.path === path))?.scope;
-          installedBaseline = scope ? queue.binaryBaseline(scope, path)?.beforeSource : null;
-        }
-      }
-      if (typeof installedBaseline !== "string" || createHash("sha256").update(installedBaseline).digest("hex") !== expected) throw completeArtifactError();
-      return { path, before, after, installedBaseline };
-    });
-    const contexts = snapshots.map(file => manifest.compilations?.find(context => context.sources?.includes(file.path)));
-    const reference = contexts[0];
-    if (!reference || contexts.some(context => !context || context.moduleName !== reference.moduleName
-      || context.workingDirectory !== reference.workingDirectory || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments))) return null;
+    const queue = createLiveDeliveryQueue();
+    const deltas = files.map(file => ({ path: resolve(file.path || file.afterPath),
+      beforeSource: file.beforeSource ?? (file.status === "added" && !file.beforePath ? "" : readFileSync(file.beforePath, "utf8")),
+      afterSource: file.afterSource ?? (file.status === "removed" && !file.afterPath ? "" : readFileSync(file.afterPath, "utf8")) }));
+    const projected = queue.compilationPreview({ binaryIdentity, files: deltas });
+    const { snapshots, reference } = additiveSnapshots(projected, manifest, { baselineForFile, queue, binaryIdentity });
     const fullCompiler = compiler || createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }), cacheRoot: join(LIVE_ROOT, "compiler-cache") });
-    const generation = fullCompiler.generate({ module: reference.moduleName,
+    const generation = generateAdditive(fullCompiler, { module: reference.moduleName,
       generation: createHash("sha256").update(JSON.stringify(snapshots)).digest("hex").slice(0, 32),
-      allowAdditive: true, availableModules: availableAdditiveModules(reference, snapshots.map(file => ({ ...file, beforeSource: file.before }))),
-      files: snapshots });
+      allowAdditive: true, availableModules: availableAdditiveModules(reference, snapshots), files: snapshots },
+    () => sharedModuleSources(manifest, reference, snapshots, { baselineForFile, queue, binaryIdentity }));
     if (generation.additiveProtocol !== 1 || generation.requiresPrivateScopes !== true) return null;
     if (manifest.compilerContextProtocol !== 2) throw registrationError("LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED",
-      "Private additions need the concurrency-aware compiler capture. Re-capture the original build metadata before retrying; no app rebuild was started.");
-    const changes = files.map((file, index) => result(snapshots[index].before === snapshots[index].after ? "no-change" : "hot-reload", true,
-      "Private additions have complete callable representation against the installed source baseline.",
-      { path: file.path || file.afterPath, beforePath: file.beforePath, afterPath: file.afterPath }, LIVE_REASON_CODES.PRIVATE_ADDITIVE));
+      "Additions need the concurrency-aware compiler capture. Re-capture the original build metadata before retrying; no app rebuild was started.");
+    const reasonCode = generation.sharedAdditive ? LIVE_REASON_CODES.SHARED_ADDITIVE : LIVE_REASON_CODES.PRIVATE_ADDITIVE;
+    const changes = deltas.map(file => result(file.beforeSource === file.afterSource ? "no-change" : "hot-reload", true,
+      "Additions have complete callable representation against the installed source baseline.", { path: file.path }, reasonCode));
     return { ...normalizedClassification({ route: "hot-reload", hotReloadable: true,
-      reason: "Private additions and their callable consumers can hot reload.", reasonCode: LIVE_REASON_CODES.PRIVATE_ADDITIVE, changes }), requiresCompleteCoverage: true };
+      reason: "Additions and their callable consumers can hot reload.", reasonCode, changes }), requiresCompleteCoverage: true };
   } catch (error) {
     if (/^(?:FULL_CALLABLE_|LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED$)/.test(error?.code || "")) throw error;
     return null;
   }
+}
+
+function additiveSnapshots(files, manifest, { baselineForFile, queue, binaryIdentity } = {}) {
+  const reference = files.map(file => manifest.compilations?.find(context => context.sources?.includes(file.path))).find(Boolean);
+  if (!reference) throw completeArtifactError();
+  const snapshots = files.map(file => {
+    const path = resolve(file.path);
+    const before = file.beforeSource, after = file.afterSource;
+    const expected = manifest.sourceBaselines?.[path];
+    const context = manifest.compilations?.find(item => item.sources?.includes(path));
+    if (context && (context.moduleName !== reference.moduleName || context.workingDirectory !== reference.workingDirectory
+      || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments))) throw completeArtifactError();
+    let installedBaseline = file.installedBaseline ?? before;
+    if (!context) {
+      // Unknown files are patch-local source units in this project, never a
+      // guessed member of another target or a borrowed private source identity.
+      if (expected !== undefined || !validNewSwiftPath(path, manifest, reference)) throw completeArtifactError();
+      installedBaseline = file.installedBaseline ?? baselineForFile?.(path) ?? queueOriginal(queue, binaryIdentity, path) ?? before;
+      if (installedBaseline !== "") throw completeArtifactError();
+      return { path, before, after, installedBaseline: "", isNewFile: true };
+    }
+    if (!/^[a-f0-9]{64}$/.test(expected || "")) throw completeArtifactError();
+    if (createHash("sha256").update(installedBaseline).digest("hex") !== expected)
+      installedBaseline = baselineForFile?.(path) ?? queueOriginal(queue, binaryIdentity, path);
+    if (typeof installedBaseline !== "string" || createHash("sha256").update(installedBaseline).digest("hex") !== expected) throw completeArtifactError();
+    return { path, before, after, installedBaseline };
+  });
+  return { snapshots, reference };
+}
+function queueOriginal(queue, binaryIdentity, path) {
+  const scope = queue?.list().find(record => record.scope.binaryIdentity === binaryIdentity && record.files.some(file => file.path === path))?.scope
+    || queue?.desiredStates().find(item => item.scope.binaryIdentity === binaryIdentity)?.scope;
+  return scope ? queue.binaryBaseline(scope, path)?.beforeSource : undefined;
+}
+function validNewSwiftPath(path, manifest, reference) {
+  const root = manifest.binding?.projectRoot;
+  if (typeof root !== "string" || !path.startsWith(resolve(root) + "/") || !path.endsWith(".swift")
+    || manifest.compilations.some(context => context.sources?.some(source => basename(source) === basename(path)))) return false;
+  // Reject symlink traversal even when the new source has not been written yet.
+  let parent = path;
+  while (!existsSync(parent) && parent !== dirname(parent)) parent = dirname(parent);
+  return realpathSync(parent) === parent && realpathSync(root) === resolve(root)
+    && reference.workingDirectory && !path.slice(resolve(root).length).split("/").some(part => [".git", ".build"].includes(part));
+}
+function sharedModuleSources(manifest, reference, snapshots, { baselineForFile, queue, binaryIdentity } = {}) {
+  const paths = [...new Set(manifest.compilations.filter(context => context.moduleName === reference.moduleName).flatMap(context => context.sources || []))].sort();
+  if (!paths.length || paths.length > 2048) throw completeArtifactError();
+  let bytes = 0;
+  return paths.map(path => {
+    const expected = manifest.sourceBaselines?.[path];
+    let source = snapshots.find(file => file.path === path)?.installedBaseline ?? baselineForFile?.(path) ?? queueOriginal(queue, binaryIdentity, path);
+    if (source === undefined) {
+      try { if (statSync(path).size <= 1024 * 1024) source = readFileSync(path, "utf8"); } catch { /* exact originals required */ }
+    }
+    if (typeof source !== "string" || createHash("sha256").update(source).digest("hex") !== expected
+      || (bytes += Buffer.byteLength(source)) > 6 * 1024 * 1024) throw Object.assign(new Error("The exact original module sources are unavailable for shared-declaration qualification."), { code: "FULL_CALLABLE_ORIGINALS_UNAVAILABLE" });
+    return { path, source };
+  });
+}
+function generateAdditive(compiler, input, originals) {
+  if (!input.files.some(file => file.isNewFile)) {
+    try { return compiler.generate(input); }
+    catch (error) { if (error?.code !== "QUEUED_MECHANISM_UNSUPPORTED") throw error; }
+  }
+  return compiler.generate({ ...input, allowSharedAdditive: true, moduleSources: originals() });
 }
 
 function classifyEditFile(file = {}) {
@@ -833,33 +881,40 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const identity = normalizedLiveBinaryIdentity(manifest?.binaryIdentity);
   if (`${identity.executable_uuid}:${identity.debug_dylib_uuid}` !== record.scope.binaryIdentity) throw completeArtifactError();
   const contexts = record.files.map(file => manifest.compilations?.find(context => context.sources?.some(path => resolve(path) === resolve(file.path))));
-  const reference = contexts[0];
-  if (!reference || contexts.some(context => !context || context.moduleName !== reference.moduleName
-    || context.workingDirectory !== reference.workingDirectory || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments))) throw completeArtifactError();
-  const baselinesVerified = record.files.every(file => typeof manifest.sourceBaselines?.[file.path] === "string"
-    && createHash("sha256").update(file.installedBaseline ?? file.beforeSource).digest("hex") === manifest.sourceBaselines[file.path]);
-  if (!baselinesVerified && record.files.some(file => file.installedBaseline !== undefined)) throw completeArtifactError();
+  let reference = contexts.find(Boolean);
+  if (!reference || contexts.some(context => context && (context.moduleName !== reference.moduleName
+    || context.workingDirectory !== reference.workingDirectory || JSON.stringify(context.compilerArguments) !== JSON.stringify(reference.compilerArguments)))) throw completeArtifactError();
+  const hasNewFiles = contexts.some(context => !context);
+  const baselinesVerified = record.files.every((file, index) => contexts[index]
+    ? typeof manifest.sourceBaselines?.[file.path] === "string" && createHash("sha256").update(file.installedBaseline ?? file.beforeSource).digest("hex") === manifest.sourceBaselines[file.path]
+    : (file.installedBaseline ?? file.beforeSource) === "" && validNewSwiftPath(file.path, manifest, reference));
+  if (!baselinesVerified && (hasNewFiles || record.files.some(file => file.installedBaseline !== undefined))) throw completeArtifactError();
   assertCompleteEditSet(record, { allowAdditive: baselinesVerified });
-  const needsAdditive = baselinesVerified && (classifyEditSet({ files: record.files.map(file => ({ ...file, kind: "swift", status: "modified" })) }).route === "rebuild-required"
+  const needsAdditive = baselinesVerified && (hasNewFiles || classifyEditSet({ files: record.files.map(file => ({ ...file, kind: "swift", status: "modified" })) }).route === "rebuild-required"
     || record.files.some(file => file.installedBaseline !== undefined && classifySwiftSource(file.installedBaseline, file.beforeSource).route === "rebuild-required"));
+  const snapshots = needsAdditive ? additiveSnapshots(record.files, manifest).snapshots
+    : record.files.map(file => ({ path: file.path, before: file.beforeSource, after: file.afterSource }));
   if (needsAdditive && manifest.compilerContextProtocol !== 2) throw registrationError("LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED", "The original compiler context needs its concurrency-aware metadata update. No patch was compiled.");
   const availableModules = needsAdditive ? availableAdditiveModules(reference, record.files) : [];
   const resourceDigest = compilerResourceDigest();
   const stateful = statefulBodyIndex(manifest.stateful, reference.moduleName);
   const compilerContextDigest = createHash("sha256").update(JSON.stringify([reference.moduleName, reference.workingDirectory,
     reference.compilerArguments, manifest.compilerContextProtocol || 1, manifest.registration?.mapDigest || "",
-    record.files.map(file => [file.path, manifest.sourceBaselines?.[file.path] || ""])])).digest("hex");
+    record.files.map(file => [file.path, manifest.sourceBaselines?.[file.path] || "",
+      createHash("sha256").update(JSON.stringify([file.beforeSource, file.afterSource, file.installedBaseline ?? file.beforeSource])).digest("hex")])])).digest("hex");
   const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest, stateful.digest, compilerContextDigest])).digest("hex");
   const path = join(artifactRoot, `eval_injection_swift_sim_dynamic_${key}.dylib`);
   const marker = `${path}.json`;
   ensureDirectoryModeSync(artifactRoot, 0o700);
   const fullCompiler = compiler || createFullCallableCompiler({ runner, cacheRoot: join(LIVE_ROOT, "compiler-cache") });
-  const generation = fullCompiler.generate({ module: reference.moduleName, generation: key.slice(0, 32),
+  const generationInput = { module: reference.moduleName, generation: key.slice(0, 32),
     statefulBodies: stateful.bodies,
     ...(baselinesVerified ? { preserveViewFunctions: true } : {}),
     ...(needsAdditive ? { allowAdditive: true, availableModules } : {}),
-    files: record.files.map(file => ({ path: file.path, before: file.beforeSource, after: file.afterSource,
-      ...(!needsAdditive || file.installedBaseline === undefined ? {} : { installedBaseline: file.installedBaseline }) })) });
+    files: snapshots };
+  const generation = needsAdditive ? generateAdditive(fullCompiler, generationInput,
+    () => sharedModuleSources(manifest, reference, snapshots, { queue: createLiveDeliveryQueue(), binaryIdentity: record.scope.binaryIdentity }))
+    : fullCompiler.generate(generationInput);
   const refreshStrategy = generation.refreshStrategy || "remount";
   const moduleName = `SwiftSimLivePatch_${key}`;
   const previous = existsSync(marker) ? readCompleteMarker(marker) : null;
@@ -872,9 +927,9 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
     if (previous.artifactDigest !== createHash("sha256").update(readFileSync(path)).digest("hex")) throw completeArtifactError();
     const coverage = fullCompiler.inspectCoverage({ dylibPath: path, generation, moduleName });
     if (coverage.coverageDigest !== previous.coverageDigest) throw completeArtifactError();
-    if ((previous.additiveProtocol || 0) !== (generation.additiveProtocol || 0)) throw completeArtifactError();
+    if ((previous.additiveProtocol || 0) !== (generation.additiveProtocol || 0) || Boolean(previous.sharedAdditive) !== Boolean(generation.sharedAdditive)) throw completeArtifactError();
     if (previous.compilerContextDigest !== compilerContextDigest) throw completeArtifactError();
-    return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest);
+    return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive);
   }
   const volume = statfsSync(artifactRoot);
   const initialUsage = queuedArtifactUsage(artifactRoot, patchRoot);
@@ -885,7 +940,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   ensureDirectoryModeSync(directory, 0o700);
   const owner = { version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest,
     binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest, refreshStrategy, statefulDigest: stateful.digest,
-    additiveProtocol: generation.additiveProtocol || 0 };
+    additiveProtocol: generation.additiveProtocol || 0, sharedAdditive: generation.sharedAdditive === true };
   owner.compilerContextDigest = compilerContextDigest;
   writeCompleteMarker(marker, owner);
   const paths = generation.sources.map((source, index) => {
@@ -911,7 +966,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   }
   writeFileSync(path, readFileSync(dylibPath), { mode: 0o600, flag: "wx" });
   writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest });
-  return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest);
+  return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive);
 }
 
 function availableAdditiveModules(context, files) {
@@ -936,11 +991,11 @@ function assertCompleteEditSet(record, { allowAdditive = record.preparedPatch?.a
     throw Object.assign(new Error("The queued snapshot changes compiled structure."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
   }
 }
-function completePrepared(path, coverage, resourceDigest, refreshStrategy, additiveProtocol, compilerContextDigest) {
+function completePrepared(path, coverage, resourceDigest, refreshStrategy, additiveProtocol, compilerContextDigest, sharedAdditive) {
   const replacementProof = normalizeReplacementProof(coverage.replacementProof);
   return { path, mode: "swift-complete-replacement-bundle", replacementProof,
     coverageDigest: replacementCoverageDigest(replacementProof), compilerResourceDigest: resourceDigest, artifactDigest: coverage.artifactDigest, refreshStrategy,
-    compilerContextDigest, ...(additiveProtocol === 1 ? { additiveProtocol: 1 } : {}) };
+    compilerContextDigest, ...(additiveProtocol === 1 ? { additiveProtocol: 1 } : {}), ...(sharedAdditive === true ? { sharedAdditive: true } : {}) };
 }
 function completeArtifactError() { return Object.assign(new Error("The complete patch artifact is not trusted."), { code: "PATCH_ARTIFACT_INVALID" }); }
 
@@ -954,6 +1009,7 @@ export function validateCompleteQueuedLivePatchCoverage(record) {
   const marker = readCompleteMarker(`${path}.json`);
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity
     || (marker.additiveProtocol || 0) !== (record.preparedPatch.additiveProtocol || 0)
+    || Boolean(marker.sharedAdditive) !== Boolean(record.preparedPatch.sharedAdditive)
     || !/^[a-f0-9]{64}$/.test(record.preparedPatch.compilerContextDigest || "") || marker.compilerContextDigest !== record.preparedPatch.compilerContextDigest
     || marker.resourceDigest !== record.preparedPatch.compilerResourceDigest || marker.coverageDigest !== record.preparedPatch.coverageDigest
     || (marker.refreshStrategy || "remount") !== (record.preparedPatch.refreshStrategy || "remount")

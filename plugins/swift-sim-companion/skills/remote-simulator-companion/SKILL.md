@@ -94,8 +94,8 @@ Local `let`/`var` and pattern bindings inside existing implementation bodies are
 implementation edits. Existing-instance stored layout remains fixed. A queued
 compiler must represent every changed implementation; unsupported forms reject
 the whole patch before application rather than silently omitting members.
-Private helpers, top-level private structs/enums/typealiases and captured-SDK
-imports can reload with complete coverage against the installed baseline.
+Private/internal helpers, patch-local structs/enums/typealiases, new Swift files
+and captured-SDK imports can reload with complete consumers against the installed baseline.
 Other declarations, existing storage, signatures, macros, resources, packages,
 build settings and signing rebuild. Partial application needs clean-session recovery.
 

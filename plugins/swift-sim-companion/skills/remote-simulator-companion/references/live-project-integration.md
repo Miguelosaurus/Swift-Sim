@@ -125,3 +125,30 @@ Generated callback aliases are unique for each patch and restoration. Stored
 layout and signatures keep their rebuild fences. Bounded private additions use
 the same signed image, immutable source and complete replacement proof; restoring
 behavior does not unload old patch metadata or invalidate escaped values.
+
+## New views and cross-file helpers
+
+The complete compiler accepts top-level internal/private functions,
+structs/enums/typealiases and new `.swift` source units inside the captured
+project. Stateless SwiftUI subviews can be extracted to a new file and call a
+shared helper from another file. Existing layout/signatures, public additions,
+classes/actors/protocols, global storage, macros/property wrappers and added
+conformances on installed types retain their fences.
+
+Deliver the completed logical change in one `--changes-manifest` operation.
+Represent a new source with its absolute `path`, `status: "added"`, empty
+`beforeSource`, and its `afterSource` (or `afterPath`). A removed patch-local
+file uses `status: "removed"` and empty `afterSource`. This does not delete
+product files. Removing an installed source still requires a build.
+
+Initial additions must update an existing callable consumer. New declarations
+alone do not satisfy native proof. Later helper-only edits automatically carry
+their bounded cumulative consumers into compilation, without adding another
+accepted request or altering its snapshots. Shared names are checked against
+verified originals; `FULL_CALLABLE_ORIGINALS_UNAVAILABLE` needs exact source
+context recovery, not a guessed baseline or automatic rebuild.
+
+Eligible existing parents can preserve state. Introduced view types get a new
+patch-module identity each generation; their own subtree state may reset. This
+adds no phone SDK, setup step, idle worker or notification overhead. Keep all
+normal receipt, foreground, uncertainty and restoration requirements.

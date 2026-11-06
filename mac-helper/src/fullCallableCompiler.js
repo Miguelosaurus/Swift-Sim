@@ -190,6 +190,12 @@ function validateInput(input) {
   if (!input || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(input.module || "") || !/^[a-f0-9]{24,64}$/.test(input.generation || "") || !Array.isArray(input.files) || !input.files.length || input.files.length > 32) throw unsupported();
   for (const file of input.files) if (typeof file.path !== "string" || typeof file.before !== "string" || typeof file.after !== "string" || Buffer.byteLength(file.before) > 1024 * 1024 || Buffer.byteLength(file.after) > 1024 * 1024) throw unsupported();
   if (input.allowAdditive !== undefined && typeof input.allowAdditive !== "boolean") throw unsupported();
+  if (input.allowSharedAdditive !== undefined && (typeof input.allowSharedAdditive !== "boolean" || input.allowAdditive !== true)) throw unsupported();
+  if (input.files.some(file => file.isNewFile !== undefined && (typeof file.isNewFile !== "boolean"
+    || (file.isNewFile && (input.allowSharedAdditive !== true || (file.installedBaseline ?? file.before) !== ""))))) throw unsupported();
+  if (input.moduleSources !== undefined && (input.allowSharedAdditive !== true || !Array.isArray(input.moduleSources)
+    || !input.moduleSources.length || input.moduleSources.length > 2048 || new Set(input.moduleSources.map(file => file.path)).size !== input.moduleSources.length
+    || input.moduleSources.some(file => !isAbsolute(file.path || "") || typeof file.source !== "string" || Buffer.byteLength(file.source) > 1024 * 1024))) throw unsupported();
   if (input.preserveViewFunctions !== undefined && typeof input.preserveViewFunctions !== "boolean") throw unsupported();
   if (input.availableModules !== undefined && (!Array.isArray(input.availableModules) || input.availableModules.length > 128
     || input.availableModules.some(name => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))) throw unsupported();
@@ -206,6 +212,8 @@ function validateGeneration(value, input) {
     || !Array.isArray(value.sources) || (input && value.sources.length !== input.files.length) || value.sources.some(source => typeof source !== "string")
     || !Array.isArray(value.members) || value.members.length !== value.changedMemberCount) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   const names = new Set();
+  if (value.sharedAdditive !== undefined && (typeof value.sharedAdditive !== "boolean"
+    || (value.sharedAdditive && ((input && input.allowSharedAdditive !== true) || value.additiveProtocol !== 1)))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.additiveProtocol !== undefined && ![0, 1].includes(value.additiveProtocol)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.additiveProtocol === 1 && ((input && input.allowAdditive !== true) || value.requiresPrivateScopes !== true
     || !Array.isArray(value.additions) || value.additions.length > 512 || value.additions.some(item => !item

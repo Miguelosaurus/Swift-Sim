@@ -104,15 +104,31 @@ first rejected file/member and the number of additional rejected files. This is
 an additive schema-2 field; older readers may ignore it. Live-only rejections
 include the same explanation in `error.message`; verbose output contains bounded,
 sanitized per-file reasons. The complete compiler additionally supports new
-private/fileprivate functions, top-level private structs/enums/typealiases, and
-ordinary imports available in the captured compiler/SDK context. Public/internal
+private/fileprivate functions, top-level internal/private functions and
+structs/enums/typealiases, including new Swift files inside the captured project,
+and ordinary imports available in the captured compiler/SDK context. Public
 additions, new classes/actors/protocols, existing-type conformance additions,
 macros and stored-layout changes retain their rebuild fences.
+
+New stateless SwiftUI subviews can live in separate files and call shared
+helpers. Shared names must not collide with original module declarations or
+one another. The compiler checks exact original captured sources on demand;
+unavailable originals produce a context failure rather than guessed authority.
+Property wrappers/macros on new views remain outside this first bounded surface.
+Existing eligible parents use preserved refresh; introduced view types have a
+new patch-module identity each generation, so their subtree state may reset.
 
 Every generation compiles these additions against the immutable installed source,
 carrying its current per-file dependency declarations. A helper-only follow-up
 therefore re-emits its original consumers, and restoration explicitly replaces
 those consumers even when desired source again equals the installed baseline.
+Shared helper-only edits compile the bounded cumulative desired cohort, re-emitting
+existing consumers even when their accepted source did not change in that request.
+The projected source hashes bind artifact identity; original accepted deltas stay
+unchanged. This survives request history expiry and fresh-process recovery and
+respects explicit revocation. New-file origins are empty and remain separate
+from captured file authority. At least one installed callable must be replaced;
+unreferenced new declarations alone cannot establish native replacement proof.
 Private declarations keep separate source files and lexical scope. Previous
 patch-local nominal values can remain alive with their own identities; restoring
 method behavior does not unload their images or remove registered metadata.

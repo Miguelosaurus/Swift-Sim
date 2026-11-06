@@ -155,6 +155,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       if (raw.replacementProof) sealCompleteQueuedLivePatch(record, raw, digest);
       return { path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
         ...(raw.additiveProtocol === 1 ? { additiveProtocol: 1 } : {}),
+        ...(raw.sharedAdditive === true ? { sharedAdditive: true } : {}),
         ...(raw.compilerContextDigest ? { compilerContextDigest: raw.compilerContextDigest } : {}),
         ...(raw.refreshStrategy ? { refreshStrategy: raw.refreshStrategy } : {}),
         ...(raw.replacementProof ? { replacementProof: normalizeReplacementProof(raw.replacementProof), coverageDigest: raw.coverageDigest, compilerResourceDigest: raw.compilerResourceDigest } : {}) };

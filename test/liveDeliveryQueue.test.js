@@ -151,6 +151,31 @@ test("confirmed shared cohorts survive request GC and clear only after full rest
   } finally { f.cleanup(); }
 });
 
+test("shared cohorts survive fresh-process recovery before a helper-only follow-up", async () => {
+  const f = fixture();
+  try {
+    const consumer = { ...sources[0], afterSource: 'struct Card { var title: String { sharedTitle() } }' };
+    const helper = { path: "Shared.swift", beforeSource: "", afterSource: 'func sharedTitle() -> String { "one" }' };
+    await queued(f, "request-1", [consumer, helper]); await prepare(f, "request-1", true);
+    await f.queue.transition("request-1", { claimToken: await begin(f), state: "refreshed", proof: proof() });
+    const fresh = { ...scope, sessionIdentity: "fresh-crossfile" };
+    const { record } = await f.queue.rebaseForProcess({ scope: fresh, currentRevision: 0, verified: true, newRequestId: "recovery" });
+    assert.equal(record.files.find(file => file.path === helper.path).beforeSource, "");
+    const compiled = await f.queue.claimNext({ scope: fresh, currentRevision: 0, workerId: "compiler" });
+    await f.queue.transition("recovery", { claimToken: compiled.claim.token, state: "waiting-for-device", preparedPatch: { path: "private-artifact", patchDigest: "recovery", sharedAdditive: true } });
+    const apply = await f.queue.claimNext({ scope: fresh, currentRevision: 0, deviceConnected: true, foreground: true, workerId: "applier" });
+    await f.queue.transition("recovery", { claimToken: apply.claim.token, state: "applying", scope: fresh, currentRevision: 0 });
+    await f.queue.transition("recovery", { claimToken: apply.claim.token, state: "refreshed", proof: { ...proof("recovery"), sessionIdentity: fresh.sessionIdentity } });
+    assert.equal(f.queue.desiredStates()[0].requiresCohort, true);
+    await f.queue.enqueue({ requestId: "helper-next", scope: fresh, baselineRevision: 1, files: [{ ...helper, beforeSource: helper.afterSource, afterSource: helper.afterSource.replace("one", "two") }] });
+    const projection = f.reopen().compilationRecord("helper-next");
+    assert.equal(projection.files.length, 2);
+    assert.equal(projection.files.find(file => file.path === helper.path).installedBaseline, "");
+    assert.equal(projection.files.find(file => file.path === consumer.path).afterSource, consumer.afterSource);
+    assert.equal(projection.files.find(file => file.path === consumer.path).installedBaseline, consumer.beforeSource);
+  } finally { f.cleanup(); }
+});
+
 test("compiler cache references retain effective restoration and release only a proven return to the original source", async () => {
   const f = fixture();
   try {

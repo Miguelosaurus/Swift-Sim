@@ -125,7 +125,9 @@ function materializeDeliveryFiles(files) {
   return files.map((file) => {
     const snapshot = { ...file };
     const path = snapshot.path || snapshot.afterPath || snapshot.beforePath || "";
-    if (extname(path).toLowerCase() !== ".swift" || (snapshot.status && snapshot.status !== "modified")) return snapshot;
+    if (extname(path).toLowerCase() !== ".swift" || (snapshot.status && !["modified", "added", "removed"].includes(snapshot.status))) return snapshot;
+    if (snapshot.status === "added" && snapshot.beforeSource === undefined && !snapshot.beforePath) snapshot.beforeSource = "";
+    if (snapshot.status === "removed" && snapshot.afterSource === undefined && !snapshot.afterPath) snapshot.afterSource = "";
     for (const [key, pathKey] of [["beforeSource", "beforePath"], ["afterSource", "afterPath"]]) {
       if (snapshot[key] === undefined && snapshot[pathKey]) {
         if (statSync(snapshot[pathKey]).size > 1024 * 1024) throw new Error("The edit exceeds its source size limit.");
