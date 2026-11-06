@@ -350,7 +350,7 @@ func componentPlan(_ node: StructDeclSyntax, origin: Input.StatefulOrigin?, file
         throw Failure(description: "stateful component computed opaque helpers need explicit ABI qualification")
     }
     let layout = SHA256.hash(data: Data(surface(tree, inventory: inventory).utf8)).map { String(format: "%02x", $0) }.joined()
-    guard origin == nil || origin?.layoutDigest == layout else { throw Failure(description: "stateful component stored layout or initializer changed; restart the Debug app or build") }
+    guard origin == nil || origin?.layoutDigest == layout else { throw Failure(description: "stateful component stored layout or initializer changed; build a new Debug app for this edit") }
     var storage = Set<String>(), bare = Set<String>()
     for member in node.memberBlock.members {
         if let value = member.decl.as(VariableDeclSyntax.self) {

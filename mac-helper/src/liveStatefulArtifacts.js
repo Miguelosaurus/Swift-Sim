@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { chmodSync, lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
+import { ensureFileModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 import { normalizeStatefulOrigins, statefulOriginsDigest, verifyStatefulOrigins } from "./liveStatefulOrigins.js";
 
 const digest = value => createHash("sha256").update(value).digest("hex");
@@ -43,7 +44,7 @@ export function privatizeStatefulModule(modulePath) {
     const stats = existingModuleOutput(path);
     if (!stats) continue;
     if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1 || (process.getuid && stats.uid !== process.getuid())) throw invalid();
-    chmodSync(path, 0o600);
+    ensureFileModeSync(path, 0o600);
   }
   privateModule(modulePath);
 }

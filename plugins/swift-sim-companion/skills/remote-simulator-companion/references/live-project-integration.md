@@ -84,9 +84,10 @@ additional `stateful-components-v1` capability. Pinning their first nominal type
 in the current verified app process preserves SwiftUI-owned values across body
 and shared-helper edits. No per-screen setup or separate state store is needed.
 Stored fields, defaults, wrapper arguments and initializer surface cannot change
-within that pinned type; these edits stop before application. A real app relaunch
-regenerates the type from confirmed desired source with normal fresh in-memory
-state. Existing installed-type storage still needs a signed build. Generic/nested
+within that pinned type; these edits stop before application and require a new
+Debug build in this bounded workflow. A real app relaunch regenerates the type
+from confirmed desired source with normal fresh in-memory state; rejected edits
+are not confirmed source. Existing installed-type storage still needs a signed build. Generic/nested
 components, other wrappers and opaque helper returns remain unsupported.
 
 ## Asynchronous edits

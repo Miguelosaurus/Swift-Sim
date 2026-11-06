@@ -59,7 +59,7 @@ The prior 4.27-to-3.21-second physical optimization remains the established resu
 
 ## Checks and proof boundary
 
-The source suite passed 1,464 tests; compiled checks passed 884 plus the existing
+The final source suite passed 1,466 tests. Compiled checks passed 886 plus the existing
 hermetic and runtime gates. Type, formatting, lint, architecture/docs, package
 contents, isolated package installation and Homebrew entrypoint checks passed.
 The destructive clean Homebrew installation gate remains disabled.
@@ -70,7 +70,53 @@ Private sources, receipts and logs are under
 The frozen SDK checkout remains untouched. No simulator or extra persistent
 service was started.
 
-Physical state retention and the matching new phone installation remain pending;
-compiler/host proof is not physical-iPhone acceptance. Existing installed views
-already support eligible state-preserving body edits, but new stateful component
-patches require the additional `stateful-components-v1` Debug client capability.
+## Physical iPhone acceptance
+
+Zenics Debug 41 was installed and launched, with the root package at `08e2bdd`
+and native SDK at `4fb0602`. Immutable snapshots added a parent with State
+counter/draft fields and a separate concrete child with Binding fields and
+Environment access. The user changed the counter to 1 and entered a draft word.
+A helper-only update changed the heading to `State 2: 1`; the user confirmed the
+word remained, then tapped Add one and confirmed the count advanced to 2.
+
+The normal durable workflow proved all three stages at revisions 1, 2 and 3 in
+the same binary and process. Real replacement counts were 1, 3 and 1; original
+new-component slots were separately verified. The last stage restored the
+installed source baseline and removed the test card. All product source hashes
+remain unchanged. This combines exact native replacement/refresh receipts with
+explicit user observation of retained nondefault values and continued input;
+the accessibility context did not expose the new card's text reliably, so it is
+not claimed as an independent automated reading of those values.
+
+Two acceptance issues were handled openly:
+
+- An initial request stopped at pre-admission validation because an older helper
+  had created the patch container as 0755. The current code migrates only the
+  owned, non-writable container to 0700 before private module publication. It
+  continues rejecting linked, foreign or writable containers; two regression
+  tests cover the migration and refusal. No code from that first request applied.
+- A connection drop lost the follow-up acknowledgement although the phone showed
+  preserved values. The request stayed fenced as uncertain. One logical engine
+  recovery exposed an unrecorded older engine still holding the phone port; that
+  verified process and an intermediate replacement were stopped. The sole
+  replacement engine then recovered the native process-lifetime receipt for the
+  exact same operation through the existing native deduplication path. Retransmitting
+  that identity retrieved its cached result; no new edit or second native load
+  occurred. Only after this receipt cleared uncertainty was restoration delivered.
+
+This does not establish automatic recovery from every connection failure. The
+state feature's native receipt requirement remains strict. The user observed
+successful retention, and the later exact receipt confirmed all replacements;
+a visible heading or notification alone was never treated as completion.
+
+The existing helper and one correctly recorded engine remain for ordinary hot
+reload and notifications. Codex plugin `0.6.1+codex.20261106.9` is installed. No
+temporary test process or simulator remains. The previously protected foreign
+uncertain request remains preserved. New pinned stored layouts remain fenced;
+there is no arbitrary installed-state migration or persistence across real app
+termination.
+
+Final checks also keep the primary agent skill at its existing 1,197-word size;
+details remain in the lazy integration reference. Architecture rules pass without
+raising caps: file-mode changes go through the existing filesystem infrastructure
+and tests read only controlled fixture bytes.

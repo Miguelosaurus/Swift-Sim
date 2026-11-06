@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -9,6 +10,7 @@ import {
   retainedStatefulOriginRequests, statefulOriginsDigest, verifyStatefulOrigins,
 } from "../mac-helper/src/liveStatefulOrigins.js";
 
+const fixtureFiles = new NodeAtomicFileStore();
 const scope = { project: "/Fixture/Fixture.xcodeproj", scheme: "Fixture", appIdentity: "com.example.Fixture", binaryIdentity: "binary-one", sessionIdentity: "process-one" };
 const hash = value => createHash("sha256").update(value).digest("hex");
 const invalid = fn => assert.throws(fn, { code: "LIVE_STATEFUL_ORIGIN_INVALID" });
@@ -172,7 +174,7 @@ test("origin verification rejects missing, shared, linked, empty and oversized p
       const f = fixture(t), path = target === "markerPath" ? f.markerPath : f.current[target];
       if (mutation === "missing") rmSync(path);
       if (mutation === "shared") chmodSync(path, 0o640);
-      if (mutation === "symlink") { const bytes = readFileSync(path); rmSync(path); const outside = join(f.root, "outside"); writeFileSync(outside, bytes, { mode: 0o600 }); symlinkSync(outside, path); }
+      if (mutation === "symlink") { const bytes = fixtureFiles.readTextSync(path); rmSync(path); const outside = join(f.root, "outside"); writeFileSync(outside, bytes, { mode: 0o600 }); symlinkSync(outside, path); }
       if (mutation === "hardlink") linkSync(path, join(f.root, "second-link"));
       if (mutation === "directory") { rmSync(path); mkdirSync(path, { mode: 0o700 }); }
       invalid(() => verifyStatefulOrigins([f.current], f.options));

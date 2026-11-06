@@ -123,10 +123,11 @@ wrappers, generic/nested components, opaque helper return types and macros remai
 outside this bounded surface.
 
 A pinned component's stored fields, wrapper arguments, defaults and initializer
-surface stay fixed. Incompatible edits reject before application; restarting the
-Debug app regenerates new component types from confirmed source and resets
-normal in-memory state. Existing installed-type layout changes still need a
-signed build. Stored initialization cannot capture newly added patch-local
+surface stay fixed. Incompatible edits reject before application and need a new Debug build in
+this bounded workflow. A real app restart regenerates types from confirmed
+source with normal fresh in-memory state; it does not migrate values or turn a
+rejected layout edit into confirmed source. Existing installed-type layout
+changes also need a signed build. Stored initialization cannot capture newly added patch-local
 helpers/types, which would otherwise bind stale generations. Native original
 slots are verified separately from actual replacements; older clients require
 one Debug SDK update. Modules and signed images are kept privately on the Mac

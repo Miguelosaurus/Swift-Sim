@@ -89,17 +89,13 @@ supported accessors, whole async/throwing bodies, and UIKit callbacks can be liv
 The matching receipt-v3 SDK proves every Swift replacement and exact callback
 class/selector/implementation mapping. Existing suspended tasks keep their old
 code generation; a root refresh does not migrate them.
-Local `let`/`var` and pattern bindings inside existing implementation bodies are
-implementation edits. Existing-instance stored layout remains fixed. A queued
-compiler must represent every changed implementation; unsupported forms reject
-the whole patch before application rather than silently omitting members.
+Local let/var and pattern bindings inside implementations are live edits;
+existing-instance stored layout stays fixed. Unsupported implementations reject
+the entire patch before application.
 Private/internal helpers, patch-local structs/enums/typealiases, new Swift files
 and captured-SDK imports can reload with complete consumers against the installed baseline.
-Matching `stateful-components-v1` builds support new concrete, unnested SwiftUI
-views with State/Binding/Environment. Their first type stays fixed in the current
-process, preserving values across body/helper edits; stored layout/defaults and
-initializers stay fixed. Other wrappers and generic/nested stateful additions
-remain fenced. No values are copied or serialized.
+Matching `stateful-components-v1` supports new concrete State/Binding/Environment
+views; see live integration for fixed-layout and identity limits.
 Other declarations, existing storage, signatures, macros, resources, packages,
 build settings and signing rebuild. Partial application needs clean-session recovery.
 

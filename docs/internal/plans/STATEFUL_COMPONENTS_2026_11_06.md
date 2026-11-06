@@ -86,3 +86,21 @@ native state retention, captured iPhone three-stage compilation, source1464,
 compiled884 plus hermetic/runtime, type/lint/format/package gates passed. See
 [evidence](../../evidence/STATEFUL_COMPONENTS_2026_11_06.md). Physical installation
 and state retention remain the next acceptance gate, with no phone mutations yet.
+
+
+## Physical completion
+
+Zenics Debug41 installed the updated SDK. Native acceptance passed introduction,
+helper-only replacement and restoration at revisions1/2/3, with real counts1/3/1
+and the same binary/process. The user confirmed a nondefault counter and draft
+survived, and the counter incremented afterward. The temporary card is restored
+away; product source files were never edited for qualification.
+
+A legacy0755 cache container was corrected through a strict owned-root migration,
+with regression tests; that initial request stopped before native admission. A
+lost follow-up receipt was recovered for the same operation through a bounded
+engine recovery, including removal of an unrecorded older process and temporary
+duplicate. No ambiguous operation was applied again, and no uncertainty fence
+was removed manually. See the evidence for the exact proof boundary and recovery
+limitation. The current engine PID and sole serving helper are recorded privately
+in resources.json. All changes are reviewed/committed on main without a PR.
