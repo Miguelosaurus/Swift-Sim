@@ -273,12 +273,44 @@ test("lifecycle enforces preparation and one start", async () => {
   await assert.rejects(fresh.start(() => {}), /already started/);
 });
 
+test("live wake storms coalesce without blocking the separate notification timer", async () => {
+  const busy = deferred(); let calls = 0, notifications = 0, wake, closes = 0;
+  const harness = createHarness({ reconcileLiveDeliveries: async () => { calls++; if (calls === 1) await busy.promise; },
+    watchLiveDeliveries(callback) { wake = callback; return { refresh() {}, close() { closes++; } }; },
+    reconcileActivity: async () => { notifications++; } });
+  const lifecycle = harness.lifecycle(); await lifecycle.prepare(); await lifecycle.start(() => {}); await tick();
+  assert.equal(calls, 1); assert.equal(notifications, 1);
+  const initialImmediates = harness.immediates.length;
+  for (let i = 0; i < 1000; i++) wake();
+  assert.equal(harness.immediates.length, initialImmediates);
+  const notificationTimer = harness.intervals.find(timer => timer.intervalMs === 5000);
+  notificationTimer.callback(); await tick(); assert.equal(notifications, 2); assert.equal(calls, 1);
+  busy.resolve(); await tick(); assert.equal(harness.immediates.length, initialImmediates + 1);
+  for (let i = 0; i < 1000; i++) wake();
+  assert.equal(harness.immediates.length, initialImmediates + 1);
+  harness.immediates.at(-1)(); await tick(); assert.equal(calls, 2);
+  assert(harness.intervals.some(timer => timer.intervalMs === 1000));
+  lifecycle.shutdown(); assert.equal(closes, 1);
+  wake(); await tick(); assert.equal(calls, 2);
+});
+
+test("gateway mode never attaches a live journal subscription", async () => {
+  let watched = 0;
+  const harness = createHarness({ deviceBuildsOnly: true, reconcileLiveDeliveries: async () => {},
+    watchLiveDeliveries() { watched++; return { refresh() {}, close() {} }; } });
+  const lifecycle = harness.lifecycle(); await lifecycle.prepare(); await lifecycle.start(() => {});
+  assert.equal(watched, 0);
+});
+
 function createHarness({
   deviceBuildsOnly = false,
   listenError = null,
   reconcileRequestedBuilds = null,
   reconcileActivity = undefined,
   stopActivity = undefined,
+  reconcileLiveDeliveries = undefined,
+  watchLiveDeliveries = undefined,
+  stopLiveDeliveries = undefined,
   activeBuildTasks = () => [],
   sessions = [],
   stopSession = async () => {},
@@ -396,6 +428,9 @@ function createHarness({
           }),
         reconcileActivity,
         stopActivity,
+        reconcileLiveDeliveries,
+        watchLiveDeliveries,
+        stopLiveDeliveries,
         activeBuildTasks,
         cancelBuild(build, reason) {
           cancellations.push([build, reason]);

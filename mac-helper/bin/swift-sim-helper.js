@@ -31,6 +31,7 @@ import { externalRequestBase } from "../src/requestOrigin.js";
 import { claimDeviceVerification } from "../src/deviceVerificationGate.js";
 import { createDeviceInstallationReconciliationCoordinator, installationVerificationCandidates } from "../src/http/deviceInstallationReconciliationCoordinator.js";
 import { createHelperServiceLifecycle } from "../src/http/helperServiceLifecycle.js";
+import { createNodeLiveDeliveryWakeup } from "../src/infrastructure/nodeLiveDeliveryWakeup.js";
 import { createDeviceAppApplicationService } from "../src/http/deviceAppApplicationService.js";
 import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
 import { createDeviceBuildCommandApplicationService } from "../src/http/deviceBuildCommandApplicationService.js";
@@ -286,6 +287,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     scheduleDeliveryCleanup: () => deviceBuildRuntime.scheduleDeliveryCleanup(),
     reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
     reconcileLiveDeliveries: () => liveDeliveryService().runOnce(),
+    watchLiveDeliveries: (onChange) => createNodeLiveDeliveryWakeup({ rootPath: liveDeliveryService().queue.rootPath, onChange }),
     stopLiveDeliveries: () => liveDeliveryService().stop(),
     reconcileActivity: activity ? reconcileActivity : undefined,
     stopActivity: activity ? async () => {

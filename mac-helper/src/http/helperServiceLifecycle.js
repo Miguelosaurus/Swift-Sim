@@ -42,6 +42,7 @@ const SHUTDOWN_BUILD_REASON = "Swift Sim helper is shutting down.";
  *   scheduleDeliveryCleanup(): unknown,
  *   reconcileRequestedBuilds(): Promise<unknown>,
  *   reconcileLiveDeliveries?: (() => Promise<unknown>) | undefined,
+ *   watchLiveDeliveries?: ((wake: () => void) => { refresh(): void, close(): void }) | undefined,
  *   stopLiveDeliveries?: (() => Promise<unknown>) | undefined,
  *   reconcileActivity?: (() => Promise<unknown>) | undefined,
  *   stopActivity?: (() => Promise<unknown>) | undefined,
@@ -85,6 +86,11 @@ export function createHelperServiceLifecycle(dependencies) {
   let liveDeliveryTimer;
   /** @type {TimerHandle | undefined} */
   let activityTimer;
+  /** @type {{ refresh(): void, close(): void } | undefined} */
+  let liveWakeup;
+  let liveRunning = false;
+  let livePending = false;
+  let liveScheduled = false;
 
   return Object.freeze({
     async prepare() {
@@ -126,15 +132,11 @@ export function createHelperServiceLifecycle(dependencies) {
           RECONCILIATION_INTERVAL_MS,
         );
         if (resolved.reconcileLiveDeliveries) {
-          const reconcileLive = () => {
-            void resolved
-              .reconcileLiveDeliveries?.()
-              .catch(() =>
-                resolved.reportError(
-                  "Live delivery reconciliation failed; queued intent is preserved.",
-                ),
-              );
-          };
+          try {
+            liveWakeup = resolved.watchLiveDeliveries?.(wakeLive);
+          } catch {
+            /* retain the polling fallback */
+          }
           reconcileLive();
           liveDeliveryTimer = resolved.runtime.scheduleInterval(reconcileLive, 1_000);
           liveDeliveryTimer.unref?.();
@@ -179,9 +181,49 @@ export function createHelperServiceLifecycle(dependencies) {
     });
   }
 
+  function wakeLive() {
+    if (shuttingDown) return;
+    livePending = true;
+    if (liveRunning || liveScheduled) return;
+    liveScheduled = true;
+    resolved.runtime.scheduleImmediate(() => {
+      liveScheduled = false;
+      reconcileLive();
+    });
+  }
+
+  function reconcileLive() {
+    if (shuttingDown) return;
+    try {
+      liveWakeup?.refresh();
+    } catch {
+      /* polling is still available */
+    }
+    if (liveRunning) {
+      livePending = true;
+      return;
+    }
+    liveRunning = true;
+    livePending = false;
+    void Promise.resolve()
+      .then(() => resolved.reconcileLiveDeliveries?.())
+      .catch(() =>
+        resolved.reportError("Live delivery reconciliation failed; queued intent is preserved."),
+      )
+      .finally(() => {
+        liveRunning = false;
+        if (livePending) wakeLive();
+      });
+  }
+
   function shutdown() {
     if (shuttingDown || !server) return;
     shuttingDown = true;
+    try {
+      liveWakeup?.close();
+    } catch {
+      /* shutdown must continue */
+    }
     if (reconciliationTimer) resolved.runtime.clearInterval(reconciliationTimer);
     if (deliveryCleanupTimer) resolved.runtime.clearInterval(deliveryCleanupTimer);
     if (keepAliveTimer) resolved.runtime.clearInterval(keepAliveTimer);
