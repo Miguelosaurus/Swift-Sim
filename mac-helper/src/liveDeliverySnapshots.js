@@ -1,5 +1,6 @@
 // Pure bounded source projection. No file access, locks, workers or native authority.
 import { createHash } from "node:crypto";
+import { compilationStatefulOrigins, normalizeStatefulOrigins } from "./liveStatefulOrigins.js";
 
 export const LIVE_SOURCE_LIMITS = Object.freeze({ files: 32, fileBytes: 1024 * 1024, requestBytes: 8 * 1024 * 1024 });
 const LIMITS = LIVE_SOURCE_LIMITS;
@@ -47,4 +48,59 @@ export function normalizeFiles(files) {
     return { path: file.path, beforeSource: file.beforeSource, afterSource: file.afterSource, beforeHash: sha(file.beforeSource), afterHash: sha(file.afterSource) };
   });
   return snapshots.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+}
+
+
+export function projectCompilationRecord(journal, record, time) {
+  const original = journal.binaryBaselines.find(item => sameBinaryScope(item.scope, record.scope));
+  const projected = structuredClone(record);
+  const desired = journal.desiredStates.find(item => sameBinaryScope(item.scope, record.scope));
+  const cohort = (!desired?.revoked && desired?.requiresCohort === true && desired.confirmedThroughSequence < record.sequence)
+    || journal.records.some(item => sameBinaryScope(item.scope, record.scope) && item.sequence < record.sequence
+      && item.sequence > (desired?.revoked ? desired.confirmedThroughSequence : 0)
+      && item.expiresAt > time && !["failed", "expired", "superseded"].includes(item.state)
+      && (item.preparedPatch?.sharedAdditive === true || item.preparedPatch?.statefulComponentProtocol === 1));
+  const origins = compilationStatefulOrigins(journal, record, time);
+  if (origins.length) projected.statefulOrigins = origins;
+  if (cohort) projected.files = compilationFiles(journal, record.scope, record.files, record.sequence, time, true);
+  else projected.files = projected.files.map(file => {
+    const baseline = original?.files.find(item => item.path === file.path);
+    if (!baseline || baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
+    return baseline.beforeSource === file.beforeSource ? file : { ...file, installedBaseline: baseline.beforeSource };
+  });
+  return projected;
+}
+
+export function preparedStatefulOrigins(patch, scope) {
+  if (patch?.statefulOrigins === undefined && patch?.statefulComponentProtocol === undefined) return undefined;
+  if (patch.statefulComponentProtocol !== 1) throw queueError("QUEUE_PATCH_INVALID");
+  try {
+    const origins = normalizeStatefulOrigins(patch.statefulOrigins, scope);
+    if (origins.some(origin => !/^[A-Za-z0-9_.:-]{1,128}$/.test(origin.requestId))) throw queueError("QUEUE_PATCH_INVALID");
+    return origins;
+  } catch { throw queueError("QUEUE_PATCH_INVALID"); }
+}
+
+export function desiredStatefulOrigins(previous, record, snapshots) {
+  if (!snapshots.some(file => file.beforeHash !== file.afterHash)) return {};
+  const origins = preparedStatefulOrigins(record.preparedPatch, record.scope)
+    ?? (previous && !previous.revoked && previous.scope.sessionIdentity === record.scope.sessionIdentity ? previous.statefulOrigins : undefined);
+  return origins?.length ? { statefulOrigins: normalizeStatefulOrigins(origins, record.scope) } : {};
+}
+
+export function validateDesiredStatefulOrigins(desired) {
+  if (desired.statefulOrigins === undefined) return;
+  const origins = normalizeStatefulOrigins(desired.statefulOrigins, desired.scope);
+  if (origins.length && (desired.revoked || desired.confirmation !== "refreshed"
+    || !desired.files.some(file => file.beforeHash !== file.afterHash))) throw queueError("QUEUE_JOURNAL_INVALID");
+  if (origins.some(origin => !/^[A-Za-z0-9_.:-]{1,128}$/.test(origin.requestId))) throw queueError("QUEUE_JOURNAL_INVALID");
+}
+
+export function retainedStatefulOrigins(journal, time) {
+  const origins = [
+    ...(journal.desiredStates || []).filter(item => !item.revoked).flatMap(item => item.statefulOrigins || []),
+    ...journal.records.filter(item => (item.expiresAt > time && !["failed", "expired", "superseded"].includes(item.state))
+      || ["applying", "applied", "uncertain"].includes(item.state)).flatMap(item => item.preparedPatch?.statefulOrigins || []),
+  ];
+  return [...new Map(origins.map(origin => [origin.requestId + "#" + origin.path + "#" + origin.owner, origin])).values()];
 }

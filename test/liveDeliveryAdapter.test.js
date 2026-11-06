@@ -279,3 +279,15 @@ test("a prepared patch still requires the qualified capture to be readable", asy
     await assert.rejects(f.adapter.inspect(f.record), { code: "LIVE_BINARY_PROVENANCE_REQUIRED" });
   } finally { f.cleanup(); }
 });
+
+
+test("new stateful components require their exact native slot-count capability", async () => {
+  const f = await fixture();
+  try {
+    f.record.preparedPatch.statefulComponentProtocol = 1;
+    assert.equal((await f.adapter.inspect(f.record)).connected, false);
+    assert.equal((await f.adapter.inspect(f.record)).statefulComponentClient, false);
+    f.status.client_capabilities.push("stateful-components-v1");
+    assert.equal((await f.adapter.inspect(f.record)).connected, true);
+  } finally { f.cleanup(); }
+});

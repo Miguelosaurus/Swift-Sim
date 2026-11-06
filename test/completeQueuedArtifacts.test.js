@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, rmSync, symlinkSync, linkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, rmSync, symlinkSync, linkSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
-import { prepareCompleteQueuedLivePatch, sealCompleteQueuedLivePatch, validateCompleteQueuedLivePatchCoverage } from "../mac-helper/src/liveReload.js";
+import { prepareCompleteQueuedLivePatch, sealCompleteQueuedLivePatch, validateCompleteQueuedLivePatchCoverage, cleanupQueuedLiveArtifacts } from "../mac-helper/src/liveReload.js";
 import { replacementCoverageDigest } from "../mac-helper/src/replacementProof.js";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 
@@ -220,4 +220,111 @@ test("private additive preparation does not read unrelated module sources", t =>
   assert.equal(f.state.generatedInputs.length, 1);
   assert.equal(f.state.generatedInputs[0].allowSharedAdditive, undefined);
   assert.equal(f.state.generatedInputs[0].moduleSources, undefined);
+});
+
+function statefulFixture(t) {
+  const f = fixture(t), file = f.record.files[0];
+  f.record.scope.sessionIdentity = "current-phone-process";
+  file.installedBaseline = file.beforeSource;
+  file.afterSource += "\nprivate struct Card: View { @State private var count = 0; var body: some View { Text(String(count)) } }";
+  const manifest = JSON.parse(fixtureFiles.readTextSync(f.options.manifestPath));
+  Object.assign(manifest, { compilerContextProtocol: 2, sourceBaselines: { [file.path]: hash(file.installedBaseline) } });
+  writeFileSync(f.options.manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+  const statefulOutput = { additiveProtocol: 1, requiresPrivateScopes: true, statefulComponentProtocol: 1,
+    statefulComponents: [{ path: file.path, owner: "Card", layoutDigest: "b".repeat(64), sourceFileIndex: 0,
+      slots: [{ member: "body", kind: "property", accessors: ["getter"], isStatic: false }] }], statefulOriginUses: [] };
+  f.options.compiler.generate = input => { f.state.generatedInputs.push(input); return { sources: ["generated"], ...statefulOutput }; };
+  const run = f.options.runner.runSync;
+  f.state.commands = [];
+  f.options.runner.runSync = request => {
+    f.state.commands.push(request);
+    const index = request.args.indexOf("-emit-module-path");
+    if (index >= 0) writeFileSync(request.args[index + 1], "private serialized module", { mode: 0o644 });
+    return run(request);
+  };
+  const seal = raw => {
+    writeFileSync(raw.path, "signed image", { mode: 0o600 });
+    const signedDigest = hash(fixtureFiles.readTextSync(raw.path));
+    const stateMetadata = sealCompleteQueuedLivePatch(f.record, raw, signedDigest);
+    f.record.preparedPatch = { ...raw, ...stateMetadata, patchDigest: signedDigest, sourceSnapshotDigest: f.record.snapshotDigest };
+    return f.record.preparedPatch;
+  };
+  const validate = () => validateCompleteQueuedLivePatchCoverage(f.record, f.options);
+  return { ...f, statefulOutput, seal, validate };
+}
+
+test("stateful origins publish private modules, seal signed bytes, and reuse only the same live process", t => {
+  const f = statefulFixture(t), raw = f.prepare();
+  assert.equal(raw.statefulComponentProtocol, 1);
+  assert.equal(raw.statefulOrigins.length, 1);
+  const origin = raw.statefulOrigins[0];
+  assert.equal(origin.sourceFile, "Replacement0.swift");
+  assert.equal(origin.processIdentity, f.record.scope.sessionIdentity);
+  assert.equal(statSync(origin.modulePath).mode & 0o777, 0o600);
+  assert(f.state.commands[0].args.includes("-enable-private-imports"));
+  const signed = f.seal(raw);
+  assert.notEqual(signed.statefulOrigins[0].artifactDigest, origin.artifactDigest);
+  assert.doesNotThrow(f.validate);
+  assert.equal(f.prepare().statefulOrigins[0].artifactDigest, signed.patchDigest);
+  assert.equal(f.state.compileCount, 1);
+  const originalProcess = f.record.scope.sessionIdentity;
+  f.record.scope.sessionIdentity = "restarted-process";
+  assert.throws(f.validate);
+  f.record.scope.sessionIdentity = originalProcess;
+  writeFileSync(origin.modulePath, "tampered module", { mode: 0o600 });
+  assert.throws(f.validate);
+  assert.throws(f.prepare);
+});
+
+test("subsequent stateful generations import pinned modules without re-emitting them", t => {
+  const f = statefulFixture(t), first = f.seal(f.prepare()), origin = first.statefulOrigins[0];
+  f.record.requestId = "follow-up-request";
+  f.record.snapshotDigest = "c".repeat(64);
+  f.record.statefulOrigins = first.statefulOrigins;
+  f.record.files[0].beforeSource = f.record.files[0].afterSource;
+  f.record.files[0].afterSource = f.record.files[0].afterSource.replace("Text(String(count))", "Text(\"Count: \\(count)\")");
+  f.statefulOutput.statefulComponents = [];
+  f.statefulOutput.statefulOriginUses = [Object.fromEntries(["path", "owner", "module", "sourceFile", "layoutDigest"].map(key => [key, origin[key]]))];
+  const raw = f.prepare();
+  assert.deepEqual(raw.statefulOrigins, first.statefulOrigins);
+  assert(!f.state.commands[1].args.includes("-emit-module-path"));
+  assert(f.state.commands[1].args.includes("-I"));
+  assert(f.state.commands[1].args.includes(origin.modulePath.slice(0, origin.modulePath.lastIndexOf("/"))));
+  assert.deepEqual(f.state.generatedInputs.at(-1).statefulOrigins, f.statefulOutput.statefulOriginUses);
+  f.seal(raw); assert.doesNotThrow(f.validate);
+  const count = f.state.compileCount;
+  f.record.scope.sessionIdentity = "other-process";
+  assert.throws(f.prepare, { code: "LIVE_STATEFUL_ORIGIN_INVALID" });
+  assert.equal(f.state.compileCount, count);
+});
+
+test("origin metadata cannot drift through signing or admission, and cleanup retains referenced modules", t => {
+  const f = statefulFixture(t), raw = f.prepare();
+  const metadata = structuredClone(raw.statefulOrigins);
+  raw.statefulOrigins[0].layoutDigest = "e".repeat(64);
+  assert.throws(() => f.seal(raw), { code: "PATCH_ARTIFACT_INVALID" });
+  raw.statefulOrigins = metadata;
+  const prepared = f.seal(raw), origin = prepared.statefulOrigins[0];
+  const marker = JSON.parse(fixtureFiles.readTextSync(raw.path + ".json"));
+  marker.expiresAt = 1;
+  writeFileSync(raw.path + ".json", JSON.stringify(marker), { mode: 0o600 });
+  cleanupQueuedLiveArtifacts([], { ...f.options, statefulOrigins: prepared.statefulOrigins, now: Date.now() });
+  assert(existsSync(origin.artifactPath)); assert(existsSync(origin.modulePath));
+  cleanupQueuedLiveArtifacts([], { ...f.options, statefulOrigins: [], now: Date.now() });
+  assert(!existsSync(origin.artifactPath)); assert(!existsSync(origin.modulePath));
+});
+
+test("serialized module outputs cannot follow existing hardlinks, symlinks, or dangling symlinks", t => {
+  for (const kind of ["hardlink", "symlink", "dangling"]) for (const suffix of [".swiftmodule", ".swiftdoc", ".swiftsourceinfo"]) {
+    const f = statefulFixture(t), raw = f.prepare(), origin = raw.statefulOrigins[0];
+    const path = origin.modulePath.replace(/\.swiftmodule$/, suffix), foreign = join(f.root, "foreign-module");
+    if (kind !== "dangling") writeFileSync(foreign, "preserve foreign module", { mode: 0o600 });
+    rmSync(path, { force: true }); (kind === "hardlink" ? linkSync : symlinkSync)(foreign, path);
+    rmSync(raw.path);
+    const before = f.state.compileCount;
+    assert.throws(f.prepare, { code: "PATCH_ARTIFACT_INVALID" }, kind + suffix);
+    assert.equal(f.state.compileCount, before, "compiler must not run through a foreign module output");
+    assert.equal(existsSync(foreign), kind !== "dangling");
+    if (kind !== "dangling") assert.equal(fixtureFiles.readTextSync(foreign), "preserve foreign module");
+  }
 });

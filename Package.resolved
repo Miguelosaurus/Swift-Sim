@@ -1,12 +1,12 @@
 {
-  "originHash" : "a9f256bd876dd6d7b95341d05d10e4687f3f745e0b87ddf225cc082fd526b2cb",
+  "originHash" : "19a2227df1ef42e5b0c22c6f626a940fbdc50664e39c78b04d856d0533c2b3cd",
   "pins" : [
     {
       "identity" : "injectionnext",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Miguelosaurus/InjectionNext.git",
       "state" : {
-        "revision" : "85ba8b7e6f2057b7249b87f5c45bb866d825ceaa"
+        "revision" : "4fb06023ed70050c49a299bced16347772e486e9"
       }
     }
   ],

@@ -79,6 +79,16 @@ the helper verifies the installed overlay/ABI and negotiates
 strategy, request, digest and baseline. No state serialization, background scan,
 recording, new network round trip or automatic app-content upload is added.
 
+New concrete, unnested views with `@State`, `@Binding` or `@Environment` use the
+additional `stateful-components-v1` capability. Pinning their first nominal type
+in the current verified app process preserves SwiftUI-owned values across body
+and shared-helper edits. No per-screen setup or separate state store is needed.
+Stored fields, defaults, wrapper arguments and initializer surface cannot change
+within that pinned type; these edits stop before application. A real app relaunch
+regenerates the type from confirmed desired source with normal fresh in-memory
+state. Existing installed-type storage still needs a signed build. Generic/nested
+components, other wrappers and opaque helper returns remain unsupported.
+
 ## Asynchronous edits
 
 The reconnect SDK and prepared-delivery engine are a matching contract. The

@@ -114,9 +114,23 @@ New stateless SwiftUI subviews can live in separate files and call shared
 helpers. Shared names must not collide with original module declarations or
 one another. The compiler checks exact original captured sources on demand;
 unavailable originals produce a context failure rather than guessed authority.
-Property wrappers/macros on new views remain outside this first bounded surface.
-Existing eligible parents use preserved refresh; introduced view types have a
-new patch-module identity each generation, so their subtree state may reset.
+With the matching `stateful-components-v1` Debug SDK, newly introduced concrete,
+unnested views also support `@State`, `@Binding` and `@Environment` (including
+SwiftUI-qualified names). The first type is pinned within the current app process;
+later body and shared-helper edits reuse it, keeping SwiftUI-owned counters,
+drafts and bindings. No user values are copied or stored by Swift Sim. Other
+wrappers, generic/nested components, opaque helper return types and macros remain
+outside this bounded surface.
+
+A pinned component's stored fields, wrapper arguments, defaults and initializer
+surface stay fixed. Incompatible edits reject before application; restarting the
+Debug app regenerates new component types from confirmed source and resets
+normal in-memory state. Existing installed-type layout changes still need a
+signed build. Stored initialization cannot capture newly added patch-local
+helpers/types, which would otherwise bind stale generations. Native original
+slots are verified separately from actual replacements; older clients require
+one Debug SDK update. Modules and signed images are kept privately on the Mac
+only while the current process lineage needs them, under the existing quotas.
 
 Every generation compiles these additions against the immutable installed source,
 carrying its current per-file dependency declarations. A helper-only follow-up

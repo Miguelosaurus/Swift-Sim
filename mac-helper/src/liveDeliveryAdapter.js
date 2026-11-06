@@ -58,6 +58,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     const preserveState = record.preparedPatch?.refreshStrategy === "preserve-state-v1";
     const statefulEngine = data?.state_preserving_refresh_protocol === 1;
     const statefulClient = capabilities.includes("state-preserving-refresh-v1");
+    const statefulComponentClient = capabilities.includes("stateful-components-v1");
     const client = data?.client_identity;
     const matchesBinary = liveBinaryMatches(manifest.binaryIdentity, client) && typeof client?.process_nonce === "string" && client.process_nonce.length >= 8;
     const revisionValid = Number.isSafeInteger(client?.root_revision) && client.root_revision >= 0;
@@ -69,12 +70,13 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       engineReachable: Boolean(data),
       completeEngine,
       completeClient,
-      statefulEngine, statefulClient,
+      statefulEngine, statefulClient, statefulComponentClient,
       clientPresent: Boolean(data?.has_connected_client),
       supportsReceipts: REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value)),
       matchesBinary,
       connected: Boolean(data?.has_connected_client && matchesBinary && revisionValid && REQUIRED_CAPABILITIES.every((value) => capabilities.includes(value))
-        && (!requiresComplete || (completeEngine && completeClient)) && (!preserveState || (statefulEngine && statefulClient))),
+        && (!requiresComplete || (completeEngine && completeClient)) && (!preserveState || (statefulEngine && statefulClient))
+        && (record.preparedPatch?.statefulComponentProtocol !== 1 || statefulComponentClient)),
       foreground: client?.is_active === true,
       rootReady: client?.root_ready === true,
       revision: revisionValid ? client.root_revision : null,
@@ -152,8 +154,8 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       const response = await control({ action: "prepare_dylib", path: raw.path }, { timeoutMs: 30_000 });
       const digest = response?.success ? response.data?.patch_digest : "";
       if (!/^[0-9a-f]{64}$/.test(digest) || hash(readFileSync(raw.path)) !== digest) throw deliveryError("PATCH_SIGNING_FAILED", "The queued patch could not be signed and verified. No app build or install was started.");
-      if (raw.replacementProof) sealCompleteQueuedLivePatch(record, raw, digest);
-      return { path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
+      const sealed = raw.replacementProof ? sealCompleteQueuedLivePatch(record, raw, digest) : {};
+      return { ...sealed, path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
         ...(raw.additiveProtocol === 1 ? { additiveProtocol: 1 } : {}),
         ...(raw.sharedAdditive === true ? { sharedAdditive: true } : {}),
         ...(raw.compilerContextDigest ? { compilerContextDigest: raw.compilerContextDigest } : {}),

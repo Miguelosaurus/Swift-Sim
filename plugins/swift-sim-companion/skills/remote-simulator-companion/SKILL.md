@@ -95,6 +95,11 @@ compiler must represent every changed implementation; unsupported forms reject
 the whole patch before application rather than silently omitting members.
 Private/internal helpers, patch-local structs/enums/typealiases, new Swift files
 and captured-SDK imports can reload with complete consumers against the installed baseline.
+Matching `stateful-components-v1` builds support new concrete, unnested SwiftUI
+views with State/Binding/Environment. Their first type stays fixed in the current
+process, preserving values across body/helper edits; stored layout/defaults and
+initializers stay fixed. Other wrappers and generic/nested stateful additions
+remain fenced. No values are copied or serialized.
 Other declarations, existing storage, signatures, macros, resources, packages,
 build settings and signing rebuild. Partial application needs clean-session recovery.
 

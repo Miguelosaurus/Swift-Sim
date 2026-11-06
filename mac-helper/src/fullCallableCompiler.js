@@ -106,13 +106,26 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     const variables = [...groups.keys()].map(key => `${key}TX`);
     const demangled = variables.length ? run("/usr/bin/xcrun", ["swift-demangle", "--compact"], { input: variables.join("\n") + "\n" }).trim().split(/\r?\n/) : [];
     if (demangled.length !== variables.length || demangled.some(name => !name.startsWith("dynamically replaceable variable for "))) throw unsupported("FULL_CALLABLE_COVERAGE_INCOMPLETE");
+    const originalKeys = new Set(symbols.filter(value => value.endsWith("Tx")).map(value => value.slice(0, -2)));
+    const originals = (generation.statefulComponents || []).flatMap(component => component.slots.flatMap(slot =>
+      (slot.kind === "function" ? ["function"] : slot.accessors).map(accessor => ({ ...slot, owner: component.owner, accessor, seen: false }))));
+    const replacementVariables = [];
     const members = generation.members.map(member => ({ ...member, swift: [], objc: [] }));
     for (let index = 0; index < demangled.length; index += 1) {
       const name = demangled[index];
       const normalized = name.replace(/\(([^ ]+) in _[A-Fa-f0-9]+\)/g, "$1");
+      if (originalKeys.has(variables[index].slice(0, -2))) {
+        const matches = originals.filter(slot => !slot.seen && normalized.startsWith(`dynamically replaceable variable for ${slot.isStatic ? "static " : ""}${moduleName}.${slot.owner}.`)
+          && identifierIn(normalized, slot.member.split("(")[0])
+          && (slot.accessor === "function" ? !/\.(?:getter|setter) :/.test(normalized) : normalized.includes(`.${slot.accessor} :`)));
+        if (matches.length !== 1 || groups.get(variables[index].slice(0, -2)).has("TI")) throw unsupported("FULL_CALLABLE_COVERAGE_INCOMPLETE");
+        matches[0].seen = true;
+        continue;
+      }
+      replacementVariables.push(variables[index]);
       const matches = members.filter(member => {
         const owner = member.owner.split(/\s+where\s+/)[0];
-        const prefix = owner ? `dynamically replaceable variable for ${member.isStatic ? "static " : ""}(extension in ${moduleName}):${generation.module}.${owner}.`
+        const prefix = owner ? `dynamically replaceable variable for ${member.isStatic ? "static " : ""}(extension in ${moduleName}):${member.targetModule || generation.module}.${owner}.`
           : `dynamically replaceable variable for ${moduleName}.`;
         return normalized.startsWith(prefix) && identifierIn(normalized, member.replacementName);
       });
@@ -122,6 +135,7 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
       if (!accessor || member.swift.some(item => item.accessor === accessor)) throw unsupported("FULL_CALLABLE_COVERAGE_INCOMPLETE");
       member.swift.push({ symbol: variables[index], accessor });
     }
+    if (originals.some(slot => !slot.seen)) throw unsupported("FULL_CALLABLE_COVERAGE_INCOMPLETE");
     const loadCommands = run("/usr/bin/xcrun", ["otool", "-l", dylibPath]);
     rejectInitializers(loadCommands);
     const metadata = run("/usr/bin/xcrun", ["otool", "-ov", dylibPath]);
@@ -164,9 +178,9 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
       if (member.objc.length === 1 && member.kind === "function") continue;
       if (member.objc.length || expected.length !== member.swift.length || !expected.every(kind => member.swift.some(item => item.accessor === kind))) throw unsupported("FULL_CALLABLE_COVERAGE_INCOMPLETE");
     }
-    const replacementProof = normalizeReplacementProof({ version: 3, swift_replacements: variables.length, objc_callbacks: callbacks });
+    const replacementProof = normalizeReplacementProof({ version: 3, swift_replacements: replacementVariables.length, objc_callbacks: callbacks });
     return { version: 1, artifactDigest: hash(bytes), replacementProof, coverageDigest: replacementProofDigest(replacementProof),
-      changedMemberCount: members.length, members, swiftSymbols: variables };
+      changedMemberCount: members.length, members, swiftSymbols: replacementVariables };
   }
   return Object.freeze({ generate, instrument, inspectCoverage });
 }
@@ -197,6 +211,11 @@ function validateInput(input) {
     || !input.moduleSources.length || input.moduleSources.length > 2048 || new Set(input.moduleSources.map(file => file.path)).size !== input.moduleSources.length
     || input.moduleSources.some(file => !isAbsolute(file.path || "") || typeof file.source !== "string" || Buffer.byteLength(file.source) > 1024 * 1024))) throw unsupported();
   if (input.preserveViewFunctions !== undefined && typeof input.preserveViewFunctions !== "boolean") throw unsupported();
+  if (input.allowStatefulAdditive !== undefined && (typeof input.allowStatefulAdditive !== "boolean" || input.allowAdditive !== true)) throw unsupported();
+  if (input.statefulOrigins !== undefined && (!Array.isArray(input.statefulOrigins) || input.statefulOrigins.length > 32
+    || input.statefulOrigins.some(origin => !isAbsolute(origin?.path || "") || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.owner || "")
+      || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.module || "") || !/^Replacement(?:[0-9]|[12][0-9]|3[01])\.swift$/.test(origin.sourceFile || "")
+      || !/^[a-f0-9]{64}$/.test(origin.layoutDigest || "")))) throw unsupported();
   if (input.availableModules !== undefined && (!Array.isArray(input.availableModules) || input.availableModules.length > 128
     || input.availableModules.some(name => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)))) throw unsupported();
   if (input.files.some(file => file.installedBaseline !== undefined && (input.allowAdditive !== true
@@ -221,13 +240,44 @@ function validateGeneration(value, input) {
       || typeof item.declaration !== "string" || item.declaration.length > 4096
       || (input && !input.files.some(file => file.path.split("/").at(-1) === item.file))))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.refreshStrategy !== undefined && !["remount", "preserve-state-v1"].includes(value.refreshStrategy)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+  if (value.statefulComponentProtocol !== undefined && ![0, 1].includes(value.statefulComponentProtocol)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+  if (value.statefulComponentProtocol === 1) {
+    if ((input && input.allowStatefulAdditive !== true) || value.additiveProtocol !== 1 || value.requiresPrivateScopes !== true
+      || !Array.isArray(value.statefulComponents) || !Array.isArray(value.statefulOriginUses)
+      || value.statefulComponents.length + value.statefulOriginUses.length > 32) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+    const componentKeys = new Set();
+    for (const component of value.statefulComponents) {
+      const key = component?.path + "#" + component?.owner;
+      if (componentKeys.has(key) || !isAbsolute(component?.path || "") || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(component.owner || "")
+        || !/^[a-f0-9]{64}$/.test(component.layoutDigest || "") || !Number.isSafeInteger(component.sourceFileIndex)
+        || component.sourceFileIndex < 0 || component.sourceFileIndex >= value.sources.length
+        || (input && input.files[component.sourceFileIndex]?.path !== component.path)
+        || !Array.isArray(component.slots) || !component.slots.length || component.slots.length > 128
+        || component.slots.some(slot => !slot || typeof slot.member !== "string" || !slot.member || slot.member.length > 4096
+          || !["function", "property", "subscript"].includes(slot.kind) || typeof slot.isStatic !== "boolean"
+          || !Array.isArray(slot.accessors) || slot.accessors.some(accessor => !["getter", "setter"].includes(accessor))
+          || (slot.kind !== "function" && !slot.accessors.length))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+      componentKeys.add(key);
+    }
+    for (const origin of value.statefulOriginUses) {
+      const key = origin?.path + "#" + origin?.owner;
+      if (componentKeys.has(key) || !origin || !isAbsolute(origin.path || "") || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.owner || "")
+        || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(origin.module || "") || !/^Replacement(?:[0-9]|[12][0-9]|3[01])\.swift$/.test(origin.sourceFile || "")
+        || !/^[a-f0-9]{64}$/.test(origin.layoutDigest || "")
+        || (input && !input.statefulOrigins?.some(item => ["path", "owner", "module", "sourceFile", "layoutDigest"].every(field => item[field] === origin[field])))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+      componentKeys.add(key);
+    }
+  } else if ((value.statefulComponents?.length || 0) + (value.statefulOriginUses?.length || 0)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   for (const member of value.members) {
     if (!member || !["function", "property", "subscript"].includes(member.kind) || typeof member.isStatic !== "boolean" || typeof member.owner !== "string" || typeof member.member !== "string"
       || !new RegExp(`^__swiftSim_(?:full_g${value.generation}_f\\d+_\\d+|label_g${value.generation}_f\\d+_\\d+_0)$`).test(member.replacementName || "") || names.has(member.replacementName)
       || !Array.isArray(member.accessors) || member.accessors.some(name => !["getter", "setter"].includes(name))
       || (member.kind !== "function" && !member.accessors.length)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
     names.add(member.replacementName);
-    if (input && value.refreshStrategy === "preserve-state-v1" && ((member.member !== "body"
+    const pinned = value.statefulComponentProtocol === 1 && value.statefulOriginUses.some(origin => origin.module === member.targetModule && origin.owner === member.owner
+      && origin.path.split("/").at(-1) === member.file);
+    if (member.targetModule !== undefined && !pinned) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+    if (input && !pinned && value.refreshStrategy === "preserve-state-v1" && ((member.member !== "body"
       && !((input.allowAdditive === true || input.preserveViewFunctions === true) && member.kind === "function" && !member.isStatic))
       || !input.files.some(file => file.path.split("/").at(-1) === member.file && input.statefulBodies?.[file.path]?.includes(member.owner)))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   }

@@ -1,9 +1,11 @@
 // Versioned full-callable representation. Admission and native proof are separate.
 import Foundation
+import CryptoKit
 import SwiftParser
 import SwiftSyntax
 
 struct Input: Decodable {
+    struct StatefulOrigin: Decodable { let path: String; let owner: String; let module: String; let sourceFile: String; let layoutDigest: String }
     struct File: Decodable { let path: String; let before: String; let after: String; let installedBaseline: String?; let isNewFile: Bool? }
     let module: String
     let generation: String
@@ -14,6 +16,8 @@ struct Input: Decodable {
     let preserveViewFunctions: Bool?
     let allowSharedAdditive: Bool?
     let moduleSources: [InstrumentInput.File]?
+    let allowStatefulAdditive: Bool?
+    let statefulOrigins: [StatefulOrigin]?
 }
 
 struct InstrumentInput: Decodable {
@@ -275,7 +279,8 @@ func surface(_ tree: SourceFileSyntax, inventory: Inventory) -> String {
 // and private lexical boundaries are emitted into the corresponding patch unit.
 final class AdditiveSyntaxGuard: SyntaxVisitor {
     var unsafe = false
-    init() { super.init(viewMode: .sourceAccurate) }
+    let allowStateful: Bool
+    init(allowStateful: Bool = false) { self.allowStateful = allowStateful; super.init(viewMode: .sourceAccurate) }
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
@@ -284,9 +289,92 @@ final class AdditiveSyntaxGuard: SyntaxVisitor {
     override func visit(_ node: MacroExpansionExprSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
     override func visit(_ node: IfConfigDeclSyntax) -> SyntaxVisitorContinueKind { unsafe = true; return .skipChildren }
     override func visit(_ node: AttributeSyntax) -> SyntaxVisitorContinueKind {
+        if allowStateful && statefulWrapperNames.contains(node.attributeName.trimmedDescription) { return .visitChildren }
         if !["available", "MainActor", "Sendable", "escaping", "autoclosure"].contains(node.attributeName.trimmedDescription) { unsafe = true }
         return .visitChildren
     }
+}
+let statefulWrapperNames: Set<String> = ["State", "Binding", "Environment", "SwiftUI.State", "SwiftUI.Binding", "SwiftUI.Environment"]
+func statefulView(_ node: DeclSyntax) -> StructDeclSyntax? {
+    guard let view = node.as(StructDeclSyntax.self), view.inheritanceClause?.inheritedTypes.contains(where: {
+        ["View", "SwiftUI.View"].contains($0.type.trimmedDescription)
+    }) == true, view.memberBlock.members.contains(where: { member in
+        member.decl.as(VariableDeclSyntax.self)?.attributes.contains(where: {
+            $0.as(AttributeSyntax.self).map { statefulWrapperNames.contains($0.attributeName.trimmedDescription) } == true
+        }) == true
+    }) else { return nil }
+    return view
+}
+struct StatefulComponent {
+    let source: String
+    let owner: String
+    let layoutDigest: String
+    let storageNames: Set<String>
+    let bareWrappers: Set<String>
+    let members: [Member]
+    let origin: Input.StatefulOrigin?
+}
+final class ComponentDynamics: SyntaxRewriter {
+    func dynamic(_ modifiers: DeclModifierListSyntax) -> DeclModifierListSyntax {
+        if modifiers.contains(where: { $0.name.text == "dynamic" }) { return modifiers }
+        return DeclModifierListSyntax(Array(modifiers) + [DeclModifierSyntax(name: .keyword(.dynamic), trailingTrivia: .space)])
+    }
+    override func visit(_ node: FunctionDeclSyntax) -> DeclSyntax {
+        var result = node; result.leadingTrivia = []
+        result.modifiers = dynamic(result.modifiers); result.leadingTrivia = node.leadingTrivia
+        return DeclSyntax(result)
+    }
+    override func visit(_ node: VariableDeclSyntax) -> DeclSyntax {
+        var result = node
+        if node.bindings.count == 1, node.bindings.first?.accessorBlock != nil {
+            result.leadingTrivia = []; result.modifiers = dynamic(result.modifiers); result.leadingTrivia = node.leadingTrivia
+        }
+        return DeclSyntax(result)
+    }
+    override func visit(_ node: SubscriptDeclSyntax) -> DeclSyntax {
+        var result = node; result.leadingTrivia = []
+        result.modifiers = dynamic(result.modifiers); result.leadingTrivia = node.leadingTrivia
+        return DeclSyntax(result)
+    }
+}
+func componentPlan(_ node: StructDeclSyntax, origin: Input.StatefulOrigin?, fileIndex: Int, generation: String) throws -> StatefulComponent {
+    guard node.genericParameterClause == nil, node.genericWhereClause == nil,
+          !node.modifiers.contains(where: { $0.name.text == "nonisolated" }),
+          !node.description.contains("__swiftSim"),
+          !node.memberBlock.members.contains(where: { additiveNominal($0.decl) != nil }) else { throw Failure(description: "stateful component needs a concrete, unnested view") }
+    let source = node.trimmedDescription
+    let tree = Parser.parse(source: source), inventory = Inventory(source, fileIndex: fileIndex, generation: generation)
+    inventory.walk(tree)
+    guard inventory.members.contains(where: { $0.target == "body" && $0.kind == "property" && $0.accessors == ["getter"] }),
+          !inventory.members.contains(where: { $0.target != "body" && $0.declaration.range(of: "\\bsome\\b", options: .regularExpression) != nil }) else {
+        throw Failure(description: "stateful component computed opaque helpers need explicit ABI qualification")
+    }
+    let layout = SHA256.hash(data: Data(surface(tree, inventory: inventory).utf8)).map { String(format: "%02x", $0) }.joined()
+    guard origin == nil || origin?.layoutDigest == layout else { throw Failure(description: "stateful component stored layout or initializer changed; restart the Debug app or build") }
+    var storage = Set<String>(), bare = Set<String>()
+    for member in node.memberBlock.members {
+        if let value = member.decl.as(VariableDeclSyntax.self) {
+            for binding in value.bindings where binding.accessorBlock == nil {
+                let text = (binding.typeAnnotation?.description ?? "") + (binding.initializer?.description ?? "")
+                for token in Parser.parse(source: text).tokens(viewMode: .sourceAccurate) { if case .identifier = token.tokenKind { storage.insert(token.text) } }
+            }
+            for attr in value.attributes {
+                if let attr = attr.as(AttributeSyntax.self), statefulWrapperNames.contains(attr.attributeName.trimmedDescription) {
+                    if !attr.attributeName.trimmedDescription.contains(".") { bare.insert(attr.attributeName.trimmedDescription) }
+                    if let arguments = attr.arguments {
+                        for token in arguments.tokens(viewMode: .sourceAccurate) { if case .identifier = token.tokenKind { storage.insert(token.text) } }
+                    }
+                }
+            }
+        } else if let initializer = member.decl.as(InitializerDeclSyntax.self) {
+            for token in initializer.tokens(viewMode: .sourceAccurate) { if case .identifier = token.tokenKind { storage.insert(token.text) } }
+        }
+    }
+    let rewrite = StatefulInstrumenter(); let wrapped = rewrite.rewrite(tree)
+    guard rewrite.wrapped == [node.name.text] else { throw Failure(description: "stateful component body cannot be instrumented") }
+    let emitted = ComponentDynamics().rewrite(wrapped).description
+    return StatefulComponent(source: emitted, owner: node.name.text, layoutDigest: layout, storageNames: storage,
+                             bareWrappers: bare, members: inventory.members, origin: origin)
 }
 func additiveNominal(_ node: DeclSyntax) -> (String, [DeclSyntax])? {
     if let n = node.as(StructDeclSyntax.self) { return (n.name.text, n.memberBlock.members.map(\.decl)) }
@@ -316,10 +404,19 @@ final class AdditiveDeclarations {
     var additions: [[String: String]] = []
     var ranges: [Range<Int>] = []
     var sharedNames: [String] = []
+    var components: [StatefulComponent] = []
+    let allowStateful: Bool
+    let origins: [Input.StatefulOrigin]
+    let fileIndex: Int
+    let generation: String
     let allowShared: Bool
     let availableModules: Set<String>
     let file: String
-    init(file: String, modules: [String], allowShared: Bool = false) { self.file = file; availableModules = Set(modules); self.allowShared = allowShared }
+    init(file: String, modules: [String], allowShared: Bool = false, allowStateful: Bool = false,
+         origins: [Input.StatefulOrigin] = [], fileIndex: Int = 0, generation: String = "") {
+        self.file = file; availableModules = Set(modules); self.allowShared = allowShared
+        self.allowStateful = allowStateful; self.origins = origins; self.fileIndex = fileIndex; self.generation = generation
+    }
     func admitted(_ modifiers: DeclModifierListSyntax, owner: String, name: String) -> Bool {
         if privateOnly(modifiers) { return true }
         guard allowShared, owner.isEmpty,
@@ -356,7 +453,9 @@ final class AdditiveDeclarations {
                 }
                 continue
             }
-            let check = AdditiveSyntaxGuard(); check.walk(node)
+            let pinned = node.as(StructDeclSyntax.self).flatMap { value in origins.first { $0.owner == value.name.text } }
+            let isComponent = allowStateful && owner.isEmpty && (statefulView(node) != nil || pinned != nil)
+            let check = AdditiveSyntaxGuard(allowStateful: isComponent); check.walk(node)
             guard !check.unsafe else { throw Failure(description: "additive macros, conditional declarations or unsupported attributes") }
             if let n = node.as(ImportDeclSyntax.self) {
                 guard owner.isEmpty, n.attributes.isEmpty, n.importKindSpecifier == nil, n.path.count == 1,
@@ -367,7 +466,12 @@ final class AdditiveDeclarations {
                 guard admitted(n.modifiers, owner: owner, name: n.name.text), n.body != nil else { throw Failure(description: "added function must have bounded access and a body") }
                 emitted.append(owner.isEmpty ? n.trimmedDescription : "extension \(owner) {\n\(n.trimmedDescription)\n}")
             } else if let n = node.as(StructDeclSyntax.self), owner.isEmpty, admitted(n.modifiers, owner: owner, name: n.name.text) {
-                emitted.append(n.trimmedDescription)
+                if isComponent {
+                    let component = try componentPlan(n, origin: origins.first { $0.owner == n.name.text },
+                        fileIndex: 32 + fileIndex * 32 + components.count, generation: generation)
+                    components.append(component)
+                    if component.origin == nil { emitted.append(component.source) }
+                } else { emitted.append(n.trimmedDescription) }
             } else if let n = node.as(EnumDeclSyntax.self), owner.isEmpty, admitted(n.modifiers, owner: owner, name: n.name.text) {
                 emitted.append(n.trimmedDescription)
             } else if let n = node.as(TypeAliasDeclSyntax.self), owner.isEmpty, admitted(n.modifiers, owner: owner, name: n.name.text) {
@@ -423,6 +527,9 @@ func generate(_ input: Input) throws -> [String: Any] {
         throw Failure(description: "ambiguous file identity or oversized source")
     }
     var generated: [String] = []
+    var statefulComponents: [[String: Any]] = []
+    var originUses: [[String: String]] = []
+    var componentDependencies: [(Set<String>, Set<String>)] = []
     var coverage: [[String: Any]] = []
     var additions: [[String: String]] = []
     var additiveContext = false
@@ -431,8 +538,11 @@ func generate(_ input: Input) throws -> [String: Any] {
     for (fileIndex, file) in input.files.enumerated() {
         let baseline = input.allowAdditive == true ? (file.installedBaseline ?? file.before) : file.before
         guard file.isNewFile != true || (input.allowSharedAdditive == true && baseline.isEmpty) else { throw Failure(description: "new file requires empty installed baseline and shared admission") }
-        let plan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true)
-        let priorPlan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true)
+        let origins = (input.statefulOrigins ?? []).filter { $0.path == file.path }
+        let plan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true,
+            allowStateful: input.allowStatefulAdditive == true, origins: origins, fileIndex: fileIndex, generation: input.generation)
+        let priorPlan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true,
+            allowStateful: input.allowStatefulAdditive == true, fileIndex: fileIndex, generation: input.generation)
         let desiredSource = input.allowAdditive == true ? try plan.strip(baseline: baseline, desired: file.after) : file.after
         let previousSource = input.allowAdditive == true ? try priorPlan.strip(baseline: baseline, desired: file.before) : file.before
         additions += plan.additions
@@ -470,8 +580,38 @@ func generate(_ input: Input) throws -> [String: Any] {
         let imports = importTree.statements.compactMap { $0.item.as(ImportDeclSyntax.self)?.trimmedDescription }
         let filename = URL(fileURLWithPath: file.path).lastPathComponent
         let encoded = String(data: try JSONEncoder().encode(filename), encoding: .utf8)!
-        var chunks = ["@_private(sourceFile: \(encoded)) import \(input.module)"] + imports + plan.emitted
-        for member in new.members where previous[member.key]?.body != member.body || incremental[member.key]?.body != member.body {
+        var chunks = ["@_private(sourceFile: \(encoded)) import \(input.module)"] + imports
+        if !plan.components.isEmpty { chunks.append("import SwiftSimLive\nimport SwiftUI") }
+        let activeOrigins = (input.statefulOrigins ?? []).filter { origin in
+            input.files.contains { candidate in candidate.path == origin.path && Parser.parse(source: candidate.after).statements.contains {
+                $0.item.as(StructDeclSyntax.self)?.name.text == origin.owner
+            } }
+        }
+        let groupedOrigins = Dictionary(grouping: activeOrigins, by: \.module)
+        for module in groupedOrigins.keys.sorted() {
+            let moduleOrigins = groupedOrigins[module]!
+            let sourceFile = moduleOrigins.first(where: { $0.path == file.path })?.sourceFile
+                ?? "SwiftSimExternal_\(input.generation)_\(fileIndex).swift"
+            let name = String(data: try JSONEncoder().encode(sourceFile), encoding: .utf8)!
+            chunks.append("@_private(sourceFile: \(name)) import \(module)")
+        }
+        chunks += plan.emitted
+        var replacements = new.members.filter { previous[$0.key]?.body != $0.body || incremental[$0.key]?.body != $0.body }
+            .map { ($0, Optional<String>.none) }
+        for component in plan.components {
+            componentDependencies.append((component.storageNames, component.bareWrappers))
+            if let origin = component.origin {
+                originUses.append(["path": file.path, "owner": origin.owner, "module": origin.module,
+                    "sourceFile": origin.sourceFile, "layoutDigest": origin.layoutDigest])
+                replacements += component.members.map { ($0, Optional(origin.module)) }
+            } else {
+                statefulComponents.append(["path": file.path, "owner": component.owner, "layoutDigest": component.layoutDigest,
+                    "sourceFileIndex": fileIndex, "slots": component.members.map { member in
+                        ["member": member.target, "kind": member.kind, "accessors": member.accessors, "isStatic": member.isStatic] as [String: Any]
+                    }])
+            }
+        }
+        for (member, targetModule) in replacements {
             // Local nominal declarations need their own metadata/coexistence proof.
             let bodyTree = Parser.parse(source: member.replacement)
             let localTypes = LocalTypes(); localTypes.walk(bodyTree)
@@ -479,7 +619,7 @@ func generate(_ input: Input) throws -> [String: Any] {
             let magic = SourceContextExpressions(); magic.walk(bodyTree)
             guard !magic.found else { throw Failure(description: "source-context expression needs explicit original-context lowering") }
             var replacement = member.replacement
-            if member.target == "body", input.statefulBodies?[file.path]?.contains(member.owner) == true {
+            if member.target == "body", targetModule != nil || input.statefulBodies?[file.path]?.contains(member.owner) == true {
                 let tree = Parser.parse(source: replacement)
                 guard var property = tree.statements.first?.item.as(VariableDeclSyntax.self),
                       var binding = property.bindings.first, let block = binding.accessorBlock,
@@ -490,15 +630,18 @@ func generate(_ input: Input) throws -> [String: Any] {
                 replacement = property.description
             }
             let declaration = "@_dynamicReplacement(for: \(member.target))\n\(replacement)"
-            chunks.append(member.owner.isEmpty ? declaration : "\(member.contextAttributes)\nextension \(member.owner) {\n\(declaration)\n}")
-            coverage.append(["file": filename, "line": member.line, "member": member.target, "owner": member.owner,
+            let owner = targetModule.map { $0 + "." + member.owner } ?? member.owner
+            chunks.append(member.owner.isEmpty ? declaration : "\(member.contextAttributes)\nextension \(owner) {\n\(declaration)\n}")
+            var covered: [String: Any] = ["file": filename, "line": member.line, "member": member.target, "owner": member.owner,
                              "bodyStartUTF8": member.lower, "bodyEndUTF8": member.upper,
                              "replacementName": member.replacementName, "kind": member.kind, "accessors": member.accessors,
-                             "isStatic": member.isStatic])
+                             "isStatic": member.isStatic]
+            if let targetModule { covered["targetModule"] = targetModule }
+            coverage.append(covered)
         }
         generated.append(chunks.joined(separator: "\n"))
     }
-    if sharedContext {
+    if sharedContext || !componentDependencies.isEmpty {
         guard input.allowSharedAdditive == true, let originals = input.moduleSources, !originals.isEmpty, originals.count <= 2048,
               Set(originals.map(\.path)).count == originals.count else { throw Failure(description: "shared additions require original module inventory") }
         var installedNames = Set<String>()
@@ -507,11 +650,22 @@ func generate(_ input: Input) throws -> [String: Any] {
             guard !tree.hasError else { throw Failure(description: "invalid original module inventory") }
             installedNames.formUnion(moduleNames(tree))
         }
+        let addedNames = input.files.reduce(into: Set<String>()) { result, file in
+            let original = moduleNames(Parser.parse(source: file.installedBaseline ?? file.before))
+            result.formUnion(moduleNames(Parser.parse(source: file.after)).subtracting(original))
+        }
+        for (storageNames, wrappers) in componentDependencies {
+            guard storageNames.isDisjoint(with: addedNames), wrappers.isDisjoint(with: installedNames.union(addedNames)) else {
+                throw Failure(description: "stateful component storage captures a patch-local declaration or shadowed SwiftUI wrapper")
+            }
+        }
         guard Set(sharedNames).count == sharedNames.count, installedNames.isDisjoint(with: sharedNames) else {
             throw Failure(description: "shared name collides with installed or added declaration")
         }
     }
+    guard statefulComponents.count + originUses.count <= 32 else { throw Failure(description: "stateful component limit") }
     let preserving = !coverage.isEmpty && coverage.allSatisfy {
+        if $0["targetModule"] as? String != nil { return true }
         guard let owner = $0["owner"] as? String,
               ($0["member"] as? String == "body" || ((input.allowAdditive == true || input.preserveViewFunctions == true) && $0["kind"] as? String == "function" && $0["isStatic"] as? Bool == false)),
               let filename = $0["file"] as? String else { return false }
@@ -523,6 +677,8 @@ func generate(_ input: Input) throws -> [String: Any] {
             "changedMemberCount": coverage.count, "members": coverage, "sources": generated,
             "additiveProtocol": additiveContext || sharedContext ? 1 : 0, "additions": additions,
             "sharedAdditive": sharedContext,
+            "statefulComponentProtocol": statefulComponents.isEmpty && originUses.isEmpty ? 0 : 1,
+            "statefulComponents": statefulComponents, "statefulOriginUses": originUses,
             "requiresPrivateScopes": additiveContext || sharedContext]
 }
 final class LocalTypes: SyntaxVisitor {

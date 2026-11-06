@@ -105,7 +105,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
       snapshot = queue.pollingSnapshot();
     }
     if (adapter.cleanup && now() - lastCleanup >= 60_000) {
-      await adapter.cleanup(snapshot.records, { now: now() }); lastCleanup = now();
+      await adapter.cleanup(snapshot.records, { now: now(), statefulOrigins: snapshot.statefulOrigins || [] }); lastCleanup = now();
     }
     const records = snapshot.records.filter((record) => ["applying", "applied", "uncertain"].includes(record.state)
       || (record.expiresAt > now() && (INCOMPLETE.has(record.state) || record.state === "refreshed")));
@@ -136,6 +136,7 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           : !first.preparedPatch && observed.signingReady === false ? "LIVE_SIGNING_UNAVAILABLE"
           : first.preparedPatch?.replacementProof && !observed.completeEngine ? "LIVE_ENGINE_UPDATE_REQUIRED"
           : observed.completeEngine && observed.clientPresent && observed.completeClient === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
+          : first.preparedPatch?.statefulComponentProtocol === 1 && observed.clientPresent && observed.statefulComponentClient === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
           : observed.clientPresent && observed.supportsReceipts === false ? "LIVE_CLIENT_UPDATE_REQUIRED"
           : observed.clientPresent && !observed.matchesBinary ? "LIVE_TARGET_APP_MISMATCH"
           : "LIVE_READY";

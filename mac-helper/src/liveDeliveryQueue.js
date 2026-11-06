@@ -6,7 +6,7 @@ import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/n
 import { NodeLockManager } from "./infrastructure/nodeLockManager.js";
 import { createLiveDeliveryReadiness } from "./liveDeliveryReadiness.js";
 import { verifyReplacementProofReceipt } from "./replacementProof.js";
-import { compilationFiles, normalizeFiles, sameBinaryScope, LIVE_SOURCE_LIMITS } from "./liveDeliverySnapshots.js";
+import { compilationFiles, normalizeFiles, sameBinaryScope, LIVE_SOURCE_LIMITS, projectCompilationRecord, preparedStatefulOrigins, desiredStatefulOrigins, retainedStatefulOrigins, validateDesiredStatefulOrigins } from "./liveDeliverySnapshots.js";
 
 export const LIVE_DELIVERY_QUEUE_SCHEMA = 1;
 export const LIVE_DELIVERY_STATES = Object.freeze([
@@ -113,7 +113,7 @@ export function createLiveDeliveryQueue({
       const records = journal.records.map(({ files: _files, desiredSnapshots: _desired, ...record }) => record);
       const deadlines = records.filter((record) => !TERMINAL.has(record.state))
         .flatMap((record) => [record.expiresAt, ...(record.claim ? [record.claim.expiresAt] : [])]);
-      const value = { records, desires: journal.desiredStates.filter((item) => !item.revoked).map(({ scope }) => ({ scope })),
+      const value = { records, statefulOrigins: retainedStatefulOrigins(journal, timestamp()), desires: journal.desiredStates.filter((item) => !item.revoked).map(({ scope }) => ({ scope })),
         nextSweepAt: deadlines.length ? Math.min(...deadlines) : Infinity };
       pollingCache = { version, value };
       return clone(value);
@@ -144,24 +144,7 @@ export function createLiveDeliveryQueue({
       const journal = read();
       const record = journal.records.find(item => item.requestId === requestId);
       if (!record) throw queueError("QUEUE_REQUEST_NOT_FOUND");
-      const original = journal.binaryBaselines.find(item => sameBinaryScope(item.scope, record.scope));
-      const projected = clone(record);
-      const desired = journal.desiredStates.find(item => sameBinaryScope(item.scope, record.scope));
-      const time = timestamp();
-      const cohort = (!desired?.revoked && desired?.requiresCohort === true && desired.confirmedThroughSequence < record.sequence)
-        || journal.records.some(item => sameBinaryScope(item.scope, record.scope) && item.sequence < record.sequence
-          && item.sequence > (desired?.revoked ? desired.confirmedThroughSequence : 0)
-          && item.expiresAt > time && !["failed", "expired", "superseded"].includes(item.state) && item.preparedPatch?.sharedAdditive === true);
-      if (cohort) {
-        projected.files = compilationFiles(journal, record.scope, record.files, record.sequence, time, true);
-        return projected;
-      }
-      projected.files = projected.files.map(file => {
-        const baseline = original?.files.find(item => item.path === file.path);
-        if (!baseline || baseline.beforeHash !== sha(baseline.beforeSource)) throw queueError("QUEUE_REBASE_BASELINE_UNAVAILABLE");
-        return baseline.beforeSource === file.beforeSource ? file : { ...file, installedBaseline: baseline.beforeSource };
-      });
-      return projected;
+      return projectCompilationRecord(journal, record, timestamp());
     },
     async enqueue({ requestId = newId(), scope, files, baselineRevision = 0, expiresAt } = {}) {
       validateId(requestId);
@@ -271,7 +254,8 @@ export function createLiveDeliveryQueue({
           if (!PRE_APPLY.has(record.state)) throw queueError("QUEUE_STATE_INVALID");
           if (!preparedPatch || typeof preparedPatch !== "object" || Array.isArray(preparedPatch)
             || Buffer.byteLength(JSON.stringify(preparedPatch)) > 512 * 1024) throw queueError("QUEUE_PATCH_INVALID");
-          record.preparedPatch = clone(preparedPatch);
+          const origins = preparedStatefulOrigins(preparedPatch, record.scope);
+          record.preparedPatch = clone({ ...preparedPatch, ...(origins === undefined ? {} : { statefulOrigins: origins }) });
         }
         if (state === "applying") {
           if (!PRE_APPLY.has(record.state) || !record.preparedPatch || !scopeMatches(record.scope, normalizeScope(scope))
@@ -600,6 +584,8 @@ function assertJournalPublicationCapacity(journal, time) {
     receiptReserve += 1024 + 2 * Buffer.byteLength(JSON.stringify({ requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, patchDigest: record.preparedPatch?.patchDigest || "0".repeat(64) }));
     if (record.preparedPatch?.replacementProof) receiptReserve += 2 * 65_536;
   }
+  // Reserve bounded component lineage before native admission; it contains no user values.
+  receiptReserve += lanes.size * 65_536;
   for (const record of lanes.values()) {
     const previous = projected.desiredStates.find((item) => sameBinaryScope(item.scope, record.scope));
     if (previous && record.sequence <= previous.confirmedThroughSequence) continue;
@@ -625,7 +611,8 @@ function retainDesiredState(journal, record, time) {
   replaceDesired(journal, {
     scope: clone(record.scope), files: snapshots, confirmedThroughSequence: record.sequence,
     sourceRequestId: record.requestId, proof: clone(record.proof), confirmation: "refreshed", revoked: false,
-    ...((previous?.requiresCohort === true || record.preparedPatch?.sharedAdditive === true)
+    ...desiredStatefulOrigins(previous, record, snapshots),
+    ...((previous?.requiresCohort === true || record.preparedPatch?.sharedAdditive === true || record.preparedPatch?.statefulComponentProtocol === 1)
       && snapshots.some(file => file.beforeHash !== file.afterHash) ? { requiresCohort: true } : {}),
     createdAt: previous?.createdAt ?? time, updatedAt: time,
   });
@@ -690,6 +677,7 @@ function validateJournal(journal) {
         || !Number.isSafeInteger(record.createdAt) || record.createdAt < 0 || !Number.isSafeInteger(record.updatedAt) || record.updatedAt < record.createdAt || !Number.isSafeInteger(record.expiresAt) || record.expiresAt <= record.createdAt
         || typeof record.predecessorRequestId !== "string"
         || (record.preparedPatch !== null && (typeof record.preparedPatch !== "object" || Array.isArray(record.preparedPatch)))) throw queueError("QUEUE_JOURNAL_INVALID");
+      preparedStatefulOrigins(record.preparedPatch, record.scope);
       for (let index = 0; index < snapshots.length; index += 1) {
         if (snapshots[index].beforeHash !== record.files[index].beforeHash || snapshots[index].afterHash !== record.files[index].afterHash) throw queueError("QUEUE_JOURNAL_INVALID");
       }
@@ -723,6 +711,7 @@ function validateJournal(journal) {
         || !Number.isSafeInteger(desired.createdAt) || desired.createdAt < 0 || !Number.isSafeInteger(desired.updatedAt) || desired.updatedAt < desired.createdAt
         || typeof desired.revoked !== "boolean" || !Array.isArray(desired.files)
         || (desired.requiresCohort !== undefined && typeof desired.requiresCohort !== "boolean")) throw queueError("QUEUE_JOURNAL_INVALID");
+      validateDesiredStatefulOrigins(desired);
       desiredScopes.add(key);
       if (desired.revoked) {
         if (desired.files.length || desired.proof !== null || desired.confirmation !== "revoked" || desired.sourceRequestId !== "") throw queueError("QUEUE_JOURNAL_INVALID");

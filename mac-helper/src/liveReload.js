@@ -34,6 +34,8 @@ import { createFullCallableCompiler, compilerResourceDigest } from "./fullCallab
 import { normalizeReplacementProof, replacementCoverageDigest } from "./replacementProof.js";
 import { inspectStatefulBuild, statefulBodyIndex } from "./statefulBuild.js";
 import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
+import { statefulOriginsDigest, verifyStatefulOrigins } from "./liveStatefulOrigins.js";
+import { statefulCompilerOrigins, completeStatefulMetadata, privatizeStatefulModule, guardStatefulModuleOutputs, validateStatefulMarker, signedStatefulMetadata } from "./liveStatefulArtifacts.js";
 
 export const ROUTING_SCHEMA_VERSION = 1;
 export const CLASSIFIER_VERSION = 2;
@@ -253,7 +255,7 @@ function generateAdditive(compiler, input, originals) {
     try { return compiler.generate(input); }
     catch (error) { if (error?.code !== "QUEUED_MECHANISM_UNSUPPORTED") throw error; }
   }
-  return compiler.generate({ ...input, allowSharedAdditive: true, moduleSources: originals() });
+  return compiler.generate({ ...input, allowSharedAdditive: true, allowStatefulAdditive: true, moduleSources: originals() });
 }
 
 function classifyEditFile(file = {}) {
@@ -898,8 +900,9 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const availableModules = needsAdditive ? availableAdditiveModules(reference, record.files) : [];
   const resourceDigest = compilerResourceDigest();
   const stateful = statefulBodyIndex(manifest.stateful, reference.moduleName);
+  const componentInput = statefulCompilerOrigins(record, { artifactRoot, patchRoot, resourceDigest });
   const compilerContextDigest = createHash("sha256").update(JSON.stringify([reference.moduleName, reference.workingDirectory,
-    reference.compilerArguments, manifest.compilerContextProtocol || 1, manifest.registration?.mapDigest || "",
+    reference.compilerArguments, manifest.compilerContextProtocol || 1, manifest.registration?.mapDigest || "", componentInput.digest,
     record.files.map(file => [file.path, manifest.sourceBaselines?.[file.path] || "",
       createHash("sha256").update(JSON.stringify([file.beforeSource, file.afterSource, file.installedBaseline ?? file.beforeSource])).digest("hex")])])).digest("hex");
   const key = createHash("sha256").update(JSON.stringify(["complete-v3", record.requestId, record.snapshotDigest, record.scope.binaryIdentity, resourceDigest, stateful.digest, compilerContextDigest])).digest("hex");
@@ -910,13 +913,17 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const generationInput = { module: reference.moduleName, generation: key.slice(0, 32),
     statefulBodies: stateful.bodies,
     ...(baselinesVerified ? { preserveViewFunctions: true } : {}),
-    ...(needsAdditive ? { allowAdditive: true, availableModules } : {}),
+    ...(needsAdditive ? { allowAdditive: true, allowStatefulAdditive: true, statefulOrigins: componentInput.descriptors, availableModules } : {}),
     files: snapshots };
   const generation = needsAdditive ? generateAdditive(fullCompiler, generationInput,
     () => sharedModuleSources(manifest, reference, snapshots, { queue: createLiveDeliveryQueue(), binaryIdentity: record.scope.binaryIdentity }))
     : fullCompiler.generate(generationInput);
   const refreshStrategy = generation.refreshStrategy || "remount";
   const moduleName = `SwiftSimLivePatch_${key}`;
+  const directory = join(patchRoot, `queued_${key}`);
+  const modulePath = join(directory, moduleName + ".swiftmodule");
+  const metadata = artifactDigest => completeStatefulMetadata(generation, componentInput.origins,
+    { record, moduleName, modulePath, artifactPath: path, artifactDigest, resourceDigest });
   const previous = existsSync(marker) ? readCompleteMarker(marker) : null;
   if (existsSync(path)) {
     const stats = lstatSync(path);
@@ -929,19 +936,22 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
     if (coverage.coverageDigest !== previous.coverageDigest) throw completeArtifactError();
     if ((previous.additiveProtocol || 0) !== (generation.additiveProtocol || 0) || Boolean(previous.sharedAdditive) !== Boolean(generation.sharedAdditive)) throw completeArtifactError();
     if (previous.compilerContextDigest !== compilerContextDigest) throw completeArtifactError();
-    return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive);
+    const stateMetadata = metadata(coverage.artifactDigest);
+    validateStatefulMarker(previous, stateMetadata, record);
+    if (stateMetadata.statefulComponentProtocol === 1) verifyStatefulOrigins(stateMetadata.statefulOrigins, { scope: record.scope, artifactRoot, patchRoot, resourceDigest });
+    return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...stateMetadata };
   }
   const volume = statfsSync(artifactRoot);
   const initialUsage = queuedArtifactUsage(artifactRoot, patchRoot);
   if (!Number.isFinite(initialUsage)) throw completeArtifactError();
   if (readdirSync(artifactRoot).length > 1024 || initialUsage > 120 * 1024 * 1024
     || Number(volume.bavail) * Number(volume.bsize) < 128 * 1024 * 1024) throw Object.assign(new Error("Insufficient bounded patch storage."), { code: "PATCH_STORAGE_INSUFFICIENT" });
-  const directory = join(patchRoot, `queued_${key}`);
   ensureDirectoryModeSync(directory, 0o700);
   const owner = { version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest,
     binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt, resourceDigest, refreshStrategy, statefulDigest: stateful.digest,
     additiveProtocol: generation.additiveProtocol || 0, sharedAdditive: generation.sharedAdditive === true };
   owner.compilerContextDigest = compilerContextDigest;
+  if (generation.statefulComponentProtocol === 1) Object.assign(owner, { statefulComponentProtocol: 1, processIdentity: record.scope.sessionIdentity });
   writeCompleteMarker(marker, owner);
   const paths = generation.sources.map((source, index) => {
     const generatedPath = join(directory, `Replacement${index}.swift`);
@@ -952,21 +962,27 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   });
   const dylibPath = join(directory, `eval_injection_swift_sim_dynamic_queued_${key}.dylib`);
   if (existsSync(dylibPath)) { assertCompleteFile(dylibPath, false); rmSync(dylibPath); }
+  if (generation.statefulComponents?.length) guardStatefulModuleOutputs(modulePath);
   const result = runner.runSync({ executable: "/usr/bin/xcrun", args: ["swiftc", "-emit-library", ...paths, "-module-name", moduleName,
-    ...reference.compilerArguments, ...(generation.requiresPrivateScopes ? [] : ["-Xfrontend", "-disable-access-control"]),
+    ...reference.compilerArguments, ...componentInput.importArguments,
+    ...(generation.statefulComponents?.length ? ["-emit-module", "-emit-module-path", modulePath, "-enable-private-imports"] : []),
+    ...(generation.requiresPrivateScopes ? [] : ["-Xfrontend", "-disable-access-control"]),
     "-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup", "-o", dylibPath],
     cwd: reference.workingDirectory,
     environment: { inherit: ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "TOOLCHAINS"], overrides: {}, unset: ["SDKROOT"] },
     policy: { timeoutMs: 60_000, outputLimitBytes: 32 * 1024 * 1024, processGroup: "inherit", acceptedExitCodes: [0] } });
   if (result.code !== 0 || result.error || result.timedOut || !existsSync(dylibPath)) throw unsupportedReplacement();
+  if (generation.statefulComponents?.length) privatizeStatefulModule(modulePath);
   const coverage = fullCompiler.inspectCoverage({ dylibPath, generation, moduleName });
   const size = statSync(dylibPath).size;
   if (size > 32 * 1024 * 1024 || queuedArtifactUsage(artifactRoot, patchRoot) + size + 1024 * 1024 > 128 * 1024 * 1024) {
     throw Object.assign(new Error("The complete patch exceeds its storage quota."), { code: "PATCH_STORAGE_INSUFFICIENT" });
   }
   writeFileSync(path, readFileSync(dylibPath), { mode: 0o600, flag: "wx" });
-  writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest });
-  return completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive);
+  const stateMetadata = metadata(coverage.artifactDigest);
+  writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest,
+    ...(stateMetadata.statefulComponentProtocol === 1 ? { statefulOriginsDigest: statefulOriginsDigest(stateMetadata.statefulOrigins) } : {}) });
+  return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...stateMetadata };
 }
 
 function availableAdditiveModules(context, files) {
@@ -999,7 +1015,7 @@ function completePrepared(path, coverage, resourceDigest, refreshStrategy, addit
 }
 function completeArtifactError() { return Object.assign(new Error("The complete patch artifact is not trusted."), { code: "PATCH_ARTIFACT_INVALID" }); }
 
-export function validateCompleteQueuedLivePatchCoverage(record) {
+export function validateCompleteQueuedLivePatchCoverage(record, { artifactRoot = join(LIVE_ROOT, "queued-artifacts"), patchRoot = LIVE_PATCH_ROOT } = {}) {
   assertCompleteEditSet(record);
   if (!/^[a-f0-9]{64}$/.test(record.snapshotDigest || "") || record.preparedPatch?.sourceSnapshotDigest !== record.snapshotDigest
     || record.preparedPatch.compilerResourceDigest !== compilerResourceDigest()
@@ -1007,6 +1023,9 @@ export function validateCompleteQueuedLivePatchCoverage(record) {
   const path = record.preparedPatch.path;
   assertCompleteFile(path);
   const marker = readCompleteMarker(`${path}.json`);
+  validateStatefulMarker(marker, record.preparedPatch, record);
+  if (record.preparedPatch.statefulComponentProtocol === 1) verifyStatefulOrigins(record.preparedPatch.statefulOrigins,
+    { scope: record.scope, artifactRoot, patchRoot, resourceDigest: record.preparedPatch.compilerResourceDigest });
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity
     || (marker.additiveProtocol || 0) !== (record.preparedPatch.additiveProtocol || 0)
     || Boolean(marker.sharedAdditive) !== Boolean(record.preparedPatch.sharedAdditive)
@@ -1020,12 +1039,16 @@ export function validateCompleteQueuedLivePatchCoverage(record) {
 export function sealCompleteQueuedLivePatch(record, raw, signedDigest) {
   assertCompleteFile(raw.path);
   const marker = readCompleteMarker(`${raw.path}.json`);
+  validateStatefulMarker(marker, raw, record);
   if (marker.requestId !== record.requestId || marker.snapshotDigest !== record.snapshotDigest || marker.binaryIdentity !== record.scope.binaryIdentity || marker.artifactDigest !== raw.artifactDigest
     || marker.compilerContextDigest !== raw.compilerContextDigest
     || marker.coverageDigest !== raw.coverageDigest || marker.resourceDigest !== raw.compilerResourceDigest
     || (marker.refreshStrategy || "remount") !== (raw.refreshStrategy || "remount")
     || !/^[a-f0-9]{64}$/.test(signedDigest) || createHash("sha256").update(readFileSync(raw.path)).digest("hex") !== signedDigest) throw completeArtifactError();
-  writeCompleteMarker(`${raw.path}.json`, { ...marker, unsignedArtifactDigest: marker.unsignedArtifactDigest || raw.artifactDigest, artifactDigest: signedDigest });
+  const stateMetadata = signedStatefulMetadata(raw, record, signedDigest);
+  writeCompleteMarker(`${raw.path}.json`, { ...marker, unsignedArtifactDigest: marker.unsignedArtifactDigest || raw.artifactDigest, artifactDigest: signedDigest,
+    ...(stateMetadata.statefulComponentProtocol === 1 ? { statefulOriginsDigest: statefulOriginsDigest(stateMetadata.statefulOrigins) } : {}) });
+  return stateMetadata;
 }
 function assertCompleteFile(path, ownerOnly = true) {
   const stats = lstatSync(path);
@@ -1066,11 +1089,13 @@ function queuedArtifactUsage(root, patchRoot = LIVE_PATCH_ROOT) {
   return bytes;
 }
 
-export function cleanupQueuedLiveArtifacts(records, { artifactRoot = join(LIVE_ROOT, "queued-artifacts"), now = Date.now() } = {}) {
+export function cleanupQueuedLiveArtifacts(records, { artifactRoot = join(LIVE_ROOT, "queued-artifacts"), patchRoot = LIVE_PATCH_ROOT, statefulOrigins = [], now = Date.now() } = {}) {
   if (!existsSync(artifactRoot)) return;
   const root = lstatSync(artifactRoot);
   if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o077) !== 0) return;
-  const retained = new Set(records.filter((record) => record.expiresAt > now).map((record) => record.requestId));
+  const retained = new Set([...records.filter((record) => record.expiresAt > now).map((record) => record.requestId),
+    ...statefulOrigins.map(origin => origin.requestId),
+    ...records.filter(record => record.expiresAt > now || ["applying", "applied", "uncertain"].includes(record.state)).flatMap(record => record.preparedPatch?.statefulOrigins || []).map(origin => origin.requestId)]);
   for (const name of readdirSync(artifactRoot).slice(0, 1024)) {
     if (!/^eval_injection_swift_sim_dynamic_[a-f0-9]{64}\.dylib\.json$/.test(name)) continue;
     const markerPath = join(artifactRoot, name); const stats = lstatSync(markerPath);
@@ -1082,7 +1107,7 @@ export function cleanupQueuedLiveArtifacts(records, { artifactRoot = join(LIVE_R
     if (existsSync(path) && lstatSync(path).isSymbolicLink()) continue;
     rmSync(path, { force: true });
     // The compilation path is derived, never trusted from marker text.
-    const compilation = join(LIVE_PATCH_ROOT, `queued_${marker.key}`);
+    const compilation = join(patchRoot, `queued_${marker.key}`);
     if (existsSync(compilation) && !lstatSync(compilation).isSymbolicLink()) rmSync(compilation, { recursive: true, force: true });
     rmSync(markerPath, { force: true });
   }
@@ -1101,7 +1126,7 @@ export async function prepareQueuedLivePatchAsync(record, { cancellationSignal, 
   if (result.code !== 0 || result.timedOut || result.cancellationError) {
     let failure;
     try { failure = JSON.parse(result.stderr.trim()); } catch {}
-    const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID", "LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED"];
+    const allowed = ["QUEUED_MECHANISM_UNSUPPORTED", "QUEUED_EDIT_NOT_COMPATIBLE", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID", "LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED", "LIVE_STATEFUL_ORIGIN_INVALID"];
     const code = !result.timedOut && !result.cancellationError && allowed.includes(failure?.code) ? failure.code : "PATCH_COMPILE_FAILED";
     throw Object.assign(new Error("The queued replacement could not be prepared. No patch was applied or app rebuild started."), { code });
   }

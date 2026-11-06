@@ -202,3 +202,45 @@ test("multiple callback pairs in one compiler category and indirect selector ref
   f.state.commands = f.state.commands.replace("size 0x8\n", "size 0x10\n");
   assert.throws(() => f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: g, moduleName: "Patch" }), { code: "FULL_CALLABLE_OBJC_METADATA_INVALID" });
 });
+
+test("known original stateful dynamic slots are not native replacement receipts", t => {
+  const f = fixture(t), g = generation([member("__swiftSim_full_g0123456789abcdef0123456789abcdef_f0_0")]);
+  Object.assign(g, { additiveProtocol: 1, requiresPrivateScopes: true, additions: [], statefulComponentProtocol: 1,
+    statefulComponents: [{ path: join(f.root, "Fixture.swift"), owner: "Card", layoutDigest: "a".repeat(64), sourceFileIndex: 0,
+      slots: [{ member: "body", kind: "property", accessors: ["getter"], isStatic: false }] }], statefulOriginUses: [] });
+  f.state.nm += "originalBodyTX\noriginalBodyTx\n";
+  const replacement = f.state.demangled;
+  f.state.demangled += "dynamically replaceable variable for Patch.Card.body.getter : SwiftUI.AnyView\n";
+  const inspect = () => f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: g, moduleName: "Patch" });
+  const receipt = inspect();
+  assert.equal(receipt.replacementProof.swift_replacements, 1);
+  assert.deepEqual(receipt.swiftSymbols, ["symbol0TX"]);
+  for (const mutation of ["missing-key", "unexpected-body", "unexpected-owner", "extra-original", "missing-original", "forged-TI"]) {
+    f.state.nm = "symbol0TX\noriginalBodyTX\noriginalBodyTx\n";
+    f.state.demangled = replacement + "dynamically replaceable variable for Patch.Card.body.getter : SwiftUI.AnyView\n";
+    if (mutation === "missing-key") f.state.nm = f.state.nm.replace("originalBodyTx\n", "");
+    if (mutation === "unexpected-body") f.state.demangled = f.state.demangled.replace("Card.body", "Card.other");
+    if (mutation === "unexpected-owner") f.state.demangled = f.state.demangled.replace("Patch.Card", "Elsewhere.Card");
+    if (mutation === "extra-original") { f.state.nm += "extraTX\nextraTx\n"; f.state.demangled += "dynamically replaceable variable for Patch.Card.other.getter : SwiftUI.AnyView\n"; }
+    if (mutation === "missing-original") { f.state.nm = "symbol0TX\n"; f.state.demangled = replacement; }
+    if (mutation === "forged-TI") f.state.nm += "originalBodyTI\n";
+    assert.throws(inspect, { code: "FULL_CALLABLE_COVERAGE_INCOMPLETE" }, mutation);
+  }
+});
+
+test("pinned member modules and preservation require the exact admitted component origin", t => {
+  const f = fixture(t), path = join(f.root, "Fixture.swift"), origin = { path, owner: "Card", module: "FirstPatch", sourceFile: "Replacement0.swift", layoutDigest: "a".repeat(64) };
+  const allowed = { ...input, files: [{ ...input.files[0], path }], allowAdditive: true, allowStatefulAdditive: true, statefulOrigins: [origin] };
+  f.state.generated = { ...generation([member("__swiftSim_full_g0123456789abcdef0123456789abcdef_f32_0", {
+    member: "body", kind: "property", accessors: ["getter"], owner: "Card", targetModule: "FirstPatch" })]),
+    additiveProtocol: 1, requiresPrivateScopes: true, additions: [], statefulComponentProtocol: 1, statefulComponents: [], statefulOriginUses: [origin], refreshStrategy: "preserve-state-v1" };
+  assert.equal(f.compiler.generate(allowed).refreshStrategy, "preserve-state-v1");
+  f.state.demangled = "dynamically replaceable variable for (extension in Patch):FirstPatch.Card.__swiftSim_full_g0123456789abcdef0123456789abcdef_f32_0.getter : SwiftUI.AnyView\n";
+  assert.equal(f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: f.state.generated, moduleName: "Patch" }).replacementProof.swift_replacements, 1);
+  f.state.demangled = f.state.demangled.replace("FirstPatch.Card", "Fixture.Card");
+  assert.throws(() => f.compiler.inspectCoverage({ dylibPath: f.dylib, generation: f.state.generated, moduleName: "Patch" }));
+  for (const changed of [{ owner: "Other" }, { module: "Unadmitted" }, { layoutDigest: "b".repeat(64) }, { sourceFile: "Replacement1.swift" }]) {
+    assert.throws(() => f.compiler.generate({ ...allowed, statefulOrigins: [{ ...origin, ...changed }] }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  }
+  assert.throws(() => f.compiler.generate({ ...allowed, allowStatefulAdditive: false }), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+});
