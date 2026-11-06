@@ -12,7 +12,8 @@ import { liveDeliveryService } from "../../../../dist/mac-helper/src/liveDeliver
 assert.equal(process.argv[2], "--phone-ready", "confirm phone availability before running");
 const snapshotsPath = resolve(process.argv[3]);
 const output = resolve(process.argv[4] || `.build/additive-phone-${Date.now()}`);
-assert(!existsSync(output), "fresh qualification output required");
+const resume = process.argv[5] === "--resume";
+assert.equal(existsSync(output), resume, "fresh output required, or explicitly resume its retained requests");
 mkdirSync(output, { recursive: true, mode: 0o700 });
 const variants = JSON.parse(readFileSync(snapshotsPath, "utf8"));
 assert.equal(variants.length, 3);
@@ -28,7 +29,18 @@ assert.equal(variants[2].beforeSource, variants[1].afterSource);
 assert.equal(variants[2].afterSource, original);
 const save = (name, value) => writeFileSync(join(output, name), JSON.stringify(value, null, 2), { mode: 0o600 });
 const service = liveDeliveryService();
-const result = { startedAt: new Date().toISOString(), complete: false, sourceUnchanged: true, restorationRequired: false, steps: [] };
+const result = resume ? JSON.parse(readFileSync(join(output, "result.json"), "utf8"))
+  : { startedAt: new Date().toISOString(), complete: false, sourceUnchanged: true, restorationRequired: false, steps: [] };
+assert(!result.complete);
+assert(result.steps.length <= variants.length);
+for (const [index, step] of result.steps.entries()) {
+  assert.equal(step.variant, index + 1);
+  const retained = service.queue.get(step.requestId);
+  assert(retained, "retained request missing; do not resubmit");
+  assert.equal(retained.files.length, 1);
+  for (const key of ["path", "beforeSource", "afterSource"]) assert.equal(retained.files[0][key], variants[index][key]);
+}
+delete result.error;
 save("result.json", result);
 async function waitFor(requestId) {
   const deadline = Date.now() + 3 * 60_000;
@@ -44,11 +56,14 @@ async function waitFor(requestId) {
 }
 try {
   for (const [index, file] of variants.entries()) {
-    const queued = await deliverChange({ project: manifest.binding.projectPath, scheme: manifest.binding.scheme, liveOnly: true, files: [file] });
-    save(`submitted-${index + 1}.json`, queued);
-    assert.equal(queued.outcome, "queued");
-    const step = { variant: index + 1, requestId: queued.delivery.requestId, confirmed: false };
-    result.steps.push(step); result.restorationRequired = true; save("result.json", result);
+    let step = result.steps[index];
+    if (!step) {
+      const queued = await deliverChange({ project: manifest.binding.projectPath, scheme: manifest.binding.scheme, liveOnly: true, files: [file] });
+      save(`submitted-${index + 1}.json`, queued);
+      assert.equal(queued.outcome, "queued");
+      step = { variant: index + 1, requestId: queued.delivery.requestId, confirmed: false };
+      result.steps.push(step); result.restorationRequired = true; save("result.json", result);
+    }
     const record = await waitFor(step.requestId);
     save(`record-${index + 1}.json`, record);
     assert.equal(record.preparedPatch.additiveProtocol, 1);

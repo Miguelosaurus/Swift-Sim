@@ -287,9 +287,15 @@ export function createLiveDeliveryQueue({
         sweepJournal(journal, time);
         pruneExpiredHistory(journal, time);
         const existing = journal.processRebases.find((item) => scopeMatches(item.scope, binding));
-        if (existing) return { record: existing.requestId ? find(journal, existing.requestId) : null, supersededRequestIds: existing.supersededRequestIds, netNoChange: existing.netNoChange };
-        if (journal.processRebases.length >= LIMITS.records) throw queueError("QUEUE_LIMIT_REACHED");
         const lane = journal.records.filter((record) => sameBinaryScope(record.scope, binding));
+        // A disconnected submission can arrive after this process was observed
+        // at its original baseline. That earlier no-op is not an acknowledgement
+        // of the newly accepted intent. Reconcile it once, without reapplying a
+        // previous cohort or extending the new request's expiry.
+        const lateIntent = existing?.netNoChange && lane.some((record) => record.scope.sessionIdentity !== binding.sessionIdentity
+          && PRE_APPLY.has(record.state) && record.expiresAt > time && !existing.supersededRequestIds.includes(record.requestId));
+        if (existing && !lateIntent) return { record: existing.requestId ? find(journal, existing.requestId) : null, supersededRequestIds: existing.supersededRequestIds, netNoChange: existing.netNoChange };
+        if (!existing && journal.processRebases.length >= LIMITS.records) throw queueError("QUEUE_LIMIT_REACHED");
         const desired = journal.desiredStates.find((item) => sameBinaryScope(item.scope, binding));
         if (!lane.some((record) => record.scope.sessionIdentity !== binding.sessionIdentity) && (!desired || desired.scope.sessionIdentity === binding.sessionIdentity)) throw queueError("QUEUE_REBASE_REJECTED");
         // The caller has authenticated a different process of this exact
@@ -353,6 +359,7 @@ export function createLiveDeliveryQueue({
         }
         const supersededRequestIds = superseded.map((item) => item.requestId);
         if (!record && merged.size) retainBaselineDesire(journal, { scope: binding, files: [...merged.values()], sequence: Math.max(watermark, ...history.map((item) => item.sequence)), sourceRequestId: history.at(-1)?.requestId || desired.sourceRequestId }, time);
+        if (existing) journal.processRebases.splice(journal.processRebases.indexOf(existing), 1);
         journal.processRebases.push({ scope: binding, requestId: record?.requestId || null, supersededRequestIds, netNoChange: !record, createdAt: time, expiresAt: expiry });
         return { record, supersededRequestIds, netNoChange: !record };
       });

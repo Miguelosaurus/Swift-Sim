@@ -495,6 +495,28 @@ test("a net-no-change relaunch supersedes pending requests without claiming hot 
   } finally { f.cleanup(); }
 });
 
+test("a baseline-only process observation does not strand later disconnected intent", async () => {
+  const f = fixture();
+  try {
+    await queued(f);
+    await queued(f, "undo", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: sources[0].beforeSource }]);
+    const input = { scope: { ...scope, sessionIdentity: "relaunch" }, currentRevision: 0, verified: true, newRequestId: "replay" };
+    assert.equal((await f.queue.rebaseForProcess(input)).netNoChange, true);
+    f.tick(10);
+    const late = await f.queue.enqueue({ requestId: "late", scope: { ...scope, sessionIdentity: "pending-client" }, files: sources, baselineRevision: 0, expiresAt: 2_000 });
+    await assert.rejects(f.queue.rebaseForProcess({ ...input, currentRevision: 1 }), { code: "QUEUE_REBASE_REJECTED" });
+    const result = await f.reopen().rebaseForProcess(input);
+    assert.equal(result.netNoChange, false);
+    assert.equal(result.record.scope.sessionIdentity, "relaunch");
+    assert.deepEqual(result.record.rebaseSourceRequestIds, ["late"]);
+    assert.equal(result.record.expiresAt, late.expiresAt);
+    assert.deepEqual(result.record.files.map(({ path, beforeSource, afterSource }) => ({ path, beforeSource, afterSource })), sources);
+    assert.equal(f.queue.get("late").replacementRequestId, "replay");
+    assert.equal(f.queue.get("undo").replacementRequestId, "");
+    assert.deepEqual(await f.reopen().rebaseForProcess({ ...input, newRequestId: "duplicate" }), result);
+  } finally { f.cleanup(); }
+});
+
 test("new-process rebase refuses unverified, same-process and live-claim histories", async () => {
   const f = fixture();
   try {
