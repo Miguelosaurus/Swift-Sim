@@ -302,6 +302,27 @@ test("gateway mode never attaches a live journal subscription", async () => {
   assert.equal(watched, 0);
 });
 
+test("publication during preparation schedules application without a timer tick", async () => {
+  let wake; const phases = [];
+  const harness = createHarness({ watchLiveDeliveries(callback) { wake = callback; return { refresh() {}, close() {} }; },
+    reconcileLiveDeliveries: async () => { phases.push(phases.length ? "apply" : "prepare"); if (phases.length === 1) wake(); } });
+  const lifecycle = harness.lifecycle(); await lifecycle.prepare(); await lifecycle.start(() => {}); await tick();
+  assert.deepEqual(phases, ["prepare"]);
+  assert.equal(harness.immediates.length, 2, "one cleanup plus one live continuation");
+  harness.immediates[1](); await tick();
+  assert.deepEqual(phases, ["prepare", "apply"]); assert.equal(harness.immediates.length, 2);
+  lifecycle.shutdown();
+});
+
+test("subscription failure preserves startup and the existing one-second fallback", async () => {
+  let calls = 0;
+  const harness = createHarness({ reconcileLiveDeliveries: async () => { calls++; }, watchLiveDeliveries() { throw Error("unsupported watch"); } });
+  const lifecycle = harness.lifecycle(); await lifecycle.prepare(); await lifecycle.start(() => {}); await tick();
+  assert.equal(calls, 1); assert.deepEqual(harness.errors, []);
+  harness.intervals.find(timer => timer.intervalMs === 1000).callback(); await tick(); assert.equal(calls, 2);
+  lifecycle.shutdown();
+});
+
 function createHarness({
   deviceBuildsOnly = false,
   listenError = null,

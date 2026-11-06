@@ -9,6 +9,7 @@ import { performance } from "node:perf_hooks";
 import { deliverChange } from "../../../../dist/mac-helper/src/changeDelivery.js";
 import { liveDeliveryService } from "../../../../dist/mac-helper/src/liveDeliveryService.js";
 import { deliveryRuntimeHealth } from "../../../../dist/mac-helper/src/helperDeliveryReadiness.js";
+import { createLiveDeliveryAdapter } from "../../../../dist/mac-helper/src/liveDeliveryAdapter.js";
 
 assert.equal(process.argv[2], "--phone-ready");
 const output = resolve(process.argv[3]), resume = process.argv[4] === "--resume";
@@ -71,11 +72,19 @@ try {
       const retained = service.queue.get(step.requestId); assert(retained);
       assert.equal(retained.files[0].beforeSource, file.beforeSource); assert.equal(retained.files[0].afterSource, file.afterSource);
     }
-    let record; const deadline = Date.now() + 180_000;
+    let record; const deadline = Date.now() + 180_000; let lastDiagnostic = 0;
     while (Date.now() < deadline) {
       const status = service.status(step.requestId);
       if (status.outcome === "hot-reloaded") { record = service.queue.get(status.delivery.requestId); break; }
       save("latest-status.json", status);
+      if (performance.now() - activeStart > 8_000 && Date.now() - lastDiagnostic > 1_000) {
+        lastDiagnostic = Date.now();
+        const retained = service.queue.get(status.delivery?.requestId || step.requestId);
+        const observed = await createLiveDeliveryAdapter().inspect(retained);
+        event("long-wait-readiness", { requestId: retained.requestId, connected: observed.connected,
+          foreground: observed.foreground, rootReady: observed.rootReady, matchesBinary: observed.matchesBinary, revision: observed.revision });
+        save("long-wait-events.json", events);
+      }
       if (status.outcome !== "queued" && status.reasonCode !== "QUEUE_APPLY_UNCONFIRMED") throw Error(status.reasonCode || status.outcome);
       await new Promise(done => setTimeout(done, 100));
     }

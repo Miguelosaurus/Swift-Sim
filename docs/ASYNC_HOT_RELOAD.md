@@ -211,6 +211,14 @@ awake and the helper running to prepare/deliver. Its shutdown cancels and
 drains its compiler worker. Intent survives restart in the private runtime
 journal.
 
+The existing helper watches only its private delivery journal for publication
+hints. New intent and completed preparation wake a coalesced worker turn without
+waiting for the next timer tick. The one-second fallback poll remains for missed
+events and subscription recovery. All normal admission and receipt checks still
+run; a filesystem event grants no mutation authority. Notification reconciliation
+keeps its separate schedule. No source watcher, new process or phone runtime is
+added. See [measured Zenics latency](evidence/HOT_RELOAD_LATENCY_2026_11_05.md).
+
 App identity, both executable/debug-dylib UUIDs, process nonce, snapshot digest,
 request/attempt identity and revision fence every application. A socket
 reconnect retains the process's receipts; a new process gets a cumulative
