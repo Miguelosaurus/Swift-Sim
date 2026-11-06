@@ -36,7 +36,8 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
       afterSource: String(file.afterSource ?? readFileSync(file.afterPath, "utf8")),
     }));
     for (const snapshot of snapshots) {
-      const prior = history.flatMap((record) => record.files).findLast((file) => file.path === snapshot.path);
+      const prior = history.filter(record => record.expiresAt > now() && !["expired", "superseded", "failed"].includes(record.state))
+        .flatMap((record) => record.files).findLast((file) => file.path === snapshot.path);
       const desired = queue.desiredStates().find((item) => sameBinary(item.scope, scope))?.files.find((file) => file.path === snapshot.path);
       const captured = binding.sourceBaselines?.[snapshot.path];
       const original = captured === undefined || (binding.verifiedProcess && binding.revision === 0 && !previous)

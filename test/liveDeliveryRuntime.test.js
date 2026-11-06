@@ -71,6 +71,26 @@ test("unsupported complete replacement reports its actual limit without applying
   } finally { f.cleanup(); }
 });
 
+test("pre-application failure does not establish an applied source baseline for a new explicit request", async () => {
+  const f = fixture();
+  try {
+    f.state.connected = true; f.state.foreground = true;
+    const prepare = f.adapter.prepare;
+    f.adapter.prepare = async () => { throw Object.assign(new Error("old compiler"), { code: "PATCH_ARTIFACT_INVALID" }); };
+    const first = await f.service.enqueue({ files: f.files() });
+    await f.service.runOnce();
+    assert.equal(f.queue.get(first.delivery.requestId).state, "failed");
+    assert.equal(f.calls.apply.length, 0);
+    f.adapter.prepare = prepare;
+    const next = await f.service.enqueue({ files: f.files() });
+    assert.notEqual(next.delivery.requestId, first.delivery.requestId);
+    await f.service.runOnce(); await f.service.runOnce();
+    assert.equal(f.service.status(next.delivery.requestId).outcome, "hot-reloaded");
+    assert.equal(f.calls.apply.length, 1);
+    assert.equal(f.queue.get(first.delivery.requestId).state, "failed");
+  } finally { f.cleanup(); }
+});
+
 test("a new request after expired history uses the fresh process revision and qualified original source", async () => {
   const f = fixture();
   try {
