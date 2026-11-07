@@ -4,6 +4,10 @@ export const DELIVERY_OUTCOMES = Object.freeze([
   "hot-reloaded",
   "queued",
   "install-link-ready",
+  "installed",
+  "install-queued",
+  "install-prompt-requested",
+  "install-unconfirmed",
   "no-change",
   "needs-user-action",
   "failed",
@@ -84,6 +88,13 @@ export function validateDeliveryEnvelope(value) {
     if (value.delivery?.expiresAt !== undefined && typeof value.delivery.expiresAt !== "string") {
       errors.push("install delivery expiresAt must be a string.");
     }
+  }
+  if (["installed", "install-queued", "install-prompt-requested", "install-unconfirmed"].includes(value.outcome)) {
+    const allowed = { installed: ["installed", "installed-version-observed", "already-matching-version"],
+      "install-queued": ["waiting"], "install-prompt-requested": ["prompt-requested"],
+      "install-unconfirmed": ["opening", "unconfirmed"] };
+    if (value.delivery?.kind !== "device-install" || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.delivery?.requestId || "")
+      || !allowed[value.outcome].includes(value.delivery?.state) || typeof value.delivery?.requiresIOSConfirmation !== "boolean") errors.push("Invalid device install delivery.");
   }
   if (value.outcome === "queued") {
     if (value.delivery?.kind !== "pending") errors.push("queued requires pending delivery.");

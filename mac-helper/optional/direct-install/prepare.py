@@ -103,7 +103,10 @@ def prepare(ipa, output):
             if expiry <= datetime.datetime.now(datetime.timezone.utc).timestamp():
                 raise ValueError("profile_expired")
         with frozen.open("rb") as source:
-            digest = hashlib.file_digest(source, "sha256").hexdigest()
+            hashed = hashlib.sha256()
+            for chunk in iter(lambda: source.read(65536), b""):
+                hashed.update(chunk)
+            digest = hashed.hexdigest()
         manifest = {"schema": 1, "sha256": digest, "identity": app_identity,
                     "team": team, "devices": devices, "expires": int(expiry)}
         path = output / "manifest.json"

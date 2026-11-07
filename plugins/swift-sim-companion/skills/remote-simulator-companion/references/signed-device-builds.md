@@ -10,7 +10,10 @@ swift-sim build-device \
 ```
 
 Use `--workspace` for workspaces and preserve repeated `--build-setting
-KEY=VALUE` arguments. Only `state: ready` is installable. Return
+KEY=VALUE` arguments. Only `state: ready` is installable. For a phone-testing thread, follow the
+[automatic delivery workflow](automatic-delivery.md): use `deliver-build --build-id
+<id> --project <project> --scheme <scheme>` for an already built app. Do not build
+it again merely to deliver it. For explicit link-only delivery, return
 `links.universalLink` labeled **Open in Swift Sim to Install**, with
 `links.customScheme` as fallback. Never expose IPA/archive paths, UDIDs, team
 IDs, ports, or raw logs.

@@ -221,3 +221,26 @@ One tagged Homebrew release contains the CLI, helper, shared skill, native plugi
 Setup installs these components from that package. This keeps agent behavior aligned with the helper protocol.
 
 See [Development](DEVELOPMENT.md) for release validation and [Security](SECURITY.md) for transport boundaries.
+
+
+## Automatic delivery in phone-testing threads
+
+After the user establishes phone testing for an app, deliver subsequent completed
+changes for that same app without asking again. Keep the target and preference
+in the thread handoff. Explicit code-only/no-phone instructions override it;
+unrelated conversations and other projects do not inherit it.
+
+`deliver-change` retains its live queue for compatible changes. Its default signed
+fallback uses Debug and calls the installation router. A unique available paired
+Xcode device gets native install and a best-effort launch. If the developer
+connection is unavailable before submission, an integrated app receives a queued
+foreground prompt. An uncertain native submission never falls through to OTA.
+`--install link` preserves explicit link-only delivery. Existing saved builds use
+`deliver-build --build-id <id> --project <project> --scheme <scheme>`.
+
+Build delivery returns one saved build ID in `delivery.requestId`; inspect it
+with `build-delivery-status --build-id <id> --project <project> --scheme <scheme>`.
+`installed` records version/build evidence, `install-queued` waits for the app,
+`install-prompt-requested` awaits iOS confirmation, and `install-unconfirmed`
+requires reconciliation without retrying. Live operations retain their own
+existing status command. See [automatic delivery](../plugins/swift-sim-companion/skills/remote-simulator-companion/references/automatic-delivery.md).

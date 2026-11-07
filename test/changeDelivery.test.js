@@ -192,3 +192,31 @@ test("queued readiness accepts bounded advisory ages and rejects raw or malforme
     assert.equal(validateDeliveryEnvelope({ ...pending, delivery: { ...pending.delivery, readiness } }).valid, false);
   }
 });
+
+for (const [state, outcome] of [["installed", "installed"], ["waiting", "install-queued"], ["prompt-requested", "install-prompt-requested"], ["unconfirmed", "install-unconfirmed"]]) test(`one delivery owns signed build and ${state} handoff`, async () => {
+  let builds = 0; let installs = 0;
+  const result = await deliverChange({ files: STRUCTURAL,
+    buildDevice: async () => { builds++; return { ...build(), id: "11111111-1111-1111-1111-111111111111" }; },
+    installBuild: async input => { installs++; return { state, buildID: input.buildID }; } });
+  assert.equal(result.outcome, outcome); assert.equal(builds, 1); assert.equal(installs, 1);
+  assert.equal(validateDeliveryEnvelope(result).valid, true);
+  assert.doesNotMatch(JSON.stringify(result), /universalLink|token=/);
+});
+test("automatic install failure after possible submission never becomes a retry or link", async () => {
+  const result = await deliverChange({ files: STRUCTURAL, buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111" }),
+    installBuild: async () => { throw Error("lost receipt"); } });
+  assert.equal(result.outcome, "install-unconfirmed"); assert.equal(result.delivery.state, "unconfirmed");
+});
+test("compatible live delivery never imports or probes install routes", async () => {
+  const result = await deliverChange({ files: HOT, queueLive: async () => deliveryEnvelope({ outcome: "hot-reloaded", message: "Applied", delivery: { kind: "live", revision: 1 } }),
+    installBuild: async () => { throw Error("unexpected install"); } });
+  assert.equal(result.outcome, "hot-reloaded");
+});
+
+test("parallel build-input drift stops before any automatic install", async () => {
+  let installs = 0;
+  const result = await deliverChange({ files: STRUCTURAL,
+    buildDevice: async () => { throw Object.assign(new Error("Build inputs changed"), { code: "BUILD_INPUTS_CHANGED" }); },
+    installBuild: async () => { installs++; } });
+  assert.equal(result.outcome, "needs-user-action"); assert.equal(result.reasonCode, "BUILD_INPUTS_CHANGED"); assert.equal(installs, 0);
+});

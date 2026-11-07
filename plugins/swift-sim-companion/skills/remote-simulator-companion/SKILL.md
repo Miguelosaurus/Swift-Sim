@@ -14,13 +14,18 @@ Swift Sim delivers local edits for the agent running on the Mac:
 - **Simulator preview:** start or reuse a Mac-hosted Simulator only when the
   user asks for a preview.
 
-Never create another agent, watch every save, stream an iPhone, or ask users
-to choose live reload versus a build.
+Never ask users to choose hot reload versus a build.
+
+Once the user wants to test this app on their phone, deliver each completed
+logical change in this thread automatically; no repeated update request is
+needed. Keep the app/project target in thread handoffs. “Code only,” “don't use
+my phone,” or a target change suspends that preference. Unrelated chats invoke
+zero Swift Sim commands. Never watch every save.
+
 
 ## Fast phone-edit contract
 
-Use for requested iPhone delivery or hot reload. Ordinary coding invokes zero
-Swift Sim commands. After one logical change, invoke exactly once:
+After each completed logical change, invoke once:
 
 ```sh
 swift-sim deliver-change \
@@ -31,26 +36,25 @@ swift-sim deliver-change \
   --allow-provisioning-updates
 ```
 
-Use `--workspace` for workspaces, repeat matching `--before`/`--after` pairs
-for multi-file changes, and preserve repeated `--build-setting` arguments.
+Use `--workspace` for workspaces, matching `--before`/`--after` pairs for multiple
+files, and preserve `--build-setting` arguments.
 The command owns immutable snapshots, classification, cheap warm validation,
-durable queueing and strict applied/refresh/revision proof. For an explicit hot
-reload request or acceptance test, add `--live-only`; it never builds an app.
+durable queueing and strict applied/refresh/revision proof. Use `--live-only` when rebuilds are explicitly forbidden or for hot reload
+qualification; it never builds an app.
 
 Never run `doctor`, `live-status`, screenshots, UI analysis, or a second
 classification command before a normal warm delivery. No-change returns
 without contacting the engine or builder. Compatible edits queue while the
 app is absent or disconnected; temporary absence and unproven application do
 not start a signed rebuild. Structural/mixed/non-Swift edits require a signed
-build, unless `--live-only` forbids it. A compiled patch or loaded dylib is not proof.
+build, unless `--live-only` forbids it. Compilation alone is insufficient.
 
 Schema 2 adds incomplete `queued` delivery. Report its state; the helper applies
 it when the matching app can run. Never claim done, require a specific screen,
 or retry delivery. Read progress with `swift-sim live-delivery-status --request
 <opaque-request-id>`.
 
-Terminal outcomes are `hot-reloaded`, `install-link-ready`, `no-change`,
-`needs-user-action`, and `failed`. Say exactly:
+For `hot-reloaded`, say:
 
 ```text
 Hot reloaded successfully. Test it now on your iPhone in the running Debug app—no install needed.
@@ -62,13 +66,16 @@ For `install-link-ready`, say:
 This change needs a new signed build.
 ```
 
-For requested in-app installation, follow [foreground installs](references/foreground-installs.md).
-Otherwise provide the returned link labeled **Open in Swift Sim to Install**. Do not expose paths, device identifiers, signing identities,
+For `install-link-ready`, provide the returned link labeled **Open in Swift Sim to Install**. Do not expose paths, device identifiers, signing identities,
 Tailnet names, ports, archives, or raw logs. Explain `needs-user-action` only
 with its returned action; do not mention `no-change`. Use `--verbose-json` only
 for an explicit diagnostic request.
 
 ## Safety and lane boundaries
+
+Build delivery also returns `installed`, `install-queued`,
+`install-prompt-requested`, or `install-unconfirmed`. Follow their message; read
+[automatic phone delivery](references/automatic-delivery.md) for status and limits.
 
 When a signed build includes `rebuildReason`, explain that bounded file/member
 reason too. Distinguish existing storage/signature changes from current live
@@ -87,11 +94,7 @@ identity for signed fallbacks; never uninstall first.
 Implementation bodies, SwiftUI layout/modifier changes, computed helpers,
 supported accessors, whole async/throwing bodies, and UIKit callbacks can be live.
 The matching receipt-v3 SDK proves every Swift replacement and exact callback
-class/selector/implementation mapping. Existing suspended tasks keep their old
-code generation; a root refresh does not migrate them.
-Local let/var and pattern bindings inside implementations are live edits;
-existing-instance stored layout stays fixed. Unsupported implementations reject
-the entire patch before application.
+class/selector/implementation mapping. Unsupported implementations reject the entire patch.
 Private/internal helpers, patch-local structs/enums/typealiases, new Swift files
 and captured-SDK imports can reload with complete consumers against the installed baseline.
 Matching Debug SDKs support new State/Binding/Environment views and added `@State`

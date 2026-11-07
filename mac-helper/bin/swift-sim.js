@@ -86,6 +86,12 @@ async function main() {
     if (result.outcome !== "context-ready") process.exitCode = 1;
     return;
   }
+  if (command === "build-delivery-status" || command === "deliver-build") {
+    const { values } = parseArgs({ args, options: { "build-id": { type: "string" }, project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" }, device: { type: "string" } } });
+    const { deliverSavedBuild } = await import("../src/buildDelivery.js");
+    console.log(JSON.stringify(await deliverSavedBuild({ buildID: values["build-id"], project: values.project, workspace: values.workspace, scheme: values.scheme, device: values.device, status: command === "build-delivery-status" })));
+    return;
+  }
   if (command === "request-install") {
     const { values } = parseArgs({ args, options: {
       "build-id": { type: "string" }, status: { type: "boolean" }, cancel: { type: "boolean" },
@@ -291,18 +297,43 @@ async function deliverChangeCommand(args) {
     "allow-provisioning-updates": { type: "boolean" }, "replace-app-data": { type: "boolean" },
     "verbose-json": { type: "boolean" },
     "live-only": { type: "boolean" },
+    install: { type: "string", default: "auto" }, device: { type: "string" },
   }});
+  if (!["auto", "link"].includes(values.install)) throw new Error("Choose --install auto or link.");
   const files = values["changes-manifest"] ? readChangesManifest(values["changes-manifest"]) : deliveryFiles(values.before || [], values.after || []);
   const result = await deliverChange({
     files, project: values.project || "", workspace: values.workspace || "", host: values.host || "", scheme: values.scheme || "",
     build: {
-      configuration: values.configuration || "Release", "remote-base-url": values["remote-base-url"] || "",
+      configuration: values.configuration || "Debug", "remote-base-url": values["remote-base-url"] || "",
       delivery: values.delivery || "", "export-method": values["export-method"] || "development",
       "ttl-minutes": values["ttl-minutes"], "build-setting": values["build-setting"] || [],
       "allow-provisioning-updates": Boolean(values["allow-provisioning-updates"]),
       "replace-app-data": Boolean(values["replace-app-data"]),
     },
-    runtimeCheck: deliveryRuntimeHealth, buildDevice: runDeliveryDeviceBuild,
+    runtimeCheck: deliveryRuntimeHealth, buildDevice: async input => {
+      if (values.install === "auto" && !input["remote-base-url"]) {
+        const setup = runHelperJSON(["setup-status"]);
+        if (setup?.suggestedRemoteBaseUrl) input = { ...input, "remote-base-url": setup.suggestedRemoteBaseUrl };
+      }
+      let unchanged;
+      if (values.install === "auto") {
+        const { projectRootForDescriptor } = await import("../src/liveSessionDescriptor.js");
+        const { snapshotBuildInputs } = await import("../src/buildInputSnapshot.js");
+        unchanged = snapshotBuildInputs(projectRootForDescriptor(input.workspace || input.project));
+      }
+      const built = await runDeliveryDeviceBuild(input);
+      try { unchanged?.(); }
+      catch (error) {
+        const { holdChangedBuild } = await import("../src/buildDelivery.js");
+        await holdChangedBuild(built.id);
+        throw error;
+      }
+      return built;
+    },
+    ...(values.install === "auto" ? { installBuild: async input => {
+      const { deliverSavedBuild } = await import("../src/buildDelivery.js");
+      return deliverSavedBuild({ ...input, device: values.device });
+    } } : {}),
     liveOnly: Boolean(values["live-only"]),
     verbose: Boolean(values["verbose-json"]),
   });
@@ -952,7 +983,9 @@ Usage:
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
   swift-sim route-change ...      Choose hot reload or a new signed build
-  swift-sim deliver-change ...    Queue a compatible edit; --live-only never builds
+  swift-sim deliver-change ...    Deliver edits to iPhone; --install auto|link
+  swift-sim deliver-build ...     Install or queue an existing signed build
+  swift-sim build-delivery-status ...  Read a build delivery without resubmitting
   swift-sim live-delivery-status  Read a queued request with --request
   swift-sim live-desired-revoke   Revoke restoration for a qualified Debug project/scheme
   swift-sim list-apps [--archived] List managed prototype apps and build history

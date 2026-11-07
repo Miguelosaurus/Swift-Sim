@@ -8,17 +8,17 @@ import { buildFailureNotice } from "./buildFailure.js";
 
 const activeDeliveries = new Map();
 
-export async function deliverChange({ files = [], project = "", workspace = "", host = "", scheme = "", build = {}, liveOnly = false, queueLive = (input) => liveDeliveryService().enqueue(input), buildDevice, runtimeCheck, verbose = false, now = () => Date.now() } = {}) {
+export async function deliverChange({ files = [], project = "", workspace = "", host = "", scheme = "", build = {}, liveOnly = false, queueLive = (input) => liveDeliveryService().enqueue(input), buildDevice, installBuild, runtimeCheck, verbose = false, now = () => Date.now() } = {}) {
   if (!Array.isArray(files) || files.length === 0) return failedEnvelope("INVALID_EDIT_SET", "Pass at least one before/after file pair.");
   try { files = materializeDeliveryFiles(files); } catch (error) { return failedEnvelope("INVALID_EDIT_SET", safeError(error)); }
-  const key = createHash("sha256").update(JSON.stringify({ files, project, workspace, host, scheme, build, liveOnly })).digest("hex");
+  const key = createHash("sha256").update(JSON.stringify({ files, project, workspace, host, scheme, build, liveOnly, automaticInstall: typeof installBuild === "function" })).digest("hex");
   if (activeDeliveries.has(key)) return activeDeliveries.get(key);
-  const promise = deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, runtimeCheck, verbose, now }).catch((error) => failedEnvelope("DELIVERY_FAILED", safeError(error)));
+  const promise = deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, installBuild, runtimeCheck, verbose, now }).catch((error) => failedEnvelope("DELIVERY_FAILED", safeError(error)));
   activeDeliveries.set(key, promise);
   try { return await promise; } finally { activeDeliveries.delete(key); }
 }
 
-async function deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, runtimeCheck, verbose, now }) {
+async function deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, installBuild, runtimeCheck, verbose, now }) {
   const startedAt = now();
   let change;
   try { change = classifyEditSet({ files, allowAdditive: true }); }
@@ -35,7 +35,7 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
     const explanation = rebuildExplanation(change);
     if (liveOnly) return finish(deliveryEnvelope({ outcome: "needs-user-action", message: "This edit needs a signed build. No build was started because live-only delivery was requested.", reasonCode: change.reasonCode, error: { code: "REBUILD_REQUIRED", message: explanation.message }, ...diagnostics(verbose, { action: "requires-build", reasonCode: change.reasonCode, changes: explanation.changes }) }), !verbose);
     if (typeof buildDevice !== "function") return failedEnvelope("BUILD_ADAPTER_MISSING", "Swift Sim could not start the signed build workflow.");
-    return finish(await fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode: change.reasonCode, rebuildReason: explanation.message, startedAt, now, verbose, diagnostic: { action: "build-device", reasonCode: change.reasonCode, changes: explanation.changes } }), !verbose);
+    return finish(await fallback({ buildDevice, installBuild, build, project, workspace, scheme, change, reasonCode: change.reasonCode, rebuildReason: explanation.message, startedAt, now, verbose, diagnostic: { action: "build-device", reasonCode: change.reasonCode, changes: explanation.changes } }), !verbose);
   }
   if (health.queueReady === false) return finish(deliveryEnvelope({ outcome: "needs-user-action", message: "The running helper needs the durable-delivery update. Restart it with the matching Swift Sim installation; no build was started.", reasonCode: "HELPER_UPDATE_REQUIRED", error: { code: "HELPER_UPDATE_REQUIRED", message: "The helper does not advertise durable live delivery." } }), !verbose);
   try {
@@ -52,11 +52,30 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
   }
 }
 
-async function fallback({ buildDevice, build, project, workspace, scheme, change, reasonCode, rebuildReason, startedAt, now, verbose = false, diagnostic = undefined }) {
+async function fallback({ buildDevice, installBuild, build, project, workspace, scheme, change, reasonCode, rebuildReason, startedAt, now, verbose = false, diagnostic = undefined }) {
   let built;
   try { built = await buildDevice({ ...build, project, workspace, scheme, change }); } catch (error) {
+    if (error?.code === "BUILD_INPUTS_CHANGED") return deliveryEnvelope({ outcome: "needs-user-action",
+      message: error.message, reasonCode: error.code, error: { code: error.code, message: error.message } });
     const { message, code } = buildFailureNotice(error);
     return deliveryEnvelope({ outcome: code === "PROTOCOL_MISMATCH" || code === "HELPER_UNAVAILABLE" ? "needs-user-action" : "failed", message, reasonCode: code, fallbackReasonCode: reasonCode, error: { code, message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
+  }
+  if (typeof installBuild === "function" && built?.id && built?.state === "ready") {
+    let installed;
+    try { installed = await installBuild({ buildID: built.id, project, workspace, scheme }); }
+    catch { installed = { state: "unconfirmed", buildID: built.id }; }
+    const state = installed?.state;
+    if (["installed", "installed-version-observed", "already-matching-version", "waiting", "opening", "prompt-requested", "unconfirmed"].includes(state)) {
+      const complete = ["installed", "installed-version-observed", "already-matching-version"].includes(state);
+      const outcome = complete ? "installed" : state === "waiting" ? "install-queued" : state === "prompt-requested" ? "install-prompt-requested" : "install-unconfirmed";
+      return deliveryEnvelope({ outcome, message: complete ? "The requested app version is installed on your iPhone."
+        : state === "waiting" ? "Update queued. Unlock your iPhone and return to the app to install."
+        : state === "prompt-requested" ? "Confirm installation on your iPhone, then reopen the app."
+        : "Installation may have started. Check delivery status before trying again.",
+        reasonCode, rebuildReason, delivery: { kind: "device-install", requestId: built.id, state,
+          requiresIOSConfirmation: installed.requiresIOSConfirmation === true,
+          ...(installed.expiresAt ? { expiresAt: installed.expiresAt } : {}) }, timing: { totalMs: elapsed(now, startedAt) } });
+    }
   }
   const link = installDelivery(built);
   if (!link) return deliveryEnvelope({ outcome: "failed", message: "The signed build finished without a usable Swift Sim install link.", reasonCode: "INSTALL_LINK_MISSING", error: { code: "INSTALL_LINK_MISSING", message: "The signed build did not return a universal install link." }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
