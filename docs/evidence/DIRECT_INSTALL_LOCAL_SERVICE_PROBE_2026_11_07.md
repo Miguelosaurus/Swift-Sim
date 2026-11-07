@@ -65,9 +65,91 @@ configuration-only check and a bounded connection check found the runner's
 configured remote port refusing connections. This does not establish whether
 remote access was disabled or the process stopped. The owner was asked to check
 the Server Ready notification's Enable Remote Access action before any relaunch.
-There is still no diagnostic callback result. At this checkpoint the temporary
-runner remains installed, and restoration of the prepared normal build 4 is an
-outstanding obligation once the phone is available on the Mac's Wi-Fi again.
+The owner clarified that they had already pressed the notification action.
+That action was not requested again as a recovery step.
+
+The configured runner and installer use the same pinned host; the runner uses
+its expected port. A connection-only native installer inspection on cellular
+also returned `pairing_connection_refused` before authentication. Reading the
+runner source shows that its callback can report ready for a local-only
+listener, so return to Swift Sim alone does not prove remote availability.
+This source finding does not establish the actual listener state in this trial.
+
+With renewed owner availability on Wi-Fi, the exact expected daily log file
+could not be copied because it was absent. A scoped listing of the runner's
+log directory contained only November 3 and November 5 logs. The scoped crash
+reader returned the same earlier launch-time report; no new report was
+available from that read-only service. These observations leave the retry's
+startup stage unknown. They do not prove another crash or a disabled setting.
+
+The normal runner build 4 was restored again in 4.088 seconds, with native
+completion, matching inventory and staging cleanup. Its canonical saved IPA and
+installation metadata still match the frozen normal artifact. The temporary
+diagnostic is no longer installed, and the phone was released for normal use.
+
+## Revised diagnostic preparation
+
+The next temporary probe removes the remote-listener prerequisite for collecting
+its result. Test-server startup invokes the same one-shot read-only check; a
+bounded local JSON receipt records bundle loading and the final result in the
+testing app's cache. Loading alone does not request a service. A later scoped
+file copy can read the result without enabling remote RPC or taking UI control.
+The receipt contains only the already bounded probe fields, uses owner-only
+permissions and first-unlock file protection on iPhone, and never contains an
+endpoint, pairing key, IPA, address or arbitrary error text.
+
+Nine local fixture cases pass, including load-only behavior, terminal persisted
+result equality, file permissions and the size bound. The revised iPhone build
+compiled. Both the diagnostic (internal build 5) and original normal-code restore
+(internal build 6) were signed and checked offline before further phone use.
+The normal product runner sources, SDK and helper code are unchanged.
+
+## Physical local-endpoint result
+
+After renewed owner availability, diagnostic build 5 installed on Wi-Fi in
+7.051 seconds, with native completion, matching inventory and staging cleanup.
+The owner then confirmed opening Swift Sim App Testing directly on cellular,
+with Tailscale connected. No new testing notification, Remote Access action,
+Mac input lease or RPC was used for this attempt. The owner was asked to leave
+it open for fifteen seconds before returning to Wi-Fi for the readout.
+
+A scoped file copy retrieved the new diagnostic's local JSON receipt. It records:
+
+- An already initiated authorized XCTest session was present.
+- The expected request selector was present and its callback ran.
+- The returned object was an `NSXPCListenerEndpoint`; state was `endpoint_returned`.
+- The endpoint was not opened or serialized. No installation was submitted and
+  no installation capability was established.
+
+The loaded local class names included `XCTRunnerDTServiceHubSession` and
+`DTServiceHubClient`. This is physical endpoint-return evidence after an
+owner-confirmed cellular launch. The receipt did not record a timestamp or active
+network interface, and retrieval occurred after returning to Wi-Fi. Consequently
+it does not independently establish the precise network state at callback time,
+prove an off-Mac installation transport, or qualify fresh cellular installation.
+
+Normal runner code was then restored as internal build 6 in 5.318 seconds, with
+native completion, matching inventory and staging cleanup. The canonical normal
+IPA and installation metadata were updated to that exact restore artifact. The
+prepared restore was verified to contain no probe class. No diagnostic remains
+installed, and the phone was released for normal use. Companion stays build 38;
+Zenics was not updated.
+
+## Capability gate after endpoint return
+
+Static inspection of this Mac's installed XCTestCore shows
+`XCTRunnerDTServiceHubSession` exposes `initWithConnection:` and `dtxConnection`.
+The host Instruments framework's `DTServiceHubClient` methods create connections;
+the inspected class does not expose an app-install method. The host framework is
+not proof of the phone endpoint's full service surface. No private framework was
+loaded or invoked on the Mac during this inspection.
+
+The next useful gate is a bounded, read-only examination of the endpoint's
+advertised services using the matching native client contract. Endpoint return
+alone does not justify transferring an IPA, exposing a generic remote proxy,
+calling unrelated process-control services, or adding a permanent runner. An
+installation-capable interface must be established separately before an install
+trial is designed.
 
 ## Proof boundary and resources
 
