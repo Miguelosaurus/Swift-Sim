@@ -127,3 +127,9 @@ port caching alone is insufficient after reboot. The next requirement is a
 qualified fresh cellular acquisition path and remote endpoint recovery; this
 run does not provide either. Do not enable automatic default direct delivery or
 advertise silent installation from anywhere based on the Wi-Fi results.
+
+A subsequent [isolated cellular recovery trial](DIRECT_INSTALL_CELLULAR_RECOVERY_2026_11_06.md)
+reached phone-local TCP but failed before Apple's public pairing handshake
+completed. It did not submit a cellular install. Normal Swift Sim build 36 was
+restored and the owner confirmed apps/history intact; the diagnostic is not part
+of the installed app or normal helper paths.

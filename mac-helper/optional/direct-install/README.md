@@ -10,6 +10,9 @@ Wi-Fi, including while locked and after reboot plus one normal passcode unlock.
 **Fresh cellular installation remains blocked**, including with a newly verified
 endpoint after reboot. Earlier cellular app-control success does not establish
 access to Apple's installation service. See the [phone evidence](../../../docs/evidence/DIRECT_INSTALL_PHONE_QUALIFICATION_2026_11_06.md).
+An isolated [cellular recovery trial](../../../docs/evidence/DIRECT_INSTALL_CELLULAR_RECOVERY_2026_11_06.md)
+also failed before Apple's initial pairing handshake completed. Its temporary
+phone relay was removed; it is not part of this prototype or normal Swift Sim.
 
 ## Build and offline preparation
 
