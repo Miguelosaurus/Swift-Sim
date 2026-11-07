@@ -1,5 +1,10 @@
 # Fresh cellular installation: next experiments — 2026-11-07
 
+**Follow-up:** the [controlled relay and outbound-tunnel review](DIRECT_INSTALL_RELAY_CONTROL_2026_11_07.md)
+has now completed. Both loopback routes failed on Wi-Fi while direct connections
+answered. Normal build 38 was restored. Read the follow-up before repeating these
+candidates; the preparation and first-check record below is historical.
+
 **No new cellular installation success is claimed.** Keep ordinary developer
 pairing, unchanged Xcode signing and an optional on-demand transport. Preparation
 does not modify any target app, hot-reload engine, notification worker or normal

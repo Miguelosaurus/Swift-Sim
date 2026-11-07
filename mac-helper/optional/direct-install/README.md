@@ -13,6 +13,11 @@ access to Apple's installation service. See the [phone evidence](../../../docs/e
 An isolated [cellular recovery trial](../../../docs/evidence/DIRECT_INSTALL_CELLULAR_RECOVERY_2026_11_06.md)
 also failed before Apple's initial pairing handshake completed. Its temporary
 phone relay was removed; it is not part of this prototype or normal Swift Sim.
+A subsequent [controlled Wi-Fi comparison](../../../docs/evidence/DIRECT_INSTALL_RELAY_CONTROL_2026_11_07.md)
+found the same loopback handshake failure on Wi-Fi, with direct connections
+working before and afterward. Existing phone-initiated pairing implementations
+also do not supply a reverse developer tunnel. Normal build 38 was restored;
+these diagnostic paths remain outside normal delivery.
 
 ## Build and offline preparation
 
