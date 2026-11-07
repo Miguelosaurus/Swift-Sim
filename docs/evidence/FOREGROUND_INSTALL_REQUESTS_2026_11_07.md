@@ -67,3 +67,11 @@ verification, and replaces the prior task-owned engine through the normal
 ownership/lifecycle path. The normal helper remains running; no additional
 service, simulator, browser, polling worker or phone automation session is left.
 The optional queue has not submitted a phone request during preparation.
+
+Zenics Debug44 is now signed and ready through the normal build workflow, using
+Swift-Sim commit4f2e442 and SDKba3c716. Only its package revision was changed;
+checksums of the existing tracked mobile app files are unchanged. The owner has
+been asked to install this bootstrap update and foreground Zenics on cellular
+with App Testing stopped. No install intent has been enqueued for the phone.
+Build/test workers have exited, and package-content verification passes. The
+normal helper, engine and normal expiring build delivery remain for daily use.
