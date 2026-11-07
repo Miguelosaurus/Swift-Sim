@@ -6,6 +6,11 @@ checks. Normal Swift Sim build 38 was restored, its diagnostic listener closed,
 and the owner confirmed apps/history intact. The outbound-tunnel source review
 found pairing-only implementations, not a ready reverse developer transport.
 
+A [deeper follow-up](DIRECT_INSTALL_DEEP_RESEARCH_2026_11_07.md) identifies a local
+XCTest developer-service interface as an untested capability-discovery candidate
+and distinguishes it from enrollment-based delivery. Neither is a working
+cellular installer yet.
+
 This completes the controlled relay comparison and source investigation proposed
 in [next experiments](DIRECT_INSTALL_NEXT_EXPERIMENTS_2026_11_07.md). It follows
 the [earlier cellular trial](DIRECT_INSTALL_CELLULAR_RECOVERY_2026_11_06.md).
