@@ -13,6 +13,17 @@ use std::{net::IpAddr, path::PathBuf};
 use swift_sim_direct_install::{Device, Identity, Result};
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
+fn connection_error(error: std::io::Error, tunnel: bool) -> &'static str {
+    match (tunnel, error.kind()) {
+        (false, std::io::ErrorKind::ConnectionRefused) => "pairing_connection_refused",
+        (false, std::io::ErrorKind::TimedOut) => "pairing_connection_timed_out",
+        (true, std::io::ErrorKind::ConnectionRefused) => "tunnel_connection_refused",
+        (true, std::io::ErrorKind::TimedOut) => "tunnel_connection_timed_out",
+        (true, _) => "tunnel_unreachable",
+        (false, _) => "pairing_port_unreachable",
+    }
+}
+
 pub struct Transport {
     inst: InstallationProxyClient,
     afc: AfcClient,
@@ -31,7 +42,7 @@ impl Transport {
     ) -> Result<Self> {
         let stream = TcpStream::connect((host, port))
             .await
-            .map_err(|_| "pairing_port_unreachable")?;
+            .map_err(|e| connection_error(e, false))?;
         let mut client =
             RemotePairingClient::new(RpPairingSocket::new(stream), "Swift Sim Direct Install");
         client
@@ -48,7 +59,7 @@ impl Transport {
             .map_err(|_| "tunnel_unavailable")?;
         let stream = TcpStream::connect((host, port))
             .await
-            .map_err(|_| "tunnel_unreachable")?;
+            .map_err(|e| connection_error(e, true))?;
         let tunnel = connect_tls_psk_tunnel_native(stream, client.encryption_key())
             .await
             .map_err(|_| "tunnel_authentication_failed")?;

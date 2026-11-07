@@ -1,5 +1,14 @@
 # Helper-free native control over Tailscale — November 4, 2026
 
+**November 6 follow-up:** [direct-install qualification](DIRECT_INSTALL_PHONE_QUALIFICATION_2026_11_06.md)
+found that the advertised pairing port can differ from the earlier fixed probe
+port and change after reboot. The new run verified the actual endpoint against
+the pinned peer/device, completed three Wi-Fi/Tailscale installs, then still
+observed fresh cellular refusals at the newly verified endpoint. Do not interpret
+the old fixed-port probes alone as proof of a general cellular service policy.
+The native HID/display and developer-image findings below remain separate from
+installation-service qualification.
+
 ## Result
 
 **Direct, mutually authenticated RemotePairing and service discovery passed over

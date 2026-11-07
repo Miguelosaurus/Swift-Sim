@@ -5,9 +5,11 @@ over the phone's private Tailscale address. It is not enabled in normal delivery
 There is no phone SDK change, phone runner, web service, Apple-ID login, scheduler,
 link fallback, app launch, or uninstall. No process remains after a command exits.
 
-This is **not yet qualified on a physical phone**. In particular, earlier cellular
-app-control success did not establish access to Apple's installation service.
-The current task expressly excludes contacting the owner's phone.
+Physical qualification now proves link-free installation over Tailscale on
+Wi-Fi, including while locked and after reboot plus one normal passcode unlock.
+**Fresh cellular installation remains blocked**, including with a newly verified
+endpoint after reboot. Earlier cellular app-control success does not establish
+access to Apple's installation service. See the [phone evidence](../../../docs/evidence/DIRECT_INSTALL_PHONE_QUALIFICATION_2026_11_06.md).
 
 ## Build and offline preparation
 
@@ -61,8 +63,31 @@ RPPairing record.
 ```
 
 Use the phone's actual known RemotePairing port; the example is not discovery.
-Only literal Tailscale IPv4/IPv6 addresses are accepted. There is no DNS, LAN,
-USB, mDNS, CoreDevice daemon, or runner fallback. After mutual authentication,
+Do not assume it is 49152: the physical test found a different advertised port,
+and reboot changed it again. An optional on-demand cache refresh is available:
+
+```sh
+python3 mac-helper/optional/direct-install/refresh_endpoint.py \
+  --installer /path/to/swift-sim-direct-install \
+  --prepared /private/path/to/new-preparation \
+  --peer /private/path/to/peer.json \
+  --state /private/path/to/direct-install-state --execute
+```
+
+The refresh checks the cached endpoint first. Only after a connection failure
+does it run short, bounded local Bonjour queries through macOS's existing
+`dns-sd`. It tries at most four advertised ports at the explicit phone's Tailnet
+address, never the advertised LAN hosts. Each candidate must pass native pinned
+peer/device authentication and installer lookup before its port is cached
+atomically; a detected config change aborts replacement. It never pairs or installs,
+starts no persistent browser/watcher, and adds no dependency to normal runtime
+paths. Bonjour discovery requires LAN visibility and does not solve fresh
+cellular reachability or remote discovery of an unknown post-reboot port. The
+wrapper is locally fixture-tested; the physical reboot run exercised the same
+discovery/native-verification steps before the wrapper was added.
+
+Only literal Tailscale IPv4/IPv6 addresses are accepted by the installer. There is
+no DNS/LAN install transport, USB, CoreDevice daemon, or runner fallback. After mutual authentication,
 the RSD device identifier must match both the requested device and the signed
 profile. The exact peer, device, bundle and artifact bind the durable journal.
 
@@ -149,13 +174,15 @@ case labels, states and inventory results; keep raw identities/records private.
 
 | Case | Conditions | Required evidence | Current state |
 | --- | --- | --- | --- |
-| Baseline | Same Wi-Fi, Tailscale; fresh installer process | Complete + requested version/build; existing app data preserved | Pending |
-| Fresh cellular | Wi-Fi off before command, Tailscale, unlocked; no retained bridge | Direct upload/install + inventory, no link or install approval tap | Pending |
-| Locked cellular | Lock before a fresh command; keep cellular/Tailscale | Successful direct install while locked, or exact typed blocked stage | Pending |
-| Reboot before first unlock | Reboot on cellular; no runner/bridge or app launch | Record availability/blocking honestly; do not assume protected services run | Pending |
-| Reboot after first unlock | One normal passcode unlock after reboot; cellular/Tailscale, fresh process | Direct install without developer-image repair, app launch or install tap | Pending |
+| Baseline | Same Wi-Fi, Tailscale; fresh installer process | Complete + requested version/build; existing app data preserved | Passed: 31→32, 10.719 s |
+| Fresh cellular | Wi-Fi off before command, Tailscale, unlocked; no retained bridge | Direct upload/install + inventory, no link or install approval tap | Blocked before authentication |
+| Locked Wi-Fi | Locked before a fresh install; Tailscale | Complete + scoped inventory without approval tap | Passed: 32→33, 7.098 s |
+| Locked cellular | Lock before a fresh command; keep cellular/Tailscale | Successful direct install while locked, or exact typed blocked stage | Unqualified; unlocked cellular already blocked |
+| Reboot before first unlock | Reboot, no passcode entry; Wi-Fi configuration retained | Record availability/blocking honestly; do not assume protected services run | Tailnet ping failed; installer connection timed out, no submission |
+| Reboot after first unlock | One normal passcode unlock after reboot; Wi-Fi/Tailscale, fresh process | Direct install without developer-image repair, app launch or install tap | Passed after endpoint refresh: 33→34, 9.154 s |
+| Cellular after reboot | Wi-Fi radio enabled but disconnected; 5G/LTE; new endpoint verified | Fresh IPv4/IPv6 acquisition without retained bridge | Both addresses actively refused pairing TCP |
 | Lost connection | Interrupt after submission; restore connection | Reconcile version with zero second install request | Local fault test only |
-| Owner data | Open installed harmless app after each successful case | Preexisting data retained, correct build visible, no reinstall/uninstall | Pending |
+| Owner data | Open installed app after successful cases | Preexisting data retained, correct build visible, no reinstall/uninstall | Owner confirmed apps/history after 32 and 34; zero install-approval taps |
 
 An OS-required passcode unlock is a prerequisite, not evidence of fully unattended
 locked-phone installation. If a cellular entry point refuses TCP, stop at that

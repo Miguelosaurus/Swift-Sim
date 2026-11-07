@@ -1,5 +1,11 @@
 # Direct-install prototype — offline checkpoint, 2026-11-06
 
+**Later checkpoint:** the owner subsequently authorized physical testing. See
+[phone qualification](DIRECT_INSTALL_PHONE_QUALIFICATION_2026_11_06.md) for three
+successful Wi-Fi/Tailscale installs, the reboot endpoint change, and the remaining
+fresh cellular acquisition failure. The offline-only scope below records the
+earlier phase, not the current authorization.
+
 The owner authorized building the prototype and explicitly prohibited phone use
 for this phase. **No physical-device command, discovery, connection, runner,
 installation, lock, reboot, or pairing change was performed.** Cellular install
