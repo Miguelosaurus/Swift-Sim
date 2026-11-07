@@ -7,6 +7,12 @@ headers. Whether that connection can expose installation, rather than only
 Instruments services, is unknown. This needs a small capability probe before
 building another transport or phone wake mechanism.
 
+Subsequent [probe preparation and crash diagnosis](DIRECT_INSTALL_LOCAL_SERVICE_PROBE_2026_11_07.md)
+records a temporary runner build and its normal restoration. Its first phone
+launch failed before diagnostic code ran because Apple developer support was
+missing. The capability question remains unanswered; the research-only
+disposition below describes the earlier checkpoint.
+
 Developer pairing can also coexist with an optional managed-install channel.
 Treating those as mutually exclusive was too narrow. Management adds enrollment
 and certificate setup, and documented prompts still constrain zero-interaction
