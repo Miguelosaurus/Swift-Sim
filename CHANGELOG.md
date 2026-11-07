@@ -24,6 +24,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Forward existing post-action settling feedback to agents during optional
+  iPhone testing. Open, tap, type and scroll report settled, unconfirmed or
+  unavailable with bounded visual-change/timing fields. No extra phone calls,
+  waits, app update, hot reload or notification work is added.
+
 - Recover lost hot-reload confirmations automatically after reconnect, using a
   bounded lookup of the phone's existing receipt. No patch retransmission,
   duplicate refresh, new poller or notification-cadence change; unknown results

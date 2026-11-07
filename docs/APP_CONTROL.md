@@ -131,6 +131,29 @@ content to reveal: `down` sends an upward finger swipe. Each action returns a
 bounded app observation; `input-sent` means input was sent, not that an intended
 workflow passed. Check the resulting UI against the requested behavior.
 
+`open`, `tap`, `type` and `scroll` also return a compact `settling` object from
+the runner's existing post-action check:
+
+```json
+{"status":"settled","screenChanged":true,"waitedMs":420}
+```
+
+`status` is `settled` when that check confirmed visual settling, `unconfirmed`
+when it could not confirm settling within its observation window, or
+`unavailable` when valid telemetry was not returned. `unconfirmed` does not prove
+the screen is still moving or the input failed: inspect again before deciding
+what to do, and never automatically repeat the input. Settling is measured after
+the action; the returned app observation is read afterward and remains the
+evidence for the requested outcome. `screenChanged` is visual change during the
+check; `sourceChanged` separately compares the native text observations.
+
+When reported by the runner, `continuousMotion` identifies ongoing motion such
+as video and `smallChangeNearTap` identifies a small local change. A screen can
+settle around continuous motion. Missing fields remain unknown. Only bounded,
+typed telemetry is forwarded; arbitrary provider hints are not. This adds no
+RPCs, captures, waiting, stored state or background work, and requires no phone
+app update.
+
 For an unlabeled control, use a recent `screen` observation with
 `tap --x <points> --y <points> --observation <id>`. Coordinates use points. An
 explicit `screenshot` saves a private local JPEG and returns its path. An

@@ -25,6 +25,8 @@ swift-sim app-control close --session <id>
 Open App Testing in Swift Sim to begin (swift-sim://app-testing).
 Choose 5, 10, 30 or 60 minutes on the phone. Approval and reconnects do not renew it.
 Check authenticates readiness without opening an app, reading its UI or authorizing input.
+Open and input results include settling.status: settled, unconfirmed or unavailable.
+Unconfirmed settling calls for another observation, never an automatic input retry.
 A developer image must be available;
 silent remote launch and post-reboot cellular preparation are not promised.
 Only test while the user has made the phone available. Always close the session.

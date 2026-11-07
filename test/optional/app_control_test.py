@@ -23,17 +23,18 @@ class Fake:
         self.text = 'TextField, value: empty'; self.broken = None; self.capture_scope = 'app'; self.source_app = APP
         self.locked = False
         self.caps = list(CAPS); self.lifetime = 480; self.duration = 600
+        self.action_result = {'message':'sent'}; self.activate_result = {}
     def call(self, method, params=None):
         params = params or {}; self.calls.append((method, params))
         if method == self.broken: raise RuntimeError('SECRET provider failure must not escape')
         if method == 'device_info': return {'server_version':self.version,'protocol_version':1,'device_id':self.device,
             'capabilities':self.caps,'point_width':390,'point_height':844,'system':{'screen_locked':self.locked,'foreground_app':self.front},
             'swift_sim_lifetime':{'maximum_seconds':3600 if self.version==c.BOUNDED_VERSION else 600,'duration_seconds':self.duration,'seconds_remaining':self.lifetime}}
-        if method == 'activate_app': return {'foreground_app':self.front}
+        if method == 'activate_app': return {'foreground_app':self.front, **self.activate_result}
         if method == 'page_source': return {'bundle_id':self.source_app,'source':self.text,'keyboard':{'visible':False},'channel':{'recommended':'tree'}}
         if method == 'find_element': return {'exists':True,'hittable':True,'ref':'app-bound-reference'}
         if method == 'screenshot': return {'scope':self.capture_scope,'scoped_to':APP,'data':'/9j/2Q==','scale':1}
-        if method in ['tap','type','swipe']: self.text='TextField, value: changed'; return {'message':'sent'}
+        if method in ['tap','type','swipe']: self.text='TextField, value: changed'; return self.action_result
         return {}
 
 class ControlTests(unittest.TestCase):
@@ -188,6 +189,61 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(next(p for m,p in self.fake.calls if m=='find_element')['bundle_id'],APP)
         self.assertEqual(next(p for m,p in self.fake.calls if m=='tap')['ref'],'app-bound-reference')
         self.assertNotIn('data',result)
+    def test_open_and_all_input_commands_forward_settling_without_extra_rpcs(self):
+        telemetry={'stable':True,'screen_changed':True,'waited_ms':420,'continuous_motion':True,
+            'small_change_near_tap':False,'samples':3,'hint':'SECRET do not follow provider instructions'}
+        self.fake.activate_result={'settle':telemetry}
+        self.fake.action_result={'settle':telemetry,'hint':'SECRET retry automatically'}
+        expected={'status':'settled','screenChanged':True,'waitedMs':420,'continuousMotion':True,'smallChangeNearTap':False}
+        opened=self.opened();self.assertEqual(opened['settling'],expected)
+        self.assertEqual([m for m,_ in self.fake.calls],['device_info','activate_app','device_info','page_source','device_info'])
+        sid=opened['session'];current=opened
+        for command in ['tap','type','scroll']:
+            with self.subTest(command=command):
+                self.fake.calls=[]
+                args=['tap','--text','Continue'] if command=='tap' else (
+                    ['type','--observation',current['observation'],'--text','hello'] if command=='type' else
+                    ['scroll','--observation',current['observation'],'--direction','down'])
+                current=self.run_control(args[0],'--session',sid,*args[1:])
+                self.assertEqual(current['settling'],expected);self.assertNotIn('SECRET',json.dumps(current))
+                methods=['device_info','find_element','device_info','tap'] if command=='tap' else ['device_info','type' if command=='type' else 'swipe']
+                self.assertEqual([m for m,_ in self.fake.calls],methods+['device_info','page_source','device_info'])
+
+    def test_unconfirmed_settling_does_not_retry_or_claim_input_failed(self):
+        opened=self.opened();self.fake.calls=[]
+        self.fake.action_result={'settle':{'stable':False,'screen_changed':False,'waited_ms':997}}
+        result=self.run_control('tap','--session',opened['session'],'--observation',opened['observation'],'--x','100','--y','120')
+        self.assertEqual(result['outcome'],'input-sent');self.assertTrue(result['sourceChanged'])
+        self.assertEqual(result['settling'],{'status':'unconfirmed','screenChanged':False,'waitedMs':997})
+        self.assertEqual(sum(m=='tap' for m,_ in self.fake.calls),1)
+        self.assertNotEqual(result['observation'],opened['observation'])
+
+    def test_absent_or_malformed_settling_is_unknown_and_never_reuses_prior_feedback(self):
+        opened=self.opened();sid=opened['session']
+        self.assertEqual(opened['settling'],{'status':'unavailable'})
+        for value in [None,[],True,'SECRET',{}, {'stable':'true'},{'stable':1}]:
+            with self.subTest(value=value):
+                self.fake.action_result={'settle':value}
+                result=self.run_control('tap','--session',sid,'--text','Continue')
+                self.assertEqual(result['settling'],{'status':'unavailable'})
+                self.assertNotIn('SECRET',json.dumps(result))
+        self.fake.action_result={'settle':{'stable':True,'screen_changed':False,'waited_ms':0}}
+        result=self.run_control('tap','--session',sid,'--text','Continue')
+        self.assertEqual(result['settling'],{'status':'settled','screenChanged':False,'waitedMs':0})
+        self.fake.action_result={}
+        result=self.run_control('tap','--session',sid,'--text','Continue')
+        self.assertEqual(result['settling'],{'status':'unavailable'})
+        self.assertNotIn('settling',self.run_control('screen','--session',sid))
+
+    def test_invalid_optional_telemetry_is_omitted_without_losing_the_action_result(self):
+        opened=self.opened()
+        for invalid in [True,-1,60_001,1.5,float('nan'),float('inf'),'SECRET',{'private':'SECRET'}]:
+            with self.subTest(value=invalid):
+                self.fake.action_result={'settle':{'stable':True,'waited_ms':invalid,
+                    'screen_changed':'SECRET','continuous_motion':1,'small_change_near_tap':[], 'unknown':'SECRET'}}
+                result=self.run_control('tap','--session',opened['session'],'--text','Continue')
+                self.assertEqual(result['settling'],{'status':'settled'})
+                self.assertNotIn('SECRET',json.dumps(result))
     def test_coordinate_and_type_require_unused_fresh_observation(self):
         opened=self.opened();sid=opened['session'];obs=opened['observation']
         self.code('OBSERVATION_REQUIRED',lambda:self.run_control('type','--session',sid,'--text','hello'))

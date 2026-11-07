@@ -172,6 +172,19 @@ def checked_info(provider, profile, foreground=None):
         if system.get("screen_locked") is not False or system.get("foreground_app") != foreground: fail("FOREGROUND_REQUIRED")
     return value
 
+def settling_feedback(result):
+    # Project existing action telemetry only: no extra RPC, capture, wait or hint execution.
+    value = result.get("settle")
+    if not isinstance(value, dict) or type(value.get("stable")) is not bool:
+        return {"status": "unavailable"}
+    feedback = {"status": "settled" if value["stable"] else "unconfirmed"}
+    for source, target in [("screen_changed", "screenChanged"), ("continuous_motion", "continuousMotion"),
+                           ("small_change_near_tap", "smallChangeNearTap")]:
+        if type(value.get(source)) is bool: feedback[target] = value[source]
+    waited = value.get("waited_ms")
+    if type(waited) is int and 0 <= waited <= 60_000: feedback["waitedMs"] = waited
+    return feedback
+
 def observation(provider, profile, session, root, text_filter=None):
     info = checked_info(provider, profile, session["app"])
     params = {"bundle_id": session["app"], "visible_only": True, "max_elements": 120, "max_children": 100}
@@ -389,14 +402,14 @@ def execute(args, root, provider_factory=Provider):
                 request["expiresAt"] = session["expiresAt"]
                 private_write(root / "request.json", request)
             try:
-                provider.call("activate_app", {"bundle_id": a.app})
+                activated = provider.call("activate_app", {"bundle_id": a.app})
                 observed = observation(provider, profile, session, root)
             except BaseException:
                 # Keep the lease so an uncertain launch still has an owned cleanup path.
                 return {"outcome": "needs-user-action", "code": "APP_CONTROL_FOREGROUND_REQUIRED", "session": session["id"],
                     "guidance": GUIDANCE["FOREGROUND_REQUIRED"] + " Use this session to inspect or close."}
             return {"outcome": "session-open", "session": session["id"], "expiresInSeconds": int(seconds),
-                "automaticStopOnPhone": remaining is not None, **observed}
+                "automaticStopOnPhone": remaining is not None, "settling": settling_feedback(activated), **observed}
         session = session_for(root, a.session, allow_expired=a.command == "close")
         if a.command == "close":
             return close_runner(provider, profile, root)
@@ -454,11 +467,12 @@ def execute(args, root, provider_factory=Provider):
             else: fail("INVALID_OPTIONS")
         session.get("observation", {})["used"] = True
         private_write(root / "session.json", session)
-        try: provider.call(method, params)
+        try: action_result = provider.call(method, params)
         except BaseException: fail("ACTION_UNCONFIRMED")
         try: observed = observation(provider, profile, session, root)
         except BaseException: fail("ACTION_UNCONFIRMED")
-        return {"outcome": "input-sent", "sourceChanged": before != session["observation"]["digest"] if before is not None else None, **observed}
+        return {"outcome": "input-sent", "sourceChanged": before != session["observation"]["digest"] if before is not None else None,
+            "settling": settling_feedback(action_result), **observed}
 
 def main():
     os.umask(0o077)
