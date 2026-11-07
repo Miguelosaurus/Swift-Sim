@@ -7,8 +7,10 @@ link, or navigation through Swift Sim is required for this handoff.
 
 This path needs the matching updated iOS Debug SDK and local engine. It is opt-in;
 normal `deliver-change`, builds, hot reload and notifications are unchanged.
-Physical cellular qualification of this new SDK path is still pending. Earlier
-cellular installs used the testing runner and do not prove this path.
+The SDK path is physically qualified for Zenics Debug44 →46 on owner-confirmed
+cellular, with native binary identity and the normal installed-and-launched
+receipt. The owner confirmed app data/settings remained intact. This is a
+foreground handoff with manual iOS confirmation, not unattended installation.
 
 ## Agent workflow
 
@@ -25,6 +27,13 @@ optionally `--scheme`. The command reads the authority-selected build store,
 checks signing/delivery readiness and project scope, hashes the local IPA, and
 revalidates the saved record before submission. It never starts a build, renews
 an expired link, enrolls a device, or uninstalls an app.
+
+For the qualified cellular path, create the build using the existing paired
+Mac's private HTTPS delivery origin (`build-device --remote-base-url <origin>`).
+Reuse its configured Tailscale HTTPS route; do not add a listener or alter
+unrelated routing. The public quick-tunnel handoff showed the prompt but its
+install failed during qualification; the same workflow succeeded over the
+private route. That is not proof that every public-tunnel install fails.
 
 The request targets the same bundle and exact currently installed Debug binary.
 When connected, it uses the engine's current identity; otherwise it can use the

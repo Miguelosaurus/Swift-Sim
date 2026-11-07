@@ -2734,16 +2734,23 @@ async function engineControl(request, { timeoutMs = LIVE_ENGINE_CONTROL_TIMEOUT_
   });
 }
 
-async function stopLiveEngine() {
-  if (existsSync(ENGINE_PID)) {
-    const pid = Number(readFileSync(ENGINE_PID, "utf8").trim());
-    if (Number.isInteger(pid) && pid > 1) {
-      await stopLiveEngineProcess(pid);
+export async function stopLiveEngine({ pidPath = ENGINE_PID, sessionPath = ENGINE_SESSION,
+  socketPath = ENGINE_SOCKET, stop = stopLiveEngineProcess } = {}) {
+  if (existsSync(pidPath)) {
+    // The installed entrypoint's ownership boundary validates the durable JSON
+    // record and exposes its numeric PID. Direct module callers must not treat
+    // an unparsed/rejected record as an absent process and orphan its listener.
+    const raw = readFileSync(pidPath, "utf8").trim();
+    const pid = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(pid) || pid <= 1) {
+      throw Object.assign(new Error("Live engine ownership could not be confirmed. Use the Swift Sim entrypoint; existing engine records and listeners were preserved."),
+        { code: "LIVE_ENGINE_OWNERSHIP_UNCONFIRMED" });
     }
+    await stop(pid);
   }
-  rmSync(ENGINE_PID, { force: true });
-  rmSync(ENGINE_SESSION, { force: true });
-  rmSync(ENGINE_SOCKET, { force: true });
+  rmSync(pidPath, { force: true });
+  rmSync(sessionPath, { force: true });
+  rmSync(socketPath, { force: true });
 }
 
 export async function stopLiveEngineProcess(pid, { kill = (target, signal) => process.kill(target, signal), wait = delay,

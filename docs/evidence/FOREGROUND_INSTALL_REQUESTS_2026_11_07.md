@@ -1,5 +1,9 @@
 # Foreground Debug install handoff preparation
 
+Follow-up: [physical cellular qualification](FOREGROUND_INSTALL_CELLULAR_2026_11_07.md)
+records the failed public-tunnel install, successful private-route Debug46 install,
+exact native/launch proof and owner-confirmed retained data.
+
 The owner rejected requiring an automation session merely to press iOS's normal
 installation buttons. This opt-in implementation instead sends a narrow
 same-app install intent over the existing Debug connection and calls

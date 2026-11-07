@@ -7,8 +7,10 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Add opt-in foreground install requests through the existing Debug connection,
   retaining native iOS confirmation without App Testing. Requests wait on
   existing connection events, fence uncertain handoffs against replay, and never
-  claim installation from a URL-open callback. Physical SDK-path qualification
-  is pending; normal delivery and notifications are unchanged.
+  claim installation from a URL-open callback. Zenics cellular qualification
+  passed over private Tailscale delivery; normal delivery and notifications are
+  unchanged. Reject unparsed engine ownership records before replacement so a
+  direct module caller cannot silently leave the old phone listener running.
 
 - Make the whole Latest Build card tappable, including its padded area, and
   prevent a late notification refresh from overriding newer navigation.

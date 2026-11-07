@@ -113,3 +113,15 @@ test("actual artifact hashing and real project-directory scope", async t => {
   assert.equal((await requestAppInstall(f.options)).outcome, "needs-user-action");
   assert.equal(f.calls.filter(x => x.operation === "enqueue").length, before);
 });
+
+test("a new-build compilation capture never counts as an installed app observation", async () => {
+  const f = fixture(); const original = f.options.control;
+  f.options.control = async request => {
+    const result = await original(request);
+    if (request.action === "status") delete result.data.client_identity;
+    return result;
+  };
+  f.options.readIdentity = () => ({ ...identity, build_number: "5" });
+  assert.equal((await requestAppInstall(f.options)).code, "INSTALL_RUNNING_APP_REQUIRED");
+  assert.ok(!f.calls.some(x => x.operation === "enqueue"));
+});

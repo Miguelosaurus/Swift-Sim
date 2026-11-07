@@ -44,7 +44,8 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
     const observed = engine.data.client_identity;
     const selector = normalizedLiveBinaryIdentity(observed?.bundle_id === build.app.bundleIdentifier ? observed : await readIdentity());
     if (selector.bundle_id !== build.app.bundleIdentifier) throw failure("INSTALL_RUNNING_APP_REQUIRED");
-    if (selector.build_number === build.app.build) throw failure("INSTALL_ALREADY_RUNNING");
+    if (selector.build_number === build.app.build) throw failure(
+      observed?.bundle_id === build.app.bundleIdentifier ? "INSTALL_ALREADY_RUNNING" : "INSTALL_RUNNING_APP_REQUIRED");
     if (observed?.bundle_id === selector.bundle_id && !engine.data.client_capabilities?.includes("foreground-install-v1")) throw failure("INSTALL_SDK_UPDATE_REQUIRED");
     const base = new URL(build.remoteBaseUrl);
     if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash

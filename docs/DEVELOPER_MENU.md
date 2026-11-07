@@ -137,4 +137,5 @@ outside this first menu version.
 
 Agents can opt into [foreground install requests](FOREGROUND_INSTALLS.md) for a
 ready signed build of the same Debug app. This uses native iOS confirmation and
-does not require App Testing. The new SDK path is awaiting phone qualification.
+does not require App Testing. The foreground SDK path is qualified on Zenics over cellular using private
+Tailscale delivery and native iOS confirmation.

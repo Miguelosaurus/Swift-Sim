@@ -30,3 +30,28 @@ test("engine ownership refusal propagates rather than allowing installation to a
   await assert.rejects(stopLiveEngineProcess(123, { kill() { attempts++; throw Object.assign(new Error("unverified owner"), { code: "EPERM" }); } }), { code: "EPERM" });
   assert.equal(attempts, 1);
 });
+
+test("unparsed ownership record preserves engine evidence and never permits replacement cleanup", async t => {
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { stopLiveEngine } = await import("../mac-helper/src/liveReload.js");
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-engine-stop-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const paths = { pidPath: join(root, "engine.pid"), sessionPath: join(root, "session.json"), socketPath: join(root, "engine.sock") };
+  let stops = 0;
+  for (const raw of [JSON.stringify({ version: 2, pid: 123, startToken: "owned" }), "", "garbage", "0", "1", "9007199254740993"]) {
+    writeFileSync(paths.pidPath, raw); writeFileSync(paths.sessionPath, "session"); writeFileSync(paths.socketPath, "socket-marker");
+    await assert.rejects(stopLiveEngine({ ...paths, stop: async () => { stops++; } }), { code: "LIVE_ENGINE_OWNERSHIP_UNCONFIRMED" });
+    assert.equal(readFileSync(paths.pidPath, "utf8"), raw);
+    assert.equal(readFileSync(paths.sessionPath, "utf8"), "session");
+    assert.equal(readFileSync(paths.socketPath, "utf8"), "socket-marker");
+  }
+  assert.equal(stops, 0);
+  writeFileSync(paths.pidPath, "123\n");
+  await assert.rejects(stopLiveEngine({ ...paths, stop: async () => { throw new Error("still running"); } }), /still running/);
+  assert.ok(Object.values(paths).every(existsSync));
+  await stopLiveEngine({ ...paths, stop: async pid => { assert.equal(pid, 123); stops++; } });
+  assert.equal(stops, 1);
+  assert.ok(Object.values(paths).every(path => !existsSync(path)));
+});
