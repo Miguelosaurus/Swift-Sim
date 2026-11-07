@@ -86,6 +86,20 @@ async function main() {
     if (result.outcome !== "context-ready") process.exitCode = 1;
     return;
   }
+  if (command === "request-install") {
+    const { values } = parseArgs({ args, options: {
+      "build-id": { type: "string" }, status: { type: "boolean" }, cancel: { type: "boolean" },
+      project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" },
+    } });
+    if (values.status && values.cancel) throw new Error("Choose status or cancel, not both.");
+    const { requestAppInstall } = await import("../src/installRequest.js");
+    const result = await requestAppInstall({ buildID: values["build-id"],
+      operation: values.status ? "status" : values.cancel ? "cancel" : "enqueue",
+      project: values.project, workspace: values.workspace, scheme: values.scheme });
+    console.log(JSON.stringify(result, null, 2));
+    if (result.outcome !== "install-request") process.exitCode = 1;
+    return;
+  }
   if (command === "app-tools") {
     const { values } = parseArgs({ args, options: {
       project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" },
@@ -933,6 +947,7 @@ Usage:
   swift-sim live-status ...       Check remote on-device hot reload readiness
   swift-sim app-context ...       Read Debug context; --elements, --screenshot or --report latest on demand
   swift-sim app-control ...       Optional, on-demand testing through a separately installed phone runner
+  swift-sim request-install ...   Ask a matching Debug app to show iOS installation confirmation; --build-id, --status, --cancel
   swift-sim app-tools ...         Deliberately set --appearance or request --refresh-screen in this Debug app
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload

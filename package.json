@@ -36,7 +36,8 @@
     "docs/NOTIFICATIONS.md",
     "docs/APP_LIBRARY.md",
     "docs/DEVELOPER_MENU.md",
-    "docs/APP_CONTROL.md"
+    "docs/APP_CONTROL.md",
+    "docs/FOREGROUND_INSTALLS.md"
   ],
   "scripts": {
     "start": "node dist/mac-helper/bin/swift-sim-entry.js serve",

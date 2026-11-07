@@ -4,6 +4,12 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Add opt-in foreground install requests through the existing Debug connection,
+  retaining native iOS confirmation without App Testing. Requests wait on
+  existing connection events, fence uncertain handoffs against replay, and never
+  claim installation from a URL-open callback. Physical SDK-path qualification
+  is pending; normal delivery and notifications are unchanged.
+
 - Make the whole Latest Build card tappable, including its padded area, and
   prevent a late notification refresh from overriding newer navigation.
 

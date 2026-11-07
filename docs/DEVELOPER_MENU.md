@@ -132,3 +132,9 @@ same app identity and install over the existing app to preserve app data. The
 engine must support `developer-context-v1`; an older engine returns an explicit
 update requirement. Pure UIKit apps without the SwiftUI root integration are
 outside this first menu version.
+
+## Optional install handoff
+
+Agents can opt into [foreground install requests](FOREGROUND_INSTALLS.md) for a
+ready signed build of the same Debug app. This uses native iOS confirmation and
+does not require App Testing. The new SDK path is awaiting phone qualification.
