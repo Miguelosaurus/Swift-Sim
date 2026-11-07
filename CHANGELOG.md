@@ -24,6 +24,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ### Added
 
+- Recover lost hot-reload confirmations automatically after reconnect, using a
+  bounded lookup of the phone's existing receipt. No patch retransmission,
+  duplicate refresh, new poller or notification-cadence change; unknown results
+  stay fenced. The recovery protocol needs one matching Debug SDK update.
+
 - Hot reload new `@State` fields on eligible installed and pinned SwiftUI views
   after one Debug SDK bootstrap. Ordinary State/bindings use a lazy view-local
   slot with bounded literal value support; existing layout and unsupported

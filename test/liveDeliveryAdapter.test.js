@@ -120,19 +120,45 @@ test("preparation freezes the exact signed bytes and refuses changed signing out
   } finally { f.cleanup(); }
 });
 
-test("an engine-cache miss probes only the same native receipt identity", async () => {
+test("receipt recovery never retransmits patch bytes, including unknown or expired operations", async () => {
   const f = await fixture();
   try {
     f.setResult({ success: true, data: { state: "unknown" } }); f.calls.length = 0;
     assert.equal(await f.adapter.receipt(f.record, f.observed), null);
-    assert.deepEqual(f.calls.map((call) => call.action), ["prepared_receipt", "inject_prepared"]);
-    const request = f.calls[1]; assert.equal(request.request_id, f.record.requestId); assert.equal(request.patch_digest, f.record.preparedPatch.patchDigest); assert.equal(request.attempt_id, f.record.claim.token); assert.equal(request.expected_identity.process_nonce, f.record.scope.sessionIdentity);
+    assert.deepEqual(f.calls.map(call => call.action), ["prepared_receipt"]);
+    assert.equal(f.calls[0].attempt_id, undefined); // old peers get cache reads only
     f.calls.length = 0;
-    await f.adapter.receipt(f.record, { ...f.observed, supportsReceipts: false });
-    assert.deepEqual(f.calls.map((call) => call.action), ["prepared_receipt"]);
+    const observed = { ...f.observed, receiptRecovery: true };
+    assert.equal(await f.adapter.receipt(f.record, observed), null);
+    const request = f.calls[0];
+    assert.equal(request.action, "prepared_receipt");
+    assert.equal(request.request_id, f.record.requestId);
+    assert.equal(request.patch_digest, f.record.preparedPatch.patchDigest);
+    assert.equal(request.attempt_id, f.record.claim.token);
+    assert.equal(request.baseline_revision, f.record.baselineRevision);
+    assert.equal(request.expected_identity.process_nonce, f.record.scope.sessionIdentity);
+    assert.equal("path" in request, false); assert.equal("expires_at_ms" in request, false);
+    assert.equal(f.calls.length, 1);
+    for (const incapable of [{ ...observed, supportsReceipts: false }, { ...observed, matchesBinary: false }]) {
+      f.calls.length = 0; await f.adapter.receipt(f.record, incapable);
+      assert.deepEqual(f.calls, [{ action: "prepared_receipt", request_id: f.record.requestId, patch_digest: f.record.preparedPatch.patchDigest }]);
+    }
     f.advance(200_000); f.calls.length = 0;
-    await f.adapter.receipt(f.record, f.observed);
-    assert.deepEqual(f.calls.map((call) => call.action), ["prepared_receipt"]);
+    await f.adapter.receipt(f.record, observed);
+    assert.equal(f.calls.length, 1); assert.equal(f.calls[0].attempt_id, f.record.claim.token);
+  } finally { f.cleanup(); }
+});
+
+test("receipt query recovery requires both matching native and engine capabilities", async () => {
+  const f = await fixture();
+  try {
+    assert.equal((await f.adapter.inspect(f.record)).receiptRecovery, false);
+    f.status.prepared_receipt_recovery_protocol = 1;
+    assert.equal((await f.adapter.inspect(f.record)).receiptRecovery, false);
+    f.status.client_capabilities.push("prepared-receipt-query-v1");
+    assert.equal((await f.adapter.inspect(f.record)).receiptRecovery, true);
+    delete f.status.prepared_receipt_recovery_protocol;
+    assert.equal((await f.adapter.inspect(f.record)).receiptRecovery, false);
   } finally { f.cleanup(); }
 });
 

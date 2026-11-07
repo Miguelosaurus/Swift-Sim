@@ -70,6 +70,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       engineAvailable: Boolean(data && engineSupports && (!manifest.requiresStateful || (completeEngine && statefulEngine))),
       engineReachable: Boolean(data),
       completeEngine,
+      receiptRecovery: data?.prepared_receipt_recovery_protocol === 1 && capabilities.includes("prepared-receipt-query-v1"),
       completeClient,
       statefulEngine, statefulClient, statefulComponentClient, addedStateClient,
       clientPresent: Boolean(data?.has_connected_client),
@@ -182,14 +183,13 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       return proof;
     },
     async receipt(record, observed) {
-      let response = await control({ action: "prepared_receipt", request_id: record.requestId, patch_digest: record.preparedPatch.patchDigest });
-      // An engine restart may lose its cache while the app still owns the
-      // process-lifetime receipt. The negotiated native ledger can resolve the
-      // SAME operation identity; no new request or patch is manufactured.
-      if (response?.success && response.data?.state === "unknown" && observed.supportsReceipts
-        && observed.connected && observed.foreground && observed.rootReady && record.expiresAt > now()) {
-        response = await control(request(record, observed), { timeoutMs: 2_000 });
-      }
+      const operation = observed.receiptRecovery && observed.matchesBinary && observed.supportsReceipts
+        ? request(record, observed) : {};
+      const { path: _path, expires_at_ms: _expiry, action: _action, ...identity } = operation;
+      const response = await control({ ...identity, action: "prepared_receipt",
+        request_id: record.requestId, patch_digest: record.preparedPatch.patchDigest });
+      // A receipt read never retransmits an image or begins an operation, even
+      // if the engine lost its cache. Unknown native state stays fenced.
       return proofFrom(response, record, observed);
     },
   });

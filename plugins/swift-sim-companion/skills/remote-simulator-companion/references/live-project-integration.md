@@ -114,7 +114,7 @@ partially apply. Require the same exact native replacement and refresh receipts.
 ## Asynchronous edits
 
 The reconnect SDK and prepared-delivery engine are a matching contract. The
-current engine 0.5.5 is a qualified local candidate; public setup still defaults
+current engine 0.5.6 is a qualified local candidate; public setup still defaults
 to 0.4.0. A reachable old engine, SDK, or helper must return an explicit update
 requirement. Complete one Debug SDK bootstrap when the matching candidate is
 activated; do not repeatedly rebuild because a device is temporarily absent.
@@ -135,6 +135,17 @@ in their original process; only matching native receipts or proven
 no-admission rejections resolve them there. Once a different matching process
 is authenticated at revision zero and prior claims expire, cumulative recovery
 can supersede the old uncertain operation while preserving its evidence.
+
+Matching `prepared-receipt-query-v1` clients and the local 0.5.6 engine recover
+lost acknowledgements automatically after reconnecting to the same app process.
+The existing helper reconciliation reads the original operation's native receipt;
+it never retransmits a patch or issues another load/refresh. Recovery is bounded
+to 16 distinct connections per operation and one lookup per connection. In-flight
+work may attach a bounded completion reply; absent/conflicting native entries
+remain uncertain. Reading a completed result can continue after intent expiry.
+Older SDKs need one Debug update for this recovery protocol; ordinary delivery
+still works. No engine restart, new polling service or notification change is
+part of recovery. Require the same exact replacement/refresh proof as usual.
 
 Confirmed desired source outlives pending-request expiry and is automatically
 restored after relaunch. The qualified original binary baseline, latest source,

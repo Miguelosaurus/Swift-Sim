@@ -11,7 +11,7 @@ navigate to the changed screen later to see the result.
 
 This workflow requires the matching reconnect SDK, prepared-delivery engine,
 and helper capability. The reviewed SDK is pinned in `Package.swift`. The
-engine implementation is a qualified **local 0.5.5 candidate**, not a published
+engine implementation is a qualified **local 0.5.6 candidate**, not a published
 binary release. The public installer still defaults to engine 0.4.0. An older
 engine/client/helper must report an explicit update requirement; reconnecting
 alone cannot add a missing protocol capability.
@@ -261,7 +261,19 @@ blocks this recovery.
 Pending requests expire within 24 hours. A cumulative cohort uses its earliest
 accepted expiry, so it may shorten a later request's remaining lifetime; it
 never silently extends accepted intent. Expired cohorts are not automatically
-resurrected. Confirmed desired source is stored separately in the same private
+resurrected. The matching local 0.5.6 engine and `prepared-receipt-query-v1` SDK recover lost
+confirmations over the existing connection after the same native process
+reconnects. A lookup reads the exact original request/digest/attempt/baseline,
+coverage, strategy and binary/process receipt; it cannot load an image or refresh
+the app. No patch bytes are retransmitted. Reads remain possible after request
+expiry. Up to 16 distinct connections per operation and one query per connection
+bound recovery; a pending native operation has at most 16 completion callbacks.
+An absent or conflicting native entry remains fenced, never guessed successful
+or automatically reapplied. Normal completed edits add no lookup round trip,
+worker, timer, value upload or notification-cadence change. Older clients retain
+ordinary delivery but require one Debug SDK update for this recovery protocol.
+
+Confirmed desired source is stored separately in the same private
 journal and remains bound to that exact Debug binary until explicitly revoked.
 Its lifetime does not depend on the original pending request's expiry. A new
 matching process receives a new bounded restoration request compiled from the
