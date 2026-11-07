@@ -29,6 +29,11 @@ xcodebuild \
 
 ## Build The iOS Companion For A Device
 
+The [direct-install prototype](../mac-helper/optional/direct-install/README.md)
+is an isolated contributor experiment for trusted-device installs over Tailscale.
+It is not enabled in normal delivery. Its offline tests and pending physical
+cellular/lock/reboot qualification are documented separately.
+
 ```sh
 DEVELOPMENT_TEAM=YOUR_TEAM_ID \
 PRODUCT_BUNDLE_IDENTIFIER=com.yourname.SwiftSimCompanion \
