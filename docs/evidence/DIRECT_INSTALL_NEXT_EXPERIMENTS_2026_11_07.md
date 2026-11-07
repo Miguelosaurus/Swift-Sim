@@ -94,3 +94,38 @@ guaranteed wake mechanism.
 The first candidate has a locally tested probe; the second remains a diagnostic
 design. No phone contact occurred during preparation, and no temporary server,
 worker or simulator remains running. Physical results must be recorded separately.
+
+## Subsequent connection-only cellular check
+
+The owner then confirmed the phone available, unlocked, on cellular with
+Tailscale connected. No screen actions, app launches, builds, installs, pairing
+changes or temporary phone app were requested. Existing helper/engine processes
+were preserved. An initial local process filter incorrectly counted idle
+XcodeBuildMCP servers as builds and prevented execution; correcting the executable
+match required no process termination or phone contact.
+
+The fresh trusted-lockdown probe failed before authentication. Its first result
+reported only the failed stage. A second explicit diagnostic connection, after
+adding exception-type/errno projection without exposing error text, identified
+`ConnectionRefusedError` / `ECONNREFUSED` in 247 ms. Both ended at the first
+lockdown connection; neither reached CoreDeviceProxy or submitted an install.
+There was no automatic connection retry or pairing fallback in the probe.
+
+The fixed, standard untrusted-RSD endpoint documented for the USB NCM transport
+was also checked over the exact cached phone's Tailnet IPv4 and IPv6 addresses.
+Both refused TCP, in 187 ms and 1,052 ms. These were single-endpoint connectivity
+checks, not a scan or RSD handshake. No cellular advertisement established that
+this endpoint should be exported on the Tailnet interface. Consequently the
+result does not exclude other advertised RSD endpoints or a device-initiated
+transport; it only rejects this particular direct ingress hypothesis.
+
+The CoreDeviceProxy path is now blocked at its ingress on the tested cellular
+condition. The existing classic pairing record is available but cannot repair
+an actively refused socket. A Wi-Fi control would qualify the full probe path,
+not change that cellular refusal. The controlled relay comparison and genuine
+device-initiated developer transport remain separate, unproven investigations.
+
+Twelve local tests still pass after adding safe error classification. No
+temporary worker/listener or install operation remains. The phone was released
+for normal use. Private results and resource records remain in the ignored
+alternative-experiment directory, with no credentials or device addresses here.
