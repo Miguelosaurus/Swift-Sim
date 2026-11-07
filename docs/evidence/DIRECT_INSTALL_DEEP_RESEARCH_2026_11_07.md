@@ -1,5 +1,11 @@
 # Fresh cellular installs: deeper transport and authority review — 2026-11-07
 
+**Latest result:** the [physical capability check](DIRECT_INSTALL_LOCAL_SERVICE_CAPABILITIES_2026_11_07.md)
+completed on cellular and returned all 115 advertised Instruments capabilities.
+It found no usable install interface. The normal runner was restored and no
+cellular install was attempted. The sections below preserve the earlier research
+and its candidate-selection reasoning.
+
 **There is one concrete untested local-service lead, but no new install success.**
 An authorized XCTest runner can request a local DTServiceHub connection. The
 selector exists in current local Xcode framework strings and current Appium

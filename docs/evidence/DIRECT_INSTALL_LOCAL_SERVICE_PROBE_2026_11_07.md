@@ -1,5 +1,10 @@
 # Local developer-service probe — November 7, 2026
 
+The subsequent [cellular capability qualification](DIRECT_INSTALL_LOCAL_SERVICE_CAPABILITIES_2026_11_07.md)
+opened the native connection, received its complete advertised list on cellular,
+and found no usable installer interface. This document records endpoint discovery
+and the preceding crash recovery.
+
 The first phone attempt did not reach the diagnostic. The matching testing-runner
 crash report records a launch-time DYLD failure loading
 `@rpath/XCTest.framework/XCTest`, before application code ran. This is a missing
