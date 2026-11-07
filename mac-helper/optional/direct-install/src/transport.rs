@@ -220,6 +220,137 @@ mod tests {
         server.write_all(&bytes).await.unwrap();
     }
 
+    async fn read_afc(server: &mut DuplexStream) -> (u64, u64, Vec<u8>, Vec<u8>) {
+        let magic = server.read_u64_le().await.unwrap();
+        assert_eq!(magic, idevice::afc::MAGIC);
+        let total = server.read_u64_le().await.unwrap();
+        let header = server.read_u64_le().await.unwrap();
+        let number = server.read_u64_le().await.unwrap();
+        let operation = server.read_u64_le().await.unwrap();
+        assert!((40..=total).contains(&header) && total <= 65584);
+        let mut args = vec![0; (header - 40) as usize];
+        let mut bytes = vec![0; (total - header) as usize];
+        server.read_exact(&mut args).await.unwrap();
+        server.read_exact(&mut bytes).await.unwrap();
+        (number, operation, args, bytes)
+    }
+
+    async fn send_afc(
+        server: &mut DuplexStream,
+        number: u64,
+        operation: u64,
+        args: &[u8],
+        bytes: &[u8],
+    ) {
+        for value in [
+            idevice::afc::MAGIC,
+            40 + args.len() as u64 + bytes.len() as u64,
+            40 + args.len() as u64,
+            number,
+            operation,
+        ] {
+            server.write_u64_le(value).await.unwrap();
+        }
+        server.write_all(args).await.unwrap();
+        server.write_all(bytes).await.unwrap();
+    }
+
+    async fn upload_fixture(wrong_digest: bool, fail_write: bool) {
+        let path =
+            std::env::temp_dir().join(format!("swift-sim-upload-fixture-{}", uuid::Uuid::new_v4()));
+        let content: Vec<_> = (0..(65536 * 2 + 31)).map(|n| (n % 251) as u8).collect();
+        std::fs::write(&path, &content).unwrap();
+        let expected_digest = if wrong_digest {
+            "0".repeat(64)
+        } else {
+            format!("{:x}", Sha256::digest(&content))
+        };
+        let (client, server) = tokio::io::duplex(4096);
+        let (inst, _unused) = tokio::io::duplex(1024);
+        let mut device = Transport {
+            inst: InstallationProxyClient::new(Idevice::new(Box::new(inst), "fixture")),
+            afc: AfcClient::new(Idevice::new(Box::new(client), "fixture")),
+            ipa: path.clone(),
+            sha: expected_digest,
+        };
+        let fixture = tokio::spawn(async move {
+            let mut server = server;
+            let (number, operation, args, _) = read_afc(&mut server).await;
+            assert_eq!(operation, 10); // GetFileInfo
+            assert_eq!(args, b"PublicStaging");
+            let info = b"st_size\x000\0st_blocks\x000\0st_birthtime\x000\0st_mtime\x000\0st_nlink\x001\0st_ifmt\0S_IFDIR\0";
+            send_afc(&mut server, number, 2, &[], info).await;
+            let (number, operation, args, _) = read_afc(&mut server).await;
+            assert_eq!(operation, 13); // FileOpen
+            assert_eq!(&args[8..], b"PublicStaging/fixture.ipa");
+            assert_eq!(u64::from_le_bytes(args[..8].try_into().unwrap()), 3); // WrOnly
+            send_afc(&mut server, number, 14, &17_u64.to_le_bytes(), &[]).await;
+            let mut received = vec![];
+            let mut chunks = 0;
+            loop {
+                let (number, operation, args, bytes) = read_afc(&mut server).await;
+                assert_eq!(args, 17_u64.to_le_bytes());
+                if operation == 20 {
+                    // FileClose must happen after success or write/hash failure.
+                    send_afc(&mut server, number, 1, &0_u64.to_le_bytes(), &[]).await;
+                    break;
+                }
+                assert_eq!(operation, 16); // Write
+                assert!(!bytes.is_empty() && bytes.len() <= 65536);
+                assert!(!fail_write || chunks == 0); // No second write after rejection.
+                chunks += 1;
+                received.extend(bytes);
+                send_afc(
+                    &mut server,
+                    number,
+                    1,
+                    &(if fail_write { 4_u64 } else { 0_u64 }).to_le_bytes(),
+                    &[],
+                )
+                .await;
+            }
+            (received, chunks)
+        });
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            device.upload("PublicStaging/fixture.ipa"),
+        )
+        .await
+        .unwrap();
+        let (received, chunks) = fixture.await.unwrap();
+        if fail_write {
+            assert_eq!(result, Err("upload_failed"));
+            assert_eq!(chunks, 1);
+        } else {
+            assert_eq!(received, content);
+            assert_eq!(chunks, 3);
+            assert_eq!(
+                result,
+                if wrong_digest {
+                    Err("artifact_changed")
+                } else {
+                    Ok(())
+                }
+            );
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn real_afc_streams_bounded_chunks_and_closes() {
+        upload_fixture(false, false).await;
+    }
+
+    #[tokio::test]
+    async fn real_afc_digest_mismatch_closes_without_install() {
+        upload_fixture(true, false).await;
+    }
+
+    #[tokio::test]
+    async fn real_afc_rejected_write_stops_and_closes() {
+        upload_fixture(false, true).await;
+    }
+
     // Exercise the real provider's framed plist protocol, entirely in memory.
     #[tokio::test]
     async fn real_install_completion_then_scoped_lookup() {

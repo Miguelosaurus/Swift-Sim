@@ -77,6 +77,32 @@ input on cellular does not remove that installer-transport uncertainty. No
 production delivery integration or universal cellular-install claim is warranted
 until this new path passes those physical checks.
 
+## Follow-up review — offline only
+
+The continuation retained the owner's restriction on phone contact. Review
+found and fixed a malformed-argument path: `validate` with device arguments and
+`--execute` could fall through to the device installer. Typed command dispatch
+now rejects that combination before even reading local files. Only the explicit
+`install` action can enter the upload/submission path; `inspect` and `reconcile`
+remain non-submitting. Tests exercise the rejected combination and missing
+execution flags without opening a network connection.
+
+Profile expiry no longer blocks read-only inspection/reconciliation of an older
+attempt. Actual installation and offline readiness validation still reject an
+expired profile; artifact digests and peer/device binding remain mandatory.
+
+Three additional real AFC wire fixtures use in-memory duplex streams to verify
+that a multi-chunk upload transfers the expected bytes in at most 64-KiB chunks,
+closes its descriptor after success or digest mismatch, and stops immediately
+after a rejected write while still closing the descriptor. No phone endpoint,
+discovery, pairing change, daemon, or new production import was involved.
+
+Follow-up checks: 18 Rust tests and 4 Python tests pass; strict Clippy and the
+optimized locked build pass. The earlier 150 notification/live-delivery tests
+are baseline evidence from this prototype's first commit; normal runtime paths
+remain unchanged. The original binary size/timing above describes that earlier
+build, not a cellular transfer measurement.
+
 Transport reference: [JAS source and README](https://github.com/jkcoxson/jas).
 Only its use of trusted RSD-over-TCP with AFC/InstallationProxy informed this
 prototype; its authentication/signing portal and background scheduler were not

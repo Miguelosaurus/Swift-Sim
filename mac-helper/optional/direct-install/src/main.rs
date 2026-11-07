@@ -35,6 +35,33 @@ struct Peer {
     pairing_file: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Action {
+    Validate,
+    Inspect,
+    Install,
+    Reconcile,
+}
+
+fn parse_action(args: &[String]) -> Result<Action> {
+    match args.get(1).map(String::as_str) {
+        // Validate is unconditionally offline, even when given device flags.
+        Some("validate") if args.len() == 3 => Ok(Action::Validate),
+        Some("validate") => Err("usage"),
+        Some("inspect" | "install" | "reconcile") => {
+            if args.len() != 6 || args[5] != "--execute" {
+                return Err("explicit_execute_required");
+            }
+            match args[1].as_str() {
+                "inspect" => Ok(Action::Inspect),
+                "install" => Ok(Action::Install),
+                _ => Ok(Action::Reconcile),
+            }
+        }
+        _ => Err("usage"),
+    }
+}
+
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -64,7 +91,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     serde_json::from_slice(&bytes).map_err(|_| "invalid_input")
 }
 
-fn manifest(path: &Path) -> Result<Manifest> {
+fn manifest(path: &Path, require_current_profile: bool) -> Result<Manifest> {
     private(path, true)?;
     let value: Manifest = read_json(&path.join("manifest.json"))?;
     if value.schema != 1
@@ -83,11 +110,12 @@ fn manifest(path: &Path) -> Result<Manifest> {
     {
         return Err("invalid_manifest");
     }
-    if value.expires
-        <= SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "clock_unavailable")?
-            .as_secs()
+    if require_current_profile
+        && value.expires
+            <= SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| "clock_unavailable")?
+                .as_secs()
     {
         return Err("profile_expired");
     }
@@ -142,17 +170,14 @@ fn save(path: &Path, journal: &Journal) -> Result<()> {
 }
 
 async fn execute(args: &[String]) -> Result<serde_json::Value> {
-    let action = args.get(1).map(String::as_str).ok_or("usage")?;
-    if !["validate", "inspect", "install", "reconcile"].contains(&action) {
-        return Err("usage");
-    }
+    let action = parse_action(args)?;
     let prepared = Path::new(args.get(2).ok_or("usage")?);
-    let manifest = manifest(prepared)?;
-    if action == "validate" && args.len() == 3 {
+    let manifest = manifest(
+        prepared,
+        matches!(action, Action::Validate | Action::Install),
+    )?;
+    if action == Action::Validate {
         return Ok(json!({"ok":true,"state":"validated-offline","deviceContacted":false}));
-    }
-    if args.len() != 6 || args[5] != "--execute" {
-        return Err("explicit_execute_required");
     }
     let peer: Peer = read_json(Path::new(&args[3]))?;
     if !tailnet(peer.host) || peer.port == 0 {
@@ -249,11 +274,11 @@ async fn execute(args: &[String]) -> Result<serde_json::Value> {
         let mut device = tokio::time::timeout(Duration::from_secs(30), transport::Transport::connect(
             peer.host, peer.port, &peer.udid, pairing, prepared.join("signed.ipa"), manifest.sha256,
         )).await.map_err(|_| "connection_timeout")??;
-        if action == "inspect" {
+        if action == Action::Inspect {
             let observed = device.lookup(&journal.target.bundle).await?;
             return Ok(json!({"ok":true,"state":"installer-reachable","matchingVersion":observed.as_ref()==Some(&journal.target)}));
         }
-        let outcome = run(&mut journal, &mut device, action == "reconcile", |j| save(&journal_path, j)).await?;
+        let outcome = run(&mut journal, &mut device, action == Action::Reconcile, |j| save(&journal_path, j)).await?;
         Ok(json!({"ok":true,"state":outcome,"cleanupPending":journal.cleanup_pending}))
     }).await.map_err(|_| "timeout_reconcile_before_retry")?;
     drop(lock);
@@ -307,6 +332,71 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn offline_validate_never_accepts_device_arguments() {
+        let args = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            parse_action(&args(&["installer", "validate", "prepared"])),
+            Ok(Action::Validate)
+        );
+        // Fail before reading even a manifest or peer record. No transport can be built.
+        assert_eq!(
+            execute(&args(&[
+                "installer",
+                "validate",
+                "missing-prepared",
+                "missing-peer",
+                "missing-state",
+                "--execute"
+            ]))
+            .await
+            .unwrap_err(),
+            "usage"
+        );
+        assert_eq!(
+            execute(&args(&[
+                "installer",
+                "validate",
+                "missing-prepared",
+                "--execute"
+            ]))
+            .await
+            .unwrap_err(),
+            "usage"
+        );
+        for command in ["inspect", "install", "reconcile"] {
+            assert_eq!(
+                execute(&args(&["installer", command, "missing-prepared"]))
+                    .await
+                    .unwrap_err(),
+                "explicit_execute_required"
+            );
+        }
+    }
+
+    #[test]
+    fn expired_preparation_still_allows_read_only_reconciliation() {
+        let directory =
+            std::env::temp_dir().join(format!("swift-sim-install-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let bytes = b"synthetic-preparation-fixture";
+        fs::write(directory.join("signed.ipa"), bytes).unwrap();
+        let value = json!({"schema":1,"sha256":digest(bytes),"identity":{"bundle":"example.Test","build":"2","version":"1.0"},"team":"TEAM","devices":["synthetic-device"],"expires":1});
+        fs::write(directory.join("manifest.json"), value.to_string()).unwrap();
+        for name in ["signed.ipa", "manifest.json"] {
+            fs::set_permissions(directory.join(name), fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        assert!(matches!(manifest(&directory, true), Err("profile_expired")));
+        assert!(manifest(&directory, false).is_ok());
+        fs::write(directory.join("signed.ipa"), b"changed").unwrap();
+        assert!(matches!(
+            manifest(&directory, false),
+            Err("artifact_changed")
+        ));
+        fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn tailnet_only_no_dns_or_lan_fallback() {
         for ip in ["100.64.0.1", "100.127.255.254", "fd7a:115c:a1e0::1"] {

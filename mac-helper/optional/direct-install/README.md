@@ -35,8 +35,13 @@ signature, reads the signed entitlements and embedded profile, and checks bundle
 team, registered-device eligibility, and profile expiry. It never re-signs or
 changes the source artifact. Only the frozen IPA and private manifest remain.
 The native client rechecks the IPA digest and expiry before any device connection
-and hashes the streamed upload again before requesting installation. A preparation
+for installation and hashes the streamed upload again before requesting
+installation. Read-only inspection/reconciliation still checks the artifact
+binding but permits an expired profile, so expiry cannot strand an earlier
+uncertain attempt. A preparation
 is a trusted local output, not an untrusted manifest interchange format.
+`validate` rejects extra device arguments before reading files; it cannot be
+turned into a device operation by adding `--execute`.
 
 ## Device commands — only when the owner makes the phone available
 
@@ -108,8 +113,8 @@ one staging file after safe pre-submission recovery or a Complete receipt plus
 verified inventory. After a lost receipt it only observes whether Apple has
 already removed the file; a version lookup alone cannot authorize deletion of a
 possibly active install input. A still-present file remains owned and blocks a
-different artifact until safely resolved. It
-never deletes PublicStaging, app data, other installs, or local pairing material.
+different artifact until safely resolved. It never deletes PublicStaging, app
+data, other installs, or local pairing material.
 A missing staging file counts as already cleaned. An unreachable/locked service
 returns a typed stage; it never opens Safari or an install prompt as a fallback.
 This prototype does not automatically publish its result into build history or
@@ -123,11 +128,14 @@ cargo clippy --locked --manifest-path mac-helper/optional/direct-install/Cargo.t
 python3 -m unittest discover -s mac-helper/optional/direct-install/tests -p 'test_*.py' -v
 ```
 
-JSON results include elapsed time for the later device qualification. Tests use fake device operations, real framed InstallationProxy plist traffic over
-in-memory duplex streams, and local files. They cover receipt/inventory gating,
+JSON results include elapsed time for the later device qualification. Tests use
+fake device operations, real framed AFC and InstallationProxy traffic over
+in-memory duplex streams, and local files. They cover bounded streaming uploads,
+descriptor closure after write/hash failure, receipt/inventory gating,
 lost acknowledgements across process-state restoration, no second submission,
 durable-fence failures, transfer failures, scoped cleanup, concurrent lock
-exclusion, path/signature/profile rejection, and offline preparation. These tests
+exclusion, path/signature/profile rejection, offline command isolation, expired
+profile reconciliation, and offline preparation. These tests
 do not prove physical lock/reboot/cellular behavior.
 
 ## Physical qualification gate
