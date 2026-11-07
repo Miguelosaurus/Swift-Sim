@@ -220,3 +220,11 @@ test("parallel build-input drift stops before any automatic install", async () =
     installBuild: async () => { installs++; } });
   assert.equal(result.outcome, "needs-user-action"); assert.equal(result.reasonCode, "BUILD_INPUTS_CHANGED"); assert.equal(installs, 0);
 });
+
+test("an old native install receipt superseded by newer inventory cannot produce Installed or another link", async () => {
+  const result = await deliverChange({ files: STRUCTURAL,
+    buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111" }),
+    installBuild: async () => ({ state: "different-version", code: "INSTALL_RECEIPT_SUPERSEDED" }) });
+  assert.equal(result.outcome, "needs-user-action");
+  assert.equal(result.reasonCode, "INSTALL_RECEIPT_SUPERSEDED"); assert.equal(result.delivery, undefined);
+});

@@ -37,9 +37,14 @@ export async function deliverSavedBuild({ buildID, project, workspace, scheme, d
   if (["installed", "installed-version-observed", "already-matching-version", "unconfirmed"].includes(native?.state)) {
     const observed = Number.isFinite(Date.parse(native.observedAt)) ? native.observedAt : undefined;
     if (native.state !== "unconfirmed" && observed && saveVerification) await saveVerification(buildID, {
-      state: "verified", verifiedAt: observed,
+      state: "verified", verifiedAt: observed, observedAt: observed,
       devices: [{ name: "iPhone", state: "installed", version: build.app.version, build: build.app.build }],
     });
+    const current = observed && native.state !== "unconfirmed" ? await readBuild(buildID) : null;
+    if (["different-version", "not-installed"].includes(current?.installation?.state)
+      && Date.parse(current.installation.updatedAt) > Date.parse(observed)) return {
+      state: current.installation.state, buildID, code: "INSTALL_RECEIPT_SUPERSEDED",
+    };
     return { state: native.state, buildID, ...(observed ? { observedAt: observed } : {}),
       ...(typeof native.launchRequested === "boolean" ? { launchRequested: native.launchRequested } : {}) };
   }

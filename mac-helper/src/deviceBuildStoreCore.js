@@ -190,6 +190,16 @@ export class DeviceBuildStore {
       if (!build) return null;
       const previous = normalizeInstallation(build.installation);
       const reportedState = ["verified", "unknown", "different-version", "not-installed"].includes(verification.state) ? verification.state : "unknown";
+      // Replayed native install receipts are historical observations. They must
+      // not refresh the UI timestamp or overwrite a later device/launch result.
+      if (verification.observedAt !== undefined) {
+        const observed = Date.parse(verification.observedAt);
+        const previousObservation = Math.max(0, ...[previous.verifiedAt, previous.lastSeenAt,
+          ...(["different-version", "not-installed"].includes(previous.state) ? [previous.updatedAt] : [])]
+          .map(value => Date.parse(value || "")).filter(Number.isFinite));
+        if (reportedState !== "verified" || !Number.isFinite(observed) || observed > Date.now() + 5000
+          || observed <= previousObservation) return build;
+      }
       // Device management may reach a different phone. It cannot erase the
       // exact build previously reported by the private live app connection.
       if (previous.launchConfirmedAt && reportedState !== "verified") return build;

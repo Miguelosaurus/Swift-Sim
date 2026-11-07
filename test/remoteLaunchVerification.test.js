@@ -204,3 +204,15 @@ test("cached capture reader preserves launch confirmation and rejects drift duri
     } finally { f.cleanup(); }
   }
 });
+
+test("a plain Xcode Run reusing the build number cannot refresh the saved binary's launch history", async () => {
+  const f = fixture();
+  try {
+    await f.service().runOnce(); const before = f.store.get(f.created.id).installation;
+    f.native.status.data.client_identity.executable_uuid = "99999999-9999-9999-9999-999999999999";
+    f.native.status.data.client_identity.process_nonce = "xcode-process-two";
+    f.setClock(Date.now() + 1000);
+    assert.deepEqual(await f.service().runOnce(), { changed: false });
+    assert.deepEqual(f.store.get(f.created.id).installation, before);
+  } finally { f.cleanup(); }
+});

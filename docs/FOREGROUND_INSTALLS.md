@@ -95,3 +95,22 @@ workflow; revisit management only as an explicit separate product decision.
 
 Sources: [Apple managed-app distribution](https://support.apple.com/guide/deployment/distribute-managed-apps-dep575bfed86/web),
 [UIApplication.open](https://developer.apple.com/documentation/uikit/uiapplication/open(_:options:completionhandler:)).
+
+
+## Xcode installation and library synchronization
+
+A saved build installed through Swift Sim's native Xcode route writes dated
+Apple inventory proof to the normal build store. The paired Companion receives
+that installation state through its existing app-library synchronization; no
+install-link tap is required. Installer completion and app launch remain separate.
+Re-reading an old native receipt preserves its original observation time and
+cannot override a newer different-version/not-installed check or newer exact
+launch proof. A superseded receipt does not report a current Installed result.
+
+Pressing Run directly in Xcode outside Swift Sim does not automatically create
+a saved IPA/history entry or register that binary's compiler context. A matching
+catalogued Debug binary can receive normal exact launch confirmation; a new
+binary, even reusing a version/build number, cannot inherit the old binary's
+hot-reload baseline. Native inventory verifies version/build, not executable UUIDs.
+Last-confirmed installation history is not continuous device attestation. Full
+automatic import of arbitrary external Xcode builds is not implemented.
