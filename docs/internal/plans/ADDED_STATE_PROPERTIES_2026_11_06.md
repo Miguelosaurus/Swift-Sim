@@ -99,3 +99,17 @@ adds0.80MiB across3000 cells (paired median0.89MiB), wrapper16->32 bytes; all op
 boxes nil and hosts exited. See evidence; this is not phone RAM. No phone action
 or installed helper change has occurred this turn. Next full gates + bootstrap
 SDK build and explicit phone availability/acceptance.
+
+## Phone checkpoint
+
+Main a6fb7d9 is pushed and installed helper/plugin updated. Zenics42 is ready and
+user-installed. All four exact captured iPhone compiler variants pass. First
+physical counter/draft addition is native-proven at revision1 over cellular,
+with exact same-operation receipt recovery after a bounded engine restart.
+Normal helper3766/session79044 and engine4127 remain. Old engine6939 exited.
+Temporary hosts/build workers have finished; no simulator is running for this
+task. Test card is intentionally awaiting manual values; restoration required.
+Continue from phone/changes-2.json only after user changes counter/draft, then
+changes-3.json helper follow-up and changes-4.json whole-baseline restore.
+Private resource/receipt state is .build/additive-state-20261106/resources.json.
+Do not resubmit changes-1 or clear the protected foreign uncertain request.

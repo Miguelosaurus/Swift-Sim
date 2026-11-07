@@ -70,3 +70,34 @@ tests pass 29. Type, lint, format, architecture/docs, package contents, isolated
 installation and Homebrew entrypoint checks pass. Destructive clean Homebrew
 installation remains disabled. Both standalone native qualifiers and the prior
 stateful-component host pass. Physical acceptance remains pending. Notifications and animation code are unchanged.
+
+## Exact captured iPhone compiler
+
+Zenics Debug42 built from main a6fb7d9 with the matching SDK945c67a. Four
+immutable snapshot stages compiled using its captured iPhone SDK, private module
+context and actor defaults: add counter/draft to installed ContentView; add a
+Boolean later; change only a cross-file helper; restore the entire baseline.
+Each stage proved one real body replacement and preserved refresh. Product
+files stayed unchanged and no phone request was made by this compiler check.
+
+The normal helper and Codex plugin0.6.1+codex.20261106.10 are updated. One engine
+remains; no extra service or simulator was introduced. One
+protected foreign uncertain request remains unchanged. Physical acceptance is
+in progress; compiled images and an SDK handshake alone do not prove state.
+
+## Physical checkpoint
+
+The phone connected over cellular on Zenics42 with added-state-slots-v1. The
+first snapshot introduced two new State fields directly on the installed
+ContentView. Its exact native receipt proves one replacement, preserved refresh
+and revision1 in the same process. The initial acknowledgement was lost during
+connection churn. The operation remained uncertain; one bounded engine restart
+let the normal reconciliation path retrieve that same process-lifetime ledger
+receipt. No new operation or second native load was submitted. The old engine
+exited and one replacement owns the live port.
+
+The temporary counter/draft card is intentionally left visible while awaiting
+manual input. Further field addition, value retention and final restoration are
+not yet claimed. This checkpoint is not full physical acceptance. All original
+product source files remain byte-identical; the only project change is the
+reviewed Swift Sim package pin.
