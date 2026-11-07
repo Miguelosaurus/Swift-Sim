@@ -1,5 +1,11 @@
 # Cellular installation: separate delivery, installation and startup
 
+**Follow-up:** [physical cellular OTA qualification](OTA_CELLULAR_SESSION_INSTALL_2026_11_07.md)
+installed builds 40 and 41, including a locked queue resumed after unlock. The
+owner subsequently rejected requiring App Testing just to automate confirmation;
+the accepted next product direction is agent-triggered installation with native
+user confirmation. The preparation and research below are historical.
+
 Research checkpoint, November 7, 2026. No phone contact, installation, enrollment,
 runtime change or new background resource was part of this review.
 
