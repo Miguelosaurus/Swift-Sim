@@ -101,6 +101,10 @@ signing, bounded IPA transfer and installation already work on the qualified
 Wi-Fi path. Preserve that distinction rather than extending setup, keeping a
 bridge running indefinitely, or treating a phone-open action as zero interaction.
 
+Subsequent [alternative-path preparation](DIRECT_INSTALL_NEXT_EXPERIMENTS_2026_11_07.md)
+adds a locally tested, isolated CoreDeviceProxy probe using the existing classic
+pairing record. It has not established a physical cellular connection or install.
+
 ## Verification, restoration and resources
 
 The isolated native candidate passed 20 Rust tests and strict Clippy, including
