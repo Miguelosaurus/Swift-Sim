@@ -216,3 +216,62 @@ test("a plain Xcode Run reusing the build number cannot refresh the saved binary
     assert.deepEqual(f.store.get(f.created.id).installation, before);
   } finally { f.cleanup(); }
 });
+
+test("external Xcode binary is advisory metadata, bounded and retained briefly while opening Companion", async () => {
+  const f = fixture();
+  try {
+    f.native.status.data.client_identity.executable_uuid = "99999999-9999-9999-9999-999999999999";
+    const service = f.service(); const app = { bundleIdentifier: identity.bundle_id, teamID: "FIXTURETEAM" };
+    const original = f.store.get(f.created.id);
+    assert.deepEqual(await service.runOnce(), { changed: false });
+    const detection = service.detectedBuildFor(app);
+    assert.equal(detection.kind, "untracked-debug"); assert.equal(detection.build, "28");
+    assert.doesNotMatch(JSON.stringify(detection), /uuid|nonce|project|Fingerprint/);
+    assert.deepEqual(f.store.get(f.created.id), original);
+    assert.equal(service.detectedBuildFor({ ...app, teamID: "OTHER" }), null);
+    f.native.status.data.client_identity.is_active = false;
+    f.setClock(f.clock() + 1000); await service.runOnce();
+    assert.deepEqual(service.detectedBuildFor(app), detection);
+    f.setClock(f.clock() + 30000); assert.equal(service.detectedBuildFor(app), null);
+    await service.stop(); assert.equal(service.detectedBuildFor(app), null);
+  } finally { f.cleanup(); }
+});
+test("known, ambiguous, foreign and invalid observations cannot become external build imports", async () => {
+  const mutations = [
+    () => {},
+    f => { f.native.status.data.client_identity.bundle_id = "other.bundle"; },
+    f => { const b = structuredClone(f.created); b.id = f.store.create({ scheme: "Another" }).id; b.app.teamID = "OTHER"; f.store.save(b);
+      f.native.status.data.client_identity.executable_uuid = "99999999-9999-9999-9999-999999999999"; },
+    f => { f.native.status.data.client_identity.bundle_version = "bad\nversion"; },
+  ];
+  for (const mutate of mutations) {
+    const f = fixture();
+    try {
+      mutate(f); const service = f.service(); await service.runOnce();
+      assert.equal(service.detectedBuildFor({ bundleIdentifier: identity.bundle_id, teamID: "FIXTURETEAM" }), null);
+    } finally { f.cleanup(); }
+  }
+});
+test("disconnected observations add no build-history scans", async () => {
+  const f = fixture();
+  try {
+    f.native.status.data.has_connected_client = false;
+    const service = createRemoteLaunchVerifier({ ...f.options, listBuilds: () => { throw Error("must not scan"); } });
+    assert.deepEqual(await service.runOnce(), { changed: false });
+  } finally { f.cleanup(); }
+});
+
+test("unknown binaries use compact observation metadata rather than full build records", async () => {
+  const f = fixture();
+  try {
+    f.native.status.data.client_identity.executable_uuid = "99999999-9999-9999-9999-999999999999";
+    const service = createRemoteLaunchVerifier({ ...f.options,
+      listBuilds: () => { throw Error("must not clone full build logs/provenance"); },
+      listObservedBuilds: () => [{ project: f.created.project, scheme: f.created.scheme,
+        app: { bundleIdentifier: identity.bundle_id, teamID: "FIXTURETEAM" },
+        liveReload: { recovery: { provenance: { binaryIdentity: identity } } } }],
+    });
+    assert.deepEqual(await service.runOnce(), { changed: false });
+    assert.equal(service.detectedBuildFor({ bundleIdentifier: identity.bundle_id, teamID: "FIXTURETEAM" }).build, "28");
+  } finally { f.cleanup(); }
+});

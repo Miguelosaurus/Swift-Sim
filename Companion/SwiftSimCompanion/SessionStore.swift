@@ -1489,6 +1489,7 @@ final class SessionStore: ObservableObject {
                 }
                 guard let latest = builds.first else { continue }
                 var managed = ManagedApp(build: latest)
+                managed.detectedBuild = app.detectedBuild
                 managed.ownerPairingID = mac.id
                 managed.displayName = app.name
                 managed.bundleIdentifier = app.bundleIdentifier
@@ -2106,6 +2107,13 @@ struct ManagedApp: Identifiable, Codable, Equatable {
     var builds: [ManagedBuild]
     var archivedAt: Date?
     var lastOpened: Date
+    var detectedBuild: DetectedDebugBuild?
+
+    var recentDetectedBuild: DetectedDebugBuild? {
+        guard let detectedBuild, detectedBuild.kind == "untracked-debug", let date = SwiftSimISO8601.date(from: detectedBuild.observedAt),
+              Date().timeIntervalSince(date) >= 0, Date().timeIntervalSince(date) <= 30 else { return nil }
+        return detectedBuild
+    }
 
     var latestBuild: ManagedBuild? {
         builds.sorted { $0.createdAt > $1.createdAt }.first
@@ -2771,12 +2779,20 @@ private struct RemoteAppList: Decodable {
     let apps: [RemoteManagedApp]
 }
 
+struct DetectedDebugBuild: Codable, Equatable {
+    let kind: String
+    let version: String
+    let build: String
+    let observedAt: String
+}
+
 private struct RemoteManagedApp: Decodable {
     let id: String
     let name: String
     let bundleIdentifier: String
     let archivedAt: String
     let builds: [DeviceBuildStatus]
+    let detectedBuild: DetectedDebugBuild?
 }
 
 private extension URL {

@@ -556,6 +556,23 @@ private struct ManagedAppDetailView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     topBar
                     appHeader
+                    if let detected = app.recentDetectedBuild {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Debug build \(detected.build) detected", systemImage: "hammer.circle")
+                                .font(.headline)
+                            if let observed = SwiftSimISO8601.date(from: detected.observedAt) {
+                                Text("Last detected \(observed, style: .time)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("Version \(detected.version) is outside saved build history. Create a Swift Sim build to save an installable copy and prepare hot reload.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .liquidGlassPanel(cornerRadius: 24, tint: Color.blue.opacity(0.08), interactive: false)
+                    }
                     latestBuildSection
                     buildCurrentSourceSection
                     if app.builds.count > 1 {
@@ -655,7 +672,7 @@ private struct ManagedAppDetailView: View {
 
     private var latestBuildSection: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text("Latest Build")
+            Text(app.recentDetectedBuild == nil ? "Latest Build" : "Latest Saved Build")
                 .font(.title3.weight(.bold))
 
             if let latest = app.latestBuild {
@@ -1507,7 +1524,7 @@ private struct ManagedAppRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(app.latestBuild?.versionLabel ?? "Version unavailable")
+                Text(app.recentDetectedBuild.map { "Version \($0.version) • Build \($0.build)" } ?? app.latestBuild?.versionLabel ?? "Version unavailable")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1537,9 +1554,10 @@ private struct ManagedAppRow: View {
         .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
     }
 
-    private var statusLabel: String { app.latestBuild?.libraryStatusText ?? "No builds yet" }
+    private var statusLabel: String { app.recentDetectedBuild == nil ? (app.latestBuild?.libraryStatusText ?? "No builds yet") : "Untracked Debug build detected" }
 
     private var appAccent: Color {
+        if app.recentDetectedBuild != nil { return .blue }
         if app.latestBuild?.state == "failed" { return .orange }
         switch app.latestBuild?.installationStatus {
         case .verified, .launchConfirmed: return .green

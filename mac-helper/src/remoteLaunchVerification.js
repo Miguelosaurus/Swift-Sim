@@ -47,10 +47,11 @@ export function createQualifiedLaunchCaptureReader(path) {
   };
 }
 
-export function createRemoteLaunchVerifier({ listBuilds, readCapture, inspectClient, saveConfirmation, now = () => Date.now() } = {}) {
+export function createRemoteLaunchVerifier({ listBuilds, readCapture, inspectClient, saveConfirmation, listObservedBuilds, now = () => Date.now() } = {}) {
   for (const dependency of [listBuilds, readCapture, inspectClient, saveConfirmation, now]) if (typeof dependency !== "function") throw new TypeError("Remote launch verification requires explicit trusted observation dependencies.");
   let running;
   let stopping = false;
+  let detected = null;
   async function observe() {
     if (stopping) return { changed: false };
     const started = now();
@@ -67,9 +68,17 @@ export function createRemoteLaunchVerifier({ listBuilds, readCapture, inspectCli
     } catch { return { changed: false }; }
     const timestamp = now();
     if (!Number.isSafeInteger(timestamp) || timestamp < started || timestamp - started > MAX_OBSERVATION_MS) return { changed: false };
+    const status = observed?.status?.success === true ? observed.status.data : null;
+    if (status?.has_connected_client !== true || status.client_identity?.is_active !== true
+      || status.client_identity?.root_ready !== true) return { changed: false };
+    const builds = !liveBinaryMatches(capture.binaryIdentity, status.client_identity) && listObservedBuilds
+      ? listObservedBuilds() : listBuilds();
+    const nextDetection = untrackedObservation(capture, observed, builds, timestamp);
+    if (nextDetection) detected = nextDetection;
+    else detected = null;
     const proof = nativeObservation(capture, observed, timestamp);
     if (!proof) return { changed: false };
-    const candidates = listBuilds().filter((build) => launchBuildMatches(build, proof));
+    const candidates = builds.filter((build) => launchBuildMatches(build, proof));
     // Two records claiming the same binary do not identify a unique build.
     if (candidates.length !== 1) return { changed: false };
     const build = candidates[0];
@@ -87,7 +96,13 @@ export function createRemoteLaunchVerifier({ listBuilds, readCapture, inspectCli
       if (!running) running = observe().finally(() => { running = null; });
       return running;
     },
-    async stop() { stopping = true; if (running) await running.catch(() => {}); },
+    detectedBuildFor(app) {
+      if (stopping || !detected || now() < detected.at || now() - detected.at > 30000
+        || app.bundleIdentifier !== detected.bundle || app.teamID !== detected.team) return null;
+      return { kind: "untracked-debug", version: detected.version, build: detected.build,
+        observedAt: new Date(detected.at).toISOString() };
+    },
+    async stop() { stopping = true; detected = null; if (running) await running.catch(() => {}); },
   });
 }
 
@@ -159,3 +174,24 @@ function validateCapture(capture) {
 function projectContainer(path) { const value = resolve(path); return value.endsWith("/project.pbxproj") ? dirname(value) : value; }
 function hash(value) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function invalidCapture() { return Object.assign(new Error("Qualified private launch capture unavailable."), { code: "REMOTE_LAUNCH_PROVENANCE_REQUIRED" }); }
+
+// Advisory connection metadata only: never creates an installable build or
+// grants compiler authority. Reuses the existing observation, with no RPCs.
+function untrackedObservation(capture, observed, builds, at) {
+  try {
+    const status = observed?.status?.success === true ? observed.status.data : null;
+    const client = status?.client_identity;
+    if (status?.has_connected_client !== true || status.engine_instance_nonce !== capture.registration.engineNonce
+      || client?.is_active !== true || client.root_ready !== true || !ID.test(client.process_nonce || "")
+      || !ID.test(client.connection_nonce || "") || !CAPABILITIES.every(value => status.client_capabilities?.includes(value))) return null;
+    const identity = normalizedLiveBinaryIdentity(client);
+    if (!/^[A-Za-z0-9_.+-]{1,80}$/.test(identity.bundle_version) || !/^[A-Za-z0-9_.+-]{1,40}$/.test(identity.build_number)) return null;
+    const known = builds.filter(build => build.app?.bundleIdentifier === identity.bundle_id);
+    const teams = new Set(known.map(build => build.app?.teamID).filter(Boolean));
+    if (teams.size !== 1 || known.some(build => liveBinaryMatches(build.liveReload?.recovery?.provenance?.binaryIdentity, identity))) return null;
+    const bound = known.some(build => build.project && resolve(build.project) === projectContainer(capture.binding.projectPath)
+      && build.scheme === capture.binding.scheme && build.app?.teamID && build.app.bundleIdentifier === capture.binaryIdentity.bundle_id);
+    if (!bound || identity.bundle_id !== capture.binaryIdentity.bundle_id) return null;
+    return { bundle: identity.bundle_id, team: [...teams][0], version: identity.bundle_version, build: identity.build_number, at };
+  } catch { return null; }
+}

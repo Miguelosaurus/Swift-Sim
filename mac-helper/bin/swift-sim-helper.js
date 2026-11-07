@@ -65,6 +65,7 @@ import { queuedLiveEngineControl } from "../src/liveReload.js";
 import { createActivityStore } from "../src/activityStore.js";
 import { createActivityService, activityBuildView, activityLiveDeliveryView } from "../src/activityService.js";
 import { handleActivityRoutes } from "../src/http/activityRoutes.js";
+import { liveBinaryMatches } from "../src/liveBinaryIdentity.js";
 import { createRemoteLaunchVerifier, createQualifiedLaunchCaptureReader } from "../src/remoteLaunchVerification.js";
 import { NodeCommandRunner } from "../src/infrastructure/nodeCommandRunner.js";
 import { createDeviceBuildArtifactAuditCompatibility } from "../src/deviceBuildArtifactAuditCompatibility.js";
@@ -243,10 +244,16 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   });
   remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
     listBuilds: () => deviceBuildStore.list(),
+    listObservedBuilds: () => deviceBuildStore.readOnly(state => [...state.builds.values()].map(build => ({
+      project: build.project, scheme: build.scheme,
+      app: { bundleIdentifier: build.app?.bundleIdentifier, teamID: build.app?.teamID },
+      liveReload: { recovery: { provenance: { binaryIdentity: build.liveReload?.recovery?.provenance?.binaryIdentity } } },
+    }))),
     readCapture: createQualifiedLaunchCaptureReader(join(homedir(), ".swift-sim", "live", "compilations.json")),
     inspectClient: async (capture) => {
       const status = await queuedLiveEngineControl({ action: "status" }, { timeoutMs: 1_200 });
       if (!status?.success || status.data?.has_connected_client !== true) return { status, registration: null };
+      if (!liveBinaryMatches(capture.binaryIdentity, status.data.client_identity)) return { status, registration: null };
       const binding = capture.registration;
       const registration = await queuedLiveEngineControl({ action: "compilation_registration_status", registration_id: binding.requestId, map_digest: binding.mapDigest, provenance_digest: binding.provenanceDigest, expected_engine_nonce: binding.engineNonce }, { timeoutMs: 1_200 });
       return { status, registration };
@@ -512,5 +519,7 @@ function projectDeviceBuild(build) {
 }
 
 function projectDeviceApp(app) {
-  return publicDeviceApp({ ...app, builds: (app.builds || []).map((build) => deviceBuildRuntime.projectBuildState(build)) });
+  const projected = publicDeviceApp({ ...app, builds: (app.builds || []).map((build) => deviceBuildRuntime.projectBuildState(build)) });
+  const detectedBuild = remoteLaunchVerifier?.detectedBuildFor(app);
+  return { ...projected, ...(detectedBuild ? { detectedBuild } : {}) };
 }

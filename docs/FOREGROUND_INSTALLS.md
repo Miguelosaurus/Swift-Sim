@@ -114,3 +114,18 @@ binary, even reusing a version/build number, cannot inherit the old binary's
 hot-reload baseline. Native inventory verifies version/build, not executable UUIDs.
 Last-confirmed installation history is not continuous device attestation. Full
 automatic import of arbitrary external Xcode builds is not implemented.
+
+
+The helper can now surface a recently observed **untracked Debug build** for an
+already registered app. It reuses the existing authenticated engine-status
+observation and keeps one small in-memory hint for at most 30 seconds. The
+Companion labels the observed version/build separately and calls the old catalog
+entry “Latest Saved Build.” The detection carries its observation time and can
+survive briefly while the user switches from the Debug app to Swift Sim.
+It disappears on the next render/sync after expiry or a matching known binary.
+
+This needs an integrated Debug app, an existing qualified project capture and an
+unambiguous registered bundle/team. It cannot detect arbitrary apps without the
+SDK. Detection creates no history record, IPA, Installed proof, compiler map or
+install action. Helper restart clears it; old clients ignore the optional field.
+No additional timer, network call, source watcher or phone SDK is introduced.
