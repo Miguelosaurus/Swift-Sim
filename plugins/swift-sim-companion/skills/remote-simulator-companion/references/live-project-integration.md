@@ -140,7 +140,7 @@ Matching `prepared-receipt-query-v1` clients and the local 0.5.6 engine recover
 lost acknowledgements automatically after reconnecting to the same app process.
 The existing helper reconciliation reads the original operation's native receipt;
 it never retransmits a patch or issues another load/refresh. Recovery is bounded
-to 16 distinct connections per operation and one lookup per connection. In-flight
+to 16 distinct connections per pending admission attempt and one lookup per connection. In-flight
 work may attach a bounded completion reply; absent/conflicting native entries
 remain uncertain. Reading a completed result can continue after intent expiry.
 Older SDKs need one Debug update for this recovery protocol; ordinary delivery

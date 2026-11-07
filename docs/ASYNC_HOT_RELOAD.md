@@ -266,7 +266,7 @@ confirmations over the existing connection after the same native process
 reconnects. A lookup reads the exact original request/digest/attempt/baseline,
 coverage, strategy and binary/process receipt; it cannot load an image or refresh
 the app. No patch bytes are retransmitted. Reads remain possible after request
-expiry. Up to 16 distinct connections per operation and one query per connection
+expiry. Up to 16 distinct connections per pending admission attempt and one query per connection
 bound recovery; a pending native operation has at most 16 completion callbacks.
 An absent or conflicting native entry remains fenced, never guessed successful
 or automatically reapplied. Normal completed edits add no lookup round trip,

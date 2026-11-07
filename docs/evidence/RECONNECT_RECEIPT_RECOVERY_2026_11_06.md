@@ -11,7 +11,7 @@ uncertain; this is not a promise to reapply an unacknowledged mutation.
 The existing helper turn requests recovery only for an authenticated replacement
 connection, or after an engine-cache miss with the durable exact original
 contract. Normal completed edits and the original send connection add no lookup
-message. One lookup per connection, at most16 connections per operation, uses the
+message. One lookup per connection, at most16 connections per pending attempt, uses the
 existing metrics frame with a 16KiB JSON bound, an empty data frame and a scoped
 300ms write budget. A pending native operation retains at most16 completion
 callbacks including its original one. No new poller, timer, service, state
@@ -61,9 +61,64 @@ compiled906 plus3 hermetic checks/runtime gates, root Swift38 and Release builds
 SDK33, types, format and lint pass. Package contents, isolated installed-package
 setup/doctor and Homebrew entrypoints pass; destructive clean Homebrew installation
 remains disabled. Actual Release SDK objects exclude the recovery symbol and
-capability. Physical acceptance remains pending; no phone changes have been made.
+capability. Physical acceptance is recorded below.
 
 Private receipts and source/binary hashes live under
-.build/reconnect-recovery-20261106/. The original SDK/checkouts, normal helper
-and engine remain preserved until explicit reviewed deployment. No simulator
-or additional persistent service has been started.
+.build/reconnect-recovery-20261106/. The original frozen SDK/checkouts remain untouched. The normal helper and one
+updated engine remain for daily use; no simulator or additional persistent
+service was introduced.
+
+## Physical cellular fault test
+
+Zenics Debug43 was built from Swift-Sim main497a1e1 with SDK307f9bf and installed
+by the user. All three immutable stages compiled against its exact captured
+IPhone SDK/private module/actor context before delivery. Setup introduced the
+temporary counter/draft card. The user changed both values from their defaults.
+The next edit changed only its shared helper, carrying the complete consumer
+cohort through the normal CLI, helper, compiler and native application path.
+
+A task-owned loopback TCP relay intercepted the entire selected successful v3
+receipt at revision2 and closed that connection before forwarding the frame.
+The user was on cellular with Tailscale. The normal helper automatically recovered
+the exact same native report over a new connection: request, digest, attempt,
+coverage, process and every report field matched the withheld original. The Mac
+engine process/instance and native process stayed unchanged. No mutation was
+resubmitted and no signed build/install occurred during this fault test.
+
+Thirty-two subsequent receipt reads returned that same report and the native
+revision remained2. The user explicitly confirmed that both counter and draft
+were unchanged on Reconnect2. Native host tests independently quantify values,
+working bindings, one application/refresh and subtree appearances. Phone screen
+inspection refused an ambiguous matching connection during this handoff, so no
+pre/post screenshot of those values is claimed. Private proof is in phone/,
+including recovery-proof.json, record-2-confirmed.json and user-observations.json.
+
+The temporary relay was stopped and its port closed. The entire Tailscale Serve
+configuration exactly matches its saved pre-test JSON; unrelated routes remained
+unchanged. Normal direct hot reload/notifications retain their original path.
+
+## Cleanup and explicit proof boundary
+
+The later baseline-restoration request did not yield an authenticated result;
+its native revision remained2. Receipt-only recovery did not invent success,
+re-send code or clear that uncertainty. The user then explicitly terminated and
+reopened Zenics. The helper authenticated a different process of the same Debug43
+binary at revision0 and reconciled the cumulative desired source to the installed
+baseline, requiring no replacement. The old uncertain request is retained as
+superseded evidence. A scoped screenshot from the fresh process confirms the
+original screen with the temporary card removed. This cold launch was cleanup;
+it is not part of the successful same-process fault-recovery/state-retention proof.
+
+This remains a bounded recovery of admitted native operations. An absent or
+otherwise unconfirmed native ledger entry stays fenced; automatic application of
+unknown work is not promised. Ordinary SwiftUI identity and app-relaunch lifetime
+rules remain unchanged. The earlier protected foreign uncertain request was
+preserved. Product source files stayed byte-identical; only the authorized Swift
+Sim package pin changed in the already-dirty Zenics project.
+
+Deployment migrated a verified task-owned legacy engine which lacked the current
+ownership nonce, then confirmed one owned updated process held both live entry
+points before this test. The intermediate process was stopped. No engine restart
+occurred between the deliberately dropped receipt and its recovered proof.
+Implementation/evidence are merged without a PR. Existing helper and engine remain;
+all temporary hosts, relay, test clients and build workers are finished.

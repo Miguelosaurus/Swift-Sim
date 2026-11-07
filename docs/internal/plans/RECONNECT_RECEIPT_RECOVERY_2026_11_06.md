@@ -39,3 +39,28 @@ format, architecture/docs and package/isolated-install/Homebrew entrypoints pass
 Candidate0.5.6 is signed and checksum-bound. Next reviewed deployment and one
 Debug43 bootstrap, then actual cellular loss/reconnect proof and restoration.
 No phone has been reserved or changed yet. Task runtime IDs are in resources.json.
+
+## Complete
+
+Implementation497a1e1 and SDK307f9bf are published. The matching engine0.5.6,
+normal helper and agent plugin are installed. Zenics43 is user-installed; exact
+captured preparations pass. The selected successful cellular receipt was dropped
+in transport and recovered by the ordinary helper with no engine/app restart or
+new mutation. Its exact original report and revision2 survived32 cached reads.
+The user confirmed both nondefault State values survived. The native SwiftUI
+host separately proves one owner/refresh, working bindings and retained values.
+
+Phone inspection rejected ambiguous selection during handoff; the phone's state
+values were user-confirmed, not read from a fabricated screenshot. The final
+cleanup request stayed fenced when unconfirmed. User-authorized cold launch then
+proved a new process at revision0 and the installed baseline; cumulative desired
+source is baseline and old uncertainty remains as superseded evidence. A final
+scoped screenshot confirms the original UI. No test card or restoration remains.
+
+The task relay is stopped and its listening port closed. Tailscale Serve JSON is
+restored exactly, preserving all other routes. Existing helper/one owned engine
+remain for hot reload/notifications. No extra service/simulator remains. All
+product source bytes and the pre-existing dirty project edits are preserved.
+Current resource IDs, captured receipts, proxy trace and source checks are in
+.build/reconnect-recovery-20261106/. No fresh-cellular whole-app installation is
+claimed by this feature or its phone-control tests.
