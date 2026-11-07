@@ -69,7 +69,7 @@ runtime/entrypoint gates. Root Swift tests pass 38 and Release builds; native SD
 tests pass 29. Type, lint, format, architecture/docs, package contents, isolated
 installation and Homebrew entrypoint checks pass. Destructive clean Homebrew
 installation remains disabled. Both standalone native qualifiers and the prior
-stateful-component host pass. Physical acceptance remains pending. Notifications and animation code are unchanged.
+stateful-component host pass. Physical acceptance is complete as recorded below. Notifications and animation code are unchanged.
 
 ## Exact captured iPhone compiler
 
@@ -83,7 +83,7 @@ files stayed unchanged and no phone request was made by this compiler check.
 The normal helper and Codex plugin0.6.1+codex.20261106.10 are updated. One engine
 remains; no extra service or simulator was introduced. One
 protected foreign uncertain request remains unchanged. Physical acceptance is
-in progress; compiled images and an SDK handshake alone do not prove state.
+complete; its values and exact native receipts are recorded below.
 
 ## Physical checkpoint
 
@@ -96,8 +96,28 @@ let the normal reconciliation path retrieve that same process-lifetime ledger
 receipt. No new operation or second native load was submitted. The old engine
 exited and one replacement owns the live port.
 
-The temporary counter/draft card is intentionally left visible while awaiting
-manual input. Further field addition, value retention and final restoration are
-not yet claimed. This checkpoint is not full physical acceptance. All original
-product source files remain byte-identical; the only project change is the
-reviewed Swift Sim package pin.
+The phone screenshots before the second addition show counter4 and draft Banana.
+Adding a Boolean State field to the same installed ContentView retained both,
+with the new toggle initially off. The user then enabled it and incremented the
+counter. A helper-only edit changed the heading from Added state1 to Added state2;
+a scoped screenshot at revision3 independently showed counter5, draft Banana,
+and flag on. The original bindings continued to respond after field addition.
+
+Whole-baseline restoration has an exact revision4 receipt, and a final scoped
+screenshot confirms that the test card is gone. All four stages used the same
+Zenics42 binary and process, with one real Swift replacement and complete v3
+coverage each. No signed build or installation occurred between those stages.
+The original product source files remain byte-identical; the only project change
+is the reviewed Swift Sim package pin. Private screenshot metadata, native
+receipts and the final summary are retained under phone/ in the evidence root.
+
+This does not promise arbitrary descendant-state migration. Removing the temporary
+overlay changed the modified subtree's SwiftUI identity and returned the Journal
+date selection from Nov8 to Nov6. The added fields survived the supported additions
+and helper edit; structural view identity changes retain ordinary SwiftUI rules.
+No user model data was edited by the qualification snapshots.
+
+The normal helper and one live engine remain for daily hot reload/notifications.
+No temporary native host, build worker or simulator remains. Completed agents
+have been interrupted. Notification cadence and animation are unchanged. Main
+contains the implementation and acceptance documentation without an open PR.

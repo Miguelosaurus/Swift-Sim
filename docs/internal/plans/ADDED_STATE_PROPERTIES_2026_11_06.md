@@ -24,8 +24,8 @@ Each field key binds owner/file/type/default. Every accessor supplies all active
 keys for its view (max32). Compiled generation equals the durable request sequence
 and is marker/context-bound. A newer setter prunes removed keys; a stale captured
 binding cannot remove new fields or revive removed ones. Values never leave phone.
-Type/default changes on an existing added field reject; removal/reintroduction
-uses a distinct key when definition changes.
+Type/default changes, removal and rename reject, except explicit whole-baseline
+restoration. Reintroducing a different definition after restoration uses a new key.
 
 Isolated native probe compiled a real installed SwiftUI view, then dynamic
 computed-field/body patches. Two instances retained installed counters7/12,
@@ -54,12 +54,12 @@ addedStateGeneration, addedStateOwners [{path,owner,fields:[{name,key,type}]}].
 Runtime API: $refresh.value(_key,initial:), set(_key,value:generation:activeKeys:),
 binding(_key,initial:generation:activeKeys:), activeKeys lazy closure.
 
-## Validation and delivery
+## Validation and delivery (complete)
 
 Implementation and review are complete, including pinned components with bounded
 original-state-name metadata. SDK capability945c67a is published and root-pinned.
-One actual Zenics bootstrap SDK update is required before phone qualification;
-no phone action has started this turn. Existing41 cannot use the new slot API.
+Zenics42 contains the bootstrap SDK, is user-installed, and has completed physical
+qualification. Later supported State additions need no new signed build.
 
 All Swift tests use SWIFT_SIM_DISABLE_CLIENT_AUTOCONNECT=1. Full source1487,
 compiled905 plus3 hermetic and runtime checks, root Swift38, native SDK29 and
@@ -69,11 +69,11 @@ installation remains disabled. Production installed/pinned native hosts pass;
 prior stateful qualification also passes with the new runtime. Qualifiers are
 self-contained repository scripts and temporary processes have exited.
 
-Next: merge/push without PR, update normal helper/plugin, prepare one bootstrap
-Debug build, exact captured iPhone compilation and physical qualification. Keep
-notification cadence and animation unchanged. Never resubmit ambiguous effects.
-Final acceptance must restore snapshots and preserve source hashes. No new
-service or simulator is needed; normal helper/engine remain for daily use.
+Implementation is merged/pushed without PR and the normal helper/plugin updated.
+All four exact captured iPhone compiler stages and physical deliveries pass.
+Notification cadence and animation remain unchanged. No new service or simulator
+is needed; normal helper/engine remain for daily use. No ambiguous effect was
+resubmitted under a new identity.
 
 ## Expanded implementation checkpoint
 
@@ -96,20 +96,28 @@ all29 SDK tests pass. Original frozen SDK checkouts remain unchanged.
 Production installed and pinned native hosts pass with complete replacement
 proofs and restoration. Unused-feature actual Mac settled-footprint benchmark
 adds0.80MiB across3000 cells (paired median0.89MiB), wrapper16->32 bytes; all optional
-boxes nil and hosts exited. See evidence; this is not phone RAM. No phone action
-or installed helper change has occurred this turn. Next full gates + bootstrap
-SDK build and explicit phone availability/acceptance.
+boxes nil and hosts exited. See evidence; this is not phone RAM. Full gates, installed helper/plugin update, bootstrap42 and physical acceptance
+are complete as recorded below.
 
-## Phone checkpoint
+## Completed physical acceptance
 
-Main a6fb7d9 is pushed and installed helper/plugin updated. Zenics42 is ready and
-user-installed. All four exact captured iPhone compiler variants pass. First
-physical counter/draft addition is native-proven at revision1 over cellular,
-with exact same-operation receipt recovery after a bounded engine restart.
-Normal helper3766/session79044 and engine4127 remain. Old engine6939 exited.
-Temporary hosts/build workers have finished; no simulator is running for this
-task. Test card is intentionally awaiting manual values; restoration required.
-Continue from phone/changes-2.json only after user changes counter/draft, then
-changes-3.json helper follow-up and changes-4.json whole-baseline restore.
-Private resource/receipt state is .build/additive-state-20261106/resources.json.
-Do not resubmit changes-1 or clear the protected foreign uncertain request.
+Main a6fb7d9 delivered the implementation and bootstrap42; later commits record
+acceptance. Four immutable snapshots added counter/draft directly to installed
+ContentView, added a Boolean later, changed only a shared helper, and restored
+the entire baseline. Native receipts prove revisions1/2/3/4, one replacement each,
+in the same binary and process. No further build/install occurred during testing.
+
+Scoped screenshots independently show counter4/draft Banana before and after the
+second field addition, then counter5/draft Banana/flag on after the helper-only
+edit. The user exercised both old and new bindings. A final revision4 screenshot
+shows the original screen without the test card. Product source hashes are intact.
+Ordinary descendant identity limits remain; removing the temporary overlay reset
+the Journal date selection, and this feature does not promise subtree migration.
+
+The first receipt was recovered from the exact same native ledger operation after
+one bounded engine restart, without a new edit or second load. Normal helper3766
+(session79044) and engine4127 remain. Old engine6939 exited. Native hosts/build
+workers finished; completed agents were interrupted. No simulator or test server
+remains. The protected foreign uncertain request was preserved. No restoration
+or phone qualification remains pending. Private receipts/resources are under
+.build/additive-state-20261106/; see docs/evidence for complete proof boundaries.
