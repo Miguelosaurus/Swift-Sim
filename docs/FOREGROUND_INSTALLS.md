@@ -9,7 +9,10 @@ This path needs the matching updated iOS Debug SDK and local engine. It is opt-i
 normal `deliver-change`, builds, hot reload and notifications are unchanged.
 The SDK path is physically qualified for Zenics Debug44 →46 on owner-confirmed
 cellular, with native binary identity and the normal installed-and-launched
-receipt. The owner confirmed app data/settings remained intact. This is a
+receipt. Debug46 →47 additionally qualified queueing while locked/disconnected
+on cellular, followed by the prompt on returning to Zenics and an exact Debug47
+launch receipt. The owner confirmed data/settings survived the earlier install.
+This is a
 foreground handoff with manual iOS confirmation, not unattended installation.
 
 ## Agent workflow
@@ -36,10 +39,13 @@ install failed during qualification; the same workflow succeeded over the
 private route. That is not proof that every public-tunnel install fails.
 
 The request targets the same bundle and exact currently installed Debug binary.
-When connected, it uses the engine's current identity; otherwise it can use the
-existing private compilation capture. A capture for a newly built, not yet
-installed binary cannot target the old binary: open the installed Debug app once
-so the engine can select it. Ambiguous matching clients are left waiting.
+When connected, it uses the engine's current identity. Otherwise it lazily reads
+the existing helper-owned launch history for this project, scheme, signing team
+and bundle. The latest unambiguous confirmed Debug binary becomes a future exact-
+match selector, even after building the update replaces the compilation capture.
+History does not prove current reachability or authorize a different binary.
+Missing or ambiguous history requires opening the installed app once. A compiler
+capture alone never proves installation. Ambiguous matching clients remain waiting.
 
 The existing connection's identity/foreground and hot-reload completion events
 wake a bounded queue in the existing engine. Background, locked, unavailable or
@@ -69,3 +75,23 @@ owner-only permissions. There is no new timer, socket, watcher or helper process
 The phone reuses its developer-tool ledger; Release SDK objects exclude this
 runtime. This is an OTA handoff through the existing Debug connection, not a new
 native cellular InstallationProxy transport or a system-wide install facility.
+
+## Can the iOS prompt be removed?
+
+Research checked 2026-11-07: no supported prompt-suppression option was found for
+this Debug OTA handoff. UIApplication.open hands a URL to the system; its success
+callback is not an install receipt. Ordinary developer pairing does not give a
+sandboxed Debug app the management authority to install another build silently.
+
+Apple documents silent initial managed-app installs on supervised devices.
+Unsupervised devices require initial installation or management approval;
+updates to already-managed apps can be silent, with a foreground-app exception.
+Declarative managed updates can occur while the device is locked. These are
+management workflows, not a small switch on the current developer-paired path.
+Eligibility of our development-signed artifacts in such a workflow has not been
+qualified. No enrollment, supervision, management profile or private bypass is
+part of this feature. Keep the native confirmation for the lean personal-device
+workflow; revisit management only as an explicit separate product decision.
+
+Sources: [Apple managed-app distribution](https://support.apple.com/guide/deployment/distribute-managed-apps-dep575bfed86/web),
+[UIApplication.open](https://developer.apple.com/documentation/uikit/uiapplication/open(_:options:completionhandler:)).

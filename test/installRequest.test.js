@@ -17,7 +17,7 @@ function fixture(overrides = {}) {
   const answer = state => ({ success: true, data: { build_id: id, state, expires_at: 2000, installed: false, requires_ios_confirmation: true } });
   const options = { buildID: id, cwd: "/tmp/install-fixture", now: () => 1000000,
     readBuild: async () => structuredClone(build), digest: async () => "a".repeat(64),
-    readIdentity: async () => identity,
+    listBuilds: async () => [launchedBuild()],
     control: async request => {
       calls.push(request);
       if (request.action === "status") return { success: true, data: {
@@ -78,12 +78,12 @@ test("old engine and SDK are gated without automatic updates", async () => {
     assert.ok(!f.calls.some(x => x.operation === "enqueue"));
   }
 });
-test("offline request binds captured exact binary, never another connected app", async () => {
+test("offline request binds verified launch history, never the new compiler capture", async () => {
   const f = fixture(); const original = f.options.control;
   f.options.control = async req => { const response = await original(req); if (req.action === "status") delete response.data.client_identity; return response; };
   assert.equal((await requestAppInstall(f.options)).state, "waiting");
   assert.deepEqual(f.calls.at(-1).selector, identity);
-  f.options.readIdentity = () => ({ ...identity, bundle_id: "other" });
+  f.options.listBuilds = () => [launchedBuild({ app: { bundleIdentifier: "other" } })];
   assert.equal((await requestAppInstall(f.options)).code, "INSTALL_RUNNING_APP_REQUIRED");
 });
 test("status and cancel do not read artifact, build state, or app context", async () => {
@@ -121,7 +121,68 @@ test("a new-build compilation capture never counts as an installed app observati
     if (request.action === "status") delete result.data.client_identity;
     return result;
   };
-  f.options.readIdentity = () => ({ ...identity, build_number: "5" });
+  f.options.listBuilds = () => [];
   assert.equal((await requestAppInstall(f.options)).code, "INSTALL_RUNNING_APP_REQUIRED");
   assert.ok(!f.calls.some(x => x.operation === "enqueue"));
+});
+
+function launchedBuild(overrides = {}) {
+  return { ...fixtureBuild(), configuration: "Debug", createdAt: new Date(100).toISOString(),
+    liveReload: { eligible: true, compilerReady: true, recovery: { completedAt: 500,
+      provenance: { binaryIdentity: identity } } },
+    installation: { state: "launch-confirmed", lastSeenAt: new Date(1000).toISOString(),
+      launchFingerprint: "c".repeat(64), launchProcessFingerprint: "c".repeat(64) }, ...overrides };
+}
+function fixtureBuild() {
+  return { id: "22222222-2222-2222-2222-222222222222", state: "ready", signing: { deviceInstallable: true },
+    project: "/tmp/install-fixture/App.xcodeproj", scheme: "App",
+    app: { bundleIdentifier: identity.bundle_id, teamID: "fixture", version: "1", build: "4" } };
+}
+function offline(f) {
+  const original = f.options.control;
+  f.options.control = async request => {
+    const result = await original(request);
+    if (request.action === "status") delete result.data.client_identity;
+    return result;
+  };
+}
+for (const [name, mutate] of [
+  ["wrong team", b => b.app.teamID = "other"],
+  ["wrong scheme", b => b.scheme = "Other"],
+  ["wrong project", b => b.project = "/other/App.xcodeproj"],
+  ["unverified", b => b.installation.state = "requested"],
+  ["missing receipt", b => delete b.installation.launchFingerprint],
+  ["future receipt", b => b.installation.lastSeenAt = new Date(2000000).toISOString()],
+  ["unsigned", b => b.signing.deviceInstallable = false],
+  ["no compiler proof", b => b.liveReload.compilerReady = false],
+  ["wrong binary", b => b.liveReload.recovery.provenance.binaryIdentity = { ...identity, build_number: "3" }],
+]) test(`offline history rejects ${name}`, async () => {
+  const f = fixture(); offline(f);
+  const b = launchedBuild(); mutate(b); f.options.listBuilds = () => [b];
+  assert.equal((await requestAppInstall(f.options)).code, "INSTALL_RUNNING_APP_REQUIRED");
+  assert.ok(!f.calls.some(x => x.operation === "enqueue"));
+});
+test("latest verified launch wins, ties refuse, a confirmed target never falls back to an older build", async () => {
+  const f = fixture(); offline(f);
+  const old = launchedBuild();
+  const current = structuredClone(old);
+  current.installation.lastSeenAt = new Date(2000).toISOString();
+  current.app.build = "6";
+  current.liveReload.recovery.provenance.binaryIdentity.build_number = "6";
+  f.options.listBuilds = () => [old, current];
+  assert.equal((await requestAppInstall(f.options)).state, "waiting");
+  assert.equal(f.calls.at(-1).selector.build_number, "6");
+  old.installation.lastSeenAt = current.installation.lastSeenAt;
+  assert.equal((await requestAppInstall(f.options)).code, "INSTALL_RUNNING_APP_REQUIRED");
+  current.installation.lastSeenAt = new Date(3000).toISOString();
+  current.app.build = "5"; current.liveReload.recovery.provenance.binaryIdentity.build_number = "5";
+  assert.equal((await requestAppInstall(f.options)).code, "INSTALL_RUNNING_APP_REQUIRED");
+});
+test("connected app and status/cancel/duplicate do not scan launch history", async () => {
+  const f = fixture({ listBuilds: () => { throw Error("unexpected history scan"); } });
+  assert.equal((await requestAppInstall(f.options)).state, "waiting");
+  for (const operation of ["status", "cancel"]) {
+    f.options.operation = operation; f.options.control = () => f.answer("cancelled");
+    assert.equal((await requestAppInstall(f.options)).state, "cancelled");
+  }
 });

@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { constants, createReadStream, lstatSync, readFileSync } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import { open } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { homedir } from "node:os";
 import { normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 import { canonicalProjectPath, projectRootForDescriptor } from "./liveSessionDescriptor.js";
 
@@ -13,7 +12,7 @@ const STATES = new Set(["waiting", "opening", "prompt-requested", "unconfirmed",
 // startup never imports this module or reads/hashes a signed build for it.
 export async function requestAppInstall({ buildID, operation = "enqueue", project, workspace, scheme,
   cwd = process.cwd(), now = () => Date.now(), readBuild, control, digest = hashArtifact,
-  readIdentity = capturedIdentity,
+  listBuilds,
 } = {}) {
   try {
     if (!UUID.test(buildID || "") || !["enqueue", "status", "cancel"].includes(operation)) throw failure("INSTALL_REQUEST_INVALID");
@@ -24,6 +23,7 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
       const { createPhase4ProductionStoreFactories } = await import("./persistence/phase4ProductionStores.js");
       const store = createPhase4ProductionStoreFactories({ deviceMaintenance: false }).createDeviceBuildStore();
       readBuild = value => store.get(value);
+      listBuilds ||= () => store.list();
     }
     const build = await readBuild(id);
     if (!build || build.id !== id || build.state !== "ready" || build.signing?.deviceInstallable !== true
@@ -42,7 +42,9 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
     if (previous?.success === true) return projectResult(previous, id);
     if (previous?.error !== "INSTALL_REQUEST_NOT_FOUND") throw failure("INSTALL_QUEUE_UNAVAILABLE");
     const observed = engine.data.client_identity;
-    const selector = normalizedLiveBinaryIdentity(observed?.bundle_id === build.app.bundleIdentifier ? observed : await readIdentity());
+    const selector = observed?.bundle_id === build.app.bundleIdentifier
+      ? normalizedLiveBinaryIdentity(observed)
+      : previouslyLaunchedIdentity(build, await listBuilds?.(), now());
     if (selector.bundle_id !== build.app.bundleIdentifier) throw failure("INSTALL_RUNNING_APP_REQUIRED");
     if (selector.build_number === build.app.build) throw failure(
       observed?.bundle_id === build.app.bundleIdentifier ? "INSTALL_ALREADY_RUNNING" : "INSTALL_RUNNING_APP_REQUIRED");
@@ -83,7 +85,7 @@ function projectResult(response, id) {
   }
   return { outcome: "install-request", buildID: id, state: value.state,
     expiresAt: new Date(value.expires_at * 1000).toISOString(), installed: false, requiresIOSConfirmation: true,
-    guidance: value.state === "waiting" ? "Waiting for the matching Debug app to be foregrounded. Confirm installation in iOS when prompted."
+    guidance: value.state === "waiting" ? "Queued. Unlock your iPhone and return to the matching Debug app to see the iOS install prompt. Confirm Install when prompted."
       : value.state === "prompt-requested" ? "The app handed the request to iOS. Confirm Install, and Download if iOS asks about cellular data. Installation is not yet verified."
       : value.state === "unconfirmed" || value.state === "opening" ? "The handoff may have occurred. Check the phone; this request will not be sent again automatically."
       : `The install request is ${value.state}. No installation success is inferred.` };
@@ -100,12 +102,37 @@ async function hashArtifact(path) {
     return hash.digest("hex");
   } finally { await file.close(); }
 }
-function capturedIdentity() {
-  const path = `${homedir()}/.swift-sim/live/compilations.json`;
-  const stat = lstatSync(path);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.mode & 0o077
-    || stat.uid !== process.getuid() || stat.size > 8 * 1024 * 1024) throw failure("INSTALL_RUNNING_APP_REQUIRED");
-  return JSON.parse(readFileSync(path, "utf8")).binaryIdentity;
+// Reuse existing helper-owned launch receipts only when the app is disconnected.
+// This is a future exact-match selector, never a claim that a phone is reachable
+// or still running that build. A new compiler capture is not install evidence.
+function previouslyLaunchedIdentity(target, builds, timestamp) {
+  const candidates = [];
+  for (const build of builds || []) {
+    try {
+      const receipt = build.installation;
+      const seen = Date.parse(receipt?.lastSeenAt || "");
+      if (!["launch-confirmed", "verified"].includes(receipt?.state)
+        || !/^[a-f0-9]{64}$/.test(receipt.launchFingerprint || "")
+        || receipt.launchFingerprint !== receipt.launchProcessFingerprint
+        || !Number.isFinite(seen) || seen > timestamp + 5000
+        || build.state !== "ready" || build.signing?.deviceInstallable !== true
+        || String(build.configuration).toLowerCase() !== "debug"
+        || build.liveReload?.eligible !== true || build.liveReload?.compilerReady !== true
+        || !Number.isFinite(build.liveReload?.recovery?.completedAt)
+        || build.liveReload.recovery.completedAt > seen
+        || !Number.isFinite(Date.parse(build.createdAt)) || Date.parse(build.createdAt) > seen
+        || canonicalProjectPath(build.workspace || build.project) !== canonicalProjectPath(target.workspace || target.project)
+        || build.scheme !== target.scheme || build.app?.teamID !== target.app.teamID
+        || build.app?.bundleIdentifier !== target.app.bundleIdentifier) continue;
+      const identity = normalizedLiveBinaryIdentity(build.liveReload.recovery.provenance?.binaryIdentity);
+      if (identity.bundle_id !== build.app.bundleIdentifier || identity.bundle_version !== build.app.version
+        || identity.build_number !== build.app.build) continue;
+      candidates.push({ identity, seen });
+    } catch { /* An incomplete historical record grants no install selector. */ }
+  }
+  candidates.sort((a, b) => b.seen - a.seen);
+  if (!candidates.length || candidates[0].seen === candidates[1]?.seen) throw failure("INSTALL_RUNNING_APP_REQUIRED");
+  return candidates[0].identity;
 }
 function failure(code) { return Object.assign(new Error(code), { code }); }
 const GUIDANCE = {

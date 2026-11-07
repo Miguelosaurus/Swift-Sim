@@ -14,8 +14,8 @@ Swift Sim delivers local edits for the agent running on the Mac:
 - **Simulator preview:** start or reuse a Mac-hosted Simulator only when the
   user asks for a preview.
 
-Do not create another coding agent, watch every save, stream a real iPhone, or
-ask the user to choose between live reload and a build.
+Never create another agent, watch every save, stream an iPhone, or ask users
+to choose live reload versus a build.
 
 ## Fast phone-edit contract
 
@@ -62,8 +62,8 @@ For `install-link-ready`, say:
 This change needs a new signed build.
 ```
 
-Then provide the returned universal link labeled **Open in Swift Sim to
-Install**. Do not expose paths, device identifiers, signing identities,
+For requested in-app installation, follow [foreground installs](references/foreground-installs.md).
+Otherwise provide the returned link labeled **Open in Swift Sim to Install**. Do not expose paths, device identifiers, signing identities,
 Tailnet names, ports, archives, or raw logs. Explain `needs-user-action` only
 with its returned action; do not mention `no-change`. Use `--verbose-json` only
 for an explicit diagnostic request.
