@@ -51,8 +51,23 @@ no runtime result from the local-service probe.
 An ordinary Xcode developer-support restoration was then attempted on Wi-Fi.
 It returned `kAMDMobileImageMounterDeviceLocked`: the phone had locked. No trust
 reset, security bypass, pairing replacement, or alternate image was attempted.
-Restoration is waiting for the owner to unlock and leave the phone awake. The
-normal runner is installed, but its launch readiness is not yet requalified.
+After the owner unlocked and left the phone awake, the ordinary Xcode retry
+succeeded. Its developer-support metadata reported usable and compatible.
+
+The frozen diagnostic was then reinstalled in 5.469 seconds with native
+completion, matching inventory, and staging cleanup. A new testing request was
+sent. The owner confirmed switching to cellular and returning to Swift Sim
+without a crash. Its local approval record was still pending when checked; no
+input session was opened or approval bypassed.
+
+The explicitly requested read-only diagnostic could not be retrieved. A
+configuration-only check and a bounded connection check found the runner's
+configured remote port refusing connections. This does not establish whether
+remote access was disabled or the process stopped. The owner was asked to check
+the Server Ready notification's Enable Remote Access action before any relaunch.
+There is still no diagnostic callback result. At this checkpoint the temporary
+runner remains installed, and restoration of the prepared normal build 4 is an
+outstanding obligation once the phone is available on the Mac's Wi-Fi again.
 
 ## Proof boundary and resources
 
