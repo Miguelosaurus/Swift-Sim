@@ -17,7 +17,7 @@ let package = Package(
         // a versioned dependency so fresh Xcode installs resolve normally.
         .package(
             url: "https://github.com/Miguelosaurus/InjectionNext.git",
-            exact: "0.5.7"
+            exact: "0.5.8"
         ),
     ],
     targets: [

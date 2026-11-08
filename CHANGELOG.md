@@ -4,6 +4,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+## 0.6.4 - 2026-11-08
+
 - Recover a hot-reload handoff lost before native admission without restarting
   the app. A negotiated native receipt fence permanently rejects the old attempt
   before the same immutable edit can retry. Already admitted edits reconcile by
@@ -12,6 +14,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Reuse resolved Xcode build settings when selecting Debug live instrumentation,
   avoiding a duplicate package-resolution preflight that could omit hot reload
   from a cold signed build.
+
+## 0.6.3 - 2026-11-08
 
 - Add explicit agent-handled delivery recovery, reusing existing request IDs,
   source snapshots and receipts. Recover a stopped owned helper or validated

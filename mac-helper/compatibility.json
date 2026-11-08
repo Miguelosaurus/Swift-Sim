@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "helper": {
     "protocol": 1,
     "capabilities": [
@@ -12,26 +12,27 @@
     ]
   },
   "engine": {
-    "version": "0.5.7",
-    "sourceRevision": "ba3c7166f6712d2cd962005a2a1200de4137590b",
-    "sha256": "514343a4cd03a0124e9b36f687396dfd955cf76e663552159a8897acce4349ef",
-    "url": "https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-0.5.7/swift-sim-engine-0.5.7-arm64-signed.zip",
+    "version": "0.5.8",
+    "sourceRevision": "2bcb07c7032bdd8ecaeed122b1668b18982a0bee",
+    "sha256": "e2517a846b5da0bfd772ffb503a35ef1c4967205048fce79a92124662a993e19",
+    "url": "https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-0.5.8/swift-sim-engine-0.5.8-arm64-signed.zip",
     "maxArchiveBytes": 134217728,
     "bundleIdentifier": "com.johnholdsworth.InjectionNext",
     "executable": "InjectionNext"
   },
   "sdk": {
-    "version": "0.6.3",
-    "enginePackageVersion": "0.5.7",
-    "engineRevision": "ba3c7166f6712d2cd962005a2a1200de4137590b",
+    "version": "0.6.4",
+    "enginePackageVersion": "0.5.8",
+    "engineRevision": "2bcb07c7032bdd8ecaeed122b1668b18982a0bee",
     "capabilities": [
       "prepared-delivery-v1",
       "receipt-v1",
       "replacement-proof-v3",
-      "prepared-receipt-query-v1"
+      "prepared-receipt-query-v1",
+      "prepared-receipt-fence-v1"
     ]
   },
   "agents": {
-    "version": "0.6.3"
+    "version": "0.6.4"
   }
 }
