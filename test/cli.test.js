@@ -120,6 +120,26 @@ test("setup installs the bundled Codex marketplace and plugin", () => {
   }
 });
 
+for (const catalogFailure of [false, true]) test(`doctor diagnoses a large Codex catalog (failure=${catalogFailure})`, () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-codex-large-catalog-"));
+  const fakeCodex = new URL("./fixtures/fake-codex", import.meta.url).pathname;
+  chmodSync(fakeCodex, 0o755);
+  try {
+    const state = join(directory, "state");
+    writeFileSync(`${state}.plugin`, "ready\n");
+    const result = spawnSync(process.execPath, [cli.pathname, "doctor", "--json"], {
+      encoding: "utf8", timeout: 20_000,
+      env: { ...isolatedCliEnvironment(directory), FAKE_CODEX_STATE: state,
+        FAKE_CODEX_LIST_PADDING: String(catalogFailure ? 0 : 1536 * 1024), FAKE_CODEX_PLUGIN_LIST_FAILURE: catalogFailure ? "1" : "0", SWIFT_SIM_CODEX_COMMAND: fakeCodex,
+        SWIFT_SIM_DISABLE_CURSOR: "1", SWIFT_SIM_DISABLE_CLAUDE: "1", SWIFT_SIM_DISABLE_OPENCODE: "1" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const agent = JSON.parse(result.stdout).deviceInstalls.agents.codex;
+    assert.equal(agent.ready, !catalogFailure);
+    if (catalogFailure) { assert.match(agent.detail, /could not be checked/); assert.doesNotMatch(agent.detail, /does not match|not installed/); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("doctor reports stale Codex and Claude integrations", () => {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-stale-agents-"));
   const fakeCodex = new URL("./fixtures/fake-codex", import.meta.url).pathname;

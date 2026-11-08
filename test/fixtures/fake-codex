@@ -22,6 +22,9 @@ if (args === "--version") {
   if (existsSync(`${state}.plugin`)) {
     console.log(`swift-sim-companion@swift-sim  installed, enabled  ${process.env.FAKE_CODEX_PLUGIN_VERSION || packageJSON.version + "+codex.test"}`);
   }
+  const padding = Math.min(2 * 1024 * 1024, Math.max(0, Number(process.env.FAKE_CODEX_LIST_PADDING || 0)));
+  if (padding) process.stdout.write("\n" + "x".repeat(padding));
+  if (process.env.FAKE_CODEX_PLUGIN_LIST_FAILURE === "1") process.exit(1);
 } else if (args.startsWith("plugin add ")) {
   writeFileSync(`${state}.plugin`, "ready\n");
 } else if (args.startsWith("plugin remove ")) {

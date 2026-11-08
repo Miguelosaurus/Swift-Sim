@@ -90,3 +90,22 @@ were introduced. The running 0.6.1 helper and explicitly selected 0.5.7 engine
 were left unchanged while qualifying. Main has not been updated yet. Matching
 Swift Sim 0.6.2 package/release preparation and installed integration updates
 remain to finish; do not imply the new Companion UI is on the phone.
+
+
+## Live installation follow-up
+
+The product code was fast-forwarded and pushed to main at bc055bb. The helper
+was updated through the existing lifecycle to 0.6.2, without any active build
+or live delivery, and the explicitly selected 0.5.7 engine was verified unchanged.
+A pre-existing uncertain live receipt remains preserved. The installed Codex
+plugin is 0.6.2+codex.20261107.1. The real catalog exceeded Node's default 1 MiB
+capture limit and produced ENOBUFS despite including that installed plugin;
+a bounded 4 MiB setup/diagnostic capture and >1 MiB catalog regression test fix
+the misleading readiness report. No warm-delivery work is added.
+
+The user approved publishing Swift Sim 0.6.2 and the matching Homebrew update.
+Rebuild the final archive from the follow-up commit, update its exact checksum
+in the prepared notes/formula, then publish once and verify public retrieval.
+The signed Companion reports are retained under the task evidence directory;
+nine generated build/extraction/mirror directories were removed after checking
+for open files. The task simulator is shut down. Phone use remains deferred.

@@ -543,7 +543,9 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
   const agents = {
     codex: agentCheck(Boolean(codex), codexReady, codexReady
       ? `Swift Sim plugin ${packageJSON.version} is installed`
-      : Boolean(codex) && codexVersion
+      : Boolean(codex) && pluginList.status !== 0
+        ? "The Codex integration could not be checked. Check Codex, then run swift-sim doctor."
+        : Boolean(codex) && codexVersion
         ? `Swift Sim plugin ${codexVersion} does not match ${packageJSON.version}; run swift-sim setup`
         : Boolean(codex) ? "Swift Sim plugin is not installed" : "Codex is not installed"),
     cursor: agentCheck(cursorDetected, cursorReady, cursorReady
@@ -551,7 +553,9 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
       : cursorDetected ? "Swift Sim skill is not installed" : "Cursor is not installed"),
     claude: agentCheck(Boolean(claude), claudeReady, claudeReady
       ? `Swift Sim plugin ${packageJSON.version} is installed`
-      : Boolean(claude) && claudeEntry?.version
+      : Boolean(claude) && claudePluginList.status !== 0
+        ? "The Claude Code integration could not be checked. Check Claude Code, then run swift-sim doctor."
+        : Boolean(claude) && claudeEntry?.version
         ? `Swift Sim plugin ${claudeEntry.version} does not match ${packageJSON.version}; run swift-sim setup`
         : Boolean(claude) ? "Swift Sim plugin is not installed" : "Claude Code is not installed"),
     opencode: agentCheck(openCodeDetected, openCodeReady, openCodeReady
@@ -959,7 +963,9 @@ function runHelper(args, { inherit = false } = {}) {
 }
 
 function runCapture(command, args, { allowFailure = false } = {}) {
-  const result = spawnSync(command, args, { encoding: "utf8", env: process.env });
+  // Plugin catalogs can exceed Node's 1 MiB default. Bound this explicit
+  // setup/diagnostic capture without affecting the warm delivery path.
+  const result = spawnSync(command, args, { encoding: "utf8", env: process.env, maxBuffer: 4 * 1024 * 1024 });
   const normalized = {
     status: result.status ?? 1,
     stdout: result.stdout || "",
