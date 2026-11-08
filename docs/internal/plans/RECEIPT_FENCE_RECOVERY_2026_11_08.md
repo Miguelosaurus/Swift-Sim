@@ -70,10 +70,24 @@ the normal product helper/engine separate from test resources.
   not enabled.
 - Zenics Debug 51 is installed on the physical phone; the owner confirmed data
   intact. Its matching new native capability was verified at revision zero.
-  The cellular interruption/fence/retry qualification is still pending.
+  The cellular missing-handoff/fence/retry qualification passed.
 - Other Zenics work changed module sources after capture. The added-State
   fixture therefore failed exact-original-source validation before preparation
   or phone mutation. Preserve that guard and the other lane's files. The phone
   fixture instead changes only an existing view body and checks selected-tab
-  state. All three immutable variants compile with `preserve-state-v1`; the
-  initial badge is queued awaiting foreground. No app restart is requested.
+  state. All three immutable variants compile with `preserve-state-v1`.
+- Physical cellular qualification: the test adapter withheld the original image
+  before forwarding it to the engine, leaving the real durable request uncertain
+  and the engine without a cached admission. The production receipt query got
+  the phone's exact `PREPARED_ATTEMPT_FENCED` proof at unchanged revision one.
+  The same request, snapshot and signed image then used a new token and refreshed
+  exactly once to revision two, in the same Zenics process. The owner confirmed
+  `Fence 2 · library`, with Library still selected. This was a controlled lost
+  handoff over cellular, not a claim of a physical network outage in this test.
+- Resubmitting the withheld old control envelope was refused by the engine,
+  with native revision unchanged. Direct late native frames were separately
+  tested in the real native Mac host; no such frame was forwarded to the phone.
+- Original-screen restoration is receipt-confirmed at revision three, using
+  `preserve-state-v1` in the same process. Product source files were unchanged.
+  The normal helper is running again. No temporary worker, simulator, watcher,
+  App Testing session or additional background service remains.
