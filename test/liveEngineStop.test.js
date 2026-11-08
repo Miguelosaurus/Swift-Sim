@@ -56,3 +56,26 @@ test("unparsed ownership record preserves engine evidence and never permits repl
   assert.equal(stops, 1);
   assert.ok(Object.values(paths).every(path => !existsSync(path)));
 });
+
+test("a verified dead engine record can retire after reboot without signaling; live sockets and PID reuse refuse cleanup", async t => {
+  const { mkdtempSync, writeFileSync, rmSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createServer } = await import("node:net");
+  const { stopLiveEngine } = await import("../mac-helper/src/liveReload.js");
+  const root = mkdtempSync(join(tmpdir(), "engine-reboot-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const paths = { pidPath: join(root, "engine.pid"), sessionPath: join(root, "session.json"), socketPath: join(root, "engine.sock") };
+  const p = await child(t, false); const exited = once(p, "exit"); p.kill("SIGTERM"); await exited;
+  const record = { pid: p.pid, recordNonce: "validated-record-port" };
+  writeFileSync(paths.pidPath, JSON.stringify(record)); writeFileSync(paths.sessionPath, "saved");
+  const options = { ...paths, readRecord: () => record, stop: async () => { assert.fail("an absent process must never be signaled"); } };
+  const server = createServer(s => s.end()); server.listen(paths.socketPath); await once(server, "listening");
+  await assert.rejects(stopLiveEngine(options), { code: "LIVE_ENGINE_OWNERSHIP_UNCONFIRMED" });
+  assert.ok(existsSync(paths.pidPath));
+  await new Promise(done => server.close(done));
+  await assert.rejects(stopLiveEngine({ ...options, identity: () => ({ startToken: "reused" }) }), { code: "LIVE_ENGINE_OWNERSHIP_UNCONFIRMED" });
+  await assert.rejects(stopLiveEngine({ ...options, probe: () => { throw Object.assign(Error(), { code: "EPERM" }); } }), { code: "LIVE_ENGINE_OWNERSHIP_UNCONFIRMED" });
+  await stopLiveEngine(options);
+  assert.ok(Object.values(paths).every(path => !existsSync(path)));
+});

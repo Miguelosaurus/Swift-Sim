@@ -2785,7 +2785,9 @@ async function engineControl(request, { timeoutMs = LIVE_ENGINE_CONTROL_TIMEOUT_
 }
 
 export async function stopLiveEngine({ pidPath = ENGINE_PID, sessionPath = ENGINE_SESSION,
-  socketPath = ENGINE_SOCKET, stop = stopLiveEngineProcess } = {}) {
+  socketPath = ENGINE_SOCKET, stop = stopLiveEngineProcess,
+  readRecord = readPublishedLiveEngineRecord, identity = kernelProcessIdentity,
+  probe = (pid) => process.kill(pid, 0) } = {}) {
   if (existsSync(pidPath)) {
     // The installed entrypoint's ownership boundary validates the durable JSON
     // record and exposes its numeric PID. Direct module callers must not treat
@@ -2793,10 +2795,30 @@ export async function stopLiveEngine({ pidPath = ENGINE_PID, sessionPath = ENGIN
     const raw = readFileSync(pidPath, "utf8").trim();
     const pid = Number(raw);
     if (!/^\d+$/.test(raw) || !Number.isSafeInteger(pid) || pid <= 1) {
-      throw Object.assign(new Error("Live engine ownership could not be confirmed. Use the Swift Sim entrypoint; existing engine records and listeners were preserved."),
+      // The ownership boundary hides an exited JSON record's numeric PID.
+      // Reboot cleanup needs proof of absence, never permission to signal it.
+      let absent = false;
+      try {
+        const record = readRecord(pidPath);
+        if (record && Number.isSafeInteger(record.pid) && record.pid > 1 && !identity(record.pid)) {
+          try { probe(record.pid); } catch (error) { absent = error.code === "ESRCH"; }
+          if (absent) absent = await new Promise((done) => {
+            const socket = createConnection(socketPath);
+            const finish = (value) => { socket.destroy(); done(value); };
+            socket.setTimeout(500);
+            socket.once("connect", () => finish(false));
+            socket.once("timeout", () => finish(false));
+            socket.once("error", (error) => finish(["ENOENT", "ECONNREFUSED"].includes(error.code)));
+          });
+          if (absent) {
+            absent = JSON.stringify(readRecord(pidPath)) === JSON.stringify(record) && !identity(record.pid);
+            try { probe(record.pid); absent = false; } catch (error) { absent &&= error.code === "ESRCH"; }
+          }
+        }
+      } catch { absent = false; }
+      if (!absent) throw Object.assign(new Error("Live engine ownership could not be confirmed. Use the Swift Sim entrypoint; existing engine records and listeners were preserved."),
         { code: "LIVE_ENGINE_OWNERSHIP_UNCONFIRMED" });
-    }
-    await stop(pid);
+    } else await stop(pid);
   }
   rmSync(pidPath, { force: true });
   rmSync(sessionPath, { force: true });

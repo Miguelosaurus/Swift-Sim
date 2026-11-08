@@ -114,3 +114,39 @@ The phone process must stay alive through the Mac reboot. The old boot time and
 receipt/process hashes are saved under the task evidence directory. A full Mac
 restart and post-boot recovery are still pending. Do not claim reboot acceptance
 or erase the first trial's missing-receipt limitation.
+
+## Actual Mac reboot result
+
+The boot identity changed from October 31 to November 8, proving a full restart.
+The helper and engine were absent. Recovery started the helper without replaying
+the uncertain request, then refused stale descriptor fingerprints/session/version
+metadata. Deep inspection verified the existing project, SDK and private route;
+no rebuild, reinstall or network reconfiguration was needed.
+
+The supported engine start then exposed a real stale-record bug: the ownership
+boundary returns an empty numeric projection for a dead versioned engine record,
+while stopLiveEngine treated every nonnumeric projection as unverifiable. The
+fix retires only a parsed record with both kernel identity absence and ESRCH,
+an absent/refused Unix listener, an unchanged reread, and a second absence check.
+It never signals that PID. Malformed records, live/reused PIDs, permission errors,
+active sockets and ambiguous probes retain all records. The regression uses a
+real exited child and a real live Unix listener; 22 focused tests and architecture
+passed before using the fixed CLI on the actual post-reboot stale record.
+
+After guarded startup, the ordinary helper recovered the original uncertain
+request's exact native receipt. Its process hash, request, image digest, attempt,
+coverage and revision match the saved pre-reboot proof; revision stayed 3 across
+settled rereads. Exactly one injection command was sent before reboot and none
+were resent afterward. The owner confirmed “Restart · library” and Library
+remained selected. The restoration request then refreshed the original body at
+revision 4 from baseline 3 in the same phone process. The owner confirmed the
+badge disappeared and Library stayed selected. The phone has been released;
+no further phone actions are queued. Deep inspection republished a fully
+validated descriptor for the current project/capture/engine session; readiness
+and descriptor validation both pass. Final Mac checks/merge remain to finish.
+
+This proves agent-handled recovery with setup revalidation, not a single-command
+automatic success on the initially stale setup. The separate missing-receipt
+network handoff from trial 1 remains fenced and is not claimed fixed. Changes
+are confined to explicit recovery/stopped-engine lifecycle; no target SDK,
+notification interval, watcher or normal hot-reload preflight was added.
