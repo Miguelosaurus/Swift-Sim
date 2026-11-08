@@ -127,6 +127,16 @@ class XcodeTests(unittest.TestCase):
         self.assertFalse(output.exists())
         self.assertEqual(list(self.root.glob('.swift-sim-export-*')), [])
 
+    def test_default_hook_uses_the_installed_cli_from_path_without_a_machine_path(self):
+        with patch.object(scheme.shutil, 'which', return_value=str(self.executable)):
+            scheme.update(self.project, 'App', backup_root=self.root / 'private')
+        root = ET.fromstring(self.scheme.read_bytes())
+        script = next(a.get('scriptText') for a in root.findall('./BuildAction/PostActions/ExecutionAction/ActionContent') if a.get('title') == scheme.TITLE)
+        self.assertIn('swift-sim import-xcode-build', script)
+        self.assertIn('/usr/local/bin', script)
+        self.assertNotIn(str(self.executable), script)
+        self.assertNotIn(str(self.project), script)
+
 
 if __name__ == '__main__':
     unittest.main()

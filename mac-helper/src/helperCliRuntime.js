@@ -42,6 +42,7 @@ import { createPhase4ProductionStoreFactories } from "./persistence/phase4Produc
  *   setAppArchived(appID: string, archived: boolean): unknown | null,
  *   get(buildID: string): {
  *     id: string,
+ *     origin?: string,
  *     app: { bundleIdentifier: string, version: string, build: string },
  *   } | null,
  *   saveVerification(buildID: string, verification: unknown): unknown,
@@ -245,6 +246,7 @@ function createDeviceBuildVerificationServices(factories) {
     async verifyDeviceBuild(buildID) {
       const build = buildStore.get(buildID);
       if (!build) throw new Error("Unknown device build.");
+      if (build.origin === "xcode") return publicDeviceBuild(build);
       const verification = await deviceInventory.verifyApp(build.app.bundleIdentifier, {
         version: build.app.version,
         build: build.app.build,

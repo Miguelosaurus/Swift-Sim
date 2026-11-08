@@ -26,7 +26,10 @@ Swift Sim registration. Repeating the same import reuses its entry. Changed
 resources cannot silently reuse an already recorded binary identity.
 
 An import is labeled **Built in Xcode**, with no installer button. It is not
-installation proof. An existing integrated Debug SDK can confirm the exact
+installation proof. Xcode can reuse a version/build number for a new executable,
+so Apple inventory with only those numbers cannot confirm an imported build.
+Existing project aliases are matched by their actual project file; another
+checkout stays a separate registration. An existing integrated Debug SDK can confirm the exact
 running binary through the existing private connection; no extra phone polling
 is added. Apps without that SDK remain unconfirmed by this remote path. This
 prototype accepts thin arm64 development builds with a Debug library.

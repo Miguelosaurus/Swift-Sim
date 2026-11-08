@@ -475,6 +475,7 @@ async function verifyDeviceBuild(build) {
     const installation = current.installation;
     return { state: "launch-confirmed", source: "live-client", verifiedAt: installation.verifiedAt, launchConfirmedAt: installation.launchConfirmedAt, lastSeenAt: installation.lastSeenAt, devices: [] };
   }
+  if (build.origin === "xcode") return { state: "unknown", source: "exact-binary-required", verifiedAt: "", devices: [] };
   return deviceInventory.verifyApp(build.app.bundleIdentifier, {
     version: build.app.version,
     build: build.app.build,

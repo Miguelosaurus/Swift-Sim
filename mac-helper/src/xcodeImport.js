@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -7,9 +7,25 @@ import { canonicalProjectPath, projectRootForDescriptor } from "./liveSessionDes
 import { liveBinaryMatches, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
+// Resolve existing project spelling/aliases to the same file, never to a sibling
+// checkout. Missing paths remain distinct and cannot borrow another recipe.
+export function canonicalImportedProject(project) {
+  const path = canonicalProjectPath(project);
+  try {
+    return realpathSync(canonicalProjectPath(realpathSync(path)));
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR"].includes(error.code)) {
+      if (path.endsWith(".xcodeproj")) return join(path, "project.pbxproj");
+      if (path.endsWith(".xcworkspace")) return join(path, "contents.xcworkspacedata");
+      return path;
+    }
+    throw error;
+  }
+}
+
 export function importXcodeMetadata(store, { metadata, project, scheme }, now = Date.now()) {
   const binary = normalizedLiveBinaryIdentity(metadata?.binaryIdentity);
-  const path = canonicalProjectPath(project);
+  const path = canonicalImportedProject(project);
   if (
     metadata?.schema !== 1 ||
     !isAbsolute(metadata.appPath || "") ||
@@ -48,7 +64,7 @@ export function importXcodeMetadata(store, { metadata, project, scheme }, now = 
     const all = [...state.builds.values()];
     const registered = all.filter(
       (b) =>
-        canonicalProjectPath(b.workspace || b.project) === path &&
+        canonicalImportedProject(b.workspace || b.project) === path &&
         b.scheme === scheme &&
         b.app?.bundleIdentifier === binary.bundle_id &&
         b.app?.teamID === metadata.teamID,
@@ -191,7 +207,7 @@ export async function importXcodeBuild({ app, project, scheme, store, inspect } 
     const { snapshotBuildInputs } = await import("./buildInputSnapshot.js");
     if (
       source.fingerprint ===
-      snapshotBuildInputs(projectRootForDescriptor(canonicalProjectPath(project))).fingerprint
+      snapshotBuildInputs(projectRootForDescriptor(canonicalImportedProject(project))).fingerprint
     )
       metadata.sourceWitness = { fingerprint: source.fingerprint, startedAt: source.startedAt };
   } catch {
@@ -215,8 +231,11 @@ export function externalLaunchBuildMatches(build, proof) {
       build.configuration === "Debug" &&
       build.externalBuild?.schema === 1 &&
       build.app.teamID === build.externalBuild.teamID &&
-      canonicalProjectPath(build.project) ===
-        canonicalProjectPath(proof.projectPath.replace(/\/project\.pbxproj$/, "")) &&
+      build.scheme === build.externalBuild.scheme &&
+      canonicalImportedProject(build.project) ===
+        canonicalImportedProject(build.externalBuild.projectPath) &&
+      canonicalImportedProject(build.project) ===
+        canonicalImportedProject(proof.projectPath.replace(/\/project\.pbxproj$/, "")) &&
       build.scheme === proof.scheme &&
       liveBinaryMatches(build.externalBuild.binaryIdentity, proof.binaryIdentity) &&
       build.app.bundleIdentifier === proof.binaryIdentity.bundle_id &&
@@ -267,7 +286,7 @@ function witnessPath(project, scheme) {
     ".swift-sim",
     "xcode-import",
     "hooks",
-    `${digest([canonicalProjectPath(project), scheme])}.json`,
+    `${digest([canonicalImportedProject(project), scheme])}.json`,
   );
 }
 function readWitness(project, scheme) {
@@ -286,7 +305,7 @@ function readWitness(project, scheme) {
   if (
     !Number.isFinite(Date.parse(value.startedAt)) ||
     !/^[a-f0-9]{64}$/.test(value.fingerprint || "") ||
-    value.project !== canonicalProjectPath(project) ||
+    value.project !== canonicalImportedProject(project) ||
     value.scheme !== scheme ||
     Date.now() - Date.parse(value.startedAt) > 3600000 ||
     Date.parse(value.startedAt) > Date.now() + 5000
@@ -297,7 +316,7 @@ function readWitness(project, scheme) {
 export async function startXcodeBuildWitness({ project, scheme }) {
   const { snapshotBuildInputs } = await import("./buildInputSnapshot.js");
   const { NodeAtomicFileStore } = await import("./infrastructure/nodeAtomicFileStore.js");
-  const path = canonicalProjectPath(project);
+  const path = canonicalImportedProject(project);
   if (!isAbsolute(path) || !scheme || scheme.length > 256) throw new Error("XCODE_IMPORT_INVALID");
   const fingerprint = snapshotBuildInputs(projectRootForDescriptor(path)).fingerprint;
   await new NodeAtomicFileStore().writeJSON(
@@ -340,7 +359,7 @@ export async function qualifyXcodeBuild({
   const live = await import("./liveReload.js");
   const options = {
     appPath: build.externalBuild.appPath,
-    projectPath: canonicalProjectPath(build.project),
+    projectPath: canonicalImportedProject(build.project),
     scheme: build.scheme,
     resultBundle,
   };

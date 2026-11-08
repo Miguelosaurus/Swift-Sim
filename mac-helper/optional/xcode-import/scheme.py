@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -13,11 +14,19 @@ import xml.etree.ElementTree as ET
 TITLE = 'Swift Sim: record Debug build'
 
 
-def update(project, scheme, executable, remove=False, backup_root=None):
+def update(project, scheme, executable=None, remove=False, backup_root=None):
     project = project.resolve(strict=True)
     if project.suffix != '.xcodeproj' or not scheme or Path(scheme).name != scheme:
         raise ValueError('XCODE_SCHEME_INVALID')
+    invocation = "swift-sim"
     if not remove:
+        if executable is None:
+            found = shutil.which("swift-sim")
+            if not found:
+                raise ValueError("SWIFT_SIM_EXECUTABLE_REQUIRED")
+            executable = Path(found)
+        else:
+            invocation = shlex.quote(str(executable.absolute()))
         executable = executable.absolute()
         if not executable.is_file() or not os.access(executable, os.X_OK):
             raise ValueError('SWIFT_SIM_EXECUTABLE_REQUIRED')
@@ -99,14 +108,15 @@ def update(project, scheme, executable, remove=False, backup_root=None):
         for item in old:
             post.remove(item)
     else:
-        script = ('# Swift Sim xcode-import v1\n'
+        prefix = ('# Swift Sim xcode-import v1\n'
                   'if [ "${CONFIGURATION:-}" != "Debug" ] || [ "${PLATFORM_NAME:-}" != "iphoneos" ]; then exit 0; fi\n'
                   'if [ "${SWIFT_SIM_MANAGED_BUILD:-}" = "1" ]; then exit 0; fi\n'
                   'export PATH="/opt/homebrew/opt/node@24/bin:/usr/local/opt/node@24/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"\n'
-                  + shlex.quote(str(executable)) + ' import-xcode-build --app "${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}"'
+                  + invocation)
+        script = (prefix + ' import-xcode-build --app "${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}"'
                   + ' --project "${PROJECT_FILE_PATH}" --scheme ' + shlex.quote(scheme)
                   + ' >/dev/null 2>&1 || echo "warning: Swift Sim import was skipped; inspect with import-xcode-build."\n')
-        start_script = script.split(' import-xcode-build')[0] + ' xcode-build-start --project "${PROJECT_FILE_PATH}" --scheme ' + shlex.quote(scheme) + ' >/dev/null 2>&1 || true\n'
+        start_script = prefix + ' xcode-build-start --project "${PROJECT_FILE_PATH}" --scheme ' + shlex.quote(scheme) + ' >/dev/null 2>&1 || true\n'
         existing_pre = [e for e in action.findall('./PreActions/ExecutionAction/ActionContent') if e.get('title') == TITLE + ' inputs']
         if len(old) == 1 and old[0].find('ActionContent').get('scriptText') == script and len(existing_pre) == 1 and existing_pre[0].get('scriptText') == start_script:
             return dict(changed=False, installed=True)
@@ -124,7 +134,6 @@ def update(project, scheme, executable, remove=False, backup_root=None):
             if existing is not None and existing.get('title') == TITLE + ' inputs':
                 pre.remove(entry)
         before = ET.SubElement(pre, 'ExecutionAction', ActionType='Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction')
-        start_script = script.split(' import-xcode-build')[0] + ' xcode-build-start --project "${PROJECT_FILE_PATH}" --scheme ' + shlex.quote(scheme) + ' >/dev/null 2>&1 || true\n'
         before_content = ET.SubElement(before, 'ActionContent', title=TITLE + ' inputs', scriptText=start_script)
         ET.SubElement(before_content, 'EnvironmentBuildable').append(ET.fromstring(ET.tostring(refs[0])))
     if not old and remove and not removed_pre:
@@ -161,7 +170,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--project', required=True, type=Path)
     parser.add_argument('--scheme', required=True)
-    parser.add_argument('--executable', type=Path, default=Path('/opt/homebrew/bin/swift-sim'))
+    parser.add_argument('--executable', type=Path)
     parser.add_argument('--remove', action='store_true')
     args = parser.parse_args()
     try:

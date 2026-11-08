@@ -188,6 +188,9 @@ export class DeviceBuildStore {
     return this.withTransaction((state) => {
       const build = state.builds.get(id);
       if (!build) return null;
+      // Xcode may reuse CFBundleVersion for a different executable. Coarse
+      // Apple inventory never upgrades or erases an exact imported receipt.
+      if (build.origin === "xcode") return build;
       const previous = normalizeInstallation(build.installation);
       const reportedState = ["verified", "unknown", "different-version", "not-installed"].includes(verification.state) ? verification.state : "unknown";
       // Replayed native install receipts are historical observations. They must

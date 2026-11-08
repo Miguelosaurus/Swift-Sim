@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { externalLaunchBuildMatches, externalBuildDigest } from "./xcodeImport.js";
+import { externalLaunchBuildMatches, externalBuildDigest, canonicalImportedProject } from "./xcodeImport.js";
 import { liveBinaryMatches, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 
 const HASH = /^[a-f0-9]{64}$/;
@@ -210,7 +210,7 @@ function externalNativeObservation(capture, observed, builds, at) {
   try {
     const binaryIdentity = normalizedLiveBinaryIdentity(client);
     const matches = builds.filter(build => build.origin === "xcode" && liveBinaryMatches(build.externalBuild?.binaryIdentity, binaryIdentity)
-      && projectContainer(build.project) === projectContainer(capture.binding.projectPath) && build.scheme === capture.binding.scheme);
+      && canonicalImportedProject(build.project) === canonicalImportedProject(capture.binding.projectPath) && build.scheme === capture.binding.scheme);
     if (matches.length !== 1) return null;
     return { observedAt: at, binaryIdentity, fingerprint: hash(client.process_nonce), processFingerprint: hash(client.process_nonce),
       projectPath: capture.binding.projectPath, scheme: capture.binding.scheme, provenanceDigest: externalBuildDigest(matches[0].externalBuild) };

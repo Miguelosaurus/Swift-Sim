@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPhase4ProductionStoreFactories } from "../mac-helper/src/persistence/phase4ProductionStores.js";
@@ -96,7 +96,8 @@ test("import rejects unregistered project/team and prunes only disposable metada
     input.metadata.binaryIdentity.executable_uuid = `11111111-1111-1111-1111-${String(n).padStart(12, "0")}`;
     const b = importXcodeMetadata(f.store, input, Date.now() + n).build;
     if (n === 0) {
-      f.store.saveVerification(b.id, { state: "verified", devices: [] });
+      b.installation.state = "requested";
+      f.store.save(b);
       protectedIDs.push(b.id);
     }
   }
@@ -266,4 +267,72 @@ test("compiler qualification reuses exact sources and refuses drift before regis
   writeFileSync(swift, "struct Changed {}\n");
   await assert.rejects(qualifyXcodeBuild(args), /SOURCE_CHANGED/);
   assert.equal(registrations, 1);
+});
+
+for (const backend of ["legacy", "sqlite"])
+  test(`${backend}: reused Xcode version numbers never substitute for exact binary evidence`, (t) => {
+    const f = fixture(t, backend);
+    const b = importXcodeMetadata(f.store, f.input, Date.now() - 1000).build;
+    const before = f.store.get(b.id).installation;
+    assert.deepEqual(
+      f.store.saveVerification(b.id, {
+        state: "verified",
+        verifiedAt: new Date().toISOString(),
+        devices: [{ name: "Phone", state: "installed", version: "1", build: "42" }],
+      }).installation,
+      before,
+    );
+    const saved = f.store.saveLaunchConfirmation(b.id, {
+      observedAt: Date.now(),
+      binaryIdentity: binary,
+      projectPath: f.input.project,
+      scheme: "App",
+      fingerprint: "c".repeat(64),
+      processFingerprint: "c".repeat(64),
+      provenanceDigest: externalBuildDigest(b.externalBuild),
+    });
+    for (const state of ["verified", "not-installed", "different-version", "unknown"]) {
+      assert.deepEqual(
+        f.store.saveVerification(b.id, { state, devices: [] }).installation,
+        saved.installation,
+      );
+    }
+  });
+test("project aliases bind the same file while a sibling checkout remains separate", (t) => {
+  const f = fixture(t);
+  mkdirSync(f.input.project);
+  writeFileSync(join(f.input.project, "project.pbxproj"), "project");
+  const alias = join(f.root, "Alias.xcodeproj");
+  symlinkSync(f.input.project, alias, "dir");
+  const first = importXcodeMetadata(f.store, { ...f.input, project: alias });
+  assert.equal(importXcodeMetadata(f.store, f.input).build.id, first.build.id);
+  const other = join(f.root, "Other.xcodeproj");
+  mkdirSync(other);
+  writeFileSync(join(other, "project.pbxproj"), "project");
+  assert.throws(
+    () => importXcodeMetadata(f.store, { ...f.input, project: other }),
+    /REGISTRATION_REQUIRED/,
+  );
+});
+
+test("the one-shot verification command skips coarse device inventory for imported builds", async (t) => {
+  const { createExtractedHelperServices } = await import("../mac-helper/src/helperCliRuntime.js");
+  const f = fixture(t);
+  const b = importXcodeMetadata(f.store, f.input).build;
+  let calls = 0;
+  const services = createExtractedHelperServices("verify-device-build", {
+    factories: {
+      createStateRootStore: () => ({}),
+      createDeviceBuildStore: () => f.store,
+      createDeviceInventory: () => ({
+        verifyApp: async () => {
+          calls++;
+          throw new Error("Inventory cannot identify this executable");
+        },
+      }),
+    },
+  });
+  const result = await services.verifyDeviceBuild(b.id);
+  assert.equal(result.installation.state, "unknown");
+  assert.equal(calls, 0);
 });

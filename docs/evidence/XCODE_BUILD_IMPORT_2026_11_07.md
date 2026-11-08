@@ -57,3 +57,38 @@ Imported records do not own Xcode products. Only disposable metadata is retired,
 with protected-capacity refusal instead of unsafe deletion. Existing old installers
 and compiler caches were not deleted by this change. Caller-requested exported
 IPAs remain caller-owned rather than becoming a hidden automatic cache.
+
+## Rollout follow-up
+
+The full Node 24 source suite subsequently passed 1,571 tests; 44 selected
+compiled tests passed. Five Python cases now also cover portable CLI discovery.
+
+The Companion project now has one owned pre-action and post-action in a shared
+scheme. It resolves the installed CLI from PATH and uses PROJECT_FILE_PATH, so
+there is no developer home directory or Apple Silicon-only executable path in
+the scheme. Zenics's unrelated dirty project was left untouched.
+
+A genuinely signed, generic-iPhone Xcode build was exercised using a disposable
+Companion source copy, an existing development signing identity/profile, and a
+separate authority store. Only the fixture's app identifier and push entitlement
+were adjusted to reuse that existing local development profile; there was no
+provisioning change and the app was never installed. The post-action called the
+production importer with that isolated store. Apple signature/profile inspection
+kept the normal user keychain context; redirecting HOME itself would prevent
+Apple's CMS tool from locating its default keychain.
+
+The real post-action recorded a 2,542-byte metadata entry with a valid source
+witness, empty artifact/IPA paths, unknown installation, and no compiler authority.
+Repeating the import reused the same entry. Coarse Apple version-number evidence
+was rejected, and compiler qualification stopped before engine access without an
+exact launch receipt. The fixture was separate from the user's app history.
+
+Both store backends now reject coarse inventory updates for imported binaries:
+Xcode can reuse the same build number for a different executable. HTTP and CLI
+verification also skip that inventory shortcut. Exact imported launch receipts
+remain authoritative. Project aliases resolve to their actual file, while a
+sibling checkout cannot borrow its registration; proof also rechecks the signed
+project/scheme binding under the store transaction.
+
+These are Mac-side signed-build results. The real ordinary-Xcode-to-phone run,
+including its exact launch receipt, remains unqualified until a phone is available.
