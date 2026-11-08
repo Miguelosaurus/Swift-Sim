@@ -109,3 +109,32 @@ in the prepared notes/formula, then publish once and verify public retrieval.
 The signed Companion reports are retained under the task evidence directory;
 nine generated build/extraction/mirror directories were removed after checking
 for open files. The task simulator is shut down. Phone use remains deferred.
+
+
+## Completion
+
+Both approved publications are complete: Swift Sim v0.6.2 is frozen at source
+17097053b3f058547ce7199705fff965ea407cd3, and Homebrew tap commit
+8ffc3c40cd58bd5c190a5aba00a95a9776043e20 points to its verified archive checksum
+`af8e8b21456e35b0a6690f155b7771da1a00f0c19adfb43cfb45174833e82fcc`.
+The public engine 0.5.7 asset/tag and root release asset/tag were checked after
+publication. A fresh external consumer resolves Swift Sim 0.6.2 and InjectionNext
+0.5.7 at the intended revisions without a local mirror or unstable dependency.
+
+The actual Mac setup now confirms helper 0.6.2, Codex plugin
+0.6.2+codex.20261107.1, matching local components and private prerequisites. The
+explicit engine 0.5.7 was verified unchanged. A real scoped delivery-status read
+uses the existing paired feed successfully. No phone operation was submitted.
+
+Companion 0.6.2 build 44 is signed and ready (about 2.5 MB), with unchanged app
+identity and data preservation. The shared feed selects that newest build and
+reports Ready to install. Its new status UI is not installed or physically
+qualified yet; phone availability remains a separate prerequisite. Keep the
+existing uncertain live receipt protected. Zenics source was not changed.
+
+Eleven task-owned generated build/extraction/mirror directories were removed
+after open-file checks; signed test reports and immutable release artifacts
+were retained. The stock test simulator is shut down. The existing product
+helper/engine remain running. Local checks passed; remote Verify was still
+running at the final audit, and the clean Homebrew service cycle was not rerun
+locally. Recovery UX and the broader interruption matrix remain separate work.
