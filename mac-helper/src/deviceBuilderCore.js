@@ -15,7 +15,7 @@ import { prepareStatefulBuild } from "./statefulBuild.js";
 import { NodeCommandRunner } from "./infrastructure/nodeCommandRunner.js";
 import {
   selectedTargetHasLivePackage,
-  selectedXcodeApplicationTarget,
+  liveProjectTargetFromSettings,
   withLiveBuildSession,
 } from "./liveReload.js";
 
@@ -277,11 +277,6 @@ export async function runDeviceBuild(build, {
     throwIfBuildCancelled(build);
     const liveCandidate = String(build.configuration || "").toLowerCase() === "debug"
       && target.type === "project";
-    const selectedLiveTarget = liveCandidate
-      ? selectedXcodeApplicationTarget(join(target.path, "project.pbxproj"), build.scheme)
-      : null;
-    const liveEligible = Boolean(selectedLiveTarget)
-      && selectedTargetHasLivePackage(selectedLiveTarget.source, selectedLiveTarget.targetName);
     let buildSettingArgs = requestedBuildSettingArgs;
     const root = build.artifacts?.root || join(homedir(), ".swift-sim", "device-builds", build.id);
     const archivePath = join(root, `${safeName(build.scheme || "App")}.xcarchive`);
@@ -306,6 +301,11 @@ export async function runDeviceBuild(build, {
       buildSettingArgs,
       build,
     });
+    const selectedLiveTarget = liveCandidate
+      ? liveProjectTargetFromSettings(join(target.path, "project.pbxproj"), settings)
+      : null;
+    const liveEligible = Boolean(selectedLiveTarget)
+      && selectedTargetHasLivePackage(selectedLiveTarget.source, selectedLiveTarget.targetName);
     const resolvedIdentity = {
       bundleIdentifier: settings.PRODUCT_BUNDLE_IDENTIFIER || "",
       teamID: settings.DEVELOPMENT_TEAM || "",

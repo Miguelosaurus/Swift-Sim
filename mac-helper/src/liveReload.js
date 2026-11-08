@@ -2631,8 +2631,14 @@ export function selectedXcodeApplicationTarget(projectPath, scheme) {
   } catch {
     return null;
   }
-  const targetName = String(settings.TARGET_NAME || "").trim();
-  const projectFile = normalizedProjectDefinitionPath(settings.PROJECT_FILE_PATH, projectPath);
+  return liveProjectTargetFromSettings(projectPath, settings);
+}
+
+// Signed builds already read their resolved application settings. Reuse that
+// authority instead of resolving packages again through a short sync preflight.
+export function liveProjectTargetFromSettings(projectPath, settings) {
+  const targetName = String(settings?.TARGET_NAME || "").trim();
+  const projectFile = normalizedProjectDefinitionPath(settings?.PROJECT_FILE_PATH, projectPath);
   if (!targetName || !projectFile || !existsSync(projectFile)) return null;
   return {
     targetName,

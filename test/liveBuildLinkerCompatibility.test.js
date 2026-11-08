@@ -160,7 +160,10 @@ test("managed Debug builds fail before registration or IPA publication; Release 
         import { mock } from 'node:test';
         import { writeFileSync } from 'node:fs';
         mock.module(${JSON.stringify(live)}, { namedExports: {
-          selectedXcodeApplicationTarget: () => ({ source: 'fixture', targetName: 'Example' }),
+          liveProjectTargetFromSettings: (_project, settings) => {
+            if (settings.PRODUCT_BUNDLE_IDENTIFIER !== 'com.example.fixture') throw Error('resolved settings required before live eligibility');
+            return { source: 'fixture', targetName: 'Example' };
+          },
           selectedTargetHasLivePackage: () => true,
           withLiveBuildSession: async (_options, body) => body({
             liveSession: { started: true, host: 'example.ts.net' },

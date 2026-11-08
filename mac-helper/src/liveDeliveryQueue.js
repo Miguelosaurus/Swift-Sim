@@ -637,7 +637,7 @@ function normalizeScope(scope) {
   return binding;
 }
 function validateNoEffectReceipt(record, receipt) {
-  const allowedKeys = new Set(["requestId", "patchDigest", "sessionIdentity", "binaryIdentity", "admitted", "applied", "reasonCode", "attemptId"]);
+  const allowedKeys = new Set(["requestId", "patchDigest", "sessionIdentity", "binaryIdentity", "admitted", "applied", "reasonCode", "attemptId", "attemptFenced"]);
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)
     || Object.keys(receipt).some((key) => !allowedKeys.has(key))
     || receipt.requestId !== record.requestId || receipt.sessionIdentity !== record.scope.sessionIdentity
@@ -646,7 +646,8 @@ function validateNoEffectReceipt(record, receipt) {
     || receipt.patchDigest !== record.preparedPatch.patchDigest
     || receipt.attemptId !== record.applyClaimToken
     || receipt.admitted !== false || receipt.applied !== false
-    || !["PREPARED_WAITING_FOR_FOREGROUND", "PREPARED_ROOT_NOT_READY"].includes(receipt.reasonCode)) throw queueError("QUEUE_NO_EFFECT_REJECTED");
+    || !(receipt.reasonCode === "PREPARED_ATTEMPT_FENCED" ? receipt.attemptFenced === true
+      : ["PREPARED_WAITING_FOR_FOREGROUND", "PREPARED_ROOT_NOT_READY"].includes(receipt.reasonCode) && receipt.attemptFenced === undefined)) throw queueError("QUEUE_NO_EFFECT_REJECTED");
 }
 function validateProof(record, proof, refreshed) {
   if (!record.preparedPatch || !proof || proof.requestId !== record.requestId || proof.sessionIdentity !== record.scope.sessionIdentity

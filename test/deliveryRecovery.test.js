@@ -90,6 +90,39 @@ test("unknown receipt stays fenced across recovery and subsequent turns", async 
   assert.equal(f.calls.apply, 1);
   assert.equal(f.queue.get("recovery-one").state, "uncertain");
 });
+
+test("native proof fencing an unadmitted attempt resumes the same intent without resetting state", async (t) => {
+  const f = fixture(t);
+  const apply = f.adapter.apply, receipt = f.adapter.receipt;
+  let droppedAttempt;
+  f.adapter.apply = async (record) => {
+    if (!droppedAttempt) {
+      droppedAttempt = record.claim.token;
+      throw Error("original payload lost before native admission");
+    }
+    assert.notEqual(record.claim.token, droppedAttempt);
+    return apply(record);
+  };
+  f.adapter.receipt = async (record) => record.applyClaimToken === droppedAttempt
+    ? { noEffect: { requestId: record.requestId, sessionIdentity: record.scope.sessionIdentity,
+      binaryIdentity: record.scope.binaryIdentity, patchDigest: record.preparedPatch.patchDigest,
+      attemptId: droppedAttempt, admitted: false, applied: false,
+      reasonCode: "PREPARED_ATTEMPT_FENCED", attemptFenced: true } }
+    : receipt(record);
+  await f.enqueue(); await f.service.runOnce(); await f.service.runOnce();
+  const before = f.queue.get("recovery-one");
+  assert.equal(before.state, "uncertain");
+  await f.service.runOnce();
+  assert.equal(f.queue.get(before.requestId).state, "waiting-for-foreground");
+  for (let i = 0; i < 4; i++) await f.service.runOnce();
+  const after = f.queue.get(before.requestId);
+  assert.equal(after.state, "refreshed");
+  assert.equal(after.snapshotDigest, before.snapshotDigest);
+  assert.deepEqual(after.preparedPatch, before.preparedPatch);
+  assert.equal(f.calls.prepare, 1); assert.equal(f.calls.apply, 1);
+  assert.deepEqual(f.phone.applied, [before.requestId]);
+  assert.equal(f.phone.counter, 4); assert.equal(f.phone.draft, "keep-me");
+});
 for (const hasReceipt of [true, false])
   test(`both Mac components stopped after a lost reply: receipt ${hasReceipt ? "present" : "missing"} never replays apply`, async (t) => {
     const f = fixture(t);

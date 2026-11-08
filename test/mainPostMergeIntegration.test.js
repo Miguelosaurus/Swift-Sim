@@ -396,7 +396,7 @@ test("project live inspection applies the same scheme authority as workspaces", 
 
 test("device live instrumentation cannot leak into fallback archives", () => {
   const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
-  assert.match(source, /selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
+  assert.match(source, /liveProjectTargetFromSettings\(join\(target\.path, "project\.pbxproj"\), settings\)/);
   assert.match(source, /selectedTargetHasLivePackage\(selectedLiveTarget\.source, selectedLiveTarget\.targetName\)/);
   assert.doesNotMatch(source, /function projectHasLivePackage/);
   const liveStart = source.indexOf('log("Building the signed live-enabled Debug app.")');
@@ -413,7 +413,8 @@ test("device live instrumentation cannot leak into fallback archives", () => {
 test("release archives do not inspect optional live targets", () => {
   const source = readFileSync("mac-helper/src/deviceBuilderCore.js", "utf8");
   assert.match(source, /const liveCandidate = String\(build\.configuration \|\| ""\)\.toLowerCase\(\) === "debug"/);
-  assert.match(source, /const selectedLiveTarget = liveCandidate[\s\S]*?selectedXcodeApplicationTarget\(join\(target\.path, "project\.pbxproj"\), build\.scheme\)/);
+  assert.match(source, /const selectedLiveTarget = liveCandidate[\s\S]*?liveProjectTargetFromSettings\(join\(target\.path, "project\.pbxproj"\), settings\)/);
+  assert.ok(source.indexOf("const settings = await readBuildSettings") < source.indexOf("const selectedLiveTarget = liveCandidate"));
   assert.match(source, /const liveEligible = Boolean\(selectedLiveTarget\)/);
 });
 

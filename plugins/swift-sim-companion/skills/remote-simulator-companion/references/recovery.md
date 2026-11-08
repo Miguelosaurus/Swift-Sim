@@ -30,4 +30,12 @@ missing compiler/signing access and component drift stay explicit. Use the
 existing live-status/build diagnostics to investigate; do not guess new context.
 Unknown application receipts remain fenced. Only an existing exact native
 applied/refresh receipt returns completionVerified=true. Repairs and reconnects
-alone never prove application. Recovery has no watcher, SDK layer or timer.
+alone never prove application. Recovery adds no watcher or timer.
+
+With the matching receipt-fence SDK and engine, an uncertain attempt can also
+recover without restarting the app. The existing receipt query atomically
+retires an attempt that never entered the native loader. Only its exact native
+no-effect proof permits the same request, snapshots and prepared image to use a
+new attempt token. Delayed copies of the retired attempt remain refused.
+Already admitted loads are never cancelled or replayed; older clients keep the
+read-only receipt path. No user resubmission or App Testing session is needed.

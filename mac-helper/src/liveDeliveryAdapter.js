@@ -71,6 +71,8 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       engineReachable: Boolean(data),
       completeEngine,
       receiptRecovery: data?.prepared_receipt_recovery_protocol === 1 && capabilities.includes("prepared-receipt-query-v1"),
+      receiptFence: data?.prepared_receipt_fence_protocol === 1 && data?.prepared_receipt_recovery_protocol === 1
+        && capabilities.includes("prepared-receipt-query-v1") && capabilities.includes("prepared-receipt-fence-v1"),
       completeClient,
       statefulEngine, statefulClient, statefulComponentClient, addedStateClient,
       clientPresent: Boolean(data?.has_connected_client),
@@ -111,8 +113,10 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       && report.client_identity?.process_nonce === record.scope.sessionIdentity
       && liveBinaryMatches(observed.identity, report.client_identity)
       && coverageIdentityMatches && report.state_uncertain !== true && (report.objc_replacements === undefined || report.objc_replacements === 0)
-      && ["PREPARED_WAITING_FOR_FOREGROUND", "PREPARED_ROOT_NOT_READY"].includes(report.error_code)) {
-      return { noEffect: { requestId: record.requestId, patchDigest: record.preparedPatch.patchDigest, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, attemptId, admitted: false, applied: false, reasonCode: report.error_code } };
+      && (["PREPARED_WAITING_FOR_FOREGROUND", "PREPARED_ROOT_NOT_READY"].includes(report.error_code)
+        || (observed.receiptFence && report.error_code === "PREPARED_ATTEMPT_FENCED" && report.attempt_fenced === true))) {
+      return { noEffect: { requestId: record.requestId, patchDigest: record.preparedPatch.patchDigest, sessionIdentity: record.scope.sessionIdentity, binaryIdentity: record.scope.binaryIdentity, attemptId, admitted: false, applied: false, reasonCode: report.error_code,
+        ...(report.error_code === "PREPARED_ATTEMPT_FENCED" ? { attemptFenced: true } : {}) } };
     }
     if (!report || String(report.request_id) !== record.requestId || report.patch_digest !== record.preparedPatch.patchDigest
       || !liveBinaryMatches(observed.identity, report.client_identity)
@@ -187,9 +191,10 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
         ? request(record, observed) : {};
       const { path: _path, expires_at_ms: _expiry, action: _action, ...identity } = operation;
       const response = await control({ ...identity, action: "prepared_receipt",
+        ...(operation.attempt_id && observed.receiptFence ? { fence_unadmitted: true } : {}),
         request_id: record.requestId, patch_digest: record.preparedPatch.patchDigest });
-      // A receipt read never retransmits an image or begins an operation, even
-      // if the engine lost its cache. Unknown native state stays fenced.
+      // Recovery never retransmits an image. A negotiated native tombstone may
+      // prove non-admission and permanently refuse that exact old attempt.
       return proofFrom(response, record, observed);
     },
   });

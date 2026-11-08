@@ -709,6 +709,28 @@ function noEffectReceipt(reasonCode = "PREPARED_WAITING_FOR_FOREGROUND", attempt
   return { attemptId, requestId: "request-1", patchDigest: "request-1", sessionIdentity: scope.sessionIdentity, binaryIdentity: scope.binaryIdentity, admitted: false, applied: false, reasonCode };
 }
 
+test("a verified native attempt fence releases uncertainty once without replacing the request or image", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); const old = await begin(f);
+    await f.queue.transition("request-1", { claimToken: old, state: "uncertain" });
+    const before = f.queue.get("request-1");
+    const receipt = { ...noEffectReceipt("PREPARED_ATTEMPT_FENCED", old), attemptFenced: true };
+    for (const value of [undefined, false])
+      await assert.rejects(f.queue.releaseNoEffect("request-1", { claimToken: old, scope,
+        receipt: { ...receipt, attemptFenced: value }, verified: true }), { code: "QUEUE_NO_EFFECT_REJECTED" });
+    await f.queue.releaseNoEffect("request-1", { claimToken: old, scope, receipt, verified: true });
+    assert.deepEqual(f.queue.get("request-1").lastNoEffectReceipt, receipt);
+    const current = await begin(f);
+    assert.notEqual(current, old);
+    const after = f.queue.get("request-1");
+    assert.equal(after.requestId, before.requestId);
+    assert.equal(after.snapshotDigest, before.snapshotDigest);
+    assert.deepEqual(after.preparedPatch, before.preparedPatch);
+    await assert.rejects(f.queue.releaseNoEffect("request-1", { claimToken: old, scope, receipt, verified: true }), { code: "QUEUE_NO_EFFECT_REJECTED" });
+  } finally { f.cleanup(); }
+});
+
 test("verified pre-admission background rejection releases only its current apply attempt", async () => {
   const f = fixture();
   try {

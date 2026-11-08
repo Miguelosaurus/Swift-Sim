@@ -162,6 +162,40 @@ test("receipt query recovery requires both matching native and engine capabiliti
   } finally { f.cleanup(); }
 });
 
+test("native attempt fences require negotiated support and exact explicit no-effect proof", async () => {
+  const f = await fixture();
+  try {
+    f.record.preparedPatch.replacementProof = { version: 3, swift_replacements: 1, objc_callbacks: [] };
+    f.status.prepared_receipt_recovery_protocol = 1;
+    f.status.prepared_receipt_fence_protocol = 1;
+    assert.equal((await f.adapter.inspect(f.record)).receiptFence, false);
+    f.status.client_capabilities.push("prepared-receipt-query-v1", "prepared-receipt-fence-v1");
+    const observed = await f.adapter.inspect(f.record);
+    assert.equal(observed.receiptFence, true);
+    const rejection = { ...f.report(), admission: "rejected-no-effect", error_code: "PREPARED_ATTEMPT_FENCED",
+      attempt_fenced: true, applied: false, dynamic_replacements: 0, refreshed: false, refresh_acknowledged: false,
+      attempt_id: f.record.applyClaimToken, replacement_proof_version: 3,
+      coverage_digest: replacementCoverageDigest(f.record.preparedPatch.replacementProof) };
+    f.setResult({ success: true, data: { state: "rejected-no-effect", report: rejection } });
+    f.calls.length = 0;
+    const result = await f.adapter.receipt(f.record, observed);
+    assert.equal(result.noEffect.attemptFenced, true);
+    assert.equal(result.noEffect.reasonCode, "PREPARED_ATTEMPT_FENCED");
+    assert.deepEqual(f.calls.map(c => c.action), ["prepared_receipt"]);
+    assert.equal(f.calls[0].fence_unadmitted, true);
+    assert.equal("path" in f.calls[0], false);
+    for (const mutation of [{ attempt_fenced: undefined }, { attempt_fenced: false }, { attempt_id: "late-attempt" },
+      { coverage_digest: "f".repeat(64) }, { client_identity: { ...identity, process_nonce: "another" } }, { applied: true }]) {
+      f.setResult({ success: true, data: { state: "rejected-no-effect", report: { ...rejection, ...mutation } } });
+      assert.equal(await f.adapter.receipt(f.record, observed), null);
+    }
+    f.setResult({ success: true, data: { state: "rejected-no-effect", report: rejection } });
+    assert.equal(await f.adapter.receipt(f.record, { ...observed, receiptFence: false }), null);
+    f.status.client_capabilities = f.status.client_capabilities.filter(c => c !== "prepared-receipt-query-v1");
+    assert.equal((await f.adapter.inspect(f.record)).receiptFence, false);
+  } finally { f.cleanup(); }
+});
+
 test("unsafe capture metadata fails closed without exposing its private contents", async () => {
   const f = await fixture();
   try {
