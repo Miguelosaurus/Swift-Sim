@@ -3,8 +3,8 @@
 Normal product work outside the architecture-consolidation program. User
 requested failure-only agent-handled recovery, with interruption tests, no
 normal hot-reload/notification overhead, and minimal user input. No subagents
-or extra background services. Phone is available after Mac preparation; ask
-before foregrounding Zenics. No reinstall is planned.
+or extra background services. Physical qualification is complete and the phone has been released back to the
+owner. No reinstall was needed.
 
 ## Implementation
 
@@ -34,8 +34,8 @@ agent to retry the original edit command; unknown enqueue replies do not.
 - Real isolated helper process: start through the actual installed-shape CLI,
   repeat recovery with the same process, then stop and verify cleanup.
 - Full source/compiled/package checks, and failure-only module loading gates.
-- On the existing Zenics Debug 47 SDK, use immutable temporary snapshots for a
-  counter/draft card, helper-only follow-ups, and restoration. Preserve dirty
+- On the existing Zenics Debug 47 SDK, use immutable temporary body snapshots
+  for a selected-tab badge, follow-ups, and restoration. Preserve dirty
   product files and unrelated pre-existing uncertain receipts. Qualify real
   helper restart and phone/network interruptions with exact native receipt and
   revision evidence. Simulated timing is not physical Mac sleep/wake proof.
@@ -64,12 +64,38 @@ handoff reply deliberately discarded by a temporary test adapter. The queue
 remained uncertain. `recover-delivery` started the helper and kept the same ID;
 the normal worker recovered its exact native receipt at revision 2 from
 baseline 1. No second injection command was issued. Product files remained
-unchanged. Visual selected-tab confirmation and final restoration are pending.
+unchanged. The owner confirmed “Recovery 2 · library” with Library selected.
 
 A synthetic added-State preflight was rejected because two original module
 sources differ from the installed build and are not retained as exact originals.
 No current product file or captured baseline was overwritten to force that test.
 The qualified body-only patch uses the app's existing selected-tab State, needs
 no new declarations and compiles/restores against the installed binary. Screen
-capture was unavailable, so selected-tab proof requires owner confirmation;
-accessibility coverage alone does not establish that state.
+capture was unavailable; the owner confirmed selected-tab preservation.
+Accessibility coverage alone does not establish that state.
+
+
+## Completed physical qualification
+
+A third immutable snapshot restored the original body. It was queued while the
+owner kept the phone locked on cellular with Tailscale off. The engine reported
+no client and the prepared request remained waiting at baseline revision 2.
+Recovery returned `RECOVERY_WAITING_FOR_APP` with no repair and preserved the
+request and snapshot. After unlock, Tailscale reconnection and foregrounding,
+the existing worker confirmed refresh at revision 3 from baseline 2. The owner
+confirmed the badge disappeared and Library stayed selected. Product source
+hashes were unchanged; unrelated dirty work and older uncertain receipts were
+preserved. No phone actions remain queued by this qualification.
+
+The implementation is merged into main at
+`9989b3a270d8427444c96b13462ad75b587a023f`. The local 0.6.3 helper now runs from
+the primary checkout, all local agent components report ready, and the existing
+0.5.7 engine is unchanged. Native application was sent once for the deliberately
+lost reply, and the same request recovered its exact receipt. No normal SDK,
+polling or notification path changed. Physical Mac sleep/wake remains untested;
+the durable queue tests cover sleep-sized gaps.
+
+The prepared 0.6.3 release archive is 2,272,733 bytes, SHA-256
+`5fa772affef541a001fb854f43636fadc381393d8b544c550b918de423be7ce4`,
+from that source commit. Public release and Homebrew publication await explicit
+release approval; this does not prevent use of the updated local installation.
