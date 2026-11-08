@@ -143,10 +143,29 @@ revision 4 from baseline 3 in the same phone process. The owner confirmed the
 badge disappeared and Library stayed selected. The phone has been released;
 no further phone actions are queued. Deep inspection republished a fully
 validated descriptor for the current project/capture/engine session; readiness
-and descriptor validation both pass. Final Mac checks/merge remain to finish.
+and descriptor validation both pass.
 
 This proves agent-handled recovery with setup revalidation, not a single-command
 automatic success on the initially stale setup. The separate missing-receipt
 network handoff from trial 1 remains fenced and is not claimed fixed. Changes
 are confined to explicit recovery/stopped-engine lifecycle; no target SDK,
 notification interval, watcher or normal hot-reload preflight was added.
+
+## Completion
+
+Full post-fix checks passed: 1,658 source tests, 1,025 compiled tests, three
+hermetic runtime tests, entrypoint equivalence, types/lint/format, architecture,
+docs, package installation and formula validation. The opt-in destructive clean
+Homebrew service cycle was not repeated. Fixes were reviewed, fast-forwarded to
+main and pushed at `3eb9107`, without a PR. Hosted verification starts normally
+on that push; the local results above are the completed check evidence.
+
+The primary checkout was rebuilt and its helper explicitly reloaded through the
+existing setup lifecycle. One normal helper now runs from the primary dist;
+the restored 0.5.7 engine stayed unchanged through that reload. Existing agent
+integrations were refreshed without a new instruction/version contract. No new
+public release/tag/archive was published or rewritten. Phone cleanup and
+Library preservation are owner-confirmed. No test worker, watcher, relay,
+scheduled wake or simulator remains. Temporary native preflight outputs were
+removed; receipt, snapshot and power-event proof is retained under the task
+directory. The one product helper and engine intentionally remain running.
