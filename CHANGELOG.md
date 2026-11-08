@@ -4,6 +4,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Bind release archives to their source checkout and reject version mismatches,
+  including when the release script runs from another package's directory.
 - Recover a hot-reload handoff lost before native admission without restarting
   the app. A negotiated native receipt fence permanently rejects the old attempt
   before the same immutable edit can retry. Already admitted edits reconcile by
