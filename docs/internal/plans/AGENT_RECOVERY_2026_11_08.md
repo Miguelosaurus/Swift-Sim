@@ -97,5 +97,12 @@ the durable queue tests cover sleep-sized gaps.
 
 The prepared 0.6.3 release archive is 2,272,733 bytes, SHA-256
 `5fa772affef541a001fb854f43636fadc381393d8b544c550b918de423be7ce4`,
-from that source commit. Public release and Homebrew publication await explicit
-release approval; this does not prevent use of the updated local installation.
+from that source commit. After explicit owner approval, v0.6.3 was published
+and marked latest. The public archive was downloaded and its bytes and SHA-256
+verified against the tested package. Homebrew was updated at
+`c23cf7bcd3560fb455ac741075ff0d5946f37d26`; its published recipe matches the
+prepared recipe exactly and changes only the archive URL and checksum.
+Existing releases and the 0.5.7 engine dependency remain unchanged. Source
+verification run `42514025550` passed, including the iOS tests and clean
+Homebrew install. Publication started the normal redundant release verification
+run `42515342075` for that same tested source commit.
