@@ -81,3 +81,36 @@ published 0.6.3 release verification also completed successfully. The running
 product helper/engine and public release have not been replaced by this
 candidate. Phone availability and the actual system-interruption steps remain
 pending. No Mac sleep or restart is claimed.
+
+## Physical qualification before Mac reboot
+
+The owner foregrounded Zenics on cellular/Tailscale, selected Library and
+cleared the Mac for interruption. The baseline badge refreshed at revision 4
+from 3. The first real trial disconnected the phone during a handoff; engine
+metadata briefly retained the old connected client. The request became uncertain
+and stayed fenced. Actual system sleep, maintenance dark wakes and keyboard wake
+were recorded. The same phone process returned at revision 4 and the owner
+confirmed Library remained selected, but no native receipt existed. Recovery
+correctly did not replay the mutation; automatic edit recovery did not pass.
+The current receipt protocol cannot prove non-admission from a missing ledger
+entry. An owner-controlled clean phone relaunch safely rebased the desired edit
+and preserved the original uncertainty as superseded evidence. This is an
+explicit limitation, not a successful state-preserving recovery of that edit.
+
+The second trial held a fully prepared request before handoff, with the owned
+helper stopped and no injection command sent. The phone stayed on cellular with
+Tailscale. Power logs show 53 seconds of real system sleep and a keyboard wake,
+with the same Mac boot. Explicit recovery started the helper; its ordinary worker
+resumed the same request, snapshot and prepared image. Its exact native receipt
+advanced revision 1 to 2 with preserve-state-v1 in the same phone process. A later
+distinct request advanced revision 2 to 3, so no duplicate of the sleep request
+was observed. Final owner tab confirmation remains part of the reboot check.
+
+The reboot test is staged with one successful native handoff, its reply
+deliberately discarded, and the owned helper stopped. The queue remains uncertain
+at baseline 2; a read-only query saved its exact applied/refreshed receipt at
+revision 3 without reconciling the queue. No second injection command was sent.
+The phone process must stay alive through the Mac reboot. The old boot time and
+receipt/process hashes are saved under the task evidence directory. A full Mac
+restart and post-boot recovery are still pending. Do not claim reboot acceptance
+or erase the first trial's missing-receipt limitation.
