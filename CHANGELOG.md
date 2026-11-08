@@ -12,6 +12,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Update public setup, delivery, SDK recovery, retention and privacy guidance to
   the published component contract. Record the expired TestFlight distribution
   as an explicit launch blocker instead of promising an available beta build.
+- Include the linked public privacy, security, distribution and contributor
+  guides in the installed Mac package.
 
 ## 0.6.4 - 2026-11-08
 
