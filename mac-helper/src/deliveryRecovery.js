@@ -70,6 +70,13 @@ export async function recoverDelivery(input = {}, ports) {
           "The request does not match the selected project and scheme.",
         );
       const status = () => (selected ? ports.status(selected.requestId) : null);
+      const readinessCode = (value) => {
+        const current = selected && ports.queue.get(selected.requestId);
+        return (
+          value?.delivery?.readiness?.code ||
+          (current?.state === "uncertain" ? ports.queue.readiness?.(current)?.code : undefined)
+        );
+      };
       const terminal = (value) => {
         if (value?.outcome === "hot-reloaded")
           return result(
@@ -106,7 +113,7 @@ export async function recoverDelivery(input = {}, ports) {
         }
       };
       let health = await ports.health();
-      const code = status()?.delivery?.readiness?.code;
+      const code = readinessCode(status());
       const staleWorker =
         health.ok && ["LIVE_WORKER_UNAVAILABLE", "LIVE_ENGINE_OBSERVATION_STALE"].includes(code);
       const restart =
@@ -134,16 +141,25 @@ export async function recoverDelivery(input = {}, ports) {
           "continue-edit",
         );
       const currentStatus = status();
+      const readiness = readinessCode(currentStatus);
+      // After a full Mac restart an uncertain native effect stays fenced, but
+      // its receipt still needs the stopped engine restored. Starting that
+      // verified session never grants permission to retransmit the patch.
+      const receiptOnly =
+        currentStatus?.outcome === "failed" &&
+        ports.queue.get(selected.requestId)?.state === "uncertain" &&
+        readiness === "LIVE_ENGINE_UNAVAILABLE";
       const final = terminal(currentStatus);
-      if (final) return final;
-      let readiness = currentStatus.delivery?.readiness?.code;
+      if (final && !receiptOnly) return final;
       if (["LIVE_ENGINE_UNAVAILABLE"].includes(readiness)) {
         assertIdle();
         await ports.restoreStoppedEngine(selected, assertIdle);
         repaired.push("engine-started");
         return result(
           "RECOVERY_RESUMING",
-          "The matching Mac session was restored. The existing request will continue through its normal worker.",
+          receiptOnly
+            ? "The matching Mac session was restored to check this request's native receipt without applying it again."
+            : "The matching Mac session was restored. The existing request will continue through its normal worker.",
           "wait",
         );
       }

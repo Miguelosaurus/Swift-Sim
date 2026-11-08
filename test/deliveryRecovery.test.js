@@ -90,6 +90,36 @@ test("unknown receipt stays fenced across recovery and subsequent turns", async 
   assert.equal(f.calls.apply, 1);
   assert.equal(f.queue.get("recovery-one").state, "uncertain");
 });
+for (const hasReceipt of [true, false])
+  test(`both Mac components stopped after a lost reply: receipt ${hasReceipt ? "present" : "missing"} never replays apply`, async (t) => {
+    const f = fixture(t);
+    const apply = f.adapter.apply;
+    f.adapter.apply = async (record) => {
+      if (hasReceipt) await apply(record);
+      else f.calls.apply++;
+      throw Error("reply lost before Mac restart");
+    };
+    await f.enqueue();
+    await f.service.runOnce();
+    await f.service.runOnce();
+    const before = f.queue.get("recovery-one");
+    assert.equal(before.state, "uncertain");
+    f.healthy(false);
+    f.state.engineAvailable = false;
+    f.state.engineReachable = false;
+    f.advance(35000);
+    const result = await recoverDelivery({ requestId: before.requestId }, f.ports);
+    assert.deepEqual(result.repaired, ["helper-started", "engine-started"]);
+    assert.equal(result.completionVerified, false);
+    assert.equal(f.queue.get(before.requestId).snapshotDigest, before.snapshotDigest);
+    assert.equal(f.queue.get(before.requestId).applyClaimToken, before.applyClaimToken);
+    for (let i = 0; i < 4; i++) await f.service.runOnce();
+    assert.equal(f.calls.apply, 1);
+    assert.equal(f.calls.prepare, 1);
+    assert.equal(f.queue.get(before.requestId).state, hasReceipt ? "refreshed" : "uncertain");
+    assert.equal(f.phone.counter, 4);
+    assert.equal(f.phone.draft, "keep-me");
+  });
 test("stale worker repair is bounded and busy work prevents destructive restart", async (t) => {
   const f = fixture(t);
   await f.enqueue();
