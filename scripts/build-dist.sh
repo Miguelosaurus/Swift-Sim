@@ -21,7 +21,7 @@ while IFS= read -r -d '' path; do
       ;;
     .agents/*|.claude-plugin/*|.cursor-plugin/*|plugins/*|Companion/*|\
     benchmarks/corpora/*|benchmarks/fixtures/*|benchmarks/schema/*|\
-    test/fixtures/*|mac-helper/*|scripts/*|packaging/*|README.md|CHANGELOG.md|\
+    test/fixtures/*|test/xcode-import-python/*|mac-helper/*|scripts/*|packaging/*|README.md|CHANGELOG.md|\
     LICENSE|SECURITY.md|package.json|package-lock.json)
       copy_tracked_asset "$path"
       ;;
@@ -69,5 +69,9 @@ mkdir -p "$DIST/mac-helper"
 printf '{\n  "version": 1,\n  "gitSHA": "%s"\n}\n' "$BUILD_GIT_SHA" \
   > "$DIST/mac-helper/build-provenance.json"
 chmod 0644 "$DIST/mac-helper/build-provenance.json"
+
+# Keep npm-linked local checkouts executable after tsc recreates dist. Package
+# managers repair bin modes at install time; an existing link has no such step.
+chmod +x "$DIST/mac-helper/bin/swift-sim-entry.js" "$DIST/mac-helper/bin/swift-sim-helper-entry.js"
 
 echo "Built compiled source tree at $DIST"

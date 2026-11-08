@@ -16,6 +16,12 @@ The full Latest Build card, including its padding, opens the install page on a
 single tap. A notification's background refresh cannot return the user to app
 history after they have already chosen a build or moved to another screen.
 
+## Ordinary Xcode builds
+
+[Optional Xcode integration](XCODE_BUILD_IMPORT.md) records signed Debug builds
+without copying their products. Installation needs exact device confirmation;
+compiler readiness is qualified separately. Disposable imported history is bounded.
+
 ## Build cache retention
 
 Completed builds automatically retire superseded compiler workspaces. Swift Sim

@@ -122,6 +122,23 @@ export interface DeviceBuildPendingRenewal {
 }
 
 export interface DeviceBuildRecord {
+  origin?: "xcode";
+  externalBuild?: {
+    schema: 1;
+    appPath: string;
+    teamID: string;
+    projectPath: string;
+    scheme: string;
+    binaryIdentity: {
+      bundle_id: string;
+      bundle_version: string;
+      build_number: string;
+      executable_uuid: string;
+      debug_dylib_uuid: string;
+    };
+    fingerprints: Readonly<Record<string, string>>;
+    sourceWitness?: { fingerprint: string; startedAt: string };
+  };
   id: string;
   token: string;
   tokenExpiredAt: string;

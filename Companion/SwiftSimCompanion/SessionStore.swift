@@ -621,7 +621,7 @@ final class SessionStore: ObservableObject {
         guard let build = currentDeviceBuild else { return nil }
 
         if let status = deviceBuildStatus {
-            guard status.id == build.id, status.isReady else { return nil }
+            guard status.id == build.id, status.isReady, status.signing.deviceInstallable else { return nil }
             if let expiry = status.expiryDate, expiry <= Date() {
                 return nil
             }
@@ -634,6 +634,7 @@ final class SessionStore: ObservableObject {
 
         guard let managedBuild = managedApps.lazy.flatMap(\.builds).first(where: { $0.id == build.id }),
               managedBuild.state == "ready",
+              managedBuild.origin != "xcode",
               managedBuild.isLinkActive else {
             return nil
         }
@@ -1485,7 +1486,7 @@ final class SessionStore: ObservableObject {
                     guard let link = status.links?.customScheme,
                           let url = URL(string: link),
                           let session = DeviceBuildSession(url: url) else { return nil }
-                    return ManagedBuild(session: session, status: status)
+                    return ManagedBuild(session: status.origin == "xcode" ? DeviceBuildSession(id: session.id, token: session.token, baseURL: mac.baseURL) : session, status: status)
                 }
                 guard let latest = builds.first else { continue }
                 var managed = ManagedApp(build: latest)
@@ -2161,6 +2162,7 @@ struct ManagedApp: Identifiable, Codable, Equatable {
 }
 
 struct ManagedBuild: Identifiable, Codable, Equatable {
+    var origin: String?
     let id: String
     let token: String
     let baseURLString: String
@@ -2206,6 +2208,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
     var libraryStatusText: String {
         if state == "failed" { return "Build failed" }
         if isPreparing { return state == "exporting" ? "Signing build" : "Building" }
+        if origin == "xcode" && !installationStatus.isInstalled { return "Built in Xcode" }
         switch installationStatus {
         case .verified, .launchConfirmed: return "Installed"
         case .requested: return "Install requested"
@@ -2237,6 +2240,7 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         installationState = status.installation?.state ?? "unknown"
         installRequestedAt = Self.parse(status.installation?.requestedAt)
         verifiedAt = Self.parse(status.installation?.verifiedAt)
+        origin = status.origin
         verifiedDevices = status.installation?.devices ?? []
         installationSource = status.installation?.source
         configuration = status.configuration
@@ -2323,7 +2327,8 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
             iconDigest: iconDigest,
             configuration: configuration,
             launchConfirmedAt: launchConfirmedAt,
-            lastSeenAt: lastSeenAt
+            lastSeenAt: lastSeenAt,
+            origin: origin
         )
     }
 
@@ -2350,8 +2355,10 @@ struct ManagedBuild: Identifiable, Codable, Equatable {
         iconDigest: String? = nil,
         configuration: String? = nil,
         launchConfirmedAt: Date? = nil,
-        lastSeenAt: Date? = nil
+        lastSeenAt: Date? = nil,
+        origin: String? = nil
     ) {
+        self.origin = origin
         self.id = id
         self.token = token
         self.baseURLString = baseURLString
@@ -2410,6 +2417,7 @@ enum InstallationState: Equatable {
 }
 
 struct DeviceBuildStatus: Decodable, Equatable {
+    let origin: String?
     let id: String
     let createdAt: String
     let updatedAt: String
@@ -2455,7 +2463,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
                 launchConfirmedAt: installation?.launchConfirmedAt,
                 lastSeenAt: installation?.lastSeenAt
             ),
-            links: links
+            links: links,
+            origin: origin
         )
     }
 
@@ -2476,7 +2485,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
             teamID: build.teamID,
             iconDigest: build.iconDigest
         )
-        signing = DeviceBuildSigning(method: "development", deviceInstallable: true, updateSafe: "same-bundle-update", warnings: [])
+        origin = build.origin
+        signing = DeviceBuildSigning(method: "development", deviceInstallable: build.origin != "xcode", updateSafe: "same-bundle-update", warnings: [])
         delivery = nil
         preserveData = true
         installation = DeviceBuildInstallation(
@@ -2505,7 +2515,8 @@ struct DeviceBuildStatus: Decodable, Equatable {
         delivery: DeviceBuildDelivery?,
         preserveData: Bool,
         installation: DeviceBuildInstallation?,
-        links: DeviceBuildLinks?
+        links: DeviceBuildLinks?,
+        origin: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -2514,6 +2525,7 @@ struct DeviceBuildStatus: Decodable, Equatable {
         self.state = state
         self.configuration = configuration
         self.liveReload = liveReload
+        self.origin = origin
         self.app = app
         self.signing = signing
         self.delivery = delivery

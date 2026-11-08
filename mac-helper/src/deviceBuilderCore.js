@@ -549,14 +549,14 @@ export function deviceBuildLinks(build, remoteBaseUrl = "") {
   return {
     universalLink,
     customScheme: `swift-sim://device-build/${encodeURIComponent(build.id)}?token=${encodeURIComponent(build.token)}${base ? `&base=${encodeURIComponent(base)}` : ""}`,
-    installURL: manifestURL ? `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestURL)}` : "",
+    installURL: manifestURL && build.origin !== "xcode" ? `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestURL)}` : "",
   };
 }
 
 export function publicDeviceBuild(build) {
   const liveReloadEligible = String(build.configuration || "").toLowerCase() === "debug"
-    && Boolean(build.liveReload?.eligible
-      || (build.buildSettings || []).some((setting) => String(setting).includes("-interposable")));
+    && Boolean(build.origin === "xcode" ? build.liveReload?.compilerReady === true : (build.liveReload?.eligible
+      || (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"))));
   return {
     id: build.id,
     createdAt: build.createdAt,
@@ -564,6 +564,7 @@ export function publicDeviceBuild(build) {
     expiresAt: build.expiresAt,
     state: build.state,
     configuration: build.configuration || "Release",
+    ...(build.origin === "xcode" ? { origin: "xcode" } : {}),
     liveReload: {
       eligible: liveReloadEligible,
       mode: "debug-only",
@@ -741,7 +742,7 @@ async function runLogged(command, args, log, { env = process.env, build } = {}) 
   const result = await runBuffered(command, args, {
     onLine: log,
     timeoutMs: 30 * 60 * 1000,
-    env,
+    env: build ? { ...env, SWIFT_SIM_MANAGED_BUILD: "1" } : env,
     cancelPath: build?.control?.cancelPath || "",
   });
   if (result.cancellationError) throw result.cancellationError;

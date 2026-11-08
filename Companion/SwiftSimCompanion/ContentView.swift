@@ -856,6 +856,7 @@ private struct ManagedAppDetailView: View {
     }
 
     private func latestBuildDetail(_ build: ManagedBuild) -> String {
+        if build.origin == "xcode" && !build.installationStatus.isInstalled { return "Built in Xcode • no exported copy" }
         if build.isPreparing { return "Building current code" }
         if build.state == "failed" { return "Build failed — open for details" }
         switch build.installationStatus {
@@ -944,6 +945,7 @@ private struct BuildHistoryRow: View {
     }
 
     private var buildStatus: String {
+        if build.origin == "xcode" && !build.installationStatus.isInstalled { return "Built in Xcode" }
         if build.isPreparing { return "Building" }
         if build.state == "failed" { return "Failed" }
         switch build.installationStatus {
@@ -1394,6 +1396,7 @@ private struct DeviceBuildView: View {
     }
 
     private var installStatusTitle: String {
+        if status?.origin == "xcode" && !installationStatus.isInstalled { return "Built in Xcode" }
         switch installationStatus {
         case .launchConfirmed: return "Installed & launched"
         case .verified: return "Installed"
@@ -1416,6 +1419,9 @@ private struct DeviceBuildView: View {
     }
 
     private var installStatusDetail: String {
+        if status?.origin == "xcode" && !installationStatus.isInstalled {
+            return "Recorded from Xcode. A downloadable copy has not been exported. Installation is confirmed when the connected Debug app opens."
+        }
         switch installationStatus {
         case .launchConfirmed:
             let seen = status?.installation?.lastSeenAt ?? status?.installation?.launchConfirmedAt

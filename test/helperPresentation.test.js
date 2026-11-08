@@ -44,7 +44,8 @@ test("device build fallback page preserves ready, failed, warning, and install p
   });
   assert.ok(failed.includes("background: #ff3b30"));
   assert.ok(failed.includes("background: #8f98a3"));
-  assert.ok(failed.includes('href="#"'));
+  assert.ok(!failed.includes('href="#"'));
+  assert.ok(!failed.includes(">Install directly<"));
 });
 
 test("apple app site association preserves session, pairing, and device-install components", () => {
@@ -64,4 +65,11 @@ test("apple app site association preserves session, pairing, and device-install 
       ],
     },
   });
+});
+
+
+test("metadata-only Xcode history never offers a missing installer", () => {
+ const html = renderDeviceBuildFallbackPage({build: {state:"ready",scheme:"App",expiresAt:new Date().toISOString(),app:{name:"App"},signing:{}}, links:{customScheme:"swift-sim://device-build/fixture",installURL:""}});
+ assert.match(html,/recorded without a downloadable copy/);
+ assert.doesNotMatch(html,/>Install directly<|href="#"/);
 });

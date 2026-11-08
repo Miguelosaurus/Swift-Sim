@@ -245,8 +245,9 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
     listBuilds: () => deviceBuildStore.list(),
     listObservedBuilds: () => deviceBuildStore.readOnly(state => [...state.builds.values()].map(build => ({
-      project: build.project, scheme: build.scheme,
-      app: { bundleIdentifier: build.app?.bundleIdentifier, teamID: build.app?.teamID },
+      id: build.id, state: build.state, configuration: build.configuration, createdAt: build.createdAt,
+      origin: build.origin, externalBuild: build.externalBuild, project: build.project, scheme: build.scheme,
+      app: { bundleIdentifier: build.app?.bundleIdentifier, teamID: build.app?.teamID, version: build.app?.version, build: build.app?.build },
       liveReload: { recovery: { provenance: { binaryIdentity: build.liveReload?.recovery?.provenance?.binaryIdentity } } },
     }))),
     readCapture: createQualifiedLaunchCaptureReader(join(homedir(), ".swift-sim", "live", "compilations.json")),

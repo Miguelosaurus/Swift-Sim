@@ -25,10 +25,12 @@ function scan(root) {
 }
 export function snapshotBuildInputs(root) {
   const before = scan(root);
-  return () => {
+  const verify = () => {
     const after = scan(root);
     if (before.size !== after.size || [...before].some(([path, value]) => after.get(path) !== value)) {
       throw Object.assign(new Error("Project inputs changed during the build. The build was held; no installation was requested."), { code: "BUILD_INPUTS_CHANGED" });
     }
   };
+  verify.fingerprint = createHash("sha256").update(JSON.stringify([...before])).digest("hex");
+  return verify;
 }

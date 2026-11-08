@@ -737,7 +737,7 @@ export function inspectLiveBuildResult({ resultBundle, appPath = "", projectPath
     sourceFiles,
     projectFiles: [...extraInputs].map((input) => resolve(input)).sort().map((input) => ({ path: input, ...registrationFileFingerprint(input, 16 * 1024 * 1024) })),
   };
-  return { commands, compilations, provenance, presentation, ...(stateful ? { stateful } : {}) };
+  return { commands, compilations, provenance, presentation, linkerCommands: capturedLinkerCommands(log), ...(stateful ? { stateful } : {}) };
 }
 
 async function registerLiveBuildResultUnlocked(options) {
@@ -1405,6 +1405,19 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
       ? "Live patching is connected."
       : "The engine is ready. Launch the live-enabled Debug app on the iPhone to connect.",
   };
+}
+
+// Full-build qualification only; never runs in the warm edit path.
+function capturedLinkerCommands(value, output = []) {
+  if (Array.isArray(value)) { for (const item of value) capturedLinkerCommands(item, output); return output; }
+  if (!value || typeof value !== "object") return output;
+  if (typeof value.emittedOutput === "string") for (const line of value.emittedOutput.split(/\r?\n/)) {
+    if (!line.includes("-interposable")) continue;
+    const tokens = splitShellCommand(line.trim());
+    if (/(?:^|\/)(?:clang|clang\+\+|ld)$/.test(tokens[0] || "")) output.push(tokens);
+  }
+  for (const nested of Object.values(value)) capturedLinkerCommands(nested, output);
+  return output;
 }
 
 function frontendCommandLines(value, output = []) {

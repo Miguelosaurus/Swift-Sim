@@ -162,6 +162,7 @@ Read only the branch-specific reference:
   version drift, or helper readiness;
 - [live project integration](references/live-project-integration.md) for
   `SwiftSimLive`, the Debug session, or live proof;
+- [Xcode imports](references/xcode-builds.md) for ordinary Build/Run history;
 - [signed device builds](references/signed-device-builds.md) for signing,
   install links, app identity, or Build Current Code;
 - [pairing](references/pairing.md) for pairing, QR invitations, or session
@@ -172,6 +173,4 @@ Read only the branch-specific reference:
   plus [security boundaries](references/security-boundaries.md) for transport,
   token, privacy, or release questions.
 
-Codex, Cursor, Claude Code, and OpenCode use this same packaged skill and
-references. Host-specific remote-control details remain in the references.
-
+Codex, Cursor, Claude Code, and OpenCode share these instructions.

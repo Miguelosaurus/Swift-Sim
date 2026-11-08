@@ -275,3 +275,27 @@ test("unknown binaries use compact observation metadata rather than full build r
     assert.equal(service.detectedBuildFor({ bundleIdentifier: identity.bundle_id, teamID: "FIXTURETEAM" }).build, "28");
   } finally { f.cleanup(); }
 });
+
+test("Xcode import confirms only the exact connected binary, without compiler authority", async () => {
+  const { importXcodeMetadata } = await import("../mac-helper/src/xcodeImport.js");
+  for (const malformed of [false, "capabilities", "revision", "inactive"]) {
+    const f = fixture();
+    try {
+      const binary = { ...identity, build_number: "29", executable_uuid: "33333333-3333-3333-3333-333333333333" };
+      const imported = importXcodeMetadata(f.store, { project: f.created.project, scheme: "Example", metadata: {
+        schema: 1, appPath: join(f.root, "Xcode/Example.app"), teamID: "FIXTURETEAM", binaryIdentity: binary,
+        fingerprints: { "Info.plist": hash("imported") },
+      } }, f.clock() - 1000).build;
+      Object.assign(f.native.status.data.client_identity, binary);
+      if (malformed === "capabilities") f.native.status.data.client_capabilities = "prepared-delivery-v1 receipt-v1 replacement-proof-v2";
+      if (malformed === "revision") delete f.native.status.data.client_identity.root_revision;
+      if (malformed === "inactive") f.native.status.data.client_identity.is_active = false;
+      f.options.listObservedBuilds = () => f.store.list();
+      const result = await f.service().runOnce();
+      assert.equal(result.changed, !malformed);
+      const saved = f.store.get(imported.id);
+      assert.equal(saved.installation.state, malformed ? "unknown" : "launch-confirmed");
+      assert.equal(saved.liveReload.compilerReady, false);
+    } finally { f.cleanup(); }
+  }
+});

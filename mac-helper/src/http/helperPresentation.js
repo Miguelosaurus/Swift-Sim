@@ -94,14 +94,14 @@ export function renderDeviceBuildFallbackPage({ build, links }) {
   <main>
     <div class="status"><span class="dot"></span>Opening Swift Sim</div>
     <h1>${escapeHtml(build.app.name || build.scheme || "iOS App")}</h1>
-    <p>Swift Sim saves this version, then opens the iOS install prompt. Updates normally keep your login and app data.</p>
+    ${links.installURL ? "<p>Swift Sim saves this version, then opens the iOS install prompt. Updates normally keep your login and app data.</p>" : "<p>This build is recorded without a downloadable copy. Open Swift Sim to see its status.</p>"}
     <div class="meta">
       <strong>App ID: ${escapeHtml(build.app.bundleIdentifier || "Not available")}</strong><br>
       Link expires ${escapeHtml(new Date(build.expiresAt).toLocaleString())}
     </div>
     ${warnings ? `<ul>${warnings}</ul>` : ""}
     <a class="button" href="${escapeHtml(links.customScheme)}">Open in Swift Sim</a>
-    <a class="secondary" href="${escapeHtml(installURL)}">Install directly</a>
+    ${links.installURL ? `<a class="secondary" href="${escapeHtml(installURL)}">Install directly</a>` : "<p>No downloadable copy has been exported.</p>"}
     <div class="fallback">Installing directly will not save this version in Swift Sim.</div>
   </main>
 </body>

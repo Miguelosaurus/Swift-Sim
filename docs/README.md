@@ -48,3 +48,5 @@ Public procedures use a controlled, direct style:
 Code identifiers, commands, API routes, Apple terms, and product names are technical terms. Do not simplify or rename them.
 
 - [Activity and notifications](NOTIFICATIONS.md): inbox, optional push, app handoff and remote launch history.
+
+- [Ordinary Xcode builds](XCODE_BUILD_IMPORT.md): bounded metadata import, exact install evidence, and explicit exports.

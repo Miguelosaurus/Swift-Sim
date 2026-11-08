@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { externalLaunchBuildMatches, externalBuildDigest } from "./xcodeImport.js";
 import { liveBinaryMatches, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 
 const HASH = /^[a-f0-9]{64}$/;
@@ -76,7 +77,8 @@ export function createRemoteLaunchVerifier({ listBuilds, readCapture, inspectCli
     const nextDetection = untrackedObservation(capture, observed, builds, timestamp);
     if (nextDetection) detected = nextDetection;
     else detected = null;
-    const proof = nativeObservation(capture, observed, timestamp);
+    const proof = nativeObservation(capture, observed, timestamp)
+      || externalNativeObservation(capture, observed, builds, timestamp);
     if (!proof) return { changed: false };
     const candidates = builds.filter((build) => launchBuildMatches(build, proof));
     // Two records claiming the same binary do not identify a unique build.
@@ -109,6 +111,7 @@ export function createRemoteLaunchVerifier({ listBuilds, readCapture, inspectCli
 // Rechecked by the store under its transaction, not just by a poll's snapshot.
 export function launchBuildMatches(build, proof) {
   try {
+    if (build?.origin === "xcode" && externalLaunchBuildMatches(build, proof)) return true;
     const provenance = build?.liveReload?.recovery?.provenance;
     const createdAt = Date.parse(build?.createdAt || "");
     return build?.state === "ready" && String(build.configuration).toLowerCase() === "debug"
@@ -183,15 +186,33 @@ function untrackedObservation(capture, observed, builds, at) {
     const client = status?.client_identity;
     if (status?.has_connected_client !== true || status.engine_instance_nonce !== capture.registration.engineNonce
       || client?.is_active !== true || client.root_ready !== true || !ID.test(client.process_nonce || "")
-      || !ID.test(client.connection_nonce || "") || !CAPABILITIES.every(value => status.client_capabilities?.includes(value))) return null;
+      || !ID.test(client.connection_nonce || "") || !Array.isArray(status.client_capabilities) || !CAPABILITIES.every(value => status.client_capabilities.includes(value))) return null;
     const identity = normalizedLiveBinaryIdentity(client);
     if (!/^[A-Za-z0-9_.+-]{1,80}$/.test(identity.bundle_version) || !/^[A-Za-z0-9_.+-]{1,40}$/.test(identity.build_number)) return null;
     const known = builds.filter(build => build.app?.bundleIdentifier === identity.bundle_id);
     const teams = new Set(known.map(build => build.app?.teamID).filter(Boolean));
-    if (teams.size !== 1 || known.some(build => liveBinaryMatches(build.liveReload?.recovery?.provenance?.binaryIdentity, identity))) return null;
+    if (teams.size !== 1 || known.some(build => liveBinaryMatches(build.externalBuild?.binaryIdentity || build.liveReload?.recovery?.provenance?.binaryIdentity, identity))) return null;
     const bound = known.some(build => build.project && resolve(build.project) === projectContainer(capture.binding.projectPath)
       && build.scheme === capture.binding.scheme && build.app?.teamID && build.app.bundleIdentifier === capture.binaryIdentity.bundle_id);
     if (!bound || identity.bundle_id !== capture.binaryIdentity.bundle_id) return null;
     return { bundle: identity.bundle_id, team: [...teams][0], version: identity.bundle_version, build: identity.build_number, at };
+  } catch { return null; }
+}
+
+function externalNativeObservation(capture, observed, builds, at) {
+  const status = observed?.status?.success === true ? observed.status.data : null;
+  const client = status?.client_identity;
+  if (status?.engine_instance_nonce !== capture.registration.engineNonce || status?.prepared_delivery_protocol !== 1
+    || status.has_connected_client !== true || client?.is_active !== true || client.root_ready !== true
+    || !ID.test(client.process_nonce || "") || !ID.test(client.connection_nonce || "")
+    || !Number.isSafeInteger(client.root_revision) || client.root_revision < 0
+    || !Array.isArray(status.client_capabilities) || !CAPABILITIES.every(value => status.client_capabilities.includes(value))) return null;
+  try {
+    const binaryIdentity = normalizedLiveBinaryIdentity(client);
+    const matches = builds.filter(build => build.origin === "xcode" && liveBinaryMatches(build.externalBuild?.binaryIdentity, binaryIdentity)
+      && projectContainer(build.project) === projectContainer(capture.binding.projectPath) && build.scheme === capture.binding.scheme);
+    if (matches.length !== 1) return null;
+    return { observedAt: at, binaryIdentity, fingerprint: hash(client.process_nonce), processFingerprint: hash(client.process_nonce),
+      projectPath: capture.binding.projectPath, scheme: capture.binding.scheme, provenanceDigest: externalBuildDigest(matches[0].externalBuild) };
   } catch { return null; }
 }

@@ -86,6 +86,27 @@ async function main() {
     if (result.outcome !== "context-ready") process.exitCode = 1;
     return;
   }
+  if (["xcode-build-start", "export-xcode-build", "qualify-xcode-build"].includes(command)) {
+    const { values } = parseArgs({ args, options: { project: { type: "string" }, scheme: { type: "string" }, "build-id": { type: "string" }, output: { type: "string" }, "result-bundle": { type: "string" } } });
+    const api = await import("../src/xcodeImport.js");
+    const input = { ...values, buildID: values["build-id"], resultBundle: values["result-bundle"] };
+    console.log(JSON.stringify(await (command === "xcode-build-start" ? api.startXcodeBuildWitness(input)
+      : command === "export-xcode-build" ? api.exportXcodeBuild(input) : api.qualifyXcodeBuild(input)))); return;
+  }
+  if (command === "import-xcode-build") {
+    const { values } = parseArgs({ args, options: { app: { type: "string" }, project: { type: "string" }, scheme: { type: "string" } } });
+    const { importXcodeBuild } = await import("../src/xcodeImport.js");
+    console.log(JSON.stringify(await importXcodeBuild(values))); return;
+  }
+  if (command === "integrate-xcode") {
+    const { values } = parseArgs({ args, options: { project: { type: "string" }, scheme: { type: "string" }, remove: { type: "boolean" }, executable: { type: "string" } } });
+    const { runCommandWithDeadline } = await import("../src/deviceInventory.js");
+    const call = [fileURLToPath(new URL("../optional/xcode-import/scheme.py", import.meta.url)), "--project", values.project, "--scheme", values.scheme];
+    if (values.remove) call.push("--remove");
+    if (values.executable) call.push("--executable", values.executable);
+    const result = await runCommandWithDeadline("python3", call, { timeoutMs: 15000 });
+    console.log(result.stdout.trim()); if (result.code !== 0) process.exitCode = 1; return;
+  }
   if (command === "build-delivery-status" || command === "deliver-build") {
     const { values } = parseArgs({ args, options: { "build-id": { type: "string" }, project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" }, device: { type: "string" } } });
     const { deliverSavedBuild } = await import("../src/buildDelivery.js");
@@ -984,6 +1005,10 @@ Usage:
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
   swift-sim route-change ...      Choose hot reload or a new signed build
   swift-sim deliver-change ...    Deliver edits to iPhone; --install auto|link
+  swift-sim integrate-xcode ...   Add/remove bounded Debug build hooks
+  swift-sim import-xcode-build ... Record signed Xcode output without copying it
+  swift-sim export-xcode-build ... Export one recorded app to a new local IPA
+  swift-sim qualify-xcode-build ... Validate explicit compiler context and phone proof
   swift-sim deliver-build ...     Install or queue an existing signed build
   swift-sim build-delivery-status ...  Read a build delivery without resubmitting
   swift-sim live-delivery-status  Read a queued request with --request
