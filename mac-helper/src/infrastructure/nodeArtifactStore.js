@@ -2,6 +2,7 @@
 import {
   closeSync,
   constants,
+  createReadStream,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -12,6 +13,7 @@ import {
   writeSync,
 } from "node:fs";
 import { lstat, mkdir, open, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /** @typedef {import("./ports.js").ArtifactStore} ArtifactStore */
@@ -126,6 +128,39 @@ export class NodeArtifactStore {
       return new Uint8Array(readFileSync(descriptor));
     } finally {
       closeSync(descriptor);
+    }
+  }
+
+  /** Stream a signed artifact without following links or accepting a changed file.
+   * @param {string} path
+   */
+  async sha256(path) {
+    const approved = this.approved(path);
+    await assertApprovedComponents(approved);
+    const handle = await open(approved.path, constants.O_RDONLY | noFollowFlag());
+    try {
+      const before = await handle.stat();
+      if (!before.isFile() || before.nlink !== 1 || before.size < 1)
+        throw invalidArtifactPathError();
+      const hash = createHash("sha256");
+      for await (const part of createReadStream(approved.path, { fd: handle.fd, autoClose: false }))
+        hash.update(part);
+      await assertApprovedComponents(approved);
+      const after = await handle.stat();
+      const current = await lstat(approved.path);
+      if (
+        !sameIdentity(identityOf(before), identityOf(current)) ||
+        current.nlink !== 1 ||
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs ||
+        before.ctimeMs !== after.ctimeMs
+      )
+        throw Object.assign(new Error("The signed artifact changed while reading."), {
+          code: "ARTIFACT_CHANGED",
+        });
+      return hash.digest("hex");
+    } finally {
+      await handle.close();
     }
   }
 

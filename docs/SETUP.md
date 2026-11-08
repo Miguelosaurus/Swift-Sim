@@ -237,25 +237,22 @@ Do not add live loading to Release, TestFlight, or App Store configurations.
 
 ## Swift Package Manager Version Pin
 
-The `SwiftSimLive` package intentionally pins the Swift Sim InjectionNext fork
-to an immutable revision. The upstream semver tags do not contain Swift Sim's
-headless control protocol, so changing the dependency to a stable InjectionNext
-version removes the engine behavior that live registration requires.
-
-If SwiftPM reports that a stable Swift Sim package depends on an unstable
-`InjectionNext` revision, pin Swift Sim itself to an immutable commit in the
-app's `Package.swift`:
+Swift Sim 0.6.2 pins the fork's exact `0.5.7` package tag, matching its
+verified engine archive and source revision in the compatibility contract.
+After that Swift Sim release is published, apps can use a stable exact version:
 
 ```swift
 .package(
     url: "https://github.com/Miguelosaurus/Swift-Sim.git",
-    revision: "<immutable Swift Sim commit>"
+    exact: "0.6.2"
 )
 ```
 
-Use the commit from the Swift Sim release being installed. Do not use an exact
-Swift Sim version until the engine fork publishes a semver tag for the matching
-control-protocol revision.
+Older Swift Sim releases that depend on an unversioned engine revision may
+require pinning Swift Sim itself to the immutable commit from that release.
+Do not substitute an unrelated upstream InjectionNext tag: it may lack Swift
+Sim's control protocol. `npm run check:engine-publication` verifies the matching
+public fork tag, source revision and binary archive before publication.
 
 ## Update Swift Sim
 
@@ -284,3 +281,19 @@ Optional [activity notifications](NOTIFICATIONS.md) add an inbox and per-Mac
 alerts. The inbox needs no Apple push key; OS alerts require APNs credentials and
 a push-enabled signed Companion. Inspect configuration with
 `swift-sim notifications status`.
+
+
+### Matching components and safe engine updates
+
+The package includes one compatibility contract for the CLI/helper, agent
+integrations, Debug SDK and pinned hot-reload engine. `swift-sim setup` checks
+the engine archive checksum, app signature and identity before replacement.
+A failed or interrupted update restores the previous app and its exact
+manifest. At most one previous copy remains if cleanup is temporarily blocked;
+the next explicit setup finishes cleanup. There is no updater timer.
+
+`swift-sim doctor --json` separates local component compatibility from phone
+proof. An installed executable alone does not make hot reload ready. Explicit
+local candidates remain explicit; setup never silently downgrades them. The
+phone's matching SDK is checked when its Debug app connects, and a successful
+replacement still requires the native applied/refresh receipt.

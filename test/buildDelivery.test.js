@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deliverSavedBuild, holdChangedBuild } from "../mac-helper/src/buildDelivery.js";
+import { deliverSavedBuild, holdChangedBuild, noForegroundJournal } from "../mac-helper/src/buildDelivery.js";
 const buildID = "11111111-1111-1111-1111-111111111111";
 function fixture() {
   const calls = [];
@@ -70,4 +70,22 @@ test("a mixed-source automatic build is failed and its install capability expire
   let writes = 0;
   await holdChangedBuild(buildID, { get: () => null, save: () => { writes++; } });
   assert.equal(writes, 0);
+});
+
+
+test("the actual root foreground journal fences every alternate installation route", async t => {
+  const { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-route-fence-"));
+  chmodSync(root, 0o700); t.after(() => rmSync(root, { recursive: true, force: true }));
+  const build = { app: { bundleIdentifier: "app" } };
+  mkdirSync(join(root, "live"), { mode: 0o700 });
+  writeFileSync(join(root, "live", "install-requests.json"), "[]", { mode: 0o600 });
+  writeFileSync(join(root, "install-requests.json"), JSON.stringify([{selector:{bundle_id:"app"},state:"unconfirmed"}]), { mode: 0o600 });
+  assert.equal(noForegroundJournal(build, root), false);
+  writeFileSync(join(root, "install-requests.json"), "{");
+  assert.equal(noForegroundJournal(build, root), false);
+  writeFileSync(join(root, "install-requests.json"), "[]");
+  assert.equal(noForegroundJournal(build, root), true);
 });

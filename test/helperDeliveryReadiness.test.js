@@ -66,7 +66,7 @@ test("refused helper connections are actionable and retain sanitized transport c
 test("healthy response uses the same readiness contract and returns no raw payload", async () => {
   await withHealthServer((_req, res) => res.end(JSON.stringify(payload)), async (port) => {
     const report = await deliveryRuntimeHealth({ inspect: () => inspectRuntimeHealth(`http://127.0.0.1:${port}/health`) });
-    assert.deepEqual(report, { ok: true, version: payload.version, protocol: payload.protocol, queueReady: true });
+    assert.deepEqual(report, { ok: true, version: payload.version, protocol: payload.protocol, capabilities: payload.capabilities, queueReady: true });
   });
 });
 

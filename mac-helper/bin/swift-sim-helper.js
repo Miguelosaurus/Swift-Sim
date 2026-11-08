@@ -63,6 +63,7 @@ import { liveDeliveryService } from "../src/liveDeliveryService.js";
 import { liveRuntimeLockManager } from "../src/liveEngineLifecycleLock.js";
 import { queuedLiveEngineControl } from "../src/liveReload.js";
 import { createActivityStore } from "../src/activityStore.js";
+import { createInstallPresentationReader } from "../src/installPresentationReader.js";
 import { createActivityService, activityBuildView, activityLiveDeliveryView } from "../src/activityService.js";
 import { handleActivityRoutes } from "../src/http/activityRoutes.js";
 import { liveBinaryMatches } from "../src/liveBinaryIdentity.js";
@@ -88,6 +89,7 @@ let adapter;
 let transports;
 let sessionRuntime;
 let deviceBuildRuntime;
+let appDeliveryStatus;
 let remoteLaunchVerifier;
 let setupStatusRuntime;
 let clock;
@@ -239,9 +241,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
       const pairing = pairingStore.current();
       return { epoch: createHash("sha256").update(pairing.token).digest("hex"), installationId: pairing.installationID };
     },
+    readInstallPresentations: createInstallPresentationReader(),
     listBuilds: () => deviceBuildStore.readOnly(activityBuildView),
     listLiveDeliveries: () => activityLiveDeliveryView(liveDeliveryService().queue),
   });
+  appDeliveryStatus = activity ? appID => activity.deliveryStatusForApp(appID) : null;
   remoteLaunchVerifier = deviceBuildsOnly ? null : createRemoteLaunchVerifier({
     listBuilds: () => deviceBuildStore.list(),
     listObservedBuilds: () => deviceBuildStore.readOnly(state => [...state.builds.values()].map(build => ({
@@ -523,5 +527,6 @@ function projectDeviceBuild(build) {
 function projectDeviceApp(app) {
   const projected = publicDeviceApp({ ...app, builds: (app.builds || []).map((build) => deviceBuildRuntime.projectBuildState(build)) });
   const detectedBuild = remoteLaunchVerifier?.detectedBuildFor(app);
-  return { ...projected, ...(detectedBuild ? { detectedBuild } : {}) };
+  const deliveryStatus = appDeliveryStatus?.(app.id);
+  return { ...projected, ...(deliveryStatus ? { deliveryStatus } : {}), ...(detectedBuild ? { detectedBuild } : {}) };
 }

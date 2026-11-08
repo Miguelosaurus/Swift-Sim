@@ -543,6 +543,7 @@ private struct PasteLinkSheet: View {
 
 private struct ManagedAppDetailView: View {
     @EnvironmentObject private var sessionStore: SessionStore
+    @EnvironmentObject private var activity: ActivityCenter
     let app: ManagedApp
     @State private var showingDeleteConfirmation = false
     @State private var showingBuildConfirmation = false
@@ -650,6 +651,12 @@ private struct ManagedAppDetailView: View {
                 Label(statusText, systemImage: statusSymbol)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(statusColor)
+                if let deliveryStatus, !["none", "wait"].contains(deliveryStatus.nextAction) {
+                    Text(deliveryStatus.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
                 Button {
                     sessionStore.appTestingAppName = app.displayName.swiftSimDisplayName
                     sessionStore.appTestingBundleID = app.bundleIdentifier
@@ -818,8 +825,11 @@ private struct ManagedAppDetailView: View {
             .buttonStyle(.plain)
     }
 
+    private var deliveryStatus: AppDeliveryPresentation? { activity.deliveryStatus(for: app) }
+
     private var statusText: String {
         if app.isArchived { return "Archived" }
+        if let deliveryStatus { return deliveryStatus.label(for: app.displayName.swiftSimDisplayName) }
         if app.latestBuild?.isPreparing == true { return "Building current code" }
         if app.latestBuild?.state == "failed" { return "Build needs attention" }
         switch app.latestBuild?.installationStatus {
@@ -834,6 +844,7 @@ private struct ManagedAppDetailView: View {
 
     private var statusSymbol: String {
         if app.isArchived { return "archivebox.fill" }
+        if let deliveryStatus { return deliveryStatus.symbol }
         if app.latestBuild?.isPreparing == true { return "hammer.circle.fill" }
         if app.latestBuild?.state == "failed" { return "exclamationmark.triangle.fill" }
         switch app.latestBuild?.installationStatus {
@@ -846,6 +857,7 @@ private struct ManagedAppDetailView: View {
 
     private var statusColor: Color {
         if app.isArchived { return .secondary }
+        if let deliveryStatus { return deliveryStatus.completionVerified ? .green : deliveryStatus.needsAttention ? .orange : .blue }
         if app.latestBuild?.isPreparing == true { return .blue }
         if app.latestBuild?.state == "failed" { return .orange }
         switch app.latestBuild?.installationStatus {
@@ -1518,6 +1530,7 @@ private struct SessionRow: View {
 
 private struct ManagedAppRow: View {
     @EnvironmentObject private var sessionStore: SessionStore
+    @EnvironmentObject private var activity: ActivityCenter
     let app: ManagedApp
 
     var body: some View {
@@ -1560,9 +1573,14 @@ private struct ManagedAppRow: View {
         .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
     }
 
-    private var statusLabel: String { app.recentDetectedBuild == nil ? (app.latestBuild?.libraryStatusText ?? "No builds yet") : "Untracked Debug build detected" }
+    private var deliveryStatus: AppDeliveryPresentation? { activity.deliveryStatus(for: app) }
+
+    private var statusLabel: String {
+        if let deliveryStatus { return deliveryStatus.label(for: app.displayName.swiftSimDisplayName) }
+        return app.recentDetectedBuild == nil ? (app.latestBuild?.libraryStatusText ?? "No builds yet") : "Untracked Debug build detected" }
 
     private var appAccent: Color {
+        if let deliveryStatus { return deliveryStatus.completionVerified ? .green : deliveryStatus.needsAttention ? .orange : .blue }
         if app.recentDetectedBuild != nil { return .blue }
         if app.latestBuild?.state == "failed" { return .orange }
         switch app.latestBuild?.installationStatus {

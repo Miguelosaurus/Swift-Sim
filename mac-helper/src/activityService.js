@@ -1,3 +1,4 @@
+import { selectDeliveryPresentations } from "./deliveryPresentation.js";
 import { activityEventId, safeActivityLaunchURL } from "./activityStore.js";
 import { createApnsProvider } from "./apnsProvider.js";
 import { isAbsolute, join, resolve } from "node:path";
@@ -14,9 +15,9 @@ export function activityLiveDeliveryView(queue) {
   return records.map((record) => readiness.has(record.requestId) ? { ...record, readiness: readiness.get(record.requestId) } : record);
 }
 
-export function createActivityService({ store, provider = createApnsProvider(), getPairing, listBuilds = () => [], listLiveDeliveries = () => [], now = () => Date.now() } = {}) {
+export function createActivityService({ store, provider = createApnsProvider(), getPairing, listBuilds = () => [], listLiveDeliveries = () => [], readInstallPresentations = () => new Map(), now = () => Date.now() } = {}) {
   if (!store || typeof getPairing !== "function") throw new TypeError("Activity service requires a store and current pairing authority.");
-  let running; let refreshing; let stopped = false; const cancellation = new AbortController();
+  let running; let refreshing; let deliveryStatuses = {}; let statusEpoch = ""; let statusAt = 0; let stopped = false; const cancellation = new AbortController();
   function authority() {
     const value = getPairing();
     if (!value || !/^[a-f0-9]{64}$/.test(value.epoch || "") || typeof value.installationId !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(value.installationId)) throw new Error("Activity pairing authority is unavailable.");
@@ -30,8 +31,10 @@ export function createActivityService({ store, provider = createApnsProvider(), 
     refreshing = (async () => {
       const pairing = authority(); const status = providerState();
       const snapshot = store.snapshot();
-      const { entries, observations } = activitySnapshotEvents({ builds: listBuilds(), liveDeliveries: listLiveDeliveries(), previous: snapshot.observations, knownEvents: snapshot.events, now: now() });
+      const builds = listBuilds();
+      const { entries, observations, presentations } = activitySnapshotEvents({ builds, installations: readInstallPresentations(builds), liveDeliveries: listLiveDeliveries(), previous: snapshot.observations, knownEvents: snapshot.events, now: now() });
       await store.sync({ entries, observations, epoch: pairing.epoch, providerGeneration: status.generation, notifyReady: status.configured === true, isCurrent: () => authority().epoch === pairing.epoch });
+      deliveryStatuses = presentations; statusEpoch = pairing.epoch; statusAt = now();
       return { pairing, status };
     })().finally(() => { refreshing = null; });
     return refreshing;
@@ -68,6 +71,7 @@ export function createActivityService({ store, provider = createApnsProvider(), 
   }
   return Object.freeze({
     refresh: refreshSnapshots,
+    deliveryStatusForApp(appID) { return statusEpoch === authority().epoch && now() - statusAt <= 30000 ? structuredClone(deliveryStatuses[appID] || null) : null; },
     runOnce() {
       if (stopped) return Promise.resolve({ processed: false });
       if (running) return running;
@@ -75,7 +79,7 @@ export function createActivityService({ store, provider = createApnsProvider(), 
     },
     feed({ after = 0, deviceId } = {}) {
       const pairing = authority();
-      return { ...store.feed({ after, deviceId, epoch: pairing.epoch }), installationId: pairing.installationId, notificationStatus: publicProviderState() };
+      return { ...store.feed({ after, deviceId, epoch: pairing.epoch }), installationId: pairing.installationId, notificationStatus: publicProviderState(), deliveryStatus: { schemaVersion: 1, apps: statusEpoch === pairing.epoch && now() - statusAt <= 30000 ? structuredClone(deliveryStatuses) : {} } };
     },
     async registerDevice(input) {
       const pairing = authority(); const status = providerState();
@@ -95,10 +99,10 @@ export function createActivityService({ store, provider = createApnsProvider(), 
 // Notifications need neither historical log bodies nor compiler source maps.
 export function activityBuildView(state) {
   return [...state.builds.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map(build => ({
-    id: build.id, state: build.state, createdAt: build.createdAt, updatedAt: build.updatedAt,
+    id: build.id, origin: build.origin, appId: build.app?.identity, state: build.state, createdAt: build.createdAt, updatedAt: build.updatedAt,
     configuration: build.configuration, remoteBaseUrl: build.remoteBaseUrl,
     tokenExpiredAt: build.tokenExpiredAt, expiresAt: build.expiresAt,
-    app: { name: build.app?.name, bundleIdentifier: build.app?.bundleIdentifier, version: build.app?.version, build: build.app?.build },
+    app: { identity: build.app?.identity, teamID: build.app?.teamID, name: build.app?.name, bundleIdentifier: build.app?.bundleIdentifier, version: build.app?.version, build: build.app?.build },
     artifacts: { ipaPath: build.artifacts?.ipaPath },
     logs: build.logs?.length ? [build.logs.at(-1)] : [],
     installation: { state: build.installation?.state, launchConfirmedAt: build.installation?.launchConfirmedAt, lastSeenAt: build.installation?.lastSeenAt, verifiedAt: build.installation?.verifiedAt },
@@ -109,9 +113,10 @@ export function activityBuildView(state) {
   }));
 }
 
-export function activitySnapshotEvents({ builds = [], liveDeliveries = [], previous = {}, knownEvents = [], now = Date.now() } = {}) {
-  const entries = []; const observations = {};
+export function activitySnapshotEvents({ builds = [], liveDeliveries = [], installations = new Map(), previous = {}, knownEvents = [], now = Date.now() } = {}) {
+  const entries = []; const observations = {}; const current = [];
   function add(key, event) {
+    current.push(event);
     const fingerprint = activityEventId([event.kind, event.state, event.title, event.message, event.revision || 0, event.launchURL || ""]);
     observations[key] = fingerprint;
     if (previous[key] !== fingerprint) entries.push({ id: activityEventId(key), ...event });
@@ -121,13 +126,19 @@ export function activitySnapshotEvents({ builds = [], liveDeliveries = [], previ
     const time = parseTime(build.updatedAt || build.createdAt, now);
     const targetAppName = safeAppName(build.app?.name);
     const title = (text) => targetAppName ? `${targetAppName} — ${text}` : text;
-    const base = { buildId: build.id, ...(targetAppName ? { targetAppName } : {}), time, state: String(build.state || "unknown") };
+    const base = { appId: build.appId || build.app?.identity, intentAt: parseTime(build.createdAt, time), buildId: build.id, ...(targetAppName ? { targetAppName } : {}), time, state: String(build.state || "unknown") };
+    const install = installations.get(build.id);
     if (BUILD_PENDING.has(build.state)) add(`build:${build.id}`, { ...base, kind: "queued", title: title("Building update"), message: "Your Mac is building a new version. We'll let you know when it's ready to install.", notify: false });
-    else if (build.state === "ready" && build.artifacts?.ipaPath && build.remoteBaseUrl && !build.tokenExpiredAt && Date.parse(build.expiresAt || "") > now) add(`build:${build.id}`, { ...base, kind: "build-ready", title: title("Ready to install"), message: "Your new version is ready. Open Swift Sim to install it." });
-    else if (build.state === "ready") add(`build:${build.id}`, { ...base, state: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "expired" : "delivering", kind: "queued", title: title(build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Install link expired" : "Preparing install link"), message: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Open this app's history in Swift Sim for the latest install options." : "Your build is complete. Swift Sim is preparing its install link.", notify: false });
-    else if (build.state === "failed") {
-      add(`build:${build.id}`, { ...base, kind: "attention", title: title("Build couldn't finish"), message: "Your Mac couldn't finish this build. Open Swift Sim for details." });
+    else if (build.state === "failed") add(`build:${build.id}`, { ...base, kind: "attention", title: title("Build couldn't finish"), message: "Your Mac couldn't finish this build. Open Swift Sim for details." });
+    else if (build.state === "ready" && ["verified","launch-confirmed"].includes(build.installation?.state)) add(`build:${build.id}`, { ...base, kind: "queued", state: "installed", deliveryCode: "BUILD_INSTALLED", deliveryAction: "none", title: title("Installed"), message: "This version was confirmed installed on your iPhone.", notify: false });
+    else if (build.state === "ready" && ["unavailable","unconfirmed"].includes(install?.state)) add(`build:${build.id}`, { ...base, kind: "attention", state: "uncertain", deliveryCode: "UNCONFIRMED", deliveryAction: "check-status", title: title("Check installation status"), message: install.state === "unconfirmed" ? "The installation may have started. Ask your agent to check the existing request before trying again." : "Swift Sim couldn't read this installation's status. Ask your agent to check your Mac." });
+    else if (build.state === "ready" && build.origin === "xcode") add(`build:${build.id}`, { ...base, kind: "queued", state: "recorded", deliveryCode: "BUILT_IN_XCODE", deliveryAction: "none", title: title("Built in Xcode"), message: "Awaiting confirmation from this exact app build.", notify: false });
+    else if (build.state === "ready" && ["cancelled","rejected","expired"].includes(install?.state)) add(`build:${build.id}`, { ...base, kind: "queued", state: install.state, deliveryCode: install.state === "expired" ? "EXPIRED" : "INSTALL_CANCELLED", deliveryAction: "open-swift-sim", title: title(install.state === "expired" ? "Update expired" : "Installation stopped"), message: "Open this app's history in Swift Sim to check its latest install options.", notify: false });
+    else if (build.state === "ready" && build.artifacts?.ipaPath && build.remoteBaseUrl && !build.tokenExpiredAt && Date.parse(build.expiresAt || "") > now) {
+      const hints = installPresentation(install?.state || (build.installation?.state === "requested" ? "confirming" : ""), targetAppName);
+      add(`build:${build.id}`, { ...base, ...hints, kind: "build-ready", title: title(hints.heading), message: hints.message });
     }
+    else if (build.state === "ready") add(`build:${build.id}`, { ...base, state: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "expired" : "delivering", kind: "queued", title: title(build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Install link expired" : "Preparing install link"), message: build.tokenExpiredAt || (build.expiresAt && Date.parse(build.expiresAt) <= now) ? "Open this app's history in Swift Sim for the latest install options." : "Your build is complete. Swift Sim is preparing its install link.", notify: false });
     const installation = build.installation;
     if (["launch-confirmed", "verified"].includes(installation?.state) && Number.isFinite(Date.parse(installation?.launchConfirmedAt || ""))) add(`launch:${build.id}`, { ...base, time: parseTime(installation.launchConfirmedAt || installation.lastSeenAt || installation.verifiedAt, now), state: "launch-confirmed", kind: "launch-confirmed", title: title("Opened successfully"), message: "This version was confirmed running on your iPhone." });
   }
@@ -139,7 +150,7 @@ export function activitySnapshotEvents({ builds = [], liveDeliveries = [], previ
     const targetAppName = presentation.targetAppName || safeAppName(record.targetAppName);
     const title = (text) => targetAppName ? `${targetAppName} — ${text}` : text;
     const cohortId = activityEventId(["live-cohort", record.scope?.appIdentity || "", record.scope?.binaryIdentity || record.requestId]);
-    const base = { cohortId, ...(targetAppName ? { targetAppName } : {}), requestId: record.requestId, time: parseTime(record.updatedAt || record.createdAt, now), state: String(record.state || "unknown") };
+    const base = { appId: presentation.appId, intentAt: parseTime(record.createdAt, now), cohortId, ...(targetAppName ? { targetAppName } : {}), requestId: record.requestId, time: parseTime(record.updatedAt || record.createdAt, now), state: String(record.state || "unknown") };
     const fault = record.readiness && !["LIVE_READY", "LIVE_PREPARING", "LIVE_READINESS_CHECKING"].includes(record.readiness.code);
     if (LIVE_PENDING.has(record.state) && fault) {
       const mismatch = ["LIVE_CAPTURE_MISMATCH", "LIVE_TARGET_APP_MISMATCH"].includes(record.readiness.code);
@@ -151,6 +162,7 @@ export function activitySnapshotEvents({ builds = [], liveDeliveries = [], previ
       add(`live:${record.requestId}`, { ...base, ...(waiting && presentation.launchURL ? { launchURL: presentation.launchURL } : {}), kind: "queued", title: title(waiting ? "Ready to apply" : finishing ? "Finishing update" : "Preparing changes"), message: waiting ? `Open ${targetAppName || "your app"} to apply your latest changes. No install needed.` : finishing ? "Your changes are being applied. Waiting for the app to confirm they're ready." : "Your Mac is preparing your latest changes.", notify: waiting, notifyDelayMs: waiting ? 5000 : 0 });
     }
     else if (record.state === "refreshed" && completeLiveProof(record)) add(`live:${record.requestId}`, { ...base, kind: "live-applied", revision: record.proof.revision, title: targetAppName ? `${targetAppName} updated` : "Changes applied", message: "Your changes were applied successfully. They're ready to try." });
+    else if (record.state === "refreshed") current.push({ ...base, kind: "attention", state: "uncertain", title: title("Check update status"), message: "The app's complete update confirmation is missing. Ask your agent to check the existing request." });
     else if (["uncertain", "failed"].includes(record.state)) add(`live:${record.requestId}`, { ...base, kind: "attention", title: title(record.state === "uncertain" ? "Check update status" : "Update couldn't finish"), message: record.state === "uncertain" ? "We couldn't confirm your changes were applied. Open Swift Sim to check the update." : "Your changes couldn't be applied. Open Swift Sim for details." });
     else if (["superseded", "expired"].includes(record.state)) add(`live:${record.requestId}`, { ...base, kind: "queued", title: title(record.state === "superseded" ? "Newer update available" : "Update expired"), message: record.state === "superseded" ? "A newer update has replaced these changes. Check the latest update for its status." : "These changes weren't confirmed before the update expired. Open Swift Sim for the latest status.", notify: false });
   }
@@ -166,7 +178,7 @@ export function activitySnapshotEvents({ builds = [], liveDeliveries = [], previ
     }
   }
   entries.sort((a, b) => a.time - b.time);
-  return { entries, observations };
+  return { entries, observations, presentations: selectDeliveryPresentations(current) };
 }
 function completeLiveProof(record) {
   const proof = record.proof;
@@ -189,10 +201,17 @@ function presentationForRecord(record, builds) {
         || build.app?.bundleIdentifier !== identity.bundle_id || build.app?.version !== identity.bundle_version || build.app?.build !== identity.build_number) continue;
       const targetAppName = safeAppName(build.liveReload.presentation?.targetAppName);
       const launchURL = safeActivityLaunchURL(build.liveReload.presentation?.launchURL);
-      return { ...(targetAppName ? { targetAppName } : {}), ...(launchURL ? { launchURL } : {}) };
+      return { appId: build.appId || build.app?.identity, ...(targetAppName ? { targetAppName } : {}), ...(launchURL ? { launchURL } : {}) };
     } catch {}
   }
   return {};
 }
 function parseTime(value, fallback) { const time = typeof value === "number" ? value : Date.parse(value || ""); return Number.isFinite(time) && time >= 0 ? time : fallback; }
 function opaque(value) { return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(value); }
+
+function installPresentation(state, name) {
+  if (state === "waiting") return { heading: "Ready to install", message: `Open ${name || "your app"} to install the update. Confirm Install when iOS asks.`, deliveryCode: "INSTALL_QUEUED", deliveryAction: "open-app" };
+  if (["opening", "prompt-requested"].includes(state)) return { heading: "Confirm installation", message: "Confirm Install on your iPhone, and Download if iOS asks about cellular data. Installation is confirmed separately.", deliveryCode: "CONFIRM_INSTALL", deliveryAction: "confirm-install" };
+  if (state === "confirming") return { heading: "Checking installation", message: "Your Mac recorded the install request. Ask your agent to check that existing request for confirmation.", deliveryCode: "INSTALL_CONFIRMING", deliveryAction: "check-status" };
+  return { heading: "Ready to install", message: "Your new version is ready. Open Swift Sim to install it.", deliveryCode: "READY_TO_INSTALL", deliveryAction: "open-swift-sim" };
+}

@@ -10,8 +10,8 @@ export function readStateBytes(path) {
   }
   const name = basename(path);
   if (/\.(?:[cm]?[jt]sx?|swift|m|h)(?:\.|$)/i.test(name)
-      || !/\.json$|\.sqlite(?:-(?:wal|shm))?$|^sentinel$/.test(name)) {
-    throw new Error("State fixture reads accept only JSON, SQLite, or sentinel data.");
+      || !/\.json$|\.sqlite(?:-(?:wal|shm))?$|^sentinel$|^engine\.(?:pid|sock)$/.test(name)) {
+    throw new Error("State fixture reads accept only JSON, SQLite, engine markers, or sentinel data.");
   }
   const root = realpathSync(tmpdir());
   const target = realpathSync(path);

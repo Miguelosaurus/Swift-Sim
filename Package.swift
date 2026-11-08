@@ -12,13 +12,12 @@ let package = Package(
         .library(name: "SwiftSimLive", targets: ["SwiftSimLive"]),
     ],
     dependencies: [
-        // Keep this on the immutable Swift Sim engine-fork revision. The
-        // upstream semver tags do not contain Swift Sim's control protocol,
-        // and a stable Swift Sim package cannot transitively depend on an
-        // unstable revision under Swift Package Manager.
+        // The exact engine-fork tag points to the revision declared in
+        // mac-helper/compatibility.json. A stable Swift package must use
+        // a versioned dependency so fresh Xcode installs resolve normally.
         .package(
             url: "https://github.com/Miguelosaurus/InjectionNext.git",
-            revision: "ba3c7166f6712d2cd962005a2a1200de4137590b"
+            exact: "0.5.7"
         ),
     ],
     targets: [

@@ -27,7 +27,7 @@ xcodebuild test \
   -scheme SwiftSimCompanion \
   -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
   -configuration Debug \
-  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGN_IDENTITY=-
 ```
 
 See [Development](docs/DEVELOPMENT.md) for device builds, integration validation, and manual end-to-end checks. Use the [Documentation Guide](docs/README.md) to find public guides, evidence, and internal records.

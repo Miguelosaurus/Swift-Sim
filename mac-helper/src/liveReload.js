@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
+import { COMPONENTS, engineMatchesContract } from "./componentCompatibility.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
+  createReadStream,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -18,6 +20,7 @@ import {
   statfsSync,
   truncateSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { createConnection } from "node:net";
 import { arch, homedir, tmpdir } from "node:os";
@@ -64,9 +67,8 @@ export const LIVE_REASON_CODES = Object.freeze({
 });
 
 const LOCAL_ENGINE_CANDIDATE = readLocalEngineCandidate();
-const ENGINE_VERSION = LOCAL_ENGINE_CANDIDATE.candidate?.version || "0.4.0";
-const ENGINE_SHA256 = LOCAL_ENGINE_CANDIDATE.candidate?.sha256 || "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696";
-const ENGINE_URL = `https://github.com/Miguelosaurus/InjectionNext/releases/download/swift-sim-engine-${ENGINE_VERSION}/swift-sim-engine-${ENGINE_VERSION}-arm64-signed.zip?sha256=${ENGINE_SHA256}`;
+const ENGINE_VERSION = LOCAL_ENGINE_CANDIDATE.candidate?.version || COMPONENTS.engine.version;
+const ENGINE_SHA256 = LOCAL_ENGINE_CANDIDATE.candidate?.sha256 || COMPONENTS.engine.sha256;
 const ENGINE_ROOT = join(homedir(), ".swift-sim", "engine");
 const ENGINE_APP = join(ENGINE_ROOT, "InjectionNext.app");
 const ENGINE_EXECUTABLE = join(ENGINE_APP, "Contents", "MacOS", "InjectionNext");
@@ -547,72 +549,98 @@ export async function ensureLiveEngineInstalled() {
 
 async function ensureLiveEngineInstalledUnlocked() {
   if (LOCAL_ENGINE_CANDIDATE.error) throw new Error(LOCAL_ENGINE_CANDIDATE.error);
-  if (installedEngineMatchesManifest()) {
-    return {
-      id: "live-engine",
-      label: "Live patch engine",
-      state: "unchanged",
-      detail: `Engine ${ENGINE_VERSION} is ready`,
-    };
-  }
-  if (arch() !== "arm64") {
-    throw new Error("Remote hot reload currently requires an Apple silicon Mac.");
-  }
-
-  mkdirSync(ENGINE_ROOT, { recursive: true });
-  const archivePath = join(ENGINE_ROOT, `engine-${ENGINE_VERSION}.zip`);
-  const stagingPath = join(ENGINE_ROOT, `.staging-${process.pid}`);
-  let bytes;
-  if (LOCAL_ENGINE_CANDIDATE.candidate) bytes = readFileSync(LOCAL_ENGINE_CANDIDATE.candidate.archivePath);
-  else {
-    const response = await fetch(ENGINE_URL, { redirect: "follow", signal: AbortSignal.timeout(60_000) });
-    if (!response.ok) throw new Error(`Unable to download the Swift Sim live engine (${response.status}).`);
-    bytes = Buffer.from(await response.arrayBuffer());
-  }
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  if (digest !== ENGINE_SHA256) {
-    throw new Error("The downloaded Swift Sim live engine failed its integrity check.");
-  }
-  writeFileSync(archivePath, bytes, { mode: 0o600 });
-  rmSync(stagingPath, { recursive: true, force: true });
-  mkdirSync(stagingPath, { recursive: true });
-  const unpack = spawnSync("/usr/bin/ditto", ["-x", "-k", archivePath, stagingPath], {
-    encoding: "utf8",
+  const candidate = LOCAL_ENGINE_CANDIDATE.candidate;
+  return installLiveEngineForSetup({
+    spec: { ...COMPONENTS.engine, ...(candidate ? { version: candidate.version, sha256: candidate.sha256, sourceRevision: candidate.sourceRevision } : {}) },
+    localArchive: candidate?.archivePath || "", localCandidate: Boolean(candidate),
   });
-  const stagedApp = join(stagingPath, "InjectionNext.app");
-  if (unpack.status !== 0 || !existsSync(join(stagedApp, "Contents", "MacOS", "InjectionNext"))) {
-    throw new Error(String(unpack.stderr || "Unable to unpack the Swift Sim live engine.").trim());
-  }
-  const signature = spawnSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", stagedApp], {
-    encoding: "utf8",
-  });
-  if (signature.status !== 0) {
-    throw new Error("The Swift Sim live engine signature could not be verified.");
-  }
-  if (LOCAL_ENGINE_CANDIDATE.candidate) {
-    const metadata = spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(stagedApp, "Contents", "Info.plist")], { encoding: "utf8" });
-    if (metadata.status !== 0) throw new Error("The local candidate app metadata could not be read.");
-    validateLocalEngineAppMetadata(JSON.parse(metadata.stdout));
-  }
-  spawnSync("/usr/bin/xattr", ["-dr", "com.apple.quarantine", stagedApp], { encoding: "utf8" });
-  await stopLiveEngine();
-  rmSync(ENGINE_APP, { recursive: true, force: true });
-  renameSync(stagedApp, ENGINE_APP);
-  writeFileSync(ENGINE_MANIFEST, `${JSON.stringify({
-    version: ENGINE_VERSION,
-    sha256: ENGINE_SHA256,
-    sourceRevision: LOCAL_ENGINE_CANDIDATE.candidate?.sourceRevision || "abdf6467318599abd3e952c941fed12e0caef04e",
-    localCandidate: Boolean(LOCAL_ENGINE_CANDIDATE.candidate),
-  }, null, 2)}\n`, { mode: 0o600 });
-  rmSync(stagingPath, { recursive: true, force: true });
-  rmSync(archivePath, { force: true });
+}
 
-  return {
-    id: "live-engine",
-    label: "Live patch engine",
-    state: "installed",
-    detail: `Engine ${ENGINE_VERSION} installed privately for this user`,
+export function readInstalledEngineManifest(rootPath = ENGINE_ROOT) {
+  try {
+    const path = join(rootPath, "manifest.json"); const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 16384 || info.uid !== process.getuid()) return null;
+    if (!existsSync(join(rootPath, "InjectionNext.app", "Contents", "MacOS", "InjectionNext"))) return null;
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch { return null; }
+}
+
+function verifySetupEngineApp(path, run = (cmd, args) => spawnSync(cmd, args, { encoding: "utf8", timeout: 30000 })) {
+  try {
+    const info = lstatSync(path);
+    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid()) return false;
+    const signature = run("/usr/bin/codesign", ["--verify", "--deep", "--strict", path]);
+    const metadata = run("/usr/bin/plutil", ["-convert", "json", "-o", "-", join(path, "Contents", "Info.plist")]);
+    if (signature.status !== 0 || metadata.status !== 0) return false;
+    validateLocalEngineAppMetadata(JSON.parse(metadata.stdout)); return true;
+  } catch { return false; }
+}
+
+export function inspectInstalledEngineForSetup(rootPath = ENGINE_ROOT) {
+  const manifest = readInstalledEngineManifest(rootPath);
+  return manifest && verifySetupEngineApp(join(rootPath, "InjectionNext.app")) ? manifest : null;
+}
+
+// Explicit setup/update only. Alternate roots are for isolated qualification;
+// they cannot stop the user's process without an explicitly supplied callback.
+export async function installLiveEngineForSetup({ rootPath = ENGINE_ROOT, spec = COMPONENTS.engine,
+  localArchive = "", localCandidate = false, runtime = {} } = {}) {
+  const { installEngineTransaction, recoverEngineInstall } = await import("./engineInstallTransaction.js");
+  const fail = code => Object.assign(new Error(code), { code });
+  if (!/^\d+\.\d+\.\d+$/.test(spec.version || "") || !/^[a-f0-9]{64}$/.test(spec.sha256 || "")
+    || !/^[a-f0-9]{40}$/.test(spec.sourceRevision || "") || !Number.isSafeInteger(spec.maxArchiveBytes) || spec.maxArchiveBytes < 1 || spec.maxArchiveBytes > 134217728
+    || !rootPath || !resolve(rootPath).startsWith("/")) throw fail("ENGINE_CONTRACT_INVALID");
+  try { const info = lstatSync(rootPath); if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== process.getuid()) throw fail("ENGINE_ROOT_UNSAFE"); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  ensureDirectoryModeSync(rootPath, 0o700);
+  const app = join(rootPath, "InjectionNext.app"), stage = join(rootPath, ".install-staging");
+  const staged = join(stage, "InjectionNext.app"), backup = join(rootPath, ".previous-engine");
+  const journal = join(rootPath, "install-state.json"), manifest = join(rootPath, "manifest.json");
+  const files = runtime.files || new NodeAtomicFileStore();
+  const id = path => { try { const s = lstatSync(path); if (!s.isDirectory() || s.isSymbolicLink() || s.uid !== process.getuid()) throw fail("ENGINE_ROOT_UNSAFE"); return `${s.dev}:${s.ino}`; } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
+  const read = (path, limit) => { try { const s = lstatSync(path); if (!s.isFile() || s.isSymbolicLink() || s.nlink !== 1 || s.uid !== process.getuid() || s.size > limit) throw fail("ENGINE_MANIFEST_INVALID"); return readFileSync(path); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
+  const write = (path, bytes) => files.writeText(path, bytes.toString("utf8"), { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+  const run = runtime.run || ((cmd, args) => spawnSync(cmd, args, { encoding: "utf8", timeout: 30000 }));
+  const verifyApp = runtime.verifyApp || (path => verifySetupEngineApp(path, run));
+  const verifyCurrent = async expected => engineMatchesContract(readInstalledEngineManifest(rootPath), expected) && await verifyApp(app);
+  const io = {
+    currentIdentity: () => id(app), backupIdentity: () => id(backup), stagedIdentity: () => id(staged),
+    stageExists: () => id(stage) !== null,
+    readManifest: () => read(manifest, 16384), readJournal: () => { const bytes = read(journal, 32768); return bytes ? JSON.parse(bytes) : null; },
+    writeJournal: value => files.writeJSON(journal, value, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true }),
+    writeManifest: value => files.writeJSON(manifest, value, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true }),
+    restoreManifest: bytes => bytes === null ? rmSync(manifest, { force: true }) : write(manifest, bytes),
+    backupCurrent: () => renameSync(app, backup), publishStaged: () => renameSync(staged, app), restoreBackup: () => renameSync(backup, app),
+    removeCurrent: () => rmSync(app, { recursive: true, force: true }), removeBackup: () => rmSync(backup, { recursive: true, force: true }),
+    removeStage: () => rmSync(stage, { recursive: true, force: true }), removeJournal: () => rmSync(journal, { force: true }),
   };
+  await recoverEngineInstall({ io, verifyCurrent });
+  const desired = { version: spec.version, sha256: spec.sha256, sourceRevision: spec.sourceRevision, localCandidate };
+  if (await verifyCurrent(desired)) return { id: "live-engine", label: "Live patch engine", state: "unchanged", detail: `Engine ${spec.version} is verified`, compatible: engineMatchesContract(desired) };
+  if ((runtime.arch || arch()) !== "arm64") throw fail("ENGINE_APPLE_SILICON_REQUIRED");
+  const prepare = async () => {
+    mkdirSync(stage, { mode: 0o700 });
+    const archive = join(stage, "engine.zip"); let source;
+    if (localArchive) source = createReadStream(localArchive, { highWaterMark: 65536 });
+    else {
+      const response = await (runtime.fetch || fetch)(spec.url, { redirect: "follow", signal: AbortSignal.timeout(60000) });
+      if (!response.ok) throw fail("ENGINE_DOWNLOAD_UNAVAILABLE");
+      const length = Number(response.headers.get("content-length"));
+      if ((Number.isFinite(length) && length > spec.maxArchiveBytes) || !response.body) throw fail("ENGINE_ARCHIVE_LIMIT");
+      source = response.body;
+    }
+    const fd = openSync(archive, "wx", 0o600); const hash = createHash("sha256"); let size = 0;
+    try { for await (const part of source) { const bytes = Buffer.from(part); size += bytes.length; if (size > spec.maxArchiveBytes) throw fail("ENGINE_ARCHIVE_LIMIT"); hash.update(bytes); let offset = 0; while (offset < bytes.length) { const written = writeSync(fd, bytes, offset, bytes.length - offset); if (written <= 0) throw fail("ENGINE_DOWNLOAD_UNAVAILABLE"); offset += written; } } }
+    finally { closeSync(fd); }
+    if (!size || hash.digest("hex") !== spec.sha256) throw fail("ENGINE_CHECKSUM_MISMATCH");
+    if (run("/usr/bin/ditto", ["-x", "-k", archive, stage]).status !== 0 || !await verifyApp(staged)) throw fail("ENGINE_SIGNATURE_INVALID");
+    run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged]);
+  };
+  const outcome = await installEngineTransaction({ desired, io, prepare, verifyCurrent,
+    stop: runtime.stop || (rootPath === ENGINE_ROOT ? stopLiveEngine : async () => {}) });
+  return { id: "live-engine", label: "Live patch engine", state: outcome.cleanupPending ? "needs-attention" : "installed",
+    detail: outcome.cleanupPending ? "The matching engine is installed. Run setup again to finish removing its one previous copy." : `Engine ${spec.version} installed and verified`,
+    compatible: engineMatchesContract(desired), cleanupPending: outcome.cleanupPending };
 }
 
 export async function registerLiveBuildResult(options) {

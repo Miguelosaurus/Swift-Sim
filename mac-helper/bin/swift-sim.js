@@ -12,11 +12,13 @@ import {
   classifyEditSet,
   ensureLiveEngineInstalled,
   inspectLiveReload,
+  inspectInstalledEngineForSetup,
   routeLiveEditSet,
   routeLiveChange,
   routeLiveChanges,
   startLiveReload,
 } from "../src/liveReload.js";
+import { COMPONENTS, componentReadiness } from "../src/componentCompatibility.js";
 import { deliverChange } from "../src/changeDelivery.js";
 import { deliveryRuntimeHealth } from "../src/helperDeliveryReadiness.js";
 import { liveDeliveryService } from "../src/liveDeliveryService.js";
@@ -137,6 +139,14 @@ async function main() {
       scheme: values.scheme, appearance: values.appearance, refresh: values["refresh-screen"] });
     console.log(JSON.stringify(result, null, 2));
     if (result.outcome !== "tool-completed") process.exitCode = 1;
+    return;
+  }
+  if (command === "delivery-status") {
+    const { values } = parseArgs({ args, options: { "app-id": { type: "string" }, project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" } } });
+    const { readDeliveryStatus } = await import("../src/deliveryStatus.js");
+    const result = await readDeliveryStatus({ appID: values["app-id"], project: values.project, workspace: values.workspace, scheme: values.scheme });
+    console.log(JSON.stringify(result));
+    if (result.outcome !== "delivery-status") process.exitCode = 1;
     return;
   }
   if (command === "live-delivery-status") {
@@ -430,7 +440,9 @@ async function setup(args) {
   if (!values["skip-plugin"] && !values["skip-agents"]) {
     actions.push(...installAgentIntegrations());
   }
-  actions.push(await ensureLiveEngineInstalled());
+  try { actions.push(await ensureLiveEngineInstalled()); }
+  catch (error) { actions.push({ id: "live-engine", label: "Live patch engine", state: "needs-attention",
+    code: error.code || "ENGINE_SETUP_FAILED", detail: "The matching hot-reload engine could not be installed. Existing engine files were preserved. Resolve this item before using remote hot reload." }); }
 
   const report = await buildDoctorReport();
   const result = { ...report, actions };
@@ -550,9 +562,12 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
   const agentIntegrationsReady = readyAgentNames.length > 0;
   const xcodeReady = xcode.status === 0;
   const liveReload = await inspectLiveReload();
+  const components = componentReadiness({ engineManifest: inspectInstalledEngineForSetup(), helperHealth: helper,
+    agentReady: agentIntegrationsReady, privateRouteReady: Boolean(liveReload.host) });
 
   return {
     version: packageJSON.version,
+    components,
     deviceInstalls: {
       ready: xcodeReady && helper.ok && agentIntegrationsReady,
       xcode: check(xcodeReady, firstLine(xcode.stdout) || "Xcode is unavailable"),
@@ -572,10 +587,10 @@ async function buildDoctorReport({ includeStorage = false } = {}) {
       readinessScope: "prerequisites",
       liveProofRequired: true,
       asyncDelivery: { helperReady: helper.queueReady === true, engineProtocol: Number(liveReload.engine.preparedDeliveryProtocol || 0), localCandidate: Boolean(liveReload.engine.localCandidate), physicalProofRequired: true },
-      ready: liveReload.engine.installed && Boolean(liveReload.host),
-      engine: check(liveReload.engine.installed, liveReload.engine.installed
+      ready: components.ready,
+      engine: check(components.engine.compatible, components.engine.compatible
         ? `Swift Sim live engine ${liveReload.engine.version} is installed`
-        : "Run swift-sim setup to install the private live engine"),
+        : components.engine.action),
       tailscale: check(Boolean(liveReload.host), liveReload.host
         ? `Private device route is available at ${liveReload.host}`
         : "Connect this Mac and the iPhone to Tailscale for remote hot reload"),
@@ -1011,6 +1026,7 @@ Usage:
   swift-sim qualify-xcode-build ... Validate explicit compiler context and phone proof
   swift-sim deliver-build ...     Install or queue an existing signed build
   swift-sim build-delivery-status ...  Read a build delivery without resubmitting
+  swift-sim delivery-status       Read shared app delivery status (no retry)
   swift-sim live-delivery-status  Read a queued request with --request
   swift-sim live-desired-revoke   Revoke restoration for a qualified Debug project/scheme
   swift-sim list-apps [--archived] List managed prototype apps and build history

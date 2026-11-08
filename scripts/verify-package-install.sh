@@ -3,7 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMP_ROOT="$(mktemp -d -t swift-sim-package-install)"
-trap 'rm -rf "$TEMP_ROOT"' EXIT
+STATUS_ROOT=""
+cleanup() { rm -rf "$TEMP_ROOT"; if [[ -n "$STATUS_ROOT" ]]; then rm -rf "$STATUS_ROOT"; fi; }
+trap cleanup EXIT
 
 npm pack --pack-destination "$TEMP_ROOT" >/dev/null
 ARCHIVE="$(find "$TEMP_ROOT" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
@@ -33,13 +35,13 @@ if ! grep -q '"status", "prepare", "activate", "cancel", "rollback"' "$CUTOVER_E
   exit 1
 fi
 STATUS_ROOT="$(mktemp -d -t swift-sim-cutover-status)"
-trap 'rm -rf "$STATUS_ROOT"' EXIT
+
 "$NODE_BIN" "$CUTOVER_ENTRY" status --state-root "$STATUS_ROOT" > "$STATUS_ROOT/status.json"
 if ! "$NODE_BIN" -e 'const fs=require("fs"); const report=JSON.parse(fs.readFileSync(process.argv[1])); if (report.mutationAllowed !== false || report.latestSchemaVersion < 1) process.exit(1);' "$STATUS_ROOT/status.json"; then
   echo "Installed maintenance entrypoint could not run read-only status" >&2
   exit 1
 fi
-trap 'rm -rf "$TEMP_ROOT"' EXIT
+
 
 cd "$INSTALL_ROOT"
 "$NODE_BIN" --input-type=module <<'NODE'

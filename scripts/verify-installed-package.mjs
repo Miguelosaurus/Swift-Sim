@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -10,7 +10,9 @@ if (!packageRoot || !existsSync(join(packageRoot, "dist", "mac-helper", "bin", "
   throw new Error(`Expected an installed Swift Sim package root, got ${packageRoot}`);
 }
 
+const version = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")).version;
 const root = mkdtempSync(join(tmpdir(), "swift-sim-installed-package-"));
+process.on("exit", () => rmSync(root, { recursive: true, force: true }));
 const isolatedHome = join(root, "home");
 const cursorHome = join(root, "cursor-skills");
 const openCodeHome = join(root, "opencode");
@@ -44,16 +46,21 @@ writeFileSync(join(engine, "manifest.json"), JSON.stringify({
   sha256: "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696",
 }));
 
+// A deliberately invalid explicit candidate prevents downloads. This fixture
+// must report needs-attention, never masquerade as a compatible signed engine.
+writeFileSync(join(engine, "local-candidate.json"), "{}", { mode: 0o600 });
 const entry = join(packageRoot, "dist", "mac-helper", "bin", "swift-sim-entry.js");
 const setup = run(entry, ["setup", "--skip-service", "--json"]);
 assert.equal(setup.status, 0, setup.stderr);
 const setupReport = JSON.parse(setup.stdout);
+assert.ok(setupReport.actions.some(a => a.id === "live-engine" && a.state === "needs-attention"));
+assert.equal(setupReport.remoteHotReload.ready, false);
 const codexMarketplacePath = readFileSync(`${codexState}.marketplace`, "utf8").trim();
 const claudeMarketplace = JSON.parse(readFileSync(`${claudeState}.marketplace`, "utf8"));
 assert.equal(realpathSync(codexMarketplacePath), realpathSync(packageRoot));
 assert.equal(realpathSync(claudeMarketplace.path), realpathSync(packageRoot));
-assert.equal(readFileSync(join(cursorHome, "remote-simulator-companion", ".swift-sim-version"), "utf8").trim(), "0.6.1");
-assert.equal(readFileSync(join(openCodeHome, "skills", "remote-simulator-companion", ".swift-sim-version"), "utf8").trim(), "0.6.1");
+assert.equal(readFileSync(join(cursorHome, "remote-simulator-companion", ".swift-sim-version"), "utf8").trim(), version);
+assert.equal(readFileSync(join(openCodeHome, "skills", "remote-simulator-companion", ".swift-sim-version"), "utf8").trim(), version);
 assert.ok(setupReport.actions.some((action) => action.id === "cursor" && action.state === "configured"));
 assert.ok(existsSync(join(packageRoot, "plugins", "swift-sim-companion", "skills", "remote-simulator-companion", "SKILL.md")));
 assert.equal(existsSync(join(packageRoot, "mac-helper", "src")), false);
@@ -61,7 +68,7 @@ assert.equal(existsSync(join(packageRoot, "mac-helper", "src")), false);
 const doctor = run(entry, ["doctor", "--json"]);
 assert.equal(doctor.status, 0, doctor.stderr);
 const doctorReport = JSON.parse(doctor.stdout);
-assert.equal(doctorReport.version, "0.6.1");
+assert.equal(doctorReport.version, version);
 assert.equal(doctorReport.deviceInstalls.agents.codex.ready, true);
 assert.equal(doctorReport.deviceInstalls.agents.claude.ready, true);
 assert.equal(doctorReport.deviceInstalls.agents.cursor.ready, true);
@@ -89,7 +96,7 @@ if (args === "--version") console.log("codex 1.0.0");
 else if (args === "plugin marketplace list") console.log(existsSync(state + ".marketplace") ? "swift-sim " + readFileSync(state + ".marketplace", "utf8").trim() : "");
 else if (args.startsWith("plugin marketplace add ")) writeFileSync(state + ".marketplace", process.argv.at(-1));
 else if (args.startsWith("plugin marketplace remove ") || args.startsWith("plugin remove ")) {}
-else if (args === "plugin list") console.log(existsSync(state + ".plugin") ? "swift-sim-companion@swift-sim installed, enabled  0.6.1" : "");
+else if (args === "plugin list") console.log(existsSync(state + ".plugin") ? "swift-sim-companion@swift-sim installed, enabled  ${version}" : "");
 else if (args.startsWith("plugin add ")) writeFileSync(state + ".plugin", "ready");
 else process.exit(2);
 `;
@@ -105,7 +112,7 @@ else if (args === "plugin marketplace list --json") console.log(JSON.stringify(e
 else if (args.startsWith("plugin marketplace add ")) writeFileSync(state + ".marketplace", JSON.stringify({ path: process.argv[5] }));
 else if (args.startsWith("plugin marketplace update ")) process.exit(existsSync(state + ".marketplace") ? 0 : 1);
 else if (args.startsWith("plugin marketplace remove ")) {}
-else if (args === "plugin list --json") console.log(JSON.stringify(existsSync(state + ".plugin") ? [{ id: "swift-sim-companion@swift-sim", version: "0.6.1", enabled: true }] : []));
+else if (args === "plugin list --json") console.log(JSON.stringify(existsSync(state + ".plugin") ? [{ id: "swift-sim-companion@swift-sim", version: ${JSON.stringify(version)}, enabled: true }] : []));
 else if (args.startsWith("plugin install ") || args.startsWith("plugin update ") || args.startsWith("plugin enable ")) writeFileSync(state + ".plugin", "ready");
 else process.exit(2);
 `;

@@ -119,6 +119,46 @@ struct ActivityProviderStatus: Codable, Equatable {
     let reason: String?
 }
 
+struct AppDeliveryPresentation: Decodable, Equatable {
+    let schemaVersion: Int
+    let code: String
+    let title: String
+    let message: String
+    let nextAction: String
+    let completionVerified: Bool
+    let updatedAt: String
+    let buildId: String?
+    let requestId: String?
+    let revision: Int?
+
+    var isValid: Bool {
+        let codes = ["STATUS_UNAVAILABLE", "PREPARING", "CHANGES_APPLIED", "BUILD_INSTALLED", "READY_TO_INSTALL", "INSTALL_QUEUED", "CONFIRM_INSTALL", "INSTALL_CONFIRMING", "UNCONFIRMED", "CHECK_MAC", "NEEDS_ATTENTION", "EXPIRED", "SUPERSEDED", "WAITING_FOR_APP", "APPLYING", "BUILT_IN_XCODE", "INSTALL_CANCELLED", "MULTIPLE_PENDING", "MAC_UNREACHABLE"]
+        return schemaVersion == 1 && codes.contains(code) && !title.isEmpty && title.count <= 160 && message.count <= 800
+            && ["check-status", "check-mac", "wait", "open-app", "open-swift-sim", "confirm-install", "none"].contains(nextAction)
+            && completionVerified == ["CHANGES_APPLIED", "BUILD_INSTALLED"].contains(code)
+            && updatedAt.count <= 64 && SwiftSimISO8601.date(from: updatedAt) != nil
+            && (buildId.map(ActivityEvent.validID) ?? true) && (requestId.map(ActivityEvent.validID) ?? true)
+            && (revision.map { $0 > 0 } ?? true)
+    }
+    var needsAttention: Bool { ["STATUS_UNAVAILABLE", "UNCONFIRMED", "CHECK_MAC", "NEEDS_ATTENTION", "MULTIPLE_PENDING", "MAC_UNREACHABLE"].contains(code) }
+    var symbol: String { completionVerified ? "checkmark.circle.fill" : needsAttention ? "exclamationmark.circle" : "clock.arrow.circlepath" }
+    func label(for appName: String) -> String {
+        let prefix = appName + " — "
+        if title.hasPrefix(prefix) { return String(title.dropFirst(prefix.count)) }
+        return title == appName + " updated" ? "Changes applied" : title
+    }
+    static func macUnavailable(previous: Self?) -> Self {
+        Self(schemaVersion: 1, code: "MAC_UNREACHABLE", title: "Waiting for your Mac",
+             message: previous?.code == "UNCONFIRMED" ? "Reconnect to confirm this update before trying again." : "Reconnect to your Mac to check this app’s latest update.",
+             nextAction: "check-mac", completionVerified: false, updatedAt: Date().ISO8601Format(), buildId: previous?.buildId, requestId: previous?.requestId, revision: nil)
+    }
+}
+struct AppDeliveryFeed: Decodable {
+    let schemaVersion: Int
+    let apps: [String: AppDeliveryPresentation]
+    var isValid: Bool { schemaVersion == 1 && apps.count <= 128 && apps.keys.allSatisfy(ActivityEvent.validID) && apps.values.allSatisfy(\.isValid) }
+}
+
 struct ActivityFeed: Decodable {
     let schemaVersion: Int
     let events: [ActivityEvent]
@@ -127,9 +167,10 @@ struct ActivityFeed: Decodable {
     let installationId: String
     let notificationStatus: ActivityProviderStatus
     let preferences: ActivityPreferences?
+    let deliveryStatus: AppDeliveryFeed?
 
     var isValid: Bool {
-        schemaVersion == 1 && cursor >= 0 && events.count <= 200 && !installationId.isEmpty
+        schemaVersion == 1 && (deliveryStatus?.isValid ?? true) && cursor >= 0 && events.count <= 200 && !installationId.isEmpty
             && installationId.count <= 256 && events.allSatisfy(\.isValid)
             && Set(events.map(\.id)).count == events.count
             && events.allSatisfy { $0.sequence <= cursor }
@@ -167,6 +208,7 @@ enum ActivityPresentation: String, Identifiable {
 @MainActor
 final class ActivityCenter: ObservableObject {
     @Published private(set) var events: [ActivityEvent] = []
+    @Published private(set) var deliveryStatuses: [String: AppDeliveryPresentation] = [:]
     @Published private(set) var unreadCount = 0
     @Published private(set) var preferences = ActivityPreferences()
     @Published private(set) var providerStatus: ActivityProviderStatus?
@@ -224,6 +266,7 @@ final class ActivityCenter: ObservableObject {
         baselineReceived = false
         pendingFullRefresh = false
         providerStatus = nil
+        deliveryStatuses = [:]
         errorMessage = nil
         selectedEvent = nil
         if let next {
@@ -303,6 +346,8 @@ final class ActivityCenter: ObservableObject {
             if !cache.hasSynced { cache.readCursor = cache.cursor }
             cache.hasSynced = true
             providerStatus = feed.notificationStatus
+            let nextStatuses = feed.deliveryStatus?.apps ?? [:]
+            if deliveryStatuses != nextStatuses { deliveryStatuses = nextStatuses }
             errorMessage = nil
             if baselineReceived, let event = feed.events.last(where: { event in
                 event.sequence > previousCursor && event.isMeaningful
@@ -317,6 +362,12 @@ final class ActivityCenter: ObservableObject {
             guard isCurrent(mac, expected) else { return }
             errorMessage = "Activity couldn’t refresh. Keep the Mac awake and check your private connection."
         }
+    }
+
+    func deliveryStatus(for app: ManagedApp) -> AppDeliveryPresentation? {
+        guard let mac, app.ownerPairingID == mac.id else { return nil }
+        let status = deliveryStatuses[app.id]
+        return errorMessage == nil ? status : .macUnavailable(previous: status)
     }
 
     func updatePreferences(_ value: ActivityPreferences) {

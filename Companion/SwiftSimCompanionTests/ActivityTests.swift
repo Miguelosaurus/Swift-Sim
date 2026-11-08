@@ -471,4 +471,48 @@ final class ActivityTests: XCTestCase {
         XCTAssertEqual(announced, ["ready-build", "applied-edit", "old-uncached-build", "new-build"])
     }
 
+    func testDeliveryPresentationRejectsInventedCompletionAndPreservesUncertaintyOffline() throws {
+        let value: [String: Any] = ["schemaVersion": 1, "code": "UNCONFIRMED", "title": "Zenics — Check installation status",
+            "message": "Check the existing request before trying again.", "nextAction": "check-status", "completionVerified": false,
+            "updatedAt": "2026-11-07T12:00:00.000Z", "buildId": "build-one"]
+        let status = try JSONDecoder().decode(AppDeliveryPresentation.self, from: JSONSerialization.data(withJSONObject: value))
+        XCTAssertTrue(status.isValid)
+        XCTAssertEqual(status.label(for: "Zenics"), "Check installation status")
+        let offline = AppDeliveryPresentation.macUnavailable(previous: status)
+        XCTAssertTrue(offline.isValid)
+        XCTAssertFalse(offline.completionVerified)
+        XCTAssertEqual(offline.buildId, "build-one")
+        XCTAssertTrue(offline.message.contains("before trying again"))
+        var invented = value; invented["completionVerified"] = true
+        XCTAssertFalse(try JSONDecoder().decode(AppDeliveryPresentation.self, from: JSONSerialization.data(withJSONObject: invented)).isValid)
+        var unknown = value; unknown["code"] = "NEW_UNKNOWN_STATE"
+        XCTAssertFalse(try JSONDecoder().decode(AppDeliveryPresentation.self, from: JSONSerialization.data(withJSONObject: unknown)).isValid)
+        let oldFeed = try JSONDecoder().decode(ActivityFeed.self, from: feed([]))
+        XCTAssertTrue(oldFeed.isValid)
+        XCTAssertNil(oldFeed.deliveryStatus)
+    }
+
+    @MainActor
+    func testDeliveryStatusUsesExistingFeedAndClearsOnPairingChange() async throws {
+        let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
+        let mac = PairedMac(token: "fixture", baseURL: URL(string: "https://paired.example")!)
+        var app = ManagedApp(build: ManagedBuild(pending: DeviceBuildSession(id: "build-one", token: "fixture", baseURL: mac.baseURL)))
+        app.ownerPairingID = mac.id
+        let appID = app.id
+        let center = ActivityCenter(defaults: store, notifications: CompanionNotifications(defaults: store), transport: { request in
+            let payload: [String: Any] = ["schemaVersion": 1, "events": [], "cursor": 0, "installationId": "mac-one", "notificationStatus": ["configured": false],
+                "deliveryStatus": ["schemaVersion": 1, "apps": [appID: ["schemaVersion": 1, "code": "INSTALL_QUEUED", "title": "Zenics — Ready to install", "message": "Open Zenics to install.", "nextAction": "open-app", "completionVerified": false, "updatedAt": "2026-11-07T12:00:00.000Z"]]]]
+            return (try JSONSerialization.data(withJSONObject: payload), self.response(request))
+        })
+        center.connect(to: mac)
+        await center.refresh()
+        XCTAssertEqual(center.deliveryStatus(for: app)?.code, "INSTALL_QUEUED")
+        var foreign = app; foreign.ownerPairingID = "other-mac"
+        XCTAssertNil(center.deliveryStatus(for: foreign))
+        center.connect(to: PairedMac(token: "different", baseURL: URL(string: "https://other.example")!))
+        XCTAssertTrue(center.deliveryStatuses.isEmpty)
+        XCTAssertNil(center.deliveryStatus(for: app))
+        center.connect(to: nil)
+    }
+
 }

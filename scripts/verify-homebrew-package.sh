@@ -137,6 +137,8 @@ mkdir -p "$STATE_HOME/.swift-sim/engine/InjectionNext.app/Contents/MacOS"
 printf '#!/bin/sh\nexit 0\n' > "$STATE_HOME/.swift-sim/engine/InjectionNext.app/Contents/MacOS/InjectionNext"
 chmod 700 "$STATE_HOME/.swift-sim/engine/InjectionNext.app/Contents/MacOS/InjectionNext"
 printf '%s\n' '{"version":"0.4.0","sha256":"17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696"}' > "$STATE_HOME/.swift-sim/engine/manifest.json"
+printf '%s\n' '{}' > "$STATE_HOME/.swift-sim/engine/local-candidate.json"
+chmod 600 "$STATE_HOME/.swift-sim/engine/local-candidate.json"
 unset SWIFT_SIM_MARKETPLACE_ROOT
 HOME="$STATE_HOME" SWIFT_SIM_PORT="$PORT" "$PREFIX/bin/swift-sim" setup --skip-service --skip-agents --skip-plugin --json > "$TEST_ROOT/setup.json"
 HOME="$STATE_HOME" SWIFT_SIM_PORT="$PORT" "$PREFIX/bin/swift-sim" doctor --json > "$TEST_ROOT/doctor.json"

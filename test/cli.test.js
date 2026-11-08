@@ -288,6 +288,7 @@ function isolatedCliEnvironment(directory) {
   mkdirSync(executableDirectory, { recursive: true });
   writeFileSync(join(executableDirectory, "InjectionNext"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
   writeFileSync(join(engine, "manifest.json"), JSON.stringify({ version: "0.4.0", sha256: "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696" }), { mode: 0o600 });
+  writeFileSync(join(engine, "local-candidate.json"), "{}", { mode: 0o600 });
   const fixture = new URL("./fixtures/cli-isolation-preload.js", import.meta.url).href;
   return { ...process.env, HOME: isolatedHome, XDG_CONFIG_HOME: join(directory, "config"), NODE_OPTIONS: `--import=${fixture}` };
 }

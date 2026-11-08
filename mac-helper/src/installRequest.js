@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
-import { constants, createReadStream } from "node:fs";
-import { open } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { NodeArtifactStore } from "./infrastructure/nodeArtifactStore.js";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 import { canonicalProjectPath, projectRootForDescriptor } from "./liveSessionDescriptor.js";
 
@@ -91,16 +89,13 @@ function projectResult(response, id) {
       : `The install request is ${value.state}. No installation success is inferred.` };
 }
 async function hashArtifact(path) {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const artifacts = new NodeArtifactStore();
   try {
-    const before = await file.stat();
-    if (!before.isFile() || before.nlink !== 1 || before.size < 1) throw failure("INSTALL_BUILD_UNAVAILABLE");
-    const hash = createHash("sha256");
-    for await (const part of createReadStream(path, { fd: file.fd, autoClose: false })) hash.update(part);
-    const after = await file.stat();
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw failure("INSTALL_BUILD_CHANGED");
-    return hash.digest("hex");
-  } finally { await file.close(); }
+    const approved = artifacts.resolveContained(dirname(path), path);
+    return await artifacts.sha256(approved);
+  } catch (error) {
+    throw failure(error?.code === "ARTIFACT_CHANGED" ? "INSTALL_BUILD_CHANGED" : "INSTALL_BUILD_UNAVAILABLE");
+  }
 }
 // Reuse existing helper-owned launch receipts only when the app is disconnected.
 // This is a future exact-match selector, never a claim that a phone is reachable

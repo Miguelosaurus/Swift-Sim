@@ -194,8 +194,8 @@ test("proven hot reload alerts default on while launch alerts remain inbox-only"
   const f = fixture(); try {
     await f.service.runOnce(); await f.register(); f.advance();
     f.setLive([applied(f.live())]); const build = f.build(); build.installation = { state: "launch-confirmed", launchConfirmedAt: new Date(f.now()).toISOString() };
-    f.setBuilds([build]); await f.service.runOnce(); assert.equal(f.sent.length, 2); // Build ready and proven hot reload.
-    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title).sort(), ["Changes applied", "Ready to install"]);
+    f.setBuilds([build]); await f.service.runOnce(); assert.equal(f.sent.length, 1); // An installed build must not send a ready-to-install alert.
+    assert.deepEqual(f.sent.map((item) => item.payload.aps.alert.title).sort(), ["Changes applied"]);
     assert.equal(f.service.feed().events.filter((e) => e.kind === "launch-confirmed").length, 1);
     const events = activitySnapshotEvents({ builds: [{ ...build, installation: { state: "requested" } }], now: f.now() }).entries;
     assert.equal(events.some((e) => e.kind === "launch-confirmed"), false);

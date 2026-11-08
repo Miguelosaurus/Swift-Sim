@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { DeviceBuildStore } from "../mac-helper/src/deviceBuildStore.js";
 import test from "node:test";
+import packageJSON from "../package.json" with { type: "json" };
 
 const compiledOrSourceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 // The source suite intentionally leaves this compiled-only gate to the
@@ -70,7 +71,7 @@ test("compiled runtime works without the source tree", async () => {
   assert.equal(existsSync(join(packageRoot, "test")), false);
   assert.ok(existsSync(join(packageRoot, "plugins", "swift-sim-companion", "skills", "remote-simulator-companion", "SKILL.md")));
 
-  assert.equal(run(cli, ["version"]).stdout.trim(), "0.6.1");
+  assert.equal(run(cli, ["version"]).stdout.trim(), packageJSON.version);
   assert.match(run(cli, ["help"]).stdout, /Usage:\s+swift-sim setup/);
 
   const home = mkdtempSync(join(tmpdir(), "swift-sim-hermetic-home-"));
@@ -86,6 +87,7 @@ test("compiled runtime works without the source tree", async () => {
     sha256: "17932eb4d59d8c5d97f76bc46a97898997c96e2efbd740e045ea65c0e2b01696",
   }));
 
+  writeFileSync(join(engine, "local-candidate.json"), "{}", { mode: 0o600 });
   let first = await startHelper(env, port);
   try {
     assert.equal((await fetch(`http://127.0.0.1:${port}/health`)).ok, true);
@@ -105,7 +107,7 @@ writeFileSync(${JSON.stringify(brewInvocation)}, process.argv.slice(2).join(" ")
     const setup = run(cli, ["setup", "--skip-agents", "--skip-plugin", "--json"], setupEnv);
     assert.equal(setup.status, 0, setup.stderr);
     const setupReport = JSON.parse(setup.stdout);
-    assert.equal(setupReport.version, "0.6.1");
+    assert.equal(setupReport.version, packageJSON.version);
     assert.deepEqual(
       setupReport.actions.find((action) => action.id === "helper"),
       { id: "helper", state: "unchanged", detail: "Mac helper is already running" },
@@ -113,7 +115,7 @@ writeFileSync(${JSON.stringify(brewInvocation)}, process.argv.slice(2).join(" ")
     assert.equal(existsSync(brewInvocation), false);
     const doctor = run(cli, ["doctor", "--json"], env);
     assert.equal(doctor.status, 0, doctor.stderr);
-    assert.equal(JSON.parse(doctor.stdout).version, "0.6.1");
+    assert.equal(JSON.parse(doctor.stdout).version, packageJSON.version);
 
     const stateModule = await import(new URL("../mac-helper/src/deviceDeliveryState.js", import.meta.url).href);
     const statePath = join(home, ".swift-sim", "generation.json");

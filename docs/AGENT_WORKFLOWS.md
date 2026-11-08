@@ -244,3 +244,21 @@ with `build-delivery-status --build-id <id> --project <project> --scheme <scheme
 `install-prompt-requested` awaits iOS confirmation, and `install-unconfirmed`
 requires reconciliation without retrying. Live operations retain their own
 existing status command. See [automatic delivery](../plugins/swift-sim-companion/skills/remote-simulator-companion/references/automatic-delivery.md).
+
+
+### Read the same delivery status as the phone
+
+After a delivery, use this only when progress or recovery needs inspection:
+
+```sh
+swift-sim delivery-status --project /path/App.xcodeproj --scheme App
+```
+
+Use `--workspace` for a workspace, or `--app-id` for an existing registered app.
+The command reads the paired helper's existing activity feed once. It returns
+its shared `status` with `code`, `message`, `nextAction` and
+`completionVerified`, also shown on the app's page. It never builds, opens an
+installer, starts App Testing or retries a request. A missing, unreachable or
+older helper cannot establish that nothing is pending. Inspect uncertainty
+before retrying. Continue using `deliver-change` once per logical phone edit;
+this status read is not a new preflight.

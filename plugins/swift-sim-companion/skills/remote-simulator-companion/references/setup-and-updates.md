@@ -46,3 +46,13 @@ App Store Connect API key. `notifications status` reports configuration without
 credentials; `notifications disable` stops new sends. The signed Companion needs
 the matching push entitlement/profile and explicit notification permission.
 The inbox works without APNs; APNs acceptance alone does not prove display.
+
+
+The packaged compatibility contract pins the matching engine archive, source
+revision, SDK package tag and helper/agent version. Setup verifies a bounded
+archive and signed app before replacing the old engine, and recovers an
+interrupted swap without discarding the old manifest. At most one old copy is
+kept for cleanup on the next explicit setup; no background updater is added.
+`components` in doctor reports local compatibility separately from phone proof.
+Keep explicit local candidates explicit; never silently replace them with an
+older public engine.

@@ -9,7 +9,7 @@ test("state-byte fixtures read disposable binary data and reject implementation 
   const root = mkdtempSync(join(tmpdir(), "swift-sim-state-bytes-"));
   try {
     const bytes = Buffer.from([0x00, 0xff, 0x80, 0x42]);
-    for (const name of ["state.sqlite", "state.sqlite-wal", "state.json", "sentinel"]) {
+    for (const name of ["state.sqlite", "state.sqlite-wal", "state.json", "sentinel", "engine.pid", "engine.sock"]) {
       const path = join(root, name);
       writeFileSync(path, bytes);
       assert.deepEqual(readStateBytes(path), bytes);
@@ -17,7 +17,7 @@ test("state-byte fixtures read disposable binary data and reject implementation 
     for (const name of ["source.js", "source.ts", "source.swift", "source.m", "source.js.json"] ) {
       const path = join(root, name);
       writeFileSync(path, "export const source = true;\n");
-      assert.throws(() => readStateBytes(path), /JSON, SQLite, or sentinel/);
+      assert.throws(() => readStateBytes(path), /JSON, SQLite, engine markers, or sentinel/);
     }
     const disguised = join(root, "alias.json");
     symlinkSync(join(root, "source.js"), disguised);

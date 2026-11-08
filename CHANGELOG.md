@@ -4,6 +4,17 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+## 0.6.2 - 2026-11-07
+
+- Make setup use one matching component contract and a transactional engine
+  installer with bounded downloads, checksum/signature checks, exact rollback
+  and interrupted-update recovery. Diagnose local compatibility separately
+  from actual phone proof; preserve explicitly selected local engines.
+- Share truthful delivery status and the next action across the app library,
+  app page, notification copy and `delivery-status` agent command. Reuse existing
+  queues and refresh cycles. An uncertain handoff stays uncertain; an already
+  installed build no longer emits a ready-to-install notification.
+
 - Add opt-in foreground install requests through the existing Debug connection,
   retaining native iOS confirmation without App Testing. Requests wait on
   existing connection events, fence uncertain handoffs against replay, and never

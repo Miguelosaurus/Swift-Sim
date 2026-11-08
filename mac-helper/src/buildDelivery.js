@@ -73,9 +73,8 @@ async function nativeInstall(build, { device, status }) {
   } catch { return { state: "unconfirmed" }; }
 }
 
-function noForegroundJournal(build) {
+export function noForegroundJournal(build, directory = join(homedir(), ".swift-sim")) {
   try {
-    const directory = join(homedir(), ".swift-sim", "live");
     const parent = lstatSync(directory);
     if (!parent.isDirectory() || parent.isSymbolicLink() || parent.mode & 0o077 || parent.uid !== process.getuid()) return false;
     const file = join(directory, "install-requests.json");

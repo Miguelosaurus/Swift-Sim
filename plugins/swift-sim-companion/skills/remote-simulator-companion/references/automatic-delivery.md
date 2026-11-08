@@ -55,3 +55,13 @@ and live operation identities; there is no new queue or daemon. The separate
 [foreground-install reference](foreground-installs.md) covers queue cancellation,
 expiry and iOS restrictions. Ordinary notifications and hot reload never import
 the native installer adapter.
+
+
+For one shared per-app status matching Swift Sim and its notification copy, use
+`swift-sim delivery-status --project <App.xcodeproj> --scheme <App>` (or
+`--workspace`, or an existing `--app-id`). Follow `status.message` and
+`status.nextAction`; only `completionVerified: true` confirms completion.
+This reads the existing paired feed once and never retries, builds, opens an
+installer or starts App Testing. Missing/stale status is uncertainty, not an
+empty queue. Use only after delivery or for explicit progress/recovery, never
+before every warm edit.
