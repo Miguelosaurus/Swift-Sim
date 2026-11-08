@@ -124,8 +124,9 @@ If preserved provenance is missing, changed or unsafe, recovery stops with a
 typed explanation. No new build or phone install starts automatically. Older
 captures can be adopted only when the successful result and conservative input
 timestamps verify their unchanged state; future builds retain a fingerprinted
-checkpoint before registration. This recovery requires the qualified local
-0.5.1 engine candidate, not the public 0.4.0 installer.
+checkpoint before registration. This recovery requires matching transactional-registration components. Normal
+setup installs the verified engine pinned by the published compatibility contract;
+old or incompatible components report a typed update requirement.
 
 Creating an install targets generic iOS even with provisioning updates enabled;
 it does not wait for a particular nearby phone. Installation verification is a

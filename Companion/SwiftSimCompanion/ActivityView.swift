@@ -124,19 +124,22 @@ private struct ActivityNotificationSettingsView: View {
         Form {
             Section {
                 if [.authorized, .provisional, .ephemeral].contains(notifications.authorization) {
-                    Label("Notifications allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    Label("iPhone notifications allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 } else if notifications.authorization == .denied {
                     Button("Open notification settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                     }
-                } else {
+                } else if activity.providerStatus?.configured == true {
                     Button("Enable notifications") { Task { await activity.enableNotifications() } }
                         .accessibilityIdentifier("enableActivityNotificationsButton")
+                } else {
+                    Text("You can enable iPhone alerts when background notifications are available from your Mac.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 if let message = notifications.registrationMessage { Text(message).font(.footnote).foregroundStyle(.secondary) }
                 if let message = notifications.deliveryMessage { Text(message).font(.footnote).foregroundStyle(.secondary) }
             } footer: {
-                Text("Queued edits, build-ready, applied hot reloads and actionable alerts are on by default. You control permission in iPhone Settings.")
+                Text("Choose which updates can send alerts. iPhone permission and a configured Mac sender are both needed for background notifications.")
             }
             Section {
                 Toggle("Changes ready to apply", isOn: preference(\.queued))
@@ -148,13 +151,17 @@ private struct ActivityNotificationSettingsView: View {
                 Text("Compilation progress and routine reconnects don’t send alerts. While Swift Sim is open, updates appear in the app without an extra notification banner.")
             }
             Section("Mac delivery") {
-                if activity.providerStatus?.configured == true {
-                    Label("Push sender configured", systemImage: "checkmark.shield")
+                if let provider = activity.providerStatus, provider.configured {
+                    Label("Background alerts configured", systemImage: "checkmark.shield")
                     Text("Apple handles remote alerts across networks. Activity and install details still load through your private Mac connection.")
                         .font(.footnote).foregroundStyle(.secondary)
+                } else if activity.providerStatus != nil {
+                    Label("In-app updates available", systemImage: "bell")
+                    Text("Your builds and changes appear here while Swift Sim is open. Background alerts aren't available from this Mac.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 } else {
-                    Label("Mac setup needed", systemImage: "macbook.and.iphone")
-                    Text("Your Mac needs an APNs signing key before it can send alerts. Activity still syncs while Swift Sim is open.")
+                    Label("Connect your Mac to check alerts", systemImage: "macbook.and.iphone")
+                    Text("Connect to your paired Mac to check background notification availability. Saved activity remains here.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }

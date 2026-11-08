@@ -195,13 +195,13 @@ private struct HomeView: View {
         case .checking: return "Connecting to \(macName)"
         case .offline: return "Mac offline"
         case .pairingExpired: return "Pairing expired"
-        case .notPaired: return "Pair once for remote builds"
+        case .notPaired: return "Connect your Mac"
         }
     }
 
     private var macInstallStatusDetail: String {
         switch sessionStore.helperStatus {
-        case .online: return "Remote builds and install verification are ready."
+        case .online: return "Your Mac is online. Builds and app updates sync here."
         case .checking: return "Checking the private remote connection."
         case .offline: return "Wake your Mac or reconnect Tailscale. Install links still work."
         case .pairingExpired: return "Your Mac is reachable. Open a fresh pairing link to reconnect."
@@ -391,6 +391,25 @@ private struct HomeView: View {
                     .buttonStyle(.plain)
                     .liquidGlassCircle(tint: Color.blue.opacity(0.16), interactive: true)
                     .accessibilityLabel("Paste Swift Sim link")
+                }
+            } else if selectedMode == .installs && !showingArchivedApps && sessionStore.pairedMac == nil {
+                VStack(spacing: 12) {
+                    Button {
+                        sessionStore.isMacSettingsPresented = true
+                    } label: {
+                        Label("Connect your Mac", systemImage: "macbook.and.iphone")
+                            .font(.headline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 58)
+                    }
+                    .buttonStyle(.plain)
+                    .liquidGlassCapsule(tint: Color.blue.opacity(0.16), interactive: true)
+                    .accessibilityIdentifier("connectMacSetupButton")
+
+                    Button("Open an install link") { showingPasteLink = true }
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
                 }
             } else {
                 Button {
@@ -742,7 +761,7 @@ private struct ManagedAppDetailView: View {
                         Text(sessionStore.isStartingCurrentSourceBuild ? "Starting Build…" : "Build Current Code")
                             .font(.headline.weight(.bold))
                             .foregroundStyle(.primary)
-                        Text("Remotely build the project exactly as it exists on your Mac and create a new install link.")
+                        Text("Compile and sign the code currently on your Mac as a new installable build.")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -769,7 +788,7 @@ private struct ManagedAppDetailView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Your Mac will compile and sign \(app.displayName.swiftSimDisplayName) using the code currently on it, including uncommitted changes. This is a full build, not a hot reload, and may take several minutes. Swift Sim will create an install update; nothing is installed on your iPhone until you approve it.")
+                Text("Your Mac will compile and sign \(app.displayName.swiftSimDisplayName) using the code currently on it, including uncommitted changes. This is a full build, not a hot reload, and may take several minutes. Creating a build does not confirm that it is installed on your iPhone.")
             }
             .accessibilityHint("Works remotely through your private Mac connection and builds uncommitted changes without pulling or switching branches")
 
@@ -1697,7 +1716,7 @@ private struct EmptyDeviceBuildCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(isArchive ? "No archived apps" : "No apps yet")
                     .font(.title3.weight(.bold))
-                Text(isArchive ? "Apps you archive appear here." : "Open the install link you receive, or paste it here.")
+                Text(isArchive ? "Apps you archive appear here." : "Connect your Mac to sync apps and builds, or open an install link from your coding agent.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1866,7 +1885,7 @@ private struct MacSettingsSheet: View {
                             icon: "lock.shield.fill",
                             tint: .blue,
                             title: "Tailscale",
-                            detail: "Keep Tailscale on for remote builds and Simulator preview.",
+                            detail: "Keep Tailscale on for remote builds, live edits and Simulator preview.",
                             check: sessionStore.tailscaleCheck
                         )
                         ConnectionRequirementRow(

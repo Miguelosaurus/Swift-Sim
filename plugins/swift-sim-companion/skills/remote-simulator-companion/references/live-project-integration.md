@@ -113,11 +113,11 @@ partially apply. Require the same exact native replacement and refresh receipts.
 
 ## Asynchronous edits
 
-The reconnect SDK and prepared-delivery engine are a matching contract. The
-current engine 0.5.6 is a qualified local candidate; public setup still defaults
-to 0.4.0. A reachable old engine, SDK, or helper must return an explicit update
-requirement. Complete one Debug SDK bootstrap when the matching candidate is
-activated; do not repeatedly rebuild because a device is temporarily absent.
+The reconnect SDK and prepared-delivery engine are a matching published contract.
+Swift Sim 0.6.4 ships engine/SDK 0.5.8. Setup uses the verified public archive;
+local candidates are only explicit contributor qualifications. An old engine,
+SDK or helper reports its typed update requirement. Complete one matching
+Debug bootstrap; temporary absence does not require another app build.
 
 For an explicit hot reload or acceptance test, pass `--live-only`. Compatible
 edits become durable `queued` intent. The Mac helper compiles offline when its
@@ -136,16 +136,14 @@ no-admission rejections resolve them there. Once a different matching process
 is authenticated at revision zero and prior claims expire, cumulative recovery
 can supersede the old uncertain operation while preserving its evidence.
 
-Matching `prepared-receipt-query-v1` clients and the local 0.5.6 engine recover
-lost acknowledgements automatically after reconnecting to the same app process.
-The existing helper reconciliation reads the original operation's native receipt;
-it never retransmits a patch or issues another load/refresh. Recovery is bounded
-to 16 distinct connections per pending admission attempt and one lookup per connection. In-flight
-work may attach a bounded completion reply; absent/conflicting native entries
-remain uncertain. Reading a completed result can continue after intent expiry.
-Older SDKs need one Debug update for this recovery protocol; ordinary delivery
-still works. No engine restart, new polling service or notification change is
-part of recovery. Require the same exact replacement/refresh proof as usual.
+Matching `prepared-receipt-query-v1` clients recover admitted receipts over the
+existing connection. Engine/SDK 0.5.8 additionally negotiates
+`prepared-receipt-fence-v1`: an exact native no-effect proof can permanently
+retire an unadmitted attempt before the same queued request and compiled image
+uses a new token. Admitted work never replays; delayed retired attempts cannot
+load. Conflicting or unproven effects stay uncertain. Expired intent does not
+retry. Follow [agent-handled recovery](recovery.md) without resubmitting source.
+There is no new poller, normal successful-edit round trip or notification work.
 
 Confirmed desired source outlives pending-request expiry and is automatically
 restored after relaunch. The qualified original binary baseline, latest source,
@@ -158,8 +156,8 @@ binary. Revocation cannot unload a patch from the current process.
 
 ## Complete mixed replacement receipts
 
-The local 0.5.2 engine negotiates `replacement-proof-v3`. Its matching Debug SDK
-requires one signed bootstrap update. Swift replacement totals remain honest;
+The published engine/SDK contract includes `replacement-proof-v3`. Its matching
+Debug SDK requires one signed bootstrap update. Swift replacement totals remain honest;
 Objective-C callbacks carry separate exact class/selector/ABI and loaded-image
 implementation evidence. Every changed member must be covered, with the same
 request, signed digest, claim attempt, binary/process, refresh ACK and increased

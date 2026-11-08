@@ -32,6 +32,26 @@ legacy live events without a build ID navigate only when their authenticated app
 name matches exactly one app owned by the paired Mac. Ambiguous or unavailable
 targets retain the activity details instead.
 
+## Public beta availability
+
+The activity inbox works without push credentials. Background iOS alerts are
+not a default capability for a fresh public-beta installation. The current
+sender requires a private APNs key for the Apple developer team that owns the
+installed Companion's bundle ID. A tester's unrelated Apple signing key cannot
+configure notifications for our distributed Companion.
+
+Normal onboarding must not ask testers for our private key or suggest that
+allowing iPhone notification permission alone enables delivery. Without a
+configured sender, the Companion shows in-app update availability and keeps
+activity/history usable. Agent delivery and hot reload do not depend on push.
+An unknown/disconnected sender is shown separately from a known unconfigured
+one; neither is reported as a delivery success.
+
+A shared authenticated push service is not implemented or deployed. It is a
+separate product decision before promising background alerts to all testers.
+The advanced local setup below is for an owner-built, matching Companion and
+Apple team. Do not distribute its signing key with the Mac package or plugin.
+
 ## Queued hot reload
 
 You can submit an edit while using ChatGPT or another app on the same iPhone.

@@ -60,7 +60,13 @@ node --test test/liveReload.test.js
 swift-sim classify-change --before /tmp/before.swift --after /tmp/after.swift
 ```
 
-The Swift package pins the `swift-sim-engine` branch of the Swift Sim InjectionNext fork by commit for reproducibility. Keep the fork branch thin and regularly merge reviewed upstream changes. Do not replace that revision with an upstream semver tag: the stable tags do not contain the Swift Sim control protocol, and SwiftPM will reject a stable Swift Sim package with the unstable transitive dependency. Client projects should pin Swift Sim itself to an immutable commit until the fork publishes a matching semver tag. Engine assets are separately versioned, signed, checksum-pinned, and license-attributed. Update those pins intentionally and rerun physical-device, Swift, and Node tests. The classifier and success contract must remain conservative: false rebuilds cost time, but a false live-safe or false-success result is worse.
+The Swift package pins a stable exact tag of the Swift Sim InjectionNext fork.
+The compatibility contract binds that tag to the same immutable source revision
+and signed engine archive. Do not substitute an unrelated upstream tag. Keep
+the fork thin, qualify intentional updates and run
+`npm run check:engine-publication` before a release default becomes public.
+Client projects can use a published stable exact Swift Sim version; unpublished
+qualification work uses explicit local sources without rewriting public tags.
 
 For physical-device proof, use a regular development-signed Debug app on an iPhone connected through the private Tailnet. Require two consecutive `deliver-change` results with `outcome: hot-reloaded`, `applied: true`, `dynamic_replacements > 0`, `refresh_acknowledged: true`, and increasing nonzero revisions. Record patch duration, verify no rebuild or reinstall occurred between edits, and do not substitute screenshots for the runtime report.
 

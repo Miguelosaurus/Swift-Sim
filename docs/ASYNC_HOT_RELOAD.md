@@ -9,18 +9,17 @@ navigate to the changed screen later to see the result.
 
 ## Availability
 
-This workflow requires the matching reconnect SDK, prepared-delivery engine,
-and helper capability. The reviewed SDK is pinned in `Package.swift`. The
-engine implementation is a qualified **local 0.5.6 candidate**, not a published
-binary release. The public installer still defaults to engine 0.4.0. An older
-engine/client/helper must report an explicit update requirement; reconnecting
-alone cannot add a missing protocol capability.
+This workflow is included in the published matching Mac package, engine and
+Debug SDK. Swift Sim 0.6.4 uses engine/SDK 0.5.8; `Package.swift` and
+`mac-helper/compatibility.json` bind the exact version, source revision and
+archive checksum. Normal setup installs the matching verified public engine.
+Local candidate activation is only for separate contributor qualification.
 
-Local candidate activation is an operator qualification step. It measures an
-explicit archive checksum, preserves owner-only configuration, and verifies
-the app signature before installation. No background updater or public
-candidate download is implied. First bootstrap requires one new signed Debug
-SDK installation; subsequent compatible edits do not reinstall the app.
+An older engine, client or helper reports an explicit update requirement.
+First bootstrap needs one signed Debug SDK installation. Later compatible
+edits do not reinstall the app, and reconnecting cannot add a missing native
+capability. The current Companion distribution state is recorded in
+[TestFlight availability](TESTFLIGHT.md#availability).
 
 ## Preserve the current screen
 
@@ -261,17 +260,26 @@ blocks this recovery.
 Pending requests expire within 24 hours. A cumulative cohort uses its earliest
 accepted expiry, so it may shorten a later request's remaining lifetime; it
 never silently extends accepted intent. Expired cohorts are not automatically
-resurrected. The matching local 0.5.6 engine and `prepared-receipt-query-v1` SDK recover lost
-confirmations over the existing connection after the same native process
-reconnects. A lookup reads the exact original request/digest/attempt/baseline,
-coverage, strategy and binary/process receipt; it cannot load an image or refresh
-the app. No patch bytes are retransmitted. Reads remain possible after request
-expiry. Up to 16 distinct connections per pending admission attempt and one query per connection
-bound recovery; a pending native operation has at most 16 completion callbacks.
-An absent or conflicting native entry remains fenced, never guessed successful
-or automatically reapplied. Normal completed edits add no lookup round trip,
-worker, timer, value upload or notification-cadence change. Older clients retain
-ordinary delivery but require one Debug SDK update for this recovery protocol.
+resurrected. Matching `prepared-receipt-query-v1` clients recover lost confirmations
+through the existing helper reconciliation and native receipt ledger. Completed
+or still-admitted work is queried by its original request, digest, attempt,
+baseline, coverage, strategy and binary/process identity. A receipt query never
+loads an image or reports success without native evidence, including after expiry.
+
+With engine/SDK 0.5.8's negotiated `prepared-receipt-fence-v1`, an unadmitted
+attempt can be atomically retired in that ledger. Only its exact native
+`PREPARED_ATTEMPT_FENCED` no-effect proof permits the same request, snapshots and
+prepared image to use a new attempt token. Delayed copies of the retired attempt
+remain refused. Already admitted loads cannot be cancelled or replayed. A wrong
+identity, conflicting contract or missing proof keeps uncertainty fenced; expired
+intent cannot become retryable.
+
+Recovery uses bounded existing connection/query records and native completion
+callbacks. The native ledger holds at most 16 retired attempt IDs per request.
+Normal successful edits add no lookup round trip, worker, timer, value upload
+or notification-cadence change. Older clients retain safe read-only recovery
+and ordinary delivery; the new fence capability requires one matching Debug
+SDK update.
 
 Confirmed desired source is stored separately in the same private
 journal and remains bound to that exact Debug binary until explicitly revoked.

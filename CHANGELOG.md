@@ -4,6 +4,15 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Make first-use connection and notification copy reflect the actual available
+  state. A missing/unknown Mac sender no longer suggests that iPhone permission
+  alone enables background push; in-app activity remains available.
+- Lead the empty, unpaired app library with Connect your Mac, keeping the
+  existing install-link fallback one tap away.
+- Update public setup, delivery, SDK recovery, retention and privacy guidance to
+  the published component contract. Record the expired TestFlight distribution
+  as an explicit launch blocker instead of promising an available beta build.
+
 ## 0.6.4 - 2026-11-08
 
 - Bind release archives to their source checkout and reject version mismatches,
