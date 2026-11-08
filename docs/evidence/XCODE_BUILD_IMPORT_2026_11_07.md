@@ -32,6 +32,10 @@ installation or historical artifact cleanup were performed for this qualificatio
   the separately opt-in clean Homebrew installation gate was not run.
 - The primary skill remains below its existing 1,200-word limit. New instructions
   are in a lazily loaded reference. New commands do not start a helper or watcher.
+- Five update/lifecycle tests also passed. An explicit update now restarts a
+  healthy helper when a development update keeps the same release number;
+  normal healthy setup remains unchanged. No active builds were present at
+  activation.
 - Architecture inventory has the identical two violations present at the starting
   commit: the read-only open import in installRequest.js, and the engine ownership
   fixture test's source-text classification. No policy/allowlist was widened.

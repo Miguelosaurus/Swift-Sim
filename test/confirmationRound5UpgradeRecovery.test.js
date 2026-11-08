@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
+import { createServer as createHTTPServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import "../mac-helper/src/commandDeadlinePreload.js";
@@ -230,3 +231,32 @@ function restoreEnvironment(key, value) {
   if (value === undefined) delete process.env[key];
   else process.env[key] = value;
 }
+
+
+test("an explicit update reloads a healthy helper even when the release number is unchanged", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-same-release-update-"));
+  const recordPath = join(directory, "brew-args.txt");
+  const server = createHTTPServer((_req, response) => {
+    response.writeHead(200, {"content-type":"application/json"});
+    response.end(JSON.stringify(runtimeHealthPayload(HELPER_RUNTIME_ROLE)));
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const previous = snapshotEnvironment(["PATH", "SWIFT_SIM_PORT", "SWIFT_SIM_MARKETPLACE_ROOT", "SWIFT_SIM_HELPER_WAS_RUNNING"]);
+  try {
+    const brew = join(directory, "brew");
+    writeFileSync(brew, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(recordPath)}, process.argv.slice(2).join(' '));\n`);
+    chmodSync(brew, 0o755);
+    process.env.PATH = `${directory}:${previous.PATH || ""}`;
+    process.env.SWIFT_SIM_PORT = String(server.address().port);
+    process.env.SWIFT_SIM_MARKETPLACE_ROOT = directory;
+    process.env.SWIFT_SIM_HELPER_WAS_RUNNING = "1";
+    const result = await reconcileHelperRuntime({startIfStopped:true});
+    assert.equal(result.state, "restarted");
+    assert.equal(readFileSync(recordPath, "utf8"), "services restart swift-sim");
+  } finally {
+    restoreEnvironmentSnapshot(previous);
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    rmSync(directory, {recursive:true,force:true});
+  }
+});

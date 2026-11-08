@@ -26,7 +26,7 @@ export async function reconcileHelperRuntime({ startIfStopped = true } = {}) {
   const port = helperPort();
   const health = await currentHelperRuntimeHealth();
   const restartAfterUpdate = process.env.SWIFT_SIM_HELPER_WAS_RUNNING === "1";
-  if (health.ok) {
+  if (health.ok && !restartAfterUpdate) {
     return { id: "helper", state: "unchanged", detail: `Mac helper ${health.version} is already running` };
   }
 
