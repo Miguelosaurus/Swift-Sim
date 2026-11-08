@@ -30,7 +30,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - name: Verify published engine and SDK dependencies
-        if: github.event_name == 'release'
+        if: github.event_name != 'pull_request'
         run: npm run check:engine-publication
       - name: Run isolated clean Homebrew installation gate
         run: SWIFT_SIM_RUN_CLEAN_HOMEBREW=1 bash scripts/verify-homebrew-package.sh

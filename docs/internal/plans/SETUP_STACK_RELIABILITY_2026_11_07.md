@@ -138,3 +138,18 @@ were retained. The stock test simulator is shut down. The existing product
 helper/engine remain running. Local checks passed; remote Verify was still
 running at the final audit, and the clean Homebrew service cycle was not rerun
 locally. Recovery UX and the broader interruption matrix remain separate work.
+
+
+## Hosted verification follow-up
+
+The release workflow passed its full `npm run check` step, then its unauthenticated
+GitHub REST tag lookup returned a non-success response. The original checker did
+not record the HTTP status, so a rate limit is only a possibility, not a proven
+cause. The public Git ref, fresh SwiftPM consumer, signed archive and checksum
+all verified independently. The publication checker now uses bounded
+`git ls-remote` for the exact lightweight tag, matching SwiftPM's transport,
+while keeping the public archive checksum/size gate. Eight focused tests cover
+ref errors, mismatches, ambiguity and artifact failures. The gate also runs on
+main pushes so the current validation can qualify the frozen release without
+moving its immutable tag or changing the published archive. Runtime/package/SDK
+code is unchanged by this verification-only follow-up.
