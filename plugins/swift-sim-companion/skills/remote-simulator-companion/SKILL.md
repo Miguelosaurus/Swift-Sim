@@ -125,13 +125,13 @@ has no fixed deadline. Do not require a screen, ask for resubmission, restart
 or rebuild, or repeatedly poll unchanged status. Notifications and taps do
 not prove application; require the matching native receipt and revision.
 
-`normalWaiting: false` with `CHECK_MAC` or `CHECK_MATCHING_BUILD` requires
-investigation. Inspect `delivery.readiness.code`, heartbeat/engine-observation
-ages, then `swift-sim live-status`. Missing engine, heartbeat, compiler/signing
-context, capability or matching build requires Mac-side recovery. Preserve the
-request and snapshots; do not resubmit or automatically rebuild. A fresh
-`LIVE_PREPARING` heartbeat proves preparation is active, not a newer engine
-check or successful application.
+`normalWaiting: false` with `CHECK_MAC` or `CHECK_MATCHING_BUILD` invokes
+`swift-sim recover-delivery --request <id>` once. For a helper failure before
+admission, use the exact `--project`/`--workspace` and `--scheme` instead.
+Follow its single `nextAction`; keep the existing request and snapshots.
+Read [agent-handled recovery](references/recovery.md) for repair limits and
+pre-admission retry rules. Recovery never submits an edit or starts a build.
+
 
 
 For first-time hot reload, follow [live project integration](references/live-project-integration.md)

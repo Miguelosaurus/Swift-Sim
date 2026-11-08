@@ -26,7 +26,7 @@ import { createConnection } from "node:net";
 import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
-import { abortPendingLiveEngine } from "./liveEngineOwnershipPreload.js";
+import { abortPendingLiveEngine, readPublishedLiveEngineRecord, kernelProcessIdentity } from "./liveEngineOwnershipPreload.js";
 import { buildLiveSessionDescriptor, publishLiveSessionDescriptor, readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
 import { machoUUID, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 import { ensureDirectoryModeSync, NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
@@ -1267,6 +1267,15 @@ function argumentValue(args, flag) {
 
 function resolveFrom(workingDirectory, path) {
   return resolve(workingDirectory || process.cwd(), path);
+}
+
+// Explicit recovery only. An unreachable running process is not an absent engine.
+export function assertStoppedLiveEngineForRecovery({ readRecord = readPublishedLiveEngineRecord, identity = kernelProcessIdentity } = {}) {
+  try {
+    const record = readRecord();
+    if (!record || !Number.isInteger(record.pid) || record.pid < 2 || identity(record.pid))
+      throw Object.assign(new Error("The existing engine cannot be replaced by recovery."), { code: "RECOVERY_ENGINE_ACTIVE" });
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
 export async function startLiveReload(options = {}) {

@@ -1032,6 +1032,7 @@ Usage:
   swift-sim qualify-xcode-build ... Validate explicit compiler context and phone proof
   swift-sim deliver-build ...     Install or queue an existing signed build
   swift-sim build-delivery-status ...  Read a build delivery without resubmitting
+  swift-sim recover-delivery      Recover an existing blocked delivery safely
   swift-sim delivery-status       Read shared app delivery status (no retry)
   swift-sim live-delivery-status  Read a queued request with --request
   swift-sim live-desired-revoke   Revoke restoration for a qualified Debug project/scheme

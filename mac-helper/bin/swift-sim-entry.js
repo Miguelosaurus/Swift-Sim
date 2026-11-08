@@ -65,8 +65,17 @@ if (command === "update") {
   await reconcileHelperRuntime({ startIfStopped: true });
 }
 
-installCompatibleHelperHealthFetchBoundary();
-await import("./swift-sim.js");
+if (command === "recover-delivery") {
+  const { parseArgs } = await import("node:util");
+  const { values } = parseArgs({ args: args.slice(1), options: { request: { type: "string" }, project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" } } });
+  const { recoverDelivery } = await import("../src/deliveryRecovery.js");
+  const { createDeliveryRecoveryPorts } = await import("../src/deliveryRecoveryRuntime.js");
+  const ports = createDeliveryRecoveryPorts({ reconcileHelper: reconcileHelperRuntime });
+  console.log(JSON.stringify(await recoverDelivery({ requestId: values.request, project: values.project, workspace: values.workspace, scheme: values.scheme }, ports)));
+} else {
+  installCompatibleHelperHealthFetchBoundary();
+  await import("./swift-sim.js");
+}
 
 async function configureBuildValidation() {
   let current;

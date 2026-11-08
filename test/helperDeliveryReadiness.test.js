@@ -58,7 +58,7 @@ test("refused helper connections are actionable and retain sanitized transport c
   try {
     const result = await runDelivery(fixture.installedEntry, fixture, port);
     assert.equal(result.envelope.reasonCode, "HELPER_CONNECTION_REFUSED");
-    assert.match(result.envelope.message, /setup to start it/);
+    assert.match(result.envelope.message, /recover-delivery/);
     assert.deepEqual(result.envelope.diagnostics.runtime.cause, { category: "transport", transportCode: "ECONNREFUSED" });
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
 });

@@ -26,11 +26,11 @@ function recoveryMessage(code, status) {
     case "HELPER_TIMEOUT":
       return "The Mac helper health check timed out. Run swift-sim doctor --json, then retry this delivery when the helper responds.";
     case "HELPER_CONNECTION_REFUSED":
-      return "The Mac helper is not accepting connections. Run swift-sim setup to start it, then retry this delivery.";
+      return "The Mac helper is not accepting connections. Run swift-sim recover-delivery with the matching project and scheme to restore it before any delivery retry.";
     case "HELPER_IDENTITY_MISMATCH":
       return "Another service answered the helper health check. Run swift-sim doctor --json and resolve the helper listener before retrying.";
     case "HELPER_VERSION_MISMATCH":
-      return "The running Mac helper does not match this Swift Sim CLI. Run swift-sim setup to reconcile the installed helper, then retry this delivery.";
+      return "The running Mac helper does not match this Swift Sim CLI. Run swift-sim recover-delivery for the matching request or project to reconcile the owned helper without resubmitting it.";
     case "PROTOCOL_MISMATCH":
       return "The running Mac helper uses an incompatible protocol. Update Swift Sim and reconcile the helper; start a new agent session if its integration changed.";
     case "HELPER_HTTP_ERROR":

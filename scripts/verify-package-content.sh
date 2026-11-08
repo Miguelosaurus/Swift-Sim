@@ -17,6 +17,9 @@ const report = JSON.parse(readFileSync(reportPath, "utf8"));
 const files = report[0]?.files?.map((entry) => entry.path.replace(/^package\//, "")) ?? [];
 const required = [
   "dist/mac-helper/compatibility.json",
+  "dist/mac-helper/src/deliveryRecovery.js",
+  "dist/mac-helper/src/deliveryRecoveryRuntime.js",
+  "plugins/swift-sim-companion/skills/remote-simulator-companion/references/recovery.md",
   "dist/mac-helper/src/componentCompatibility.js",
   "dist/mac-helper/src/engineInstallTransaction.js",
   "dist/mac-helper/src/deliveryStatus.js",

@@ -262,3 +262,13 @@ installer, starts App Testing or retries a request. A missing, unreachable or
 older helper cannot establish that nothing is pending. Inspect uncertainty
 before retrying. Continue using `deliver-change` once per logical phone edit;
 this status read is not a new preflight.
+
+
+### Recover a blocked delivery
+
+Use `swift-sim recover-delivery --request <id>` after a Mac-side fault. It can
+restore the owned helper or a verified stopped live session while retaining
+the same request and snapshots. The command returns one next action and never
+submits, compiles, installs or applies an edit itself. A healthy/backgrounded
+phone is normal waiting. Unknown receipts are preserved, and busy work defers
+restarts. See the packaged [recovery workflow](../plugins/swift-sim-companion/skills/remote-simulator-companion/references/recovery.md).

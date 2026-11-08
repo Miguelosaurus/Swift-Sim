@@ -4,6 +4,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Add explicit agent-handled delivery recovery, reusing existing request IDs,
+  source snapshots and receipts. Recover a stopped owned helper or validated
+  stopped engine session; defer busy work and preserve uncertain results. No
+  new SDK code, watcher or warm-path/notification polling work.
+
 ## 0.6.2 - 2026-11-07
 
 - Make setup use one matching component contract and a transactional engine
