@@ -98,12 +98,14 @@ private struct ActivityEventDetailView: View {
                         SupportIssueView(issue: event.supportIssue)
                     } else {
                         Text(AgentReport.redact(event.message)).textSelection(.enabled)
-                        AgentCopyButton(report: event.supportIssue.report)
                     }
                     LabeledContent("Status", value: event.statusLabel)
                     if let date = event.date { LabeledContent("Updated", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                    if let revision = event.revision {
-                        DisclosureGroup("Details") { LabeledContent("Revision", value: String(revision)) }
+                    if !event.isAttention {
+                        DisclosureGroup("Details") {
+                            if let revision = event.revision { LabeledContent("Revision", value: String(revision)) }
+                            AgentCopyButton(report: event.supportIssue.report)
+                        }
                     }
                 }
                 if event.canApplyQueuedChange, let url = event.supportedLaunchURL {

@@ -11,7 +11,7 @@ beta locally. It does not publish a release or use the owner's iPhone.
 - Use short explanations and clear next steps for connection, link, build,
   install, activity, notification, preview and testing problems. Technical
   details stay behind Details or Build log.
-- Copy for agent gathers available app/build/request identity and diagnostics
+- Details → Copy details gathers available app/build/request identity and diagnostics
   on demand. It writes only to the clipboard; it never uploads or opens a chat.
   Known credential forms and links are removed before truncating the report.
 - Keep uncertain approval, install and Stop outcomes uncertain. Reports tell
@@ -23,7 +23,7 @@ beta locally. It does not publish a release or use the owner's iPhone.
   fragment. Only that recognized fragment is removed from the transport URL;
   authorization still goes to the paired host, never the delivery host.
 - Align action/card corners, improve large-text layout, and replace the
-  nonfunctional console Clear control with Copy for agent.
+  nonfunctional console Clear control with Copy details.
 
 ## Current verification
 
@@ -62,3 +62,18 @@ recheck it before making current availability claims.
 Public beta background alerts still need a separately authorized distribution-
 safe sender design. This pass clarifies availability; it does not implement or
 promise that service. Existing published releases and SDK pins stay unchanged.
+
+## Presentation follow-up
+
+The Install update action now includes a download icon. Error cards use light
+red glass instead of orange. Copy details is inside the collapsed Details
+section, so it does not look like a required recovery step. Agents check the
+existing Mac logs first; manual copying is a fallback for missing phone-side
+context. The alert offers Close as its normal action. User and agent guidance
+now state that copying is optional.
+
+The follow-up passed a fresh Simulator build, documentation and agent fast-path
+checks. Eight affected light/dark/large-text screens were recaptured; unchanged
+screens retain the earlier renders. A new signed local candidate includes this
+follow-up. The existing report/privacy test results above remain the prior
+logic qualification; no phone or public release action occurred.

@@ -663,7 +663,7 @@ private struct ManagedAppDetailView: View {
                     HStack(spacing: 8) {
                         agentTestingButton.frame(width: availableWidth * 0.4)
                         Button { sessionStore.reopen(latest) } label: {
-                            Text(latestActionTitle(latest))
+                            Label(latestActionTitle(latest), systemImage: latestActionSymbol(latest))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .multilineTextAlignment(.center)
@@ -727,7 +727,9 @@ private struct ManagedAppDetailView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if deliveryStatus.needsAttention {
-                    AgentCopyButton(report: SupportIssue(title: "Update needs attention", message: "Check the current update before retrying.", screen: "App", context: ["App": app.displayName, "App ID": app.bundleIdentifier, "Request ID": deliveryStatus.requestId ?? "unknown"], diagnostic: deliveryStatus.message).report)
+                    DisclosureGroup("Details") {
+                        AgentCopyButton(report: SupportIssue(title: "Update needs attention", message: "Check the current update before retrying.", screen: "App", context: ["App": app.displayName, "App ID": app.bundleIdentifier, "Request ID": deliveryStatus.requestId ?? "unknown"], diagnostic: deliveryStatus.message).report)
+                    }.font(.subheadline)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -760,6 +762,13 @@ private struct ManagedAppDetailView: View {
         [build.version.isEmpty ? nil : "Version \(build.version)",
          build.buildNumber.isEmpty ? nil : "Build \(build.buildNumber)"]
             .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func latestActionSymbol(_ build: ManagedBuild) -> String {
+        if build.isPreparing { return "clock" }
+        if build.state == "failed" { return "exclamationmark.circle" }
+        if build.installationStatus.isInstalled { return "checkmark.circle" }
+        return build.isLinkActive ? "arrow.down.circle" : "info.circle"
     }
 
     private func latestActionTitle(_ build: ManagedBuild) -> String {
@@ -1259,7 +1268,9 @@ private struct DeviceBuildView: View {
                         .foregroundStyle(message == "New install link created." ? Color.green : Color.secondary)
                         .textSelection(.enabled)
                     if message != "New install link created." {
-                        AgentCopyButton(report: buildIssue(title: "Install update", message: message).report)
+                        DisclosureGroup("Details") {
+                            AgentCopyButton(report: buildIssue(title: "Install update", message: message).report)
+                        }.font(.subheadline)
                     }
                 }
             }
@@ -1731,7 +1742,9 @@ private struct LibraryActionBanner: View {
                     .font(.callout.weight(.semibold))
                     .textSelection(.enabled)
                 if notice.kind == .error {
-                    AgentCopyButton(report: (notice.supportIssue ?? SupportIssue(title: "Action couldn't finish", message: notice.message, screen: "Apps")).report)
+                    DisclosureGroup("Details") {
+                        AgentCopyButton(report: (notice.supportIssue ?? SupportIssue(title: "Action couldn't finish", message: notice.message, screen: "Apps")).report)
+                    }.font(.subheadline)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1939,7 +1952,9 @@ private struct MacSettingsSheet: View {
             if check.state != .ready {
                 Text("Check your Mac connection, then refresh the status.").font(.footnote).foregroundStyle(.secondary)
                 if check.state != .checking {
-                    AgentCopyButton(report: SupportIssue.connection(check.detail, screen: "Mac connection · " + title).report)
+                    DisclosureGroup("Details") {
+                        AgentCopyButton(report: SupportIssue.connection(check.detail, screen: "Mac connection · " + title).report)
+                    }.font(.subheadline)
                 }
             }
         }
@@ -2156,7 +2171,7 @@ private final class PairingQRScannerViewController: UIViewController, AVCaptureM
         label.numberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
         let copy = UIButton(type: .system)
-        copy.setTitle("Copy for agent", for: .normal)
+        copy.setTitle("Copy details", for: .normal)
         copy.tintColor = .white
         copy.addTarget(self, action: #selector(copyCameraIssue), for: .touchUpInside)
         let stack = UIStackView(arrangedSubviews: [label, copy])

@@ -71,10 +71,10 @@ struct SwiftSimCompanionApp: App {
                         return Alert(
                             title: Text("Unable to connect this Mac"),
                             message: Text(SupportIssue.pairing(message).message),
-                            primaryButton: .default(Text("Copy for agent")) {
+                            primaryButton: .cancel(Text("Close")),
+                            secondaryButton: .default(Text("Copy details")) {
                                 UIPasteboard.general.string = SupportIssue.pairing(message).report
-                            },
-                            secondaryButton: .cancel(Text("Close"))
+                            }
                         )
                     }
                 }

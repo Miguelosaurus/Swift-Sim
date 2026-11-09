@@ -60,7 +60,7 @@ struct SupportIssue: Equatable {
         ]
         if known.contains(detail) || detail == "Install requested. Approve the iOS prompt, then return here to check."
             || detail == "Install requested. Swift Sim will verify it when your Mac reconnects." { return detail }
-        return "Couldn't prepare the install. Copy this issue so your agent can check it before you try again."
+        return "Couldn't prepare the install. Ask your agent to check it before trying again."
     }
 }
 
@@ -94,14 +94,14 @@ struct AgentCopyButton: View {
             UIPasteboard.general.string = AgentReport.redact(report)
             copied = true
         } label: {
-            Label(copied ? "Copied" : "Copy for agent", systemImage: copied ? "checkmark" : "doc.on.doc")
+            Label(copied ? "Copied" : "Copy details", systemImage: copied ? "checkmark" : "doc.on.doc")
                 .font(.subheadline.weight(.semibold))
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.blue)
-        .accessibilityHint("Copies the issue and details. Paste them into your agent chat.")
+        .accessibilityHint("Copies troubleshooting details you can share if needed.")
         .onChange(of: report) { _, _ in copied = false }
     }
 }
@@ -118,19 +118,22 @@ struct SupportIssueView: View {
                 .font(.subheadline).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-            AgentCopyButton(report: issue.report)
-            if !issue.diagnostic.isEmpty {
-                DisclosureGroup("Details") {
-                    Text(issue.safeDiagnostic)
-                        .font(.caption.monospaced()).foregroundStyle(.secondary)
-                        .textSelection(.enabled).padding(.top, 8)
+            DisclosureGroup("Details") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !issue.diagnostic.isEmpty {
+                        Text(issue.safeDiagnostic)
+                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    AgentCopyButton(report: issue.report)
                 }
-                .font(.subheadline)
+                .padding(.top, 8)
             }
+            .font(.subheadline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .cardSurface(cornerRadius: 24, tint: Color.orange.opacity(0.06))
+        .cardSurface(cornerRadius: 24, tint: Color.red.opacity(0.09))
     }
 }
 
