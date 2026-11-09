@@ -29,6 +29,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Run isolated Swift SDK tests
+        env:
+          SWIFT_SIM_DISABLE_CLIENT_AUTOCONNECT: "1"
+        run: swift test --jobs 2 --scratch-path .build/ci-swift-sdk
       - name: Verify published engine and SDK dependencies
         if: github.event_name != 'pull_request'
         run: npm run check:engine-publication
@@ -39,6 +43,8 @@ jobs:
       - run: bash -n scripts/codex/build-device.sh scripts/codex/open-simulator-session.sh scripts/release/render-homebrew-formula.sh scripts/release/create-archive.sh scripts/check-node-version.sh scripts/build-dist.sh scripts/verify-compiled-runtime.sh scripts/verify-package-content.sh scripts/verify-package-install.sh scripts/verify-homebrew-package.sh
       - name: Run iOS app tests
         timeout-minutes: 12
+        env:
+          SWIFT_SIM_MANAGED_BUILD: "1"
         run: |
           set -euo pipefail
           DESTINATION=$(python3 - <<'PY'

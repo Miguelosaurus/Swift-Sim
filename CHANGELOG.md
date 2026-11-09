@@ -4,6 +4,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Polish Companion action colors, Dynamic Type, long app names, dark surfaces,
+  card shapes, link-entry scrolling and activity detail hierarchy while keeping
+  the existing navigation and visual direction.
+- Clarify contribution/testing boundaries, PR and issue templates, release
+  gates and third-party provenance. Run isolated Swift SDK tests in CI.
 - Make first-use connection and notification copy reflect the actual available
   state. A missing/unknown Mac sender no longer suggests that iPhone permission
   alone enables background push; in-app activity remains available.

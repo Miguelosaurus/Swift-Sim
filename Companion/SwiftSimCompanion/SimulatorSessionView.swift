@@ -30,7 +30,6 @@ struct SimulatorSessionView: View {
                     .padding(.bottom, 4)
             }
         }
-        .preferredColorScheme(.light)
         .task {
             await sessionStore.refresh()
         }
@@ -46,7 +45,7 @@ struct SimulatorSessionView: View {
             SimulatorOptionsSheet { control in
                 Task { await sessionStore.sendControl(control) }
             }
-            .presentationDetents([.height(680), .large])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(42)
         }
@@ -308,7 +307,7 @@ private struct SimulatorOptionsSheet: View {
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
-                    .liquidGlassCircle(tint: Color.white.opacity(0.18), interactive: true)
+                    .liquidGlassCircle(tint: Color(.secondarySystemBackground).opacity(0.18), interactive: true)
                 }
 
                 VStack(spacing: 0) {
@@ -318,7 +317,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("exclamationmark.triangle", "Memory Warning", control: "memory-warning")
                 }
-                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
 
                 Text("Hardware Buttons")
                     .font(.footnote.weight(.bold))
@@ -330,11 +329,11 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("sparkles", "Siri", control: "siri")
                     Divider().padding(.leading, 54)
-                    optionRow("iphone.gen3.side.left", "Press Side Button", control: "side-button")
+                    optionRow("power", "Press Side Button", control: "side-button")
                     Divider().padding(.leading, 54)
                     optionRow("button.programmable", "Press Action Button", control: "action-button")
                 }
-                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
 
                 Text("Accessibility")
                     .font(.footnote.weight(.bold))
@@ -352,7 +351,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("circle.dashed", "Toggle Reduce Transparency", control: "reduce-transparency")
                 }
-                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
 
                 Text("Appearance")
                     .font(.footnote.weight(.bold))
@@ -368,7 +367,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("sparkles", "Liquid Glass Tinted", control: "liquid-glass-tinted")
                 }
-                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
 
                 Text("Debug")
                     .font(.footnote.weight(.bold))
@@ -380,7 +379,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("rectangle.dashed", "Toggle View Borders", control: "show-borders")
                 }
-                .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.16), interactive: false)
+                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
             }
             .padding(.horizontal, 22)
             .padding(.top, 12)
@@ -403,7 +402,7 @@ private struct SimulatorOptionsSheet: View {
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, 16)
-            .frame(height: 58)
+            .frame(minHeight: 58)
         }
         .buttonStyle(.plain)
     }
@@ -530,7 +529,7 @@ private struct ConsoleSheet: View {
                             .frame(width: 58, height: 58)
                     }
                     .buttonStyle(.plain)
-                    .liquidGlassCircle(tint: Color.white.opacity(0.2), interactive: true)
+                    .liquidGlassCircle(tint: Color(.secondarySystemBackground).opacity(0.2), interactive: true)
                     .accessibilityLabel("Clear console")
 
                     Spacer()
@@ -548,7 +547,7 @@ private struct ConsoleSheet: View {
                             .frame(width: 58, height: 58)
                     }
                     .buttonStyle(.plain)
-                    .liquidGlassCircle(tint: Color.white.opacity(0.2), interactive: true)
+                    .liquidGlassCircle(tint: Color(.secondarySystemBackground).opacity(0.2), interactive: true)
                     .accessibilityLabel("Close console")
                 }
 
@@ -562,7 +561,7 @@ private struct ConsoleSheet: View {
                 }
                 .padding(.horizontal, 18)
                 .frame(height: 64)
-                .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
+                .liquidGlassCapsule(tint: Color(.secondarySystemBackground).opacity(0.18), interactive: true)
 
                 if filteredLogs.isEmpty {
                     Spacer()
@@ -583,7 +582,7 @@ private struct ConsoleSheet: View {
                             .textSelection(.enabled)
                             .padding(16)
                     }
-                    .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.14), interactive: false)
+                    .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.14))
                 }
             }
             .padding(.horizontal, 24)
@@ -611,21 +610,12 @@ private struct SimulatorStageBackground: View {
 }
 
 private extension View {
-    @ViewBuilder
-    func liquidGlassPanel(cornerRadius: CGFloat, tint: Color, interactive: Bool) -> some View {
+    func cardSurface(cornerRadius: CGFloat, tint: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if #available(iOS 26, *) {
-            self
-                .background(.clear, in: shape)
-                .glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
-        } else {
-            self
-                .background(.ultraThinMaterial, in: shape)
-                .overlay {
-                    shape.stroke(.white.opacity(0.24), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.08), radius: 24, x: 0, y: 12)
-        }
+        return self
+            .background(.regularMaterial, in: shape)
+            .background(tint.opacity(0.35), in: shape)
+            .overlay { shape.stroke(Color(.separator).opacity(0.12), lineWidth: 0.5) }
     }
 
     @ViewBuilder

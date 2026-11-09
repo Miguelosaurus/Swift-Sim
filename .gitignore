@@ -12,3 +12,13 @@ benchmarks/results/*
 !benchmarks/results/.gitkeep
 
 __pycache__/
+
+# Local credentials and exported signing/build artifacts belong outside Git.
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.mobileprovision
+*.ipa
+*.xcarchive/

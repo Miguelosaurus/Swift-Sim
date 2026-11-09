@@ -13,7 +13,9 @@ The intended boundary is:
 5. Device delivery starts a separate localhost gateway with a strict token-scoped route allowlist.
 6. Cloudflare Quick Tunnel exposes only that temporary gateway.
 7. Every build route except health requires a separate opaque build token and expires.
-8. The iPhone only receives simulator media, sends simulator controls, or installs signed IPA artifacts.
+8. The Companion receives build/activity metadata, Simulator media and controls,
+   and signed installation handoffs. The optional live SDK receives signed
+   patches only in the developer's development-signed Debug app.
 
 The user's project source remains on the Mac. Simulator build products remain on the Mac. Device-build `.ipa` artifacts remain on the Mac and are streamed through Cloudflare's tunnel when iOS downloads them. Cloudflare processes that network transfer, but Swift Sim does not upload source code or persist the IPA in a Swift Sim cloud service.
 
@@ -144,7 +146,20 @@ The Apple account configured in Xcode is only a signing identity. Swift Sim does
 
 Swift Sim's private engine compiles patches on the Mac and signs them with the development identity used by the running app. iOS library validation still applies: an unrelated or unsigned library is not accepted as a valid patch.
 
-The lane is deliberately excluded from Release, TestFlight, and App Store workflows. Downloaded executable code is not an acceptable general distribution mechanism. Swift Sim's classifier sends any declaration, stored-state, signature, package, resource, capability, entitlement, or signing change back through the full signed-build path.
+The live SDK is deliberately excluded from Release, TestFlight and App Store
+configurations of the app being developed. The Companion itself is distributed
+through TestFlight and does not load project patches. Supported implementation
+edits, bounded private additions and qualified State additions follow the exact
+compiler/native proof contract. Unsupported layout, signatures, packages,
+resources, capabilities, entitlements and signing changes require a full signed
+build. See [support and recovery limits](ASYNC_HOT_RELOAD.md); classification
+alone is not proof that a patch was applied.
+
+The separately installed [optional testing runner](APP_CONTROL.md) can observe
+and control phone UI only during an approved, time-limited testing session. It
+is not a prerequisite or a background dependency of hot reload, builds or
+notifications. Neither Tailscale connectivity nor Xcode developer trust grants
+an agent permission to use the phone.
 
 Source files remain on the Mac. The iPhone receives only the compiled patch bytes over the private Tailnet. A live-enabled Debug app should not be shared as a production artifact.
 

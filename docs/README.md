@@ -22,6 +22,7 @@ Use this page to find the correct document for your task.
 
 - [Development](DEVELOPMENT.md): build, test, and validate a source checkout
 - [TestFlight](TESTFLIGHT.md): beta description, test plan, and review notes
+- [Releasing](RELEASING.md): coordinated versions, qualification and publication gates
 - [Contributing](../CONTRIBUTING.md): contribution requirements and pull-request expectations
 - [Changelog](../CHANGELOG.md): notable changes by release
 

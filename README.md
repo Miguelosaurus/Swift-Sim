@@ -108,6 +108,12 @@ Start at the [Documentation Guide](docs/README.md).
 
 The repository is the source of truth for the helper, CLI, agent integrations, iPhone companion, and documentation. Changes must keep those layers aligned.
 
+Read [Contributing](CONTRIBUTING.md) for the source map and isolated checks,
+[Releasing](docs/RELEASING.md) for publication gates, and
+[third-party sources](THIRD_PARTY.md) for dependency provenance. Follow the
+[Code of Conduct](CODE_OF_CONDUCT.md); report vulnerabilities privately using
+[Security](SECURITY.md).
+
 Read [Contributing](CONTRIBUTING.md) before opening a pull request. Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through the private process in [Security Policy](SECURITY.md).
 
 Swift Sim is open source under the [Apache License 2.0](LICENSE).

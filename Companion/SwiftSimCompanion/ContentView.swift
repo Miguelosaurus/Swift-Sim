@@ -5,6 +5,7 @@ import UIKit
 struct ContentView: View {
     @EnvironmentObject private var sessionStore: SessionStore
     @EnvironmentObject private var activity: ActivityCenter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -28,10 +29,10 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.snappy(duration: 0.25), value: sessionStore.libraryActionNotice)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: sessionStore.libraryActionNotice)
         .sheet(item: $activity.presentation, onDismiss: sessionStore.presentPendingTestingRequest) { _ in
             ActivityInboxView()
                 .environmentObject(activity)
@@ -105,7 +106,7 @@ private struct HomeView: View {
         .sheet(isPresented: $showingPasteLink) {
             PasteLinkSheet()
                 .environmentObject(sessionStore)
-                .presentationDetents([.height(360), .medium])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .refreshable { await sessionStore.refreshHelperStatus() }
@@ -115,7 +116,7 @@ private struct HomeView: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Swift Sim")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(.system(.largeTitle, design: .rounded).weight(.bold))
                 Text(selectedMode == .installs ? "iPhone apps and version history" : "Simulator previews from your Mac")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
@@ -183,7 +184,7 @@ private struct HomeView: View {
         }
         .buttonStyle(.plain)
         .padding(14)
-        .liquidGlassPanel(cornerRadius: 26, tint: macInstallStatusColor.opacity(0.07), interactive: true)
+        .cardSurface(cornerRadius: 24, tint: macInstallStatusColor.opacity(0.07))
         .accessibilityLabel("Mac connection details")
         .accessibilityHint("Shows whether install status can update automatically")
     }
@@ -262,7 +263,7 @@ private struct HomeView: View {
         }
         .buttonStyle(.plain)
         .padding(14)
-        .liquidGlassPanel(cornerRadius: 30, tint: Color.white.opacity(0.18), interactive: true)
+        .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.18))
         .accessibilityLabel("Simulator connection details")
     }
 
@@ -339,7 +340,7 @@ private struct HomeView: View {
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
-                .liquidGlassCircle(tint: Color.white.opacity(0.18), interactive: true)
+                .liquidGlassCircle(tint: Color(.secondarySystemBackground).opacity(0.18), interactive: true)
                 .accessibilityLabel(showingArchivedApps ? "Show active apps" : "Show archived apps")
                 .accessibilityHint(showingArchivedApps ? "Returns to your app library" : "Shows apps hidden from your library")
 
@@ -378,7 +379,7 @@ private struct HomeView: View {
                     }
                     .padding(.horizontal, 16)
                     .frame(minHeight: 58)
-                    .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
+                    .liquidGlassCapsule(tint: Color(.secondarySystemBackground).opacity(0.18), interactive: true)
 
                     Button {
                         showingPasteLink = true
@@ -407,6 +408,7 @@ private struct HomeView: View {
                     .accessibilityIdentifier("connectMacSetupButton")
 
                     Button("Open an install link") { showingPasteLink = true }
+                        .frame(minHeight: 44)
                         .font(.subheadline.weight(.semibold))
                         .buttonStyle(.plain)
                         .foregroundStyle(.blue)
@@ -463,70 +465,74 @@ private struct PasteLinkSheet: View {
     @FocusState private var linkFieldIsFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Open Swift Sim Link")
-                    .font(.title2.weight(.bold))
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 17, weight: .bold))
-                        .frame(width: 42, height: 42)
-                }
-                .buttonStyle(.plain)
-                .liquidGlassCircle(tint: Color.white.opacity(0.18), interactive: true)
-            }
-
-            HStack(spacing: 12) {
-                Image(systemName: "link")
-                    .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                TextField("Paste Swift Sim link", text: $linkText)
-                    .font(.body.weight(.medium))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textContentType(.URL)
-                    .keyboardType(.URL)
-                    .focused($linkFieldIsFocused)
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 58)
-            .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
-
-            if !errorText.isEmpty {
-                Text(errorText)
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.red)
-            }
-
-            Button {
-                Task { await openLink() }
-            } label: {
-                Group {
-                    if isOpeningLink {
-                        ProgressView()
-                            .tint(.blue)
-                    } else {
-                        Label("Open Link", systemImage: "arrow.right")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Text("Open Swift Sim Link")
+                        .font(.title2.weight(.bold))
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .bold))
+                            .frame(width: 44, height: 44)
                     }
+                    .buttonStyle(.plain)
+                    .liquidGlassCircle(tint: Color(.secondarySystemBackground).opacity(0.18), interactive: true)
                 }
-                .font(.headline.weight(.bold))
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .tint(.blue)
-            .contentShape(Capsule())
-            .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isOpeningLink)
 
-            Text("Paste a Swift Sim link to install an app, open a Simulator, or connect your Mac.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Image(systemName: "link")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("Paste Swift Sim link", text: $linkText)
+                        .font(.body.weight(.medium))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.URL)
+                        .keyboardType(.URL)
+                        .focused($linkFieldIsFocused)
+                    .onChange(of: linkText) { _, _ in errorText = "" }
+                }
+                .padding(.horizontal, 16)
+                .frame(minHeight: 58)
+                .liquidGlassCapsule(tint: Color(.secondarySystemBackground).opacity(0.18), interactive: true)
+
+                if !errorText.isEmpty {
+                    Text(errorText)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.red)
+                }
+
+                Button {
+                    Task { await openLink() }
+                } label: {
+                    Group {
+                        if isOpeningLink {
+                            ProgressView()
+                                .tint(.blue)
+                        } else {
+                            Label("Open Link", systemImage: "arrow.right")
+                        }
+                    }
+                    .font(.headline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 56)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(.blue)
+                .contentShape(Capsule())
+                .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isOpeningLink)
+
+                Text("Paste a Swift Sim link to install an app, open a Simulator, or connect your Mac.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
         }
-        .padding(22)
+        .scrollDismissesKeyboard(.interactively)
         .onAppear {
             linkFieldIsFocused = true
         }
@@ -591,7 +597,7 @@ private struct ManagedAppDetailView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(18)
-                        .liquidGlassPanel(cornerRadius: 24, tint: Color.blue.opacity(0.08), interactive: false)
+                        .cardSurface(cornerRadius: 24, tint: Color.blue.opacity(0.08))
                     }
                     latestBuildSection
                     buildCurrentSourceSection
@@ -665,8 +671,8 @@ private struct ManagedAppDetailView: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(app.displayName.swiftSimDisplayName)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .lineLimit(2)
+                    .font(.system(.title, design: .rounded).weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
                 Label(statusText, systemImage: statusSymbol)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(statusColor)
@@ -729,10 +735,10 @@ private struct ManagedAppDetailView: View {
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity)
-                    .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .liquidGlassPanel(cornerRadius: 26, tint: statusColor.opacity(0.08), interactive: true)
+                .cardSurface(cornerRadius: 24, tint: statusColor.opacity(0.08))
                 .accessibilityIdentifier("latestBuildButton")
             }
         }
@@ -774,10 +780,9 @@ private struct ManagedAppDetailView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .padding(16)
-                .liquidGlassPanel(
-                    cornerRadius: 26,
-                    tint: Color.blue.opacity(0.09),
-                    interactive: !sessionStore.isStartingCurrentSourceBuild
+                .cardSurface(
+                    cornerRadius: 24,
+                    tint: Color(.secondarySystemBackground).opacity(0.18)
                 )
             }
             .buttonStyle(.plain)
@@ -788,7 +793,7 @@ private struct ManagedAppDetailView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Your Mac will compile and sign \(app.displayName.swiftSimDisplayName) using the code currently on it, including uncommitted changes. This is a full build, not a hot reload, and may take several minutes. Creating a build does not confirm that it is installed on your iPhone.")
+                Text("Compile and sign \(app.displayName.swiftSimDisplayName) using the current code on your Mac, including uncommitted changes. A full build can take several minutes. You can keep using the installed app while it builds.")
             }
             .accessibilityHint("Works remotely through your private Mac connection and builds uncommitted changes without pulling or switching branches")
 
@@ -904,6 +909,7 @@ private struct ManagedAppDetailView: View {
 private struct BuildHistoryRow: View {
     let build: ManagedBuild
     let isCurrent: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 13) {
@@ -919,7 +925,7 @@ private struct BuildHistoryRow: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    if let configuration = build.configuration, ["debug", "release"].contains(configuration.lowercased()) {
+                    if !dynamicTypeSize.isAccessibilitySize, let configuration = build.configuration, ["debug", "release"].contains(configuration.lowercased()) {
                         Text(configuration.capitalized)
                             .font(.caption2.monospaced().weight(.semibold))
                             .padding(.horizontal, 7).padding(.vertical, 3)
@@ -937,20 +943,27 @@ private struct BuildHistoryRow: View {
                 Text(build.createdAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                if dynamicTypeSize.isAccessibilitySize {
+                    Text(buildStatus)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(color)
+                }
             }
 
             Spacer()
 
-            Text(buildStatus)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(color)
-                .lineLimit(1)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Text(buildStatus)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color)
+                    .fixedSize()
+            }
         }
         .padding(.horizontal, 15)
         .padding(.vertical, 13)
         .frame(maxWidth: .infinity)
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .liquidGlassPanel(cornerRadius: 22, tint: Color.white.opacity(0.12), interactive: true)
+        .cardSurface(cornerRadius: 22, tint: Color(.secondarySystemBackground).opacity(0.12))
     }
 
     private var icon: String {
@@ -1078,10 +1091,8 @@ private struct DeviceBuildView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 Text(appName)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.84)
-                    .allowsTightening(true)
+                    .font(.system(.title2, design: .rounded).weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(appVersionLabel)
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
@@ -1092,7 +1103,7 @@ private struct DeviceBuildView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .liquidGlassPanel(cornerRadius: 28, tint: Color.white.opacity(0.18), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.18))
         .accessibilityElement(children: .combine)
     }
 
@@ -1123,7 +1134,7 @@ private struct DeviceBuildView: View {
             Spacer(minLength: 0)
         }
         .padding(17)
-        .liquidGlassPanel(cornerRadius: 26, tint: installStatusColor.opacity(0.07), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: installStatusColor.opacity(0.07))
         .accessibilityElement(children: .combine)
     }
 
@@ -1169,7 +1180,7 @@ private struct DeviceBuildView: View {
         }
         .font(.callout)
         .padding(17)
-        .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.16), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
     }
 
     private var liveReloadCard: some View {
@@ -1198,7 +1209,7 @@ private struct DeviceBuildView: View {
             Spacer(minLength: 0)
         }
         .padding(17)
-        .liquidGlassPanel(cornerRadius: 26, tint: tint.opacity(0.08), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: tint.opacity(0.08))
         .accessibilityElement(children: .combine)
     }
 
@@ -1216,7 +1227,7 @@ private struct DeviceBuildView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(17)
-        .liquidGlassPanel(cornerRadius: 26, tint: Color.orange.opacity(0.08), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: Color.orange.opacity(0.08))
     }
 
     private var buildDetailsDisclosure: some View {
@@ -1229,7 +1240,7 @@ private struct DeviceBuildView: View {
         }
         .font(.callout.weight(.semibold))
         .padding(17)
-        .liquidGlassPanel(cornerRadius: 24, tint: Color.white.opacity(0.12), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.12))
     }
 
     private var installDock: some View {
@@ -1238,7 +1249,7 @@ private struct DeviceBuildView: View {
                 Label("Build installed", systemImage: "checkmark.circle.fill")
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 58)
+                    .frame(minHeight: 58)
                     .foregroundStyle(.secondary)
                     .liquidGlassCapsule(tint: Color.green.opacity(0.12), interactive: false)
                     .accessibilityIdentifier("buildInstalledStatus")
@@ -1258,7 +1269,7 @@ private struct DeviceBuildView: View {
                     }
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 58)
+                    .frame(minHeight: 58)
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -1275,11 +1286,11 @@ private struct DeviceBuildView: View {
                     Label(installButtonTitle, systemImage: "iphone.and.arrow.forward")
                         .font(.headline.weight(.bold))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 58)
+                        .frame(minHeight: 58)
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .liquidGlassCapsule(tint: canInstall ? Color.green.opacity(0.2) : Color.gray.opacity(0.12), interactive: canInstall)
+                .liquidGlassCapsule(tint: canInstall ? Color.blue.opacity(0.18) : Color.gray.opacity(0.12), interactive: canInstall)
                 .disabled(!canInstall || sessionStore.isStartingInstallation)
                 .accessibilityIdentifier("installBuildButton")
             }
@@ -1483,7 +1494,7 @@ private struct DeviceBuildView: View {
         case "building", "archiving": return "Xcode is compiling the current working tree on your Mac."
         case "exporting": return "Xcode is signing and packaging the install file."
         case "delivering": return "Swift Sim is creating the temporary install link."
-        case "ready": return "Tap Install on iPhone below."
+        case "ready": return "Confirm the update in the iOS installer."
         case "failed": return "Open Build Details for more information."
         default: return "Swift Sim is checking the latest status."
         }
@@ -1543,13 +1554,14 @@ private struct SessionRow: View {
                 .background(.blue.gradient, in: Circle())
         }
         .padding(14)
-        .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
+        .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.18))
     }
 }
 
 private struct ManagedAppRow: View {
     @EnvironmentObject private var sessionStore: SessionStore
     @EnvironmentObject private var activity: ActivityCenter
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let app: ManagedApp
 
     var body: some View {
@@ -1560,12 +1572,12 @@ private struct ManagedAppRow: View {
                 Text(app.displayName.swiftSimDisplayName)
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
 
                 Text(app.recentDetectedBuild.map { "Version \($0.version) • Build \($0.build)" } ?? app.latestBuild?.versionLabel ?? "Version unavailable")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
                     Circle().fill(appAccent).frame(width: 6, height: 6)
                     Text(statusLabel)
@@ -1573,15 +1585,14 @@ private struct ManagedAppRow: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(appAccent)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
 
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 5) {
-                Text("\(app.builds.count)")
-                    .font(.headline.weight(.bold))
-                Text(app.builds.count == 1 ? "build" : "builds")
-                    .font(.caption2.weight(.semibold))
+            if !dynamicTypeSize.isAccessibilitySize {
+                Text("\(app.builds.count.formatted()) \(app.builds.count == 1 ? "build" : "builds")")
+                    .font(.caption.monospacedDigit().weight(.medium))
                     .foregroundStyle(.secondary)
+                    .fixedSize()
             }
 
             Image(systemName: "chevron.right")
@@ -1589,7 +1600,7 @@ private struct ManagedAppRow: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(14)
-        .liquidGlassPanel(cornerRadius: 26, tint: Color.white.opacity(0.18), interactive: true)
+        .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.18))
     }
 
     private var deliveryStatus: AppDeliveryPresentation? { activity.deliveryStatus(for: app) }
@@ -1650,7 +1661,7 @@ private struct SwipeToDeleteRow<Content: View>: View {
                     onOpen()
                 }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var rowGesture: some Gesture {
@@ -1702,7 +1713,7 @@ private struct EmptySessionCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .liquidGlassPanel(cornerRadius: 30, tint: Color.cyan.opacity(0.08), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: Color.cyan.opacity(0.08))
     }
 }
 
@@ -1725,7 +1736,7 @@ private struct EmptyDeviceBuildCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .liquidGlassPanel(cornerRadius: 30, tint: Color.green.opacity(0.08), interactive: false)
+        .cardSurface(cornerRadius: 24, tint: Color.blue.opacity(0.04))
     }
 }
 
@@ -1770,7 +1781,7 @@ private struct LibraryActionBanner: View {
         .padding(.leading, 16)
         .padding(.trailing, 10)
         .padding(.vertical, 10)
-        .liquidGlassPanel(cornerRadius: 22, tint: accent.opacity(0.12), interactive: true)
+        .cardSurface(cornerRadius: 22, tint: accent.opacity(0.12))
     }
 }
 
@@ -1788,7 +1799,7 @@ private struct AppBadge: View {
             RoundedRectangle(cornerRadius: 21, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: isEmpty ? [Color.gray.opacity(0.55), Color.gray.opacity(0.28)] : [accent, accent.opacity(0.62)],
+                        colors: isEmpty ? [accent.opacity(0.12), accent.opacity(0.06)] : [accent, accent.opacity(0.72)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -1803,8 +1814,8 @@ private struct AppBadge: View {
                     .foregroundStyle(.white)
             } else {
                 Image(systemName: symbol)
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(accent)
             }
         }
         .frame(width: 70, height: 70)
@@ -1824,6 +1835,7 @@ private struct MacSettingsSheet: View {
     @EnvironmentObject private var sessionStore: SessionStore
     @State private var showingPasteLink = false
     @State private var showingQRScanner = false
+    @State private var showingForgetConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -1858,9 +1870,10 @@ private struct MacSettingsSheet: View {
                         }
 
                         Button(role: .destructive) {
-                            sessionStore.forgetPairedMac()
+                            showingForgetConfirmation = true
                         } label: {
                             Label("Forget Mac", systemImage: "xmark.circle")
+                                .foregroundStyle(.red)
                         }
 
                         if sessionStore.helperStatus == .pairingExpired {
@@ -1995,6 +2008,12 @@ private struct MacSettingsSheet: View {
             }
             .navigationTitle("Mac Connection")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Forget This Mac?", isPresented: $showingForgetConfirmation) {
+                Button("Forget Mac", role: .destructive) { sessionStore.forgetPairedMac() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You’ll need a new pairing link for Swift Sim’s remote controls. Your installed apps and saved history stay on this iPhone.")
+            }
             .task {
                 await sessionStore.refreshConnectionChecks()
             }
@@ -2037,8 +2056,8 @@ private struct MacSettingsSheet: View {
     }
 
     private var helperRequirementDetail: String {
-        if let mac = sessionStore.pairedMac {
-            return "Keep Swift Sim open on \(mac.displayName)."
+        if sessionStore.pairedMac != nil {
+            return "Keep your Mac awake and Swift Sim running."
         }
         return "Pair this iPhone with Swift Sim on your Mac once."
     }
@@ -2314,21 +2333,12 @@ private extension String {
 }
 
 private extension View {
-    @ViewBuilder
-    func liquidGlassPanel(cornerRadius: CGFloat, tint: Color, interactive: Bool) -> some View {
+    func cardSurface(cornerRadius: CGFloat, tint: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if #available(iOS 26, *) {
-            self
-                .background(.clear, in: shape)
-                .glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
-        } else {
-            self
-                .background(.ultraThinMaterial, in: shape)
-                .overlay {
-                    shape.stroke(.white.opacity(0.24), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.06), radius: 22, x: 0, y: 12)
-        }
+        return self
+            .background(.regularMaterial, in: shape)
+            .background(tint.opacity(0.35), in: shape)
+            .overlay { shape.stroke(Color(.separator).opacity(0.12), lineWidth: 0.5) }
     }
 
     @ViewBuilder
@@ -2349,7 +2359,9 @@ private extension View {
 
     @ViewBuilder
     func liquidGlassCircle(tint: Color, interactive: Bool) -> some View {
-        if #available(iOS 26, *) {
+        if !interactive {
+            self.background(tint, in: Circle())
+        } else if #available(iOS 26, *) {
             self
                 .background(.clear, in: Circle())
                 .glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: Circle())

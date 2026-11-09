@@ -36,6 +36,8 @@ struct AppTestingView: View {
                     Label((request?.name ?? appName).map { "Test \($0)" } ?? "Test with your coding agent", systemImage: "iphone.and.arrow.forward")
                         .font(.headline)
                     Text("Make your iPhone available while your agent checks an app. Your agent connects privately through Tailscale and stops testing when it finishes.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                     if !approved {
                         Picker("Duration", selection: $selectedMinutes) {
                             ForEach([5, 10, 30, 60], id: \.self) { minutes in
@@ -49,14 +51,15 @@ struct AppTestingView: View {
                             Text(actionTitle)
                             Spacer()
                             if launching { ProgressView() }
-                            else { Image(systemName: "arrow.up.forward.app") }
+                            else { Image(systemName: approved ? "stop.circle.fill" : "arrow.up.forward.app") }
                         }
                     }
+                    .foregroundStyle(approved ? Color.red : Color.blue)
                     .disabled(checkingRequest || launching || (request != nil && !approved && approvalToRetry == nil && request?.canAllow != true))
                     if let message {
                         Label(message, systemImage: returned ? "checkmark.circle" : "info.circle")
                             .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.primary)
                     }
                 } footer: {
                     Text(request != nil ? "Allow gives your agent this app for testing. Testing stops automatically after \(sessionMinutes) minutes. Stop sooner at any time." : "Testing stops automatically after \(selectedMinutes) minutes. Opening testing does not give an agent permission to use your phone. Begin only when you have agreed to a testing session.")

@@ -10,7 +10,7 @@ struct ActivityInboxView: View {
         NavigationStack {
             List {
                 if let message = activity.errorMessage {
-                    Section { Label(message, systemImage: "wifi.exclamationmark").foregroundStyle(.secondary) }
+                    Section { Label(message, systemImage: "wifi.exclamationmark").font(.callout) }
                 }
                 if activity.events.isEmpty {
                     Section {
@@ -67,17 +67,18 @@ struct ActivityInboxView: View {
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(event.title).font(.headline).foregroundStyle(.primary)
-                    Text(event.message).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                    Text(event.message).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
                     HStack {
                         Text(event.statusLabel)
                         Spacer()
-                        if let date = event.date { Text(date, style: .relative) }
+                        if let date = event.date { Text(date, format: .relative(presentation: .named, unitsStyle: .abbreviated)) }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
             }
             .padding(.vertical, 5)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -98,13 +99,9 @@ private struct ActivityEventDetailView: View {
                     if let date = event.date { LabeledContent("Updated", value: date.formatted(date: .abbreviated, time: .shortened)) }
                     if let revision = event.revision { LabeledContent("Revision", value: String(revision)) }
                 }
-                if event.canApplyQueuedChange {
+                if event.canApplyQueuedChange, let url = event.supportedLaunchURL {
                     Section {
-                        Text("Open \(event.targetAppName ?? "your app") to apply your latest changes. No install needed.")
-                            .foregroundStyle(.secondary)
-                        if let url = event.supportedLaunchURL {
-                            Button("Open \(event.targetAppName ?? "your app")") { openURL(url) }
-                        }
+                        Button("Open \(event.targetAppName ?? "your app")") { openURL(url) }
                     }
                 }
             }

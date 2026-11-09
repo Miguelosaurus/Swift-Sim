@@ -15,6 +15,9 @@ body:
         - iPhone companion
         - Mac helper or CLI
         - iPhone install workflow
+        - Debug hot reload or state recovery
+        - Optional app testing
+        - Activity or notifications
         - Simulator preview
         - Codex integration
         - Cursor integration
@@ -29,7 +32,7 @@ body:
     attributes:
       label: Swift Sim version
       description: Run `swift-sim --version`.
-      placeholder: 0.3.0
+      placeholder: Paste the version output, including engine/SDK versions when relevant
     validations:
       required: true
   - type: textarea
@@ -58,14 +61,14 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include macOS, Xcode, iOS, local agent, and relevant setup details. Redact private values.
+      description: Include macOS, Xcode, iOS, Node version, local agent and whether the issue occurs on cellular or Wi-Fi. For hot reload, say whether the Debug app was foregrounded. Redact private values.
     validations:
       required: true
   - type: textarea
     id: diagnostics
     attributes:
       label: Redacted diagnostics
-      description: Paste only the relevant portion of `swift-sim doctor` or logs after removing private data.
+      description: Paste only the relevant portion of `swift-sim doctor` or the existing delivery result after removing private data. Do not attach an entire state directory or repeat an uncertain delivery just to collect logs.
       render: shell
   - type: checkboxes
     id: checks

@@ -1739,8 +1739,8 @@ enum HelperConnectionStatus: Equatable {
     var detail: String {
         switch self {
         case .notPaired: "Installs work without a Mac connection"
-        case .checking: "Checking whether Swift Sim is open on your Mac"
-        case .online: "Install status updates automatically"
+        case .checking: "Checking your private Mac connection"
+        case .online: "Builds and app updates sync with your Mac"
         case .offline: "Installs still work and status updates when it reconnects"
         case .pairingExpired: "Your iPhone reached the Mac, but it needs a fresh pairing link"
         }

@@ -24,6 +24,9 @@ body:
       options:
         - iPhone installs
         - App library and history
+        - Debug hot reload and recovery
+        - Optional app testing
+        - Activity and notifications
         - Simulator preview
         - Agent integrations
         - Mac helper or CLI
