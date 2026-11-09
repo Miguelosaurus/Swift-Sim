@@ -10,7 +10,7 @@ navigate to the changed screen later to see the result.
 ## Availability
 
 This workflow is included in the published matching Mac package, engine and
-Debug SDK. Swift Sim 0.6.4 uses engine/SDK 0.5.8; `Package.swift` and
+Debug SDK. Swift Sim 0.6.5 uses engine/SDK 0.5.8; `Package.swift` and
 `mac-helper/compatibility.json` bind the exact version, source revision and
 archive checksum. Normal setup installs the matching verified public engine.
 Local candidate activation is only for separate contributor qualification.

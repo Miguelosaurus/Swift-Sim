@@ -114,7 +114,7 @@ partially apply. Require the same exact native replacement and refresh receipts.
 ## Asynchronous edits
 
 The reconnect SDK and prepared-delivery engine are a matching published contract.
-Swift Sim 0.6.4 ships engine/SDK 0.5.8. Setup uses the verified public archive;
+Swift Sim 0.6.5 ships engine/SDK 0.5.8. Setup uses the verified public archive;
 local candidates are only explicit contributor qualifications. An old engine,
 SDK or helper reports its typed update requirement. Complete one matching
 Debug bootstrap; temporary absence does not require another app build.

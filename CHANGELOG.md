@@ -2,7 +2,7 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
-## Unreleased
+## 0.6.5 - 2026-11-09
 
 - Add redacted Git-history secret scanning and dependency auditing to CI. Remove
   owner-specific fixture paths and clarify private security reporting.

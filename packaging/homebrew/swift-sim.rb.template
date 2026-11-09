@@ -1,5 +1,5 @@
 class SwiftSim < Formula
-  desc "Install iOS builds from mobile-controlled coding agents"
+  desc "Build and test iPhone apps from a Mac-hosted coding agent"
   homepage "https://github.com/Miguelosaurus/Swift-Sim"
   url "@ARCHIVE_URL@"
   sha256 "@SHA256@"
