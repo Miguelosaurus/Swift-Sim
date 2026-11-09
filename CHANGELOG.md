@@ -4,8 +4,9 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
-- Restore the brighter tinted-glass cards. Separate app identity, the latest-build
-  action and Test with agent. Move New build beside history as a compact action.
+- Restore the brighter tinted-glass cards. Group app identity and latest-build
+  status in one panel, with separate Install update and Test with agent buttons.
+  Keep New build compact beside history and explain it before starting.
 - Shorten Companion copy and group setup, connection and notification details
   behind disclosures. Keep permission, installation and uncertainty checks intact.
 

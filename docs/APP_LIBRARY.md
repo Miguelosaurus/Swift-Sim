@@ -4,16 +4,17 @@ Swift Sim groups builds by app. Each library row shows the app name, latest
 build and install status. Version numbers and earlier builds are on the app's
 page. Pull down to refresh app details and icons from your Mac.
 
-The app page has one main action for the latest build. **Test with agent** is a
-separate button below it. **New build** sits beside Build history and asks for
-confirmation before compiling the current code on your Mac. Older Companions
-call this action **Build Current Code**.
+The app page groups the icon, app name, latest version, build and status in one
+panel. **Install update** and **Test with agent** are separate buttons inside it.
+Installed or unavailable builds show a details button instead. **New build**
+sits beside Build history and explains what will happen before you confirm
+**Build on Mac**. Older Companions call this action **Build Current Code**.
 
 The four previous builds are visible. Older builds are under **Older builds**.
 Debug and Release labels stay in history. An install request does not prove
 installation; Swift Sim waits for matching confirmation.
 
-The whole latest-build card opens the install page on one tap. A notification's
+The Install update button opens the install page on one tap. A notification's
 background refresh cannot pull you back after you choose a build or leave the
 screen.
 

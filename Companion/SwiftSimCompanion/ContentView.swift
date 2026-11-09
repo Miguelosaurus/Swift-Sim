@@ -581,7 +581,7 @@ private struct ManagedAppDetailView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
                     topBar
-                    appHeader
+                    appOverview
                     deliveryNotice
                     if let detected = app.recentDetectedBuild {
                         DisclosureGroup("Build \(detected.build) isn't saved") {
@@ -592,8 +592,6 @@ private struct ManagedAppDetailView: View {
                         .padding(16)
                         .cardSurface(cornerRadius: 22, tint: Color.white.opacity(0.18))
                     }
-                    latestBuildSection
-                    agentTestingButton
                     buildHistorySection
                 }
                 .padding(.horizontal, 22)
@@ -655,13 +653,44 @@ private struct ManagedAppDetailView: View {
         }
     }
 
-    private var appHeader: some View {
+    private var appOverview: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            appIdentity
+            Divider()
+            if let latest = app.latestBuild {
+                Button { sessionStore.reopen(latest) } label: {
+                    Text(latestActionTitle(latest))
+                        .font(.headline)
+                        .foregroundStyle(.blue)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
+                .accessibilityIdentifier("latestBuildButton")
+            }
+            agentTestingButton
+        }
+        .padding(20)
+        .cardSurface(cornerRadius: 28, tint: Color.white.opacity(0.22))
+    }
+
+    private var appIdentity: some View {
         HStack(spacing: 16) {
             AppBadge(text: app.initials, isEmpty: false, accent: statusColor, icon: sessionStore.iconReference(for: app))
             VStack(alignment: .leading, spacing: 6) {
                 Text(app.displayName.swiftSimDisplayName)
-                    .font(.system(.title, design: .rounded).weight(.bold))
+                    .font(.system(.title2, design: .rounded).weight(.bold))
                     .fixedSize(horizontal: false, vertical: true)
+                if let latest = app.latestBuild {
+                    Text(buildSummary(latest))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Label(latestBuildDetail(latest), systemImage: latest.state == "failed" ? "exclamationmark.circle" : latest.isPreparing ? "hammer" : latest.installationStatus.isInstalled ? "checkmark.circle.fill" : "arrow.down.circle")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(latest.state == "failed" ? Color.orange : latest.installationStatus.isInstalled ? Color.green : Color.blue)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if app.isArchived {
                     Label("Archived", systemImage: "archivebox")
                         .font(.subheadline).foregroundStyle(.secondary)
@@ -704,48 +733,20 @@ private struct ManagedAppDetailView: View {
                 .frame(maxWidth: .infinity, minHeight: 48)
         }
         .buttonStyle(.plain)
-        .liquidGlassCapsule(tint: Color.blue.opacity(0.12), interactive: true)
+        .liquidGlassCapsule(tint: Color.white.opacity(0.16), interactive: true)
         .accessibilityIdentifier("testWithAgentButton")
     }
 
-    @ViewBuilder private var latestBuildSection: some View {
-        if let latest = app.latestBuild {
-            Button { sessionStore.reopen(latest) } label: {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(app.recentDetectedBuild == nil ? "Latest build" : "Latest saved build")
-                        .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(latest.buildNumber.isEmpty ? "Latest version" : "Build \(latest.buildNumber)")
-                                .font(.title2.weight(.bold)).foregroundStyle(.primary)
-                            if !latest.version.isEmpty {
-                                Text("Version \(latest.version)")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(latestActionTitle(latest))
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(.blue)
-                            .padding(.horizontal, 16).padding(.vertical, 11)
-                            .liquidGlassCapsule(tint: Color.blue.opacity(0.16), interactive: false)
-                    }
-                    Label(latestBuildDetail(latest), systemImage: latest.installationStatus.isInstalled ? "checkmark.circle.fill" : "arrow.down.circle")
-                        .font(.footnote.weight(.medium)).foregroundStyle(latest.state == "failed" ? Color.orange : latest.installationStatus.isInstalled ? Color.green : Color.blue)
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .cardSurface(cornerRadius: 26, tint: Color.blue.opacity(0.08), interactive: true)
-            .accessibilityIdentifier("latestBuildButton")
-        }
+    private func buildSummary(_ build: ManagedBuild) -> String {
+        [build.version.isEmpty ? nil : "Version \(build.version)",
+         build.buildNumber.isEmpty ? nil : "Build \(build.buildNumber)"]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     private func latestActionTitle(_ build: ManagedBuild) -> String {
-        if build.isPreparing { return "Progress" }
-        if build.state == "failed" { return "Details" }
-        return build.installationStatus.isInstalled || !build.isLinkActive ? "Details" : "Install"
+        if build.isPreparing { return "View build progress" }
+        if build.state == "failed" || build.installationStatus.isInstalled || !build.isLinkActive { return "View build details" }
+        return app.builds.count > 1 ? "Install update" : "Install app"
     }
 
     private var newBuildButton: some View {
@@ -764,11 +765,11 @@ private struct ManagedAppDetailView: View {
         .liquidGlassCapsule(tint: Color.blue.opacity(0.08), interactive: !sessionStore.isStartingCurrentSourceBuild)
         .disabled(sessionStore.isStartingCurrentSourceBuild)
         .accessibilityIdentifier("newBuildButton")
-        .alert("Create a new build?", isPresented: $showingBuildConfirmation) {
-            Button("Start build") { Task { await sessionStore.buildCurrentSource(for: app) } }
+        .alert("Build a new version?", isPresented: $showingBuildConfirmation) {
+            Button("Build on Mac") { Task { await sessionStore.buildCurrentSource(for: app) } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Use the code on your Mac, including changes you haven't committed. A new build can take a few minutes.")
+            Text("Your Mac will build \(app.displayName.swiftSimDisplayName) using the current code, including changes you haven't committed. This can take a few minutes. Your iPhone app won't change until you install the new build.")
         }
     }
 

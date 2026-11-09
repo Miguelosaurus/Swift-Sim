@@ -73,3 +73,25 @@ Screenshots, private signing/export reports and source hashes remain in the
 ignored local task evidence. Temporary build outputs and the task Simulator are
 cleaned up after review. Only the explicitly requested private gallery server
 remains running for the owner to inspect.
+
+## Follow-up: integrated app overview
+
+Owner feedback on the circled latest-build area prompted a narrower refinement.
+The icon and name now share one glass panel with the version, build and status.
+The large standalone build-number card is gone. Install and Test with agent are
+separate buttons in the panel; tapping the surrounding panel does not install
+anything. Installed builds show View build details. New build opens an explanation
+of the current-code build, time cost and separate installation step, followed by
+Build on Mac or Cancel. Its existing callback and in-flight guard remain.
+
+The updated layout passed 62 Companion tests and was reviewed in the stock
+Simulator in light/dark mode, with accessibility text and a long app name. The
+install-page and testing-sheet entry points were exercised, and the build popup
+was cancelled. No build was submitted. A short flow was recorded and sampled;
+this is interaction/layout evidence, not a frame-rate measurement. The final
+first-install label uses Install app rather than Install update.
+
+The focused follow-up gallery was assembled by Terra xhigh. The existing private
+Tailnet gallery route is reused. No phone was contacted, and no helper, SDK,
+notification, hot-reload or optional testing behavior changed. This follow-up is
+source and Simulator work; the earlier signed candidate does not contain it.
