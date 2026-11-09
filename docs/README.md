@@ -18,6 +18,8 @@ Use this page to find the correct document for your task.
 - [Security](SECURITY.md): trust boundaries, tokens, signing, and network exposure
 - [Privacy](PRIVACY.md): data handled by the iPhone app and third-party services
 
+- [Get help from your agent](GETTING_HELP.md): copy a problem and its context without retyping it.
+
 ## Contribute And Release
 
 - [Development](DEVELOPMENT.md): build, test, and validate a source checkout

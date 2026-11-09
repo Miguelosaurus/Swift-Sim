@@ -782,6 +782,20 @@ extension InstallationStateTests {
     }
 
     @MainActor
+    func testPairedIconReferenceRemovesOnlyLocalIdentityFragment() throws {
+        let digest = String(repeating: "a", count: 64)
+        let mac = PairedMac(token: "pair-token", baseURL: URL(string: "https://paired.example#swift-sim-mac=mac-1")!)
+        let ref = try XCTUnwrap(AppIconReference(digest: digest, buildID: "build-1", baseURL: URL(string: "https://delivery.example")!, token: "build-token", pairedMac: mac))
+        XCTAssertEqual(ref.url.host, "paired.example")
+        XCTAssertNil(ref.url.fragment)
+        XCTAssertNil(ref.url.query)
+        XCTAssertEqual(ref.authorization, "Bearer pair-token")
+        XCTAssertNil(AppIconReference(digest: digest, buildID: "build-1", baseURL: mac.baseURL, token: "build-token", pairedMac: nil))
+        let unexpected = PairedMac(token: "pair-token", baseURL: URL(string: "https://paired.example#unexpected")!)
+        XCTAssertNil(AppIconReference(digest: digest, buildID: "build-1", baseURL: mac.baseURL, token: "build-token", pairedMac: unexpected))
+    }
+
+    @MainActor
     func testIconBytesRequireMatchingDigestAndBoundedPixels() throws {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
         let data = try XCTUnwrap(renderer.image { context in UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2, height: 2)) }.pngData())

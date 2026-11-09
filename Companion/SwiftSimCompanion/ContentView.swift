@@ -500,9 +500,7 @@ private struct PasteLinkSheet: View {
                 .liquidGlassCapsule(tint: Color.white.opacity(0.18), interactive: true)
 
                 if !errorText.isEmpty {
-                    Text(errorText)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.red)
+                    SupportIssueView(issue: SupportIssue(title: "Couldn't open this link", message: "Use a current Swift Sim link from your agent. You can scan its QR code or paste the link here.", screen: "Open link", diagnostic: errorText))
                 }
 
                 Button {
@@ -521,7 +519,7 @@ private struct PasteLinkSheet: View {
                     .frame(minHeight: 56)
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonBorderShape(.roundedRectangle(radius: 16))
                 .tint(.blue)
                 .contentShape(Capsule())
                 .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isOpeningLink)
@@ -573,6 +571,8 @@ private struct ManagedAppDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingBuildConfirmation = false
     @State private var showingOlderBuilds = false
+    @ScaledMetric(relativeTo: .subheadline) private var actionHeight: CGFloat = 44
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ZStack {
@@ -658,26 +658,40 @@ private struct ManagedAppDetailView: View {
             appIdentity
             Divider()
             if let latest = app.latestBuild {
-                Button { sessionStore.reopen(latest) } label: {
-                    Text(latestActionTitle(latest))
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .contentShape(Capsule())
+                GeometryReader { geometry in
+                    let availableWidth = max(0, geometry.size.width - 8)
+                    HStack(spacing: 8) {
+                        agentTestingButton.frame(width: availableWidth * 0.4)
+                        Button { sessionStore.reopen(latest) } label: {
+                            Text(latestActionTitle(latest))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 12)
+                                .frame(maxWidth: .infinity, minHeight: actionHeight)
+                                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .cardSurface(cornerRadius: 16, tint: .blue, interactive: true)
+                        .frame(width: availableWidth * 0.6)
+                        .accessibilityIdentifier("latestBuildButton")
+                    }
                 }
-                .buttonStyle(.plain)
-                .liquidGlassCapsule(tint: .blue, interactive: true)
-                .accessibilityIdentifier("latestBuildButton")
-                Divider()
+                .frame(height: actionHeight)
+            } else {
+                agentTestingButton
             }
-            agentTestingButton
         }
         .padding(20)
-        .cardSurface(cornerRadius: 28, tint: Color.blue.opacity(0.08))
+        .cardSurface(cornerRadius: 24, tint: Color.blue.opacity(0.09))
     }
 
     private var appIdentity: some View {
-        HStack(spacing: 16) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 16))
+        return layout {
             AppBadge(text: app.initials, isEmpty: false, accent: statusColor, icon: sessionStore.iconReference(for: app))
             VStack(alignment: .leading, spacing: 6) {
                 Text(app.displayName.swiftSimDisplayName)
@@ -697,7 +711,7 @@ private struct ManagedAppDetailView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             }
-            Spacer(minLength: 0)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -709,9 +723,12 @@ private struct ManagedAppDetailView: View {
                 Label(deliveryStatus.label(for: app.displayName.swiftSimDisplayName), systemImage: deliveryStatus.symbol)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(deliveryStatus.needsAttention ? Color.orange : Color.blue)
-                Text(deliveryStatus.message)
+                Text(deliveryStatus.needsAttention ? "Your agent can check what happened and help you continue." : AgentReport.redact(deliveryStatus.message))
                     .font(.subheadline).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if deliveryStatus.needsAttention {
+                    AgentCopyButton(report: SupportIssue(title: "Update needs attention", message: "Check the current update before retrying.", screen: "App", context: ["App": app.displayName, "App ID": app.bundleIdentifier, "Request ID": deliveryStatus.requestId ?? "unknown"], diagnostic: deliveryStatus.message).report)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
@@ -727,23 +744,14 @@ private struct ManagedAppDetailView: View {
             sessionStore.appTestingAutoAllowRequestID = nil
             sessionStore.isAppTestingPresented = true
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "iphone.and.arrow.forward")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.blue)
-                    .frame(width: 24)
-                Text("Test with agent")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.blue)
-            }
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
+            Label("Test", systemImage: "play.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, minHeight: actionHeight)
+                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
+        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityLabel("Test with agent")
         .accessibilityIdentifier("testWithAgentButton")
     }
@@ -773,7 +781,7 @@ private struct ManagedAppDetailView: View {
             .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
-        .liquidGlassCapsule(tint: Color.blue.opacity(0.08), interactive: !sessionStore.isStartingCurrentSourceBuild)
+        .cardSurface(cornerRadius: 16, tint: Color.blue.opacity(0.09), interactive: !sessionStore.isStartingCurrentSourceBuild)
         .disabled(sessionStore.isStartingCurrentSourceBuild)
         .accessibilityIdentifier("newBuildButton")
         .alert("Build a new version?", isPresented: $showingBuildConfirmation) {
@@ -798,7 +806,7 @@ private struct ManagedAppDetailView: View {
                 }
             }
             if let message = sessionStore.buildCurrentSourceMessage {
-                Text(message).font(.footnote).foregroundStyle(.secondary)
+                SupportIssueView(issue: SupportIssue(title: "Couldn't start the build", message: "Ask your agent to check the build on your Mac before trying again.", screen: "Build history", context: ["App": app.displayName, "App ID": app.bundleIdentifier], diagnostic: message))
                 if sessionStore.pairedMac == nil {
                     Button("Connect your Mac") { sessionStore.isMacSettingsPresented = true }
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
@@ -839,7 +847,7 @@ private struct ManagedAppDetailView: View {
 
     private func latestBuildDetail(_ build: ManagedBuild) -> String {
         if build.origin == "xcode" && !build.installationStatus.isInstalled { return "Built in Xcode • no exported copy" }
-        if build.isPreparing { return "Building current code" }
+        if build.isPreparing { return "Building app" }
         if build.state == "failed" { return "Build failed. View details." }
         switch build.installationStatus {
         case .launchConfirmed: return "Installed & launched"
@@ -908,8 +916,8 @@ private struct BuildHistoryRow: View {
         .padding(.horizontal, 15)
         .padding(.vertical, 13)
         .frame(maxWidth: .infinity)
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .cardSurface(cornerRadius: 22, tint: Color.white.opacity(0.12))
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.12))
     }
 
     private var icon: String {
@@ -969,7 +977,14 @@ private struct DeviceBuildView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 16) {
                         buildHero
-                        installStatusCard
+                        if status?.state == "failed" {
+                            SupportIssueView(issue: buildIssue(title: "Build didn't finish", message: "Ask your agent to check the build log and fix the problem before rebuilding."))
+                        } else if status != nil || sessionStore.deviceBuildLoadError == nil {
+                            installStatusCard
+                        }
+                        if let error = sessionStore.deviceBuildLoadError {
+                            SupportIssueView(issue: .connection(error, screen: "Install update"))
+                        }
                         if status?.liveReload?.eligible == true {
                             liveReloadCard
                         }
@@ -1011,7 +1026,7 @@ private struct DeviceBuildView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                installDock
+                if status?.state != "failed" { installDock }
             }
             .task {
                 while !Task.isCancelled {
@@ -1160,25 +1175,21 @@ private struct DeviceBuildView: View {
     }
 
     private var warningCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Needs Attention", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.orange)
+        SupportIssueView(issue: buildIssue(title: "Check before installing", message: "Your Mac reported a warning about this build. Ask your agent to review it before installing.", diagnostic: actionableWarnings.joined(separator: "\n")))
+    }
 
-            ForEach(actionableWarnings, id: \.self) { warning in
-                Text(warning)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(17)
-        .cardSurface(cornerRadius: 24, tint: Color.orange.opacity(0.08))
+    private func buildIssue(title: String, message: String, diagnostic: String? = nil) -> SupportIssue {
+        SupportIssue(title: title, message: message, screen: "Install update",
+                     context: ["App": appName, "App ID": appBundleIdentifier, "Build ID": build.id,
+                               "Build": buildSubtitle, "Build status": status?.state ?? "not loaded",
+                               "Install status": installStatusTitle],
+                     diagnostic: diagnostic ?? sessionStore.deviceBuildLogs.joined(separator: "\n"))
     }
 
     private var buildDetailsDisclosure: some View {
         DisclosureGroup("Build log", isExpanded: $showingBuildDetails) {
-            Text(sessionStore.deviceBuildLogs.isEmpty ? "No additional details are available." : sessionStore.deviceBuildLogs.joined(separator: "\n"))
+            AgentCopyButton(report: buildIssue(title: "Build log", message: "Review this build's current status and log before retrying.").report)
+            Text(sessionStore.deviceBuildLogs.isEmpty ? "No additional details are available." : AgentReport.redact(sessionStore.deviceBuildLogs.joined(separator: "\n")))
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -1197,7 +1208,7 @@ private struct DeviceBuildView: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 58)
                     .foregroundStyle(.secondary)
-                    .liquidGlassCapsule(tint: Color.green.opacity(0.12), interactive: false)
+                    .cardSurface(cornerRadius: 16, tint: Color.green.opacity(0.12), interactive: false)
                     .accessibilityIdentifier("buildInstalledStatus")
             } else if isInstallLinkExpired {
                 Button {
@@ -1216,10 +1227,10 @@ private struct DeviceBuildView: View {
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 58)
-                    .contentShape(Capsule())
+                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: !sessionStore.isRenewingDeviceBuildLink)
+                .cardSurface(cornerRadius: 16, tint: Color.blue.opacity(0.18), interactive: !sessionStore.isRenewingDeviceBuildLink)
                 .disabled(sessionStore.isRenewingDeviceBuildLink)
             } else {
                 Button {
@@ -1233,18 +1244,24 @@ private struct DeviceBuildView: View {
                         .font(.headline.weight(.bold))
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: 58)
-                        .contentShape(Capsule())
+                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .liquidGlassCapsule(tint: canInstall ? Color.blue.opacity(0.18) : Color.gray.opacity(0.12), interactive: canInstall)
+                .cardSurface(cornerRadius: 16, tint: canInstall ? Color.blue.opacity(0.18) : Color.gray.opacity(0.12), interactive: canInstall)
                 .disabled(!canInstall || sessionStore.isStartingInstallation)
                 .accessibilityIdentifier("installBuildButton")
             }
 
             if let message = sessionStore.deviceBuildActionMessage {
-                Text(message)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(message == "New install link created." ? Color.green : Color.secondary)
+                VStack(spacing: 0) {
+                    Text(SupportIssue.installMessage(message))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(message == "New install link created." ? Color.green : Color.secondary)
+                        .textSelection(.enabled)
+                    if message != "New install link created." {
+                        AgentCopyButton(report: buildIssue(title: "Install update", message: message).report)
+                    }
+                }
             }
         }
         .padding(.horizontal, 20)
@@ -1397,10 +1414,11 @@ private struct DeviceBuildView: View {
         }
         if isInstallLinkExpired { return "Install link expired" }
         switch status?.state ?? "loading" {
-        case "queued", "loading": return "Waiting to build"
+        case "loading": return "Checking build"
+        case "queued": return "Waiting to start"
         case "preparing": return "Checking project"
-        case "building", "archiving": return "Building current code"
-        case "exporting": return "Exporting app"
+        case "building", "archiving": return "Building app"
+        case "exporting": return "Preparing install"
         case "delivering": return "Creating install link"
         case "ready": return "Ready to install"
         case "failed": return "Couldn't prepare app"
@@ -1410,22 +1428,22 @@ private struct DeviceBuildView: View {
 
     private var installStatusDetail: String {
         if status?.origin == "xcode" && !installationStatus.isInstalled {
-            return "Recorded from Xcode. A downloadable copy has not been exported. Installation is confirmed when the connected Debug app opens."
+            return "Built in Xcode. Create a new build to save an installable copy."
         }
         switch installationStatus {
         case .launchConfirmed:
             let seen = status?.installation?.lastSeenAt ?? status?.installation?.launchConfirmedAt
             if let date = SwiftSimISO8601.date(from: seen) {
-                return "This exact Debug build launched successfully. Last confirmed \(date.formatted(date: .abbreviated, time: .shortened))."
+                return "This build opened successfully. Last confirmed \(date.formatted(date: .abbreviated, time: .shortened))."
             }
-            return "This exact Debug build reported a successful launch over the private connection."
+            return "This build opened successfully on your iPhone."
         case .verified:
             if let installedVersionLabel, let name = verifiedDevice?.name, !name.isEmpty {
                 return "\(installedVersionLabel) is installed on \(name)."
             }
             return "This version is installed on your iPhone."
         case .requested:
-            return "The install request was sent to iOS. Approve its prompt when it appears. Installation is confirmed separately."
+            return "Confirm Install on your iPhone, then open the app so Swift Sim can check the update."
         case .differentVersion:
             if let installedVersionLabel {
                 return "\(installedVersionLabel) is installed. This link has Version \(conciseVersionLabel)."
@@ -1438,12 +1456,12 @@ private struct DeviceBuildView: View {
         if isInstallLinkExpired { return "Create a new link to install this version." }
         switch status?.state {
         case "queued": return "Waiting to start."
-        case "preparing": return "Reading the project and signing settings on your Mac."
-        case "building", "archiving": return "Xcode is compiling the current working tree on your Mac."
-        case "exporting": return "Xcode is signing and packaging the install file."
+        case "preparing": return "Your Mac is checking that the app can be built."
+        case "building", "archiving": return "Your Mac is building the latest code."
+        case "exporting": return "Your Mac is preparing the app for your iPhone."
         case "delivering": return "Swift Sim is creating the temporary install link."
         case "ready": return "Confirm the update in the iOS installer."
-        case "failed": return "Open Build Details for more information."
+        case "failed": return "Ask your agent to check the build log before trying again."
         default: return "Swift Sim is checking the latest status."
         }
     }
@@ -1529,7 +1547,7 @@ private struct ManagedAppRow: View {
                 .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
         }
         .padding(16)
-        .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22), interactive: true)
+        .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.22), interactive: true)
     }
 
     private var buildStamp: some View {
@@ -1708,14 +1726,20 @@ private struct LibraryActionBanner: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(accent)
 
-            Text(notice.message)
-                .font(.callout.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(AgentReport.redact(notice.message))
+                    .font(.callout.weight(.semibold))
+                    .textSelection(.enabled)
+                if notice.kind == .error {
+                    AgentCopyButton(report: (notice.supportIssue ?? SupportIssue(title: "Action couldn't finish", message: notice.message, screen: "Apps")).report)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss")
@@ -1796,8 +1820,7 @@ private struct MacSettingsSheet: View {
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                         if let error = sessionStore.pairingErrorMessage {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.subheadline).foregroundStyle(.red)
+                            SupportIssueView(issue: .pairing(error))
                         }
                         helpCard
                     }
@@ -1854,7 +1877,7 @@ private struct MacSettingsSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
+        .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.22))
     }
 
     private var setupCard: some View {
@@ -1881,7 +1904,7 @@ private struct MacSettingsSheet: View {
             .frame(minHeight: 44)
         }
         .padding(20)
-        .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
+        .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.22))
     }
 
     private var connectionDetails: some View {
@@ -1914,7 +1937,10 @@ private struct MacSettingsSheet: View {
                     .foregroundStyle(check.state == .ready ? Color.green : Color.secondary)
             }
             if check.state != .ready {
-                Text(check.detail).font(.footnote).foregroundStyle(.secondary)
+                Text("Check your Mac connection, then refresh the status.").font(.footnote).foregroundStyle(.secondary)
+                if check.state != .checking {
+                    AgentCopyButton(report: SupportIssue.connection(check.detail, screen: "Mac connection · " + title).report)
+                }
             }
         }
     }
@@ -2124,17 +2150,31 @@ private final class PairingQRScannerViewController: UIViewController, AVCaptureM
         guard view.viewWithTag(7101) == nil else { return }
         let label = UILabel()
         label.tag = 7101
-        label.text = "Camera access is unavailable. Use Open or Paste Pairing Link instead."
+        label.text = "Camera unavailable. Close this screen and paste the link from your agent instead."
         label.textColor = .white
         label.textAlignment = .center
         label.numberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
+        let copy = UIButton(type: .system)
+        copy.setTitle("Copy for agent", for: .normal)
+        copy.tintColor = .white
+        copy.addTarget(self, action: #selector(copyCameraIssue), for: .touchUpInside)
+        let stack = UIStackView(arrangedSubviews: [label, copy])
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
-            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
-            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            copy.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
         ])
+    }
+
+    @objc private func copyCameraIssue(_ sender: UIButton) {
+        UIPasteboard.general.string = SupportIssue(title: "Camera unavailable", message: "Paste the Swift Sim link instead of scanning it.", screen: "Scan QR code", context: ["Camera permission": String(AVCaptureDevice.authorizationStatus(for: .video).rawValue)]).report
+        sender.setTitle("Copied", for: .normal)
     }
 }
 
@@ -2173,13 +2213,16 @@ extension View {
     func cardSurface(cornerRadius: CGFloat, tint: Color, interactive: Bool = false) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         if #available(iOS 26, *) {
-            self.glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
+            self
+                .background(.clear, in: shape)
+                .glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
         } else {
             self
                 .background(.ultraThinMaterial, in: shape)
-                .background(tint, in: shape)
-                .overlay { shape.stroke(.white.opacity(0.24), lineWidth: 1) }
-                .shadow(color: .black.opacity(0.08), radius: 20, x: 0, y: 10)
+                .overlay {
+                    shape.stroke(.white.opacity(0.24), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.06), radius: 22, x: 0, y: 12)
         }
     }
 

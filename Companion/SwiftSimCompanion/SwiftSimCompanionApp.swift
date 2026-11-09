@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Security
 @preconcurrency import Foundation
 
@@ -54,7 +55,7 @@ struct SwiftSimCompanionApp: App {
                     case .confirmation(let pairing):
                         return Alert(
                             title: Text(sessionStore.pairedMac == nil ? "Connect this Mac?" : "Replace connected Mac?"),
-                            message: Text("Swift Sim will trust \(pairing.host) and allow it to provide app history, build metadata, and install links. Only continue if you created this pairing link."),
+                            message: Text("Connect to \(pairing.host) to get your apps and updates. Only continue if you or your agent created this link."),
                             primaryButton: .cancel {
                                 PairingCredentialVault.cancelStagedPairing(pairingID: pairing.pairingID)
                             },
@@ -69,8 +70,11 @@ struct SwiftSimCompanionApp: App {
                     case .failure(let message):
                         return Alert(
                             title: Text("Unable to connect this Mac"),
-                            message: Text(message),
-                            dismissButton: .default(Text("OK"))
+                            message: Text(SupportIssue.pairing(message).message),
+                            primaryButton: .default(Text("Copy for agent")) {
+                                UIPasteboard.general.string = SupportIssue.pairing(message).report
+                            },
+                            secondaryButton: .cancel(Text("Close"))
                         )
                     }
                 }

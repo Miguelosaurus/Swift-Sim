@@ -8,9 +8,11 @@ struct AppTestingView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var sessionStore: SessionStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var pending: AppTestingHandoff?
     @State private var launching = false
     @State private var message: String?
+    @State private var problem: SupportIssue?
     @State private var returned = false
     @State private var request: AppTestingRequest?
     @State private var approvalToRetry: AppTestingRequest?
@@ -55,7 +57,7 @@ struct AppTestingView: View {
                         request = try await sessionStore.activity.testingRequest(id: request?.id, app: appBundleID)
                         approved = request?.state == "consumed" || request?.state == "approved"
                     } catch {
-                        message = sessionStore.pairedMac == nil ? "Connect your Mac before starting a test." : "Your Mac could not load this test. Check the connection and try again."
+                        showProblem("Couldn't load this test", message: sessionStore.pairedMac == nil ? "Connect your Mac before starting a test." : "Check your Mac connection, then try again.", diagnostic: error.localizedDescription)
                         return
                     }
                 }
@@ -71,7 +73,7 @@ struct AppTestingView: View {
                 pending = nil
                 launching = false
                 UserDefaults.standard.removeObject(forKey: AppTestingHandoff.storageKey)
-                message = "Testing has not opened yet. Check the iPhone prompts before trying again."
+                showProblem("Testing hasn't opened", message: "Check the iPhone approval prompts before trying again.")
             }
             .onChange(of: sessionStore.appTestingReturnURL) { _, _ in consumeReturn() }
             .onChange(of: scenePhase) { _, phase in
@@ -91,15 +93,18 @@ struct AppTestingView: View {
             }
             Divider()
             if !approved {
-                HStack {
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                    : AnyLayout(HStackLayout())
+                layout {
                     Text("Time limit").font(.subheadline)
-                    Spacer()
+                    if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                     Picker("Time limit", selection: $selectedMinutes) {
                         ForEach([5, 10, 30, 60], id: \.self) { minutes in
                             Text(minutes == 60 ? "1 hour" : "\(minutes) minutes").tag(minutes)
                         }
                     }
-                    .pickerStyle(.menu).labelsHidden()
+                    .pickerStyle(.menu).labelsHidden().fixedSize()
                     .frame(minHeight: 44)
                     .disabled(checkingRequest || launching || approvalToRetry != nil)
                 }
@@ -108,7 +113,7 @@ struct AppTestingView: View {
             }
         }
         .padding(20)
-        .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
+        .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.22))
     }
 
     private var sessionActions: some View {
@@ -124,8 +129,9 @@ struct AppTestingView: View {
                 .frame(maxWidth: .infinity, minHeight: 52)
             }
             .buttonStyle(.plain)
-            .liquidGlassCapsule(tint: (approved ? Color.red : Color.blue).opacity(0.16), interactive: !launching)
+            .cardSurface(cornerRadius: 16, tint: (approved ? Color.red : Color.blue).opacity(0.16), interactive: !launching)
             .disabled(checkingRequest || launching || (request != nil && !approved && approvalToRetry == nil && request?.canAllow != true))
+            if let problem { SupportIssueView(issue: problem) }
             if let message {
                 Label(message, systemImage: returned ? "checkmark.circle" : "info.circle")
                     .font(.subheadline)
@@ -155,6 +161,8 @@ struct AppTestingView: View {
 
     private func start() {
         guard !launching else { return }
+        problem = nil
+        message = nil
         if approved, let request {
             launching = true
             Task {
@@ -163,15 +171,17 @@ struct AppTestingView: View {
                     approved = false
                     self.request = nil
                     message = "Test ended."
-                } catch { message = "Stop could not be confirmed. Tap Stop Server in the testing app's notification." }
+                } catch {
+                    showProblem("Stop isn't confirmed", message: "Testing may still be running. Tap Stop Server in the testing app's notification.", diagnostic: error.localizedDescription)
+                }
                 launching = false
             }
             return
         }
         if let retry = approvalToRetry { sendApproval(retry); return }
-        if let request, !request.canAllow { message = "This test has ended. Ask your agent for a new request."; return }
+        if let request, !request.canAllow { showProblem("This test has ended", message: "Ask your agent for a new request."); return }
         guard UIApplication.shared.canOpenURL(URL(string: "ictrl://start")!) else {
-            message = "The testing app is missing. Ask your agent to install it."
+            showProblem("Testing app not found", message: "Ask your agent to install the optional testing app.")
             returned = false
             return
         }
@@ -188,7 +198,7 @@ struct AppTestingView: View {
             launching = false
             pending = nil
             UserDefaults.standard.removeObject(forKey: AppTestingHandoff.storageKey)
-            message = "The testing app could not open. Ask your agent to check it."
+            showProblem("Couldn't open testing", message: "Ask your agent to check the testing app.")
         }
     }
 
@@ -209,13 +219,24 @@ struct AppTestingView: View {
             sendApproval(approval)
             return
         }
-        message = returned
-            ? "Testing opened. Your agent will check the connection before using the phone."
-            : "Testing could not start. Ask your agent to reconnect the testing app."
+        if returned {
+            problem = nil
+            message = "Testing opened. Your agent will check the connection before using the phone."
+        } else {
+            showProblem("Testing couldn't start", message: "Ask your agent to reconnect the testing app.")
+        }
+    }
+
+    private func showProblem(_ title: String, message: String, diagnostic: String = "") {
+        self.message = nil
+        problem = SupportIssue(title: title, message: message, screen: "Test with agent",
+                               context: ["App": appName ?? request?.name ?? "not selected", "App ID": appBundleID ?? "not selected",
+                                         "Request ID": request?.id ?? "none", "Approval confirmed": String(approved)], diagnostic: diagnostic)
     }
 
     private func sendApproval(_ item: AppTestingRequest) {
         launching = true
+        problem = nil
         approvalToRetry = item
         Task {
             do {
@@ -224,7 +245,9 @@ struct AppTestingView: View {
                 approvalToRetry = nil
                 request = item
                 message = "Testing \(item.name). Stops after \(item.minutes ?? 10) minutes."
-            } catch { message = "Your Mac has not confirmed approval. Reconnect, then tap Retry to check." }
+            } catch {
+                showProblem("Approval isn't confirmed", message: "Reconnect your Mac, then tap Retry to check. Testing may already have started.", diagnostic: error.localizedDescription)
+            }
             launching = false
         }
     }

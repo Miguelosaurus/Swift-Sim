@@ -9,6 +9,7 @@ struct LibraryActionNotice: Equatable {
 
     let message: String
     let kind: Kind
+    var supportIssue: SupportIssue? = nil
 }
 
 @MainActor
@@ -63,6 +64,7 @@ final class SessionStore: ObservableObject {
     @Published var currentDeviceBuild: DeviceBuildSession?
     @Published var isConnected = false
     @Published var deviceBuildStatus: DeviceBuildStatus?
+    @Published private(set) var deviceBuildLoadError: String?
     @Published var deviceBuildLogs: [String] = []
     @Published var logs: [String] = []
     @Published var activeTransport: SessionTransport?
@@ -106,7 +108,7 @@ final class SessionStore: ObservableObject {
         activity.onOpenEvent = { [weak self] event in await self?.openActivityEvent(event) }
         activity.onForegroundEvent = { [weak self] event in
             let kind: LibraryActionNotice.Kind = event.isAttention ? .error : event.kind == "queued" ? .information : .success
-            self?.showLibraryAction(event.message.isEmpty ? event.title : "\(event.title). \(event.message)", kind: kind, dismissAfter: 7)
+            self?.showLibraryAction(event.isAttention ? "\(event.targetAppName ?? "Your app") needs attention. Ask your agent to check this update." : event.message.isEmpty ? event.title : "\(event.title). \(event.message)", kind: kind, dismissAfter: 7, supportIssue: event.isAttention ? event.supportIssue : nil)
         }
         Task { await refreshHelperStatus() }
     }
@@ -131,6 +133,7 @@ final class SessionStore: ObservableObject {
             currentDeviceBuild = build
             currentSession = nil
             deviceBuildStatus = nil
+            deviceBuildLoadError = nil
             deviceBuildActionMessage = nil
             isStartingInstallation = false
             if !managedApps.contains(where: { app in app.builds.contains(where: { $0.id == build.id }) }) {
@@ -146,6 +149,7 @@ final class SessionStore: ObservableObject {
         currentSession = session
         currentDeviceBuild = nil
         deviceBuildStatus = nil
+        deviceBuildLoadError = nil
         deviceBuildLogs = []
         activeTransport = nil
         simulatorCheck = .checking("Checking this Simulator preview")
@@ -296,6 +300,7 @@ final class SessionStore: ObservableObject {
         currentSession = recent.session
         currentDeviceBuild = nil
         deviceBuildStatus = nil
+        deviceBuildLoadError = nil
         deviceBuildLogs = []
         activeTransport = nil
         simulatorCheck = .checking("Checking (recent.displayName)")
@@ -345,6 +350,7 @@ final class SessionStore: ObservableObject {
         activeTransport = nil
         logs = []
         deviceBuildStatus = nil
+        deviceBuildLoadError = nil
         deviceBuildLogs = []
         selectedManagedAppID = nil
     }
@@ -357,6 +363,7 @@ final class SessionStore: ObservableObject {
         currentDeviceBuild = nil
         buildCurrentSourceMessage = nil
         deviceBuildStatus = nil
+        deviceBuildLoadError = nil
         deviceBuildLogs = []
         touchManagedApp(app.id)
     }
@@ -372,6 +379,7 @@ final class SessionStore: ObservableObject {
         currentDeviceBuild = build.session
         currentSession = nil
         deviceBuildStatus = DeviceBuildStatus(cached: build)
+        deviceBuildLoadError = nil
         deviceBuildLogs = []
         deviceBuildActionMessage = nil
         touchManagedApp(build.appID)
@@ -383,6 +391,7 @@ final class SessionStore: ObservableObject {
         deviceBuildViewRevision &+= 1
         currentDeviceBuild = nil
         deviceBuildStatus = nil
+        deviceBuildLoadError = nil
         deviceBuildLogs = []
         deviceBuildActionMessage = nil
         isStartingInstallation = false
@@ -477,6 +486,7 @@ final class SessionStore: ObservableObject {
             if resolvedSession != build { invalidateInstallHandoff(); deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
+            deviceBuildLoadError = nil
             let managedBuild = ManagedBuild(session: resolvedSession, status: decoded)
             upsertManagedBuild(managedBuild)
             selectedManagedAppID = managedBuild.appID
@@ -488,7 +498,7 @@ final class SessionStore: ObservableObject {
                 currentRevision: deviceBuildViewRevision,
                 expectedRevision: viewRevision
             ), pairingRevision == pairingSnapshot else { return }
-            deviceBuildLogs = ["Unable to load device build: \(error.localizedDescription)"]
+            deviceBuildLoadError = error.localizedDescription
         }
     }
 
@@ -614,6 +624,7 @@ final class SessionStore: ObservableObject {
             return
         }
         deviceBuildStatus = decoded
+        deviceBuildLoadError = nil
         upsertManagedBuild(ManagedBuild(session: build, status: decoded))
     }
 
@@ -691,6 +702,7 @@ final class SessionStore: ObservableObject {
             if resolvedSession != build { invalidateInstallHandoff(); deviceBuildViewRevision &+= 1 }
             currentDeviceBuild = resolvedSession
             deviceBuildStatus = decoded
+            deviceBuildLoadError = nil
             upsertManagedBuild(ManagedBuild(session: resolvedSession, status: decoded))
         } catch {
             // Keep the last known install state when no verification source is reachable.
@@ -754,7 +766,7 @@ final class SessionStore: ObservableObject {
     func renewCurrentDeviceBuildLink() async {
         guard let build = currentDeviceBuild else { return }
         guard let mac = pairedMac else {
-            deviceBuildActionMessage = "Your Mac is needed to create a new link. Open Swift Sim on the Mac, then try again."
+            deviceBuildActionMessage = "Connect your Mac, then try creating the link again."
             return
         }
 
@@ -796,6 +808,7 @@ final class SessionStore: ObservableObject {
             deviceBuildViewRevision &+= 1
             currentDeviceBuild = renewedSession
             deviceBuildStatus = decoded
+            deviceBuildLoadError = nil
             upsertManagedBuild(ManagedBuild(session: renewedSession, status: decoded))
             deviceBuildActionMessage = "New install link created."
         } catch {
@@ -810,7 +823,7 @@ final class SessionStore: ObservableObject {
                 currentRevision: deviceBuildViewRevision,
                 expectedRevision: viewRevision
             ) else { return }
-            deviceBuildActionMessage = "Your Mac is offline. Open Swift Sim on the Mac, then try again."
+            deviceBuildActionMessage = "Check that your Mac is awake and Tailscale is connected, then try again."
         }
     }
 
@@ -1331,11 +1344,12 @@ final class SessionStore: ObservableObject {
     private func showLibraryAction(
         _ message: String,
         kind: LibraryActionNotice.Kind,
-        dismissAfter seconds: UInt64? = nil
+        dismissAfter seconds: UInt64? = nil,
+        supportIssue: SupportIssue? = nil
     ) {
         libraryActionDismissTask?.cancel()
-        libraryActionNotice = LibraryActionNotice(message: message, kind: kind)
-        guard let seconds else {
+        libraryActionNotice = LibraryActionNotice(message: message, kind: kind, supportIssue: supportIssue)
+        guard kind != .error, let seconds else {
             libraryActionDismissTask = nil
             return
         }

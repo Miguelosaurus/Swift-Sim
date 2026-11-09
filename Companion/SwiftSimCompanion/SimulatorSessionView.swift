@@ -140,15 +140,8 @@ struct SimulatorSessionView: View {
                 case .streaming:
                     EmptyView()
                 case .failed(let message):
-                    VStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 22, weight: .semibold))
-                        Text("Preview unavailable")
-                            .font(.headline.weight(.bold))
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                    ScrollView {
+                        SupportIssueView(issue: SupportIssue(title: "Preview unavailable", message: "Check that your Mac is awake and Tailscale is connected. Then tap Refresh.", screen: "Simulator preview", diagnostic: message))
                     }
                     .padding(18)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -523,14 +516,7 @@ private struct ConsoleSheet: View {
         NavigationStack {
             VStack(spacing: 18) {
                 HStack(spacing: 14) {
-                    Button(role: .destructive) { } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 24, weight: .medium))
-                            .frame(width: 58, height: 58)
-                    }
-                    .buttonStyle(.plain)
-                    .liquidGlassCircle(tint: Color(.secondarySystemBackground).opacity(0.2), interactive: true)
-                    .accessibilityLabel("Clear console")
+                    AgentCopyButton(report: SupportIssue(title: "Simulator console", message: "Review these logs and the current app state.", screen: "Console", diagnostic: logs.joined(separator: "\n")).report)
 
                     Spacer()
 
@@ -566,17 +552,17 @@ private struct ConsoleSheet: View {
                 if filteredLogs.isEmpty {
                     Spacer()
                     VStack(spacing: 8) {
-                        Text("No console output yet")
+                        Text(filter.isEmpty ? "No console output yet" : "No matching logs")
                             .font(.title3.weight(.medium))
                             .foregroundStyle(.secondary)
-                        Text("Logs from the running app will appear here.")
+                        Text(filter.isEmpty ? "Logs from the running app will appear here." : "Try a different search.")
                             .font(.callout)
                             .foregroundStyle(.tertiary)
                     }
                     Spacer()
                 } else {
                     ScrollView {
-                        Text(filteredLogs.joined(separator: "\n"))
+                        Text(AgentReport.redact(filteredLogs.joined(separator: "\n")))
                             .font(.system(.footnote, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)

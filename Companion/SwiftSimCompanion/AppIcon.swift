@@ -11,7 +11,15 @@ struct AppIconReference: Hashable, Sendable {
     init?(digest: String?, buildID: String, baseURL: URL, token: String, pairedMac: PairedMac?) {
         guard let digest, digest.count == 64, digest.allSatisfy({ "0123456789abcdef".contains($0) }),
               !buildID.isEmpty, buildID.count <= 128, buildID.allSatisfy({ $0.isLetter || $0.isNumber || "_-".contains($0) }) else { return nil }
-        let base = pairedMac?.baseURL ?? baseURL
+        var base = pairedMac?.baseURL ?? baseURL
+        // Legacy pairing keeps a local Mac identity in its fragment. It is not
+        // part of the transport URL; retain the paired host/auth boundary.
+        if pairedMac != nil, let fragment = base.fragment, fragment.hasPrefix("swift-sim-mac="),
+           var components = URLComponents(url: base, resolvingAgainstBaseURL: false) {
+            components.fragment = nil
+            guard let transportURL = components.url else { return nil }
+            base = transportURL
+        }
         guard ["https", "http"].contains(base.scheme?.lowercased() ?? ""), base.host != nil,
               base.user == nil, base.password == nil, base.query == nil, base.fragment == nil else { return nil }
         self.digest = digest

@@ -10,7 +10,7 @@ struct ActivityInboxView: View {
         NavigationStack {
             List {
                 if let message = activity.errorMessage {
-                    Section { Label(message, systemImage: "wifi.exclamationmark").font(.callout) }
+                    Section { SupportIssueView(issue: SupportIssue(title: "Couldn't refresh activity", message: "Check your Mac connection, then pull down to refresh.", screen: "Activity", diagnostic: message)).listRowBackground(Color.clear).listRowInsets(EdgeInsets()) }
                 }
                 if activity.events.isEmpty {
                     Section {
@@ -66,8 +66,8 @@ struct ActivityInboxView: View {
                     .foregroundStyle(event.isAttention ? .orange : .blue)
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(event.title).font(.headline).foregroundStyle(.primary)
-                    Text(event.message).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                    Text(event.isAttention ? "\(event.targetAppName ?? "Your app") needs attention" : AgentReport.redact(event.title)).font(.headline).foregroundStyle(.primary)
+                    Text(event.isAttention ? "Open for details and help from your agent." : AgentReport.redact(event.message)).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
                     HStack {
                         Text(event.statusLabel)
                         Spacer()
@@ -93,8 +93,13 @@ private struct ActivityEventDetailView: View {
         NavigationStack {
             Form {
                 Section {
-                    Label(event.title, systemImage: event.symbol).font(.headline)
-                    Text(event.message)
+                    if !event.isAttention { Label(AgentReport.redact(event.title), systemImage: event.symbol).font(.headline) }
+                    if event.isAttention {
+                        SupportIssueView(issue: event.supportIssue)
+                    } else {
+                        Text(AgentReport.redact(event.message)).textSelection(.enabled)
+                        AgentCopyButton(report: event.supportIssue.report)
+                    }
                     LabeledContent("Status", value: event.statusLabel)
                     if let date = event.date { LabeledContent("Updated", value: date.formatted(date: .abbreviated, time: .shortened)) }
                     if let revision = event.revision {
@@ -129,6 +134,9 @@ private struct ActivityNotificationSettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     availabilityCard
+                    if let message = notifications.registrationMessage {
+                        SupportIssueView(issue: SupportIssue(title: "Couldn't set up alerts", message: "Ask your agent to check notification setup for this build.", screen: "Notifications", diagnostic: message))
+                    }
                     VStack(spacing: 14) {
                         Toggle("Changes ready", isOn: preference(\.queued)).frame(minHeight: 44)
                         Divider()
@@ -141,12 +149,11 @@ private struct ActivityNotificationSettingsView: View {
                         Toggle("App opened", isOn: preference(\.launchConfirmed)).frame(minHeight: 44)
                     }
                     .font(.subheadline).padding(20)
-                    .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
+                    .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.22))
                     DisclosureGroup("Alert details") {
                         VStack(alignment: .leading, spacing: 12) {
                             LabeledContent("iPhone permission", value: permissionAllowed ? "Allowed" : notifications.authorization == .denied ? "Off" : "Not set")
                             LabeledContent("Mac alerts", value: activity.providerStatus.map { $0.configured ? "Available" : "Unavailable" } ?? "Not checked")
-                            if let message = notifications.registrationMessage { Text(message) }
                             if let message = notifications.deliveryMessage { Text(message) }
                         }
                         .font(.footnote).foregroundStyle(.secondary).padding(.top, 14)
@@ -173,7 +180,7 @@ private struct ActivityNotificationSettingsView: View {
                 Text("Reconnect to check whether alerts are available.")
                     .font(.subheadline).foregroundStyle(.secondary)
             } else if permissionAllowed {
-                Label("Notifications on", systemImage: "checkmark.circle.fill")
+                Label("iPhone alerts allowed", systemImage: "checkmark.circle.fill")
                     .font(.headline).foregroundStyle(.green)
             } else if notifications.authorization == .denied {
                 Label("Notifications off", systemImage: "bell.slash").font(.headline)
@@ -188,7 +195,7 @@ private struct ActivityNotificationSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(20)
-        .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
+        .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.22))
     }
 
     private func preference(_ path: WritableKeyPath<ActivityPreferences, Bool>) -> Binding<Bool> {
