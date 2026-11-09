@@ -317,7 +317,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("exclamationmark.triangle", "Memory Warning", control: "memory-warning")
                 }
-                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
+                .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.16))
 
                 Text("Hardware Buttons")
                     .font(.footnote.weight(.bold))
@@ -333,7 +333,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("button.programmable", "Press Action Button", control: "action-button")
                 }
-                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
+                .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.16))
 
                 Text("Accessibility")
                     .font(.footnote.weight(.bold))
@@ -351,7 +351,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("circle.dashed", "Toggle Reduce Transparency", control: "reduce-transparency")
                 }
-                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
+                .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.16))
 
                 Text("Appearance")
                     .font(.footnote.weight(.bold))
@@ -367,7 +367,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("sparkles", "Liquid Glass Tinted", control: "liquid-glass-tinted")
                 }
-                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
+                .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.16))
 
                 Text("Debug")
                     .font(.footnote.weight(.bold))
@@ -379,7 +379,7 @@ private struct SimulatorOptionsSheet: View {
                     Divider().padding(.leading, 54)
                     optionRow("rectangle.dashed", "Toggle View Borders", control: "show-borders")
                 }
-                .cardSurface(cornerRadius: 24, tint: Color(.secondarySystemBackground).opacity(0.16))
+                .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.16))
             }
             .padding(.horizontal, 22)
             .padding(.top, 12)
@@ -606,47 +606,5 @@ private struct SimulatorStageBackground: View {
     var body: some View {
         Color(.systemBackground)
         .ignoresSafeArea()
-    }
-}
-
-private extension View {
-    func cardSurface(cornerRadius: CGFloat, tint: Color) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        return self
-            .background(.regularMaterial, in: shape)
-            .background(tint.opacity(0.35), in: shape)
-            .overlay { shape.stroke(Color(.separator).opacity(0.12), lineWidth: 0.5) }
-    }
-
-    @ViewBuilder
-    func liquidGlassCapsule(tint: Color, interactive: Bool) -> some View {
-        if #available(iOS 26, *) {
-            self
-                .background(.clear, in: Capsule())
-                .glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: Capsule())
-        } else {
-            self
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay {
-                    Capsule().stroke(.white.opacity(0.24), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.08), radius: 22, x: 0, y: 12)
-        }
-    }
-
-    @ViewBuilder
-    func liquidGlassCircle(tint: Color, interactive: Bool) -> some View {
-        if #available(iOS 26, *) {
-            self
-                .background(.clear, in: Circle())
-                .glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: Circle())
-        } else {
-            self
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay {
-                    Circle().stroke(.white.opacity(0.24), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.08), radius: 22, x: 0, y: 12)
-        }
     }
 }

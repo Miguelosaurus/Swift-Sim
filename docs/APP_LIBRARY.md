@@ -1,20 +1,21 @@
 # App library
 
-Swift Sim organizes signed builds by app. The home screen shows the app icon,
-latest version and build number, and its current build/install status on separate
-lines. Apps are ordered by their most recent build. Failed or running builds
-remain visibly distinct from versions ready to install.
-Pull down on the home screen to refresh saved app metadata and icons from the
-paired Mac without opening individual app cards.
+Swift Sim groups builds by app. Each library row shows the app name, latest
+build and install status. Version numbers and earlier builds are on the app's
+page. Pull down to refresh app details and icons from your Mac.
 
-An app's page puts its latest build first, followed by Build Current Code and
-recent history. The four previous builds are expanded; older builds stay available
-under Older builds. Debug and Release labels are retained in history. Building
-current code still requires confirmation, and an install request is not proof of
-installation.
-The full Latest Build card, including its padding, opens the install page on a
-single tap. A notification's background refresh cannot return the user to app
-history after they have already chosen a build or moved to another screen.
+The app page has one main action for the latest build. **Test with agent** is a
+separate button below it. **New build** sits beside Build history and asks for
+confirmation before compiling the current code on your Mac. Older Companions
+call this action **Build Current Code**.
+
+The four previous builds are visible. Older builds are under **Older builds**.
+Debug and Release labels stay in history. An install request does not prove
+installation; Swift Sim waits for matching confirmation.
+
+The whole latest-build card opens the install page on one tap. A notification's
+background refresh cannot pull you back after you choose a build or leave the
+screen.
 
 ## Ordinary Xcode builds
 

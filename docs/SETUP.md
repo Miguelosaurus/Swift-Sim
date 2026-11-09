@@ -17,7 +17,7 @@ Swift Sim has three components:
 - Apple Developer account configured in Xcode
 - iPhone included in the development or ad-hoc provisioning profile
 
-Tailscale is optional. It is required only for Mac pairing, **Build Current Code**, remote hot reload, and Simulator preview.
+Tailscale is optional. It is required only for Mac pairing, **New build**, remote hot reload, and Simulator preview.
 
 ## 1. Prepare A Local Coding Agent
 
@@ -64,7 +64,7 @@ The companion provides:
 - build and update history
 - archive and restore controls
 - connected-device installation verification
-- Mac pairing and **Build Current Code**
+- Mac pairing and **New build**
 - optional Simulator viewing and control
 
 An install link can also work in Safari. The companion is the intended app-management experience.
@@ -125,17 +125,16 @@ Follow the returned state:
 - `install-unconfirmed`: reconcile the existing request before trying again.
 - `install-link-ready`: open **Open in Swift Sim to Install** and confirm installation.
 
-**Create New Install Link** republishes an existing signed build. **Build Current
-Code** compiles the current Mac working tree, including uncommitted changes,
+**Create new install link** republishes an existing signed build. **New build** compiles the current Mac working tree, including uncommitted changes,
 after confirmation. Neither operation pulls Git changes or switches branches.
 
 ## Pair The iPhone With The Mac
 
-Pairing enables **Build Current Code**, install verification, and Simulator diagnostics.
+Pairing enables **New build**, install verification, and Simulator diagnostics.
 
 Before you start, install Tailscale on the Mac and iPhone. Sign in to the same Tailnet. The devices do not need the same Wi-Fi network.
 
-In the empty iPhone library, tap **Connect your Mac**, then **Set Up With My Agent**. Share the prepared request with the local coding agent. You can also open **Mac Connection** from the connection card.
+In the empty iPhone library, tap **Connect your Mac**, then **Set up with agent**. Share the prepared request with the local coding agent. You can also open **Mac connection** from the connection card.
 
 For the QR flow, first check the private route:
 
@@ -149,7 +148,7 @@ Continue only when the report contains `ok: true`. Then run:
 swift-sim pair --qr
 ```
 
-In the companion, open **Mac Connection > Scan Pairing QR**. Scan the displayed code.
+In the companion, open **Mac connection > Scan code**. Scan the displayed code.
 
 The invitation is valid for five minutes by default. It can be used one time. Use `--ttl-minutes 1` through `--ttl-minutes 15` to select another invitation window.
 
@@ -159,15 +158,15 @@ Opening a pairing link is not proof of success. The companion verifies the helpe
 
 A USB cable is not used for Swift Sim pairing. Xcode can still require a cable when it registers a new development device for the first time.
 
-## Build Current Code From The iPhone
+## Build from your iPhone
 
-Complete one successful device build and pair the Mac first. Then open the app in Swift Sim and tap **Build Current Code**.
+Complete one successful device build and pair the Mac first. Then open the app in Swift Sim and tap **New build** beside Build history. Older Companions call it **Build Current Code**.
 
 The paired Mac builds the working tree at its saved path. The build includes uncommitted changes. Swift Sim does not pull, commit, edit, or switch branches.
 
 The helper compares the current bundle identifier and signing team with the trusted prior build. It stops if either value changed.
 
-**Create New Install Link** does not build the project. It republishes a saved IPA.
+**Create new install link** does not build the project. It republishes a saved IPA.
 
 ## Optional Live Simulator Preview
 

@@ -65,9 +65,9 @@ existing configuration or active session is preserved rather than overwritten.
 probe, or install anything on the phone. Pairing accepts explicit Tailscale IP
 addresses; there is no public endpoint, discovery scan, proxy, or redirect path.
 
-The companion's optional **app page → Test with Agent → Start App Testing**
-entry opens the installed runner and requests a return to Swift Sim. It is also
-available under **Mac Connection → App Testing**. The
+The companion's optional **app page → Test with agent → Open testing app**
+entry (or **Allow testing** for an agent request) opens the installed runner and requests a return to Swift Sim. It is also
+available under **Mac connection → Test with agent**. The
 `swift-sim://app-testing` link presents that screen without starting testing.
 The first launch can still require normal iOS approvals and the runner's Remote
 Access action. Previously approved access is remembered by the runner.

@@ -38,8 +38,8 @@ delivery. Never print/copy pairing keys or fetch untrusted provider updates.
 
    For a separately agreed manual session, confirm the phone is available.
    Bring up the feature when testing is requested: in Swift Sim, open the app
-   page, tap **Test with Agent**, then **Start App Testing**. The fallback is
-   Mac Connection → App Testing; `swift-sim://app-testing` presents the same
+   page, tap **Test with agent**, then **Open testing app** or **Allow testing**
+   for a pending request. The fallback is Mac connection → Test with agent; `swift-sim://app-testing` presents the same
    screen without starting the runner or granting access. Never ask the user
    to find a hidden notification menu again after initial setup.
    If it crashes after reboot, developer-image

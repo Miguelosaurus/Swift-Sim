@@ -14,7 +14,7 @@ struct ActivityInboxView: View {
                 }
                 if activity.events.isEmpty {
                     Section {
-                        ContentUnavailableView("No activity yet", systemImage: "bell", description: Text("Builds, queued edits and confirmed updates from your connected Mac appear here."))
+                        ContentUnavailableView("No activity yet", systemImage: "bell", description: Text("Builds and changes from your Mac appear here."))
                             .listRowBackground(Color.clear)
                     }
                 } else {
@@ -97,7 +97,9 @@ private struct ActivityEventDetailView: View {
                     Text(event.message)
                     LabeledContent("Status", value: event.statusLabel)
                     if let date = event.date { LabeledContent("Updated", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                    if let revision = event.revision { LabeledContent("Revision", value: String(revision)) }
+                    if let revision = event.revision {
+                        DisclosureGroup("Details") { LabeledContent("Revision", value: String(revision)) }
+                    }
                 }
                 if event.canApplyQueuedChange, let url = event.supportedLaunchURL {
                     Section {
@@ -117,55 +119,76 @@ private struct ActivityNotificationSettingsView: View {
     @ObservedObject var notifications: CompanionNotifications
     @Environment(\.openURL) private var openURL
 
+    private var permissionAllowed: Bool {
+        [.authorized, .provisional, .ephemeral].contains(notifications.authorization)
+    }
+
     var body: some View {
-        Form {
-            Section {
-                if [.authorized, .provisional, .ephemeral].contains(notifications.authorization) {
-                    Label("iPhone notifications allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                } else if notifications.authorization == .denied {
-                    Button("Open notification settings") {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+        ZStack {
+            HomeCanvas()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    availabilityCard
+                    VStack(spacing: 14) {
+                        Toggle("Changes ready", isOn: preference(\.queued)).frame(minHeight: 44)
+                        Divider()
+                        Toggle("New build ready", isOn: preference(\.buildReady)).frame(minHeight: 44)
+                        Divider()
+                        Toggle("Changes applied", isOn: preference(\.hotReload)).frame(minHeight: 44)
+                        Divider()
+                        Toggle("Needs attention", isOn: preference(\.attention)).frame(minHeight: 44)
+                        Divider()
+                        Toggle("App opened", isOn: preference(\.launchConfirmed)).frame(minHeight: 44)
                     }
-                } else if activity.providerStatus?.configured == true {
-                    Button("Enable notifications") { Task { await activity.enableNotifications() } }
-                        .accessibilityIdentifier("enableActivityNotificationsButton")
-                } else {
-                    Text("You can enable iPhone alerts when background notifications are available from your Mac.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                if let message = notifications.registrationMessage { Text(message).font(.footnote).foregroundStyle(.secondary) }
-                if let message = notifications.deliveryMessage { Text(message).font(.footnote).foregroundStyle(.secondary) }
-            } footer: {
-                Text("Choose which updates can send alerts. iPhone permission and a configured Mac sender are both needed for background notifications.")
-            }
-            Section {
-                Toggle("Changes ready to apply", isOn: preference(\.queued))
-                Toggle("Build ready to install", isOn: preference(\.buildReady))
-                Toggle("Needs attention", isOn: preference(\.attention))
-                Toggle("Changes applied", isOn: preference(\.hotReload))
-                Toggle("App opened successfully", isOn: preference(\.launchConfirmed))
-            } header: { Text("Updates") } footer: {
-                Text("Compilation progress and routine reconnects don’t send alerts. While Swift Sim is open, updates appear in the app without an extra notification banner.")
-            }
-            Section("Mac delivery") {
-                if let provider = activity.providerStatus, provider.configured {
-                    Label("Background alerts configured", systemImage: "checkmark.shield")
-                    Text("Apple handles remote alerts across networks. Activity and install details still load through your private Mac connection.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                } else if activity.providerStatus != nil {
-                    Label("In-app updates available", systemImage: "bell")
-                    Text("Your builds and changes appear here while Swift Sim is open. Background alerts aren't available from this Mac.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                } else {
-                    Label("Connect your Mac to check alerts", systemImage: "macbook.and.iphone")
-                    Text("Connect to your paired Mac to check background notification availability. Saved activity remains here.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                    .font(.subheadline).padding(20)
+                    .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
+                    DisclosureGroup("Alert details") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            LabeledContent("iPhone permission", value: permissionAllowed ? "Allowed" : notifications.authorization == .denied ? "Off" : "Not set")
+                            LabeledContent("Mac alerts", value: activity.providerStatus.map { $0.configured ? "Available" : "Unavailable" } ?? "Not checked")
+                            if let message = notifications.registrationMessage { Text(message) }
+                            if let message = notifications.deliveryMessage { Text(message) }
+                        }
+                        .font(.footnote).foregroundStyle(.secondary).padding(.top, 14)
+                    }
+                    .font(.subheadline.weight(.medium)).padding(18)
+                    .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.18))
+                }.padding(20)
             }
         }
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
         .task { await notifications.refreshAuthorization() }
+    }
+
+    private var availabilityCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let provider = activity.providerStatus, !provider.configured {
+                Label("In-app updates only", systemImage: "bell.slash")
+                    .font(.headline)
+                Text("Background alerts aren't available from this Mac. Updates still appear in Activity.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else if activity.providerStatus == nil {
+                Label("Connect your Mac", systemImage: "macbook.and.iphone").font(.headline)
+                Text("Reconnect to check whether alerts are available.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else if permissionAllowed {
+                Label("Notifications on", systemImage: "checkmark.circle.fill")
+                    .font(.headline).foregroundStyle(.green)
+            } else if notifications.authorization == .denied {
+                Label("Notifications off", systemImage: "bell.slash").font(.headline)
+                Button("Open iPhone settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                .frame(minHeight: 44)
+            } else {
+                Button("Enable notifications") { Task { await activity.enableNotifications() } }
+                    .font(.headline).frame(minHeight: 44)
+                    .accessibilityIdentifier("enableActivityNotificationsButton")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(20)
+        .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
     }
 
     private func preference(_ path: WritableKeyPath<ActivityPreferences, Bool>) -> Binding<Bool> {

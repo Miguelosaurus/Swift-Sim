@@ -4,6 +4,11 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Restore the brighter tinted-glass cards. Separate app identity, the latest-build
+  action and Test with agent. Move New build beside history as a compact action.
+- Shorten Companion copy and group setup, connection and notification details
+  behind disclosures. Keep permission, installation and uncertainty checks intact.
+
 - Polish Companion action colors, Dynamic Type, long app names, dark surfaces,
   card shapes, link-entry scrolling and activity detail hierarchy while keeping
   the existing navigation and visual direction.

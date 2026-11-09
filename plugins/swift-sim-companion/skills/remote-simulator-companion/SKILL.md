@@ -164,7 +164,7 @@ Read only the branch-specific reference:
   `SwiftSimLive`, the Debug session, or live proof;
 - [Xcode imports](references/xcode-builds.md) for ordinary Build/Run history;
 - [signed device builds](references/signed-device-builds.md) for signing,
-  install links, app identity, or Build Current Code;
+  install links, app identity, or New build;
 - [pairing](references/pairing.md) for pairing, QR invitations, or session
   links;
 - [Simulator preview](references/simulator-preview.md) only for a requested

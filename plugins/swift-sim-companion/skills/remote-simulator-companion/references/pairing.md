@@ -39,7 +39,7 @@ swift-sim pair --qr
 
 The invitation lasts five minutes by default. `--ttl-minutes` accepts a value
 from 1 through 15 and only applies with `--qr`. Scan the displayed code from
-**Mac Connection → Scan Pairing QR**. Camera access may be approved in iOS
+**Mac connection → Scan code**. Camera access may be approved in iOS
 Settings, and **Open or Paste Pairing Link** remains the fallback when scanning
 is unavailable.
 

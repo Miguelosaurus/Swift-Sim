@@ -229,7 +229,7 @@ Device installation does not require Tailscale. Do not expose the full Simulator
 
 ## An Install Link Expired
 
-Open the saved build in Swift Sim. Tap **Create New Install Link**.
+Open the saved build in Swift Sim. Tap **Create new install link**.
 
 The trusted Mac must be online. The saved IPA must still exist. Swift Sim creates a new link without rebuilding the project.
 
@@ -237,7 +237,7 @@ If the saved IPA is unavailable, ask the coding agent to build the app again.
 
 A temporary link can end early when the Mac sleeps, restarts, or loses internet access. A closed `trycloudflare.com` hostname is expected after its tunnel stops.
 
-## Build Current Code Fails
+## A new build fails
 
 Confirm these prerequisites:
 
@@ -247,11 +247,11 @@ Confirm these prerequisites:
 - The Mac is awake and its helper is running.
 - The project remains at its saved path.
 
-**Build Current Code** builds the current working tree on the Mac. It includes uncommitted changes. It does not pull, commit, or switch branches.
+**New build** builds the current working tree on the Mac. It includes uncommitted changes. It does not pull, commit, or switch branches.
 
 If Swift Sim reports an identity change, open the project on the Mac. Create a new trusted device build there. The remote build stops when the bundle identifier or signing team changes.
 
-**Create New Install Link** republishes a saved IPA. It does not compile current source.
+**Create new install link** republishes a saved IPA. It does not compile current source.
 
 ## The App Was Installed As A Second App
 
@@ -282,7 +282,7 @@ Do not use Tailscale Funnel.
 
 ## The Companion Shows No Mac Or A Gray Status
 
-Tap **Pair Now**, then **Set Up With My Agent**. Share the prepared request with the local coding agent.
+Tap **Connect your Mac**, then **Set up with agent**. Share the prepared request with the local coding agent.
 
 If the companion reports an expired token, generate a new pairing link.
 
@@ -311,11 +311,11 @@ Continue only when the report contains `ok: true`. Then create a new invitation:
 swift-sim pair --qr
 ```
 
-Scan it from **Mac Connection > Scan Pairing QR**.
+Scan it from **Mac connection > Scan code**.
 
 An invitation expires after five minutes by default. It can be consumed one time. If the app reports that it expired or was used, create a new invitation.
 
-If camera access is denied, enable Camera for Swift Sim in **Settings > Privacy & Security > Camera**. You can also use **Open or Paste Pairing Link** with the normal `swift-sim pair` output.
+If camera access is denied, enable Camera for Swift Sim in **Settings > Privacy & Security > Camera**. You can also use **Paste link** with the normal `swift-sim pair` output.
 
 If scanning succeeds but helper verification fails, start a new QR flow. A different client cannot reuse an invitation that was already claimed.
 

@@ -21,60 +21,29 @@ struct AppTestingView: View {
     private var sessionMinutes: Int { approved ? (request?.minutes ?? 10) : selectedMinutes }
 
     private var actionTitle: String {
-        if checkingRequest { return "Checking Request…" }
-        if launching { return approved ? "Stopping Testing…" : "Opening App Testing…" }
-        if approved { return "Stop Testing" }
-        if approvalToRetry != nil { return "Retry Connection" }
-        if let request { return request.canAllow ? "Allow App Testing" : "Testing Finished" }
-        return "Start App Testing"
+        if checkingRequest { return "Checking…" }
+        if launching { return approved ? "Stopping…" : "Opening…" }
+        if approved { return "Stop testing" }
+        if approvalToRetry != nil { return "Retry" }
+        if let request { return request.canAllow ? "Allow testing" : "Test ended" }
+        return "Open testing app"
     }
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    Label((request?.name ?? appName).map { "Test \($0)" } ?? "Test with your coding agent", systemImage: "iphone.and.arrow.forward")
-                        .font(.headline)
-                    Text("Make your iPhone available while your agent checks an app. Your agent connects privately through Tailscale and stops testing when it finishes.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    if !approved {
-                        Picker("Duration", selection: $selectedMinutes) {
-                            ForEach([5, 10, 30, 60], id: \.self) { minutes in
-                                Text(minutes == 60 ? "1 hour" : "\(minutes) minutes").tag(minutes)
-                            }
-                        }
-                        .disabled(checkingRequest || launching || approvalToRetry != nil)
-                    }
-                    Button(action: start) {
-                        HStack {
-                            Text(actionTitle)
-                            Spacer()
-                            if launching { ProgressView() }
-                            else { Image(systemName: approved ? "stop.circle.fill" : "arrow.up.forward.app") }
-                        }
-                    }
-                    .foregroundStyle(approved ? Color.red : Color.blue)
-                    .disabled(checkingRequest || launching || (request != nil && !approved && approvalToRetry == nil && request?.canAllow != true))
-                    if let message {
-                        Label(message, systemImage: returned ? "checkmark.circle" : "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.primary)
-                    }
-                } footer: {
-                    Text(request != nil ? "Allow gives your agent this app for testing. Testing stops automatically after \(sessionMinutes) minutes. Stop sooner at any time." : "Testing stops automatically after \(selectedMinutes) minutes. Opening testing does not give an agent permission to use your phone. Begin only when you have agreed to a testing session.")
-                }
-                Section {
-                    DisclosureGroup("Setup & Recovery") {
-                        Text("Ask your agent to enable optional iPhone testing on your Mac. It uses a separate, development-signed testing app; your own apps need no additional code.")
-                        Text("The first time, allow the iOS prompts and enable Remote Access in the testing app’s notification. Previously approved access is remembered.")
-                        Text("After an iPhone restart, Apple’s developer support may need restoring. Ask your agent to check the phone before reinstalling anything. Recovery may require Wi-Fi or reconnecting to your Mac.")
-                    }
+            ZStack {
+                HomeCanvas()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        intentCard
+                        sessionActions
+                        setupHelp
+                    }.padding(20)
                 }
             }
-            .navigationTitle("App Testing")
+            .navigationTitle("Test with agent")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(approved ? "Close" : "Done") { dismiss() } } }
             .task {
                 defer { checkingRequest = false }
                 if ![5, 10, 30, 60].contains(selectedMinutes) { selectedMinutes = 10 }
@@ -86,7 +55,7 @@ struct AppTestingView: View {
                         request = try await sessionStore.activity.testingRequest(id: request?.id, app: appBundleID)
                         approved = request?.state == "consumed" || request?.state == "approved"
                     } catch {
-                        message = "The testing request could not be refreshed. Check your Mac connection."
+                        message = sessionStore.pairedMac == nil ? "Connect your Mac before starting a test." : "Your Mac could not load this test. Check the connection and try again."
                         return
                     }
                 }
@@ -102,14 +71,86 @@ struct AppTestingView: View {
                 pending = nil
                 launching = false
                 UserDefaults.standard.removeObject(forKey: AppTestingHandoff.storageKey)
-                message = "App testing has not returned yet. Check its iOS prompts and developer support before trying again."
+                message = "Testing has not opened yet. Check the iPhone prompts before trying again."
             }
             .onChange(of: sessionStore.appTestingReturnURL) { _, _ in consumeReturn() }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active, launching, pending != nil else { return }
-                message = "Waiting for testing to return. If iOS shows an approval prompt, complete it on your iPhone."
+                message = "Finish any iPhone approval prompts to continue."
             }
         }
+    }
+
+    private var intentCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text((request?.name ?? appName).map { "Test \($0)" } ?? "Test with agent")
+                    .font(.title2.weight(.bold))
+                Text("Your agent can see the screen and control this iPhone during an approved test.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            Divider()
+            if !approved {
+                HStack {
+                    Text("Time limit").font(.subheadline)
+                    Spacer()
+                    Picker("Time limit", selection: $selectedMinutes) {
+                        ForEach([5, 10, 30, 60], id: \.self) { minutes in
+                            Text(minutes == 60 ? "1 hour" : "\(minutes) minutes").tag(minutes)
+                        }
+                    }
+                    .pickerStyle(.menu).labelsHidden()
+                    .frame(minHeight: 44)
+                    .disabled(checkingRequest || launching || approvalToRetry != nil)
+                }
+            } else {
+                LabeledContent("Time limit", value: sessionMinutes == 60 ? "1 hour" : "\(sessionMinutes) minutes")
+            }
+        }
+        .padding(20)
+        .cardSurface(cornerRadius: 26, tint: Color.white.opacity(0.22))
+    }
+
+    private var sessionActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button(action: start) {
+                HStack(spacing: 10) {
+                    if launching { ProgressView() }
+                    else { Image(systemName: approved ? "stop.circle.fill" : "arrow.up.forward.app") }
+                    Text(actionTitle)
+                }
+                .font(.headline)
+                .foregroundStyle(approved ? Color.red : Color.blue)
+                .frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(.plain)
+            .liquidGlassCapsule(tint: (approved ? Color.red : Color.blue).opacity(0.16), interactive: !launching)
+            .disabled(checkingRequest || launching || (request != nil && !approved && approvalToRetry == nil && request?.canAllow != true))
+            if let message {
+                Label(message, systemImage: returned ? "checkmark.circle" : "info.circle")
+                    .font(.subheadline)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .cardSurface(cornerRadius: 20, tint: Color.white.opacity(0.18))
+            }
+            Text(approved ? "Close hides this screen. Use Stop testing to end the test."
+                 : request != nil ? "Allow only when your iPhone is available."
+                 : "Your agent still needs approval before using the phone.")
+                .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
+        }
+    }
+
+    private var setupHelp: some View {
+        DisclosureGroup("Setup and help") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Ask your agent to install the testing app on this iPhone.")
+                Text("On first use, follow the iPhone prompts. If asked, tap Enable Remote Access in the testing app's notification.")
+                Text("After a restart, ask your agent to reconnect testing. You may need to connect to your Mac's Wi-Fi.")
+            }
+            .font(.subheadline).foregroundStyle(.secondary).padding(.top, 14)
+        }
+        .font(.subheadline.weight(.medium)).padding(18)
+        .cardSurface(cornerRadius: 24, tint: Color.white.opacity(0.18))
     }
 
     private func start() {
@@ -121,16 +162,16 @@ struct AppTestingView: View {
                     try await sessionStore.activity.respondToTesting(request, action: "cancel")
                     approved = false
                     self.request = nil
-                    message = "This testing session has ended."
-                } catch { message = "Stopping could not be confirmed. Use Stop Server in the testing app’s notification." }
+                    message = "Test ended."
+                } catch { message = "Stop could not be confirmed. Tap Stop Server in the testing app's notification." }
                 launching = false
             }
             return
         }
         if let retry = approvalToRetry { sendApproval(retry); return }
-        if let request, !request.canAllow { message = "This testing request is no longer active. Ask your agent to start a new one."; return }
+        if let request, !request.canAllow { message = "This test has ended. Ask your agent for a new request."; return }
         guard UIApplication.shared.canOpenURL(URL(string: "ictrl://start")!) else {
-            message = "App testing is not installed yet. Ask your agent to set it up on your Mac."
+            message = "The testing app is missing. Ask your agent to install it."
             returned = false
             return
         }
@@ -147,7 +188,7 @@ struct AppTestingView: View {
             launching = false
             pending = nil
             UserDefaults.standard.removeObject(forKey: AppTestingHandoff.storageKey)
-            message = "iOS could not open app testing. Ask your agent to check its installation."
+            message = "The testing app could not open. Ask your agent to check it."
         }
     }
 
@@ -169,8 +210,8 @@ struct AppTestingView: View {
             return
         }
         message = returned
-            ? "Testing opened. Your agent will verify the private connection before using the phone."
-            : "Testing could not start. Ask your agent to check Apple’s developer support and the testing app."
+            ? "Testing opened. Your agent will check the connection before using the phone."
+            : "Testing could not start. Ask your agent to reconnect the testing app."
     }
 
     private func sendApproval(_ item: AppTestingRequest) {
@@ -182,8 +223,8 @@ struct AppTestingView: View {
                 approved = true
                 approvalToRetry = nil
                 request = item
-                message = "Your agent can now test \(item.name). Testing stops automatically after \(item.minutes ?? 10) minutes."
-            } catch { message = "The Mac could not confirm approval. Retry Connection when it reconnects; testing will not start automatically." }
+                message = "Testing \(item.name). Stops after \(item.minutes ?? 10) minutes."
+            } catch { message = "Your Mac has not confirmed approval. Reconnect, then tap Retry to check." }
             launching = false
         }
     }

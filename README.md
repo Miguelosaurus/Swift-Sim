@@ -66,7 +66,7 @@ SwiftUI body edits, supported helpers, new views and bounded State additions hav
 
 The companion groups builds under each app, shows icons and the latest update, and keeps previous builds in history. It reports installation only from matching evidence; an opened installer or sent notification is not proof that an update finished.
 
-**Build Current Code** asks the paired Mac to compile the project exactly as it exists, including uncommitted changes. It does not pull Git changes or switch branches. **Create New Install Link** republishes an existing saved build without compiling source.
+**New build** asks the paired Mac to compile the project exactly as it exists, including uncommitted changes. It does not pull Git changes or switch branches. **Create new install link** republishes an existing saved build without compiling source.
 
 Generated compiler caches have bounded retention with current live baselines, installed/recent builds and pending work protected. App history is separate from retained build files. See [app library and storage](docs/APP_LIBRARY.md).
 
