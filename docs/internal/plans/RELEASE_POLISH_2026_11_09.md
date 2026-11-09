@@ -77,3 +77,11 @@ checks. Eight affected light/dark/large-text screens were recaptured; unchanged
 screens retain the earlier renders. A new signed local candidate includes this
 follow-up. The existing report/privacy test results above remain the prior
 logic qualification; no phone or public release action occurred.
+
+## TestFlight submission checkpoint
+
+The [November 9 submission receipt](TESTFLIGHT_0_6_5_2026_11_09.md) supersedes the
+upload-pending state above: 0.6.5 (15) passed processing, is assigned to Public
+Beta, and is waiting for Apple's external review. Public availability and the
+fresh-developer phone test remain unproven. The Mac package/plugin/Homebrew
+release remains unpublished by this task.

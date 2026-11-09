@@ -2,18 +2,20 @@
 
 ## Availability
 
-Checked November 8, 2026 through the authenticated App Store Connect API:
-all returned Swift Sim builds are expired. The latest uploaded build is
-0.6.1 (14), uploaded August 3, 2026. The Public Beta group and its public link
-are enabled, but every build currently attached to that group is expired.
-A usable current external Companion build is therefore a launch blocker.
-A successful private OTA install does not establish TestFlight availability.
+Checked November 9, 2026 through the authenticated App Store Connect API:
+Swift Sim **0.6.5 (15)** is uploaded, processed successfully, and nonexpired.
+It is ready for internal testing and assigned to the existing **Public Beta**
+group. Its external beta submission is **Waiting for Review**.
 
-Prepare and validate the refreshed Companion, upload it only with release
-authorization, then verify processing, export-compliance requirements, external
-review state and actual Public Beta membership. Only mark the beta available
-when a nonexpired approved build is assigned to the public group. Apple's review
-is an external dependency; a planned launch date is not an approval receipt.
+The public link remains enabled, but the refreshed build is not approved for
+external testing yet. All earlier returned builds are expired. Do not describe
+the public beta as available until Apple approves the new build and its Public
+Beta assignment is verified again. A successful upload or private OTA install
+is not external beta availability.
+
+See the [upload and submission receipt](internal/plans/TESTFLIGHT_0_6_5_2026_11_09.md)
+for the exact build and monitor command. Apple's review is an external
+dependency; a planned launch date is not an approval receipt.
 
 ## Beta Description
 
@@ -47,13 +49,13 @@ separate from ordinary delivery.
 
 ## Beta Review Notes
 
-Swift Sim requires Xcode, the Swift Sim Homebrew package, and at least one supported local coding agent on a Mac. `swift-sim setup` installs the matching Codex, Cursor, Claude Code, or OpenCode integration and starts the helper. Normal install links work without Tailscale. The TestFlight Companion does not load project patches; the optional live SDK is restricted to the developer's own development-signed Debug app and excluded from Release/TestFlight/App Store app configurations. Tailscale is required for optional live Simulator sessions, remote hot reload, and the companion's **New build** action because those operations privately reach the user's Mac. The iPhone and Mac do not need shared Wi-Fi or USB. The selected agent remains the coding surface; the companion can independently ask the paired Mac to build its current working tree. No Swift Sim account or demo credentials are required.
+Swift Sim requires Xcode, Node.js 24 (installed by Homebrew), the Swift Sim Homebrew package, and at least one supported local coding agent on a Mac. `swift-sim setup` installs the matching Codex, Cursor, Claude Code, or OpenCode integration and starts the helper. Normal install links work without Tailscale. The TestFlight Companion does not load project patches; the optional live SDK is restricted to the developer's own development-signed Debug app and excluded from Release/TestFlight/App Store app configurations. Tailscale is required for optional live Simulator sessions, remote hot reload, and the companion's **New build** action because those operations privately reach the user's Mac. The iPhone and Mac do not need shared Wi-Fi or USB. The selected agent remains the coding surface; the companion can independently ask the paired Mac to build its current working tree. No Swift Sim account or demo credentials are required.
 
 Setup instructions: https://github.com/Miguelosaurus/Swift-Sim/blob/main/docs/SETUP.md
 
 Public beta: https://testflight.apple.com/join/HMUUFYNK
 
-Simulator access is HTTPS through the tester's private Tailnet. Device builds use a separate token-scoped gateway through a random, expiring `trycloudflare.com` URL; pairing, app-library deletion, and simulator controls are not exposed there. Xcode uses the tester's configured Apple Developer account for signing.
+Simulator access is HTTPS through the tester's private Tailnet. Device builds can use private Tailscale delivery or a separate token-scoped gateway through an expiring install link; pairing, app-library deletion, and simulator controls are not exposed through that install gateway. Xcode uses the tester's configured Apple Developer account for signing.
 
 ## Public Link Copy
 
