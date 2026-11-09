@@ -96,19 +96,17 @@ Tailnet gallery route is reused. No phone was contacted, and no helper, SDK,
 notification, hot-reload or optional testing behavior changed. This follow-up is
 source and Simulator work; the earlier signed candidate does not contain it.
 
-### Blue app-panel material
+### App-panel material and testing action
 
-The whole app overview now uses blue-tinted native glass. The main build action
-uses stronger blue glass with a white label; Test with agent keeps a lighter
-glass treatment. The existing layout, confirmation and action callbacks remain.
-This material-only adjustment was built and reviewed in the stock Simulator in
-light, dark and accessibility-text layouts, without contacting a phone. It does
-not change the earlier physical-validation or release-candidate boundaries.
+The app overview uses the earlier 8% blue-tinted native glass, with a stronger
+blue primary action and white label. Test with agent is a full-width footer row
+with a blue icon, readable label and chevron, separated from Install by a divider.
+The rejected nested-glass and outlined-pill treatments are removed. The row has
+a 44-point minimum height, a full rectangular tap target and one accessibility
+label. Its testing-sheet callback and approval behavior remain unchanged.
 
-The subsequent tone correction restores the earlier 8% blue tint, replacing the
-18% tint the owner rejected. Test with agent no longer stacks a second glass
-material over the panel. Its translucent surface, blue outline and semantic
-black/white label keep the button distinct in both themes. The full capsule is
-tappable, and the existing testing-sheet callback remains. The corrected source
-was rebuilt, reviewed in light/dark Simulator renders, and its sheet opened and
-dismissed without starting testing. No phone was used.
+The final row was built and reviewed in the stock Simulator in light/dark mode
+and at accessibility text size. It opened the existing testing sheet in one tap
+and was dismissed without starting testing. The earlier 62-test run predates
+these appearance-only follow-ups; no new model-test coverage or physical-phone
+qualification is claimed. The prior signed candidate does not contain this UI.

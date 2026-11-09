@@ -654,7 +654,7 @@ private struct ManagedAppDetailView: View {
     }
 
     private var appOverview: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             appIdentity
             Divider()
             if let latest = app.latestBuild {
@@ -668,6 +668,7 @@ private struct ManagedAppDetailView: View {
                 .buttonStyle(.plain)
                 .liquidGlassCapsule(tint: .blue, interactive: true)
                 .accessibilityIdentifier("latestBuildButton")
+                Divider()
             }
             agentTestingButton
         }
@@ -726,19 +727,24 @@ private struct ManagedAppDetailView: View {
             sessionStore.appTestingAutoAllowRequestID = nil
             sessionStore.isAppTestingPresented = true
         } label: {
-            Label {
-                Text("Test with agent").foregroundStyle(.primary)
-            } icon: {
-                Image(systemName: "iphone.and.arrow.forward").foregroundStyle(.blue)
+            HStack(spacing: 12) {
+                Image(systemName: "iphone.and.arrow.forward")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.blue)
+                    .frame(width: 24)
+                Text("Test with agent")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
             }
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 18)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .contentShape(Capsule())
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Color.white.opacity(0.14), in: Capsule())
-        .overlay { Capsule().strokeBorder(Color.blue.opacity(0.35), lineWidth: 1) }
+        .accessibilityLabel("Test with agent")
         .accessibilityIdentifier("testWithAgentButton")
     }
 
