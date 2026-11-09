@@ -95,3 +95,12 @@ The focused follow-up gallery was assembled by Terra xhigh. The existing private
 Tailnet gallery route is reused. No phone was contacted, and no helper, SDK,
 notification, hot-reload or optional testing behavior changed. This follow-up is
 source and Simulator work; the earlier signed candidate does not contain it.
+
+### Blue app-panel material
+
+The whole app overview now uses blue-tinted native glass. The main build action
+uses stronger blue glass with a white label; Test with agent keeps a lighter
+glass treatment. The existing layout, confirmation and action callbacks remain.
+This material-only adjustment was built and reviewed in the stock Simulator in
+light, dark and accessibility-text layouts, without contacting a phone. It does
+not change the earlier physical-validation or release-candidate boundaries.

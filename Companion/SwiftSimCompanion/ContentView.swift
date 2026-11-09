@@ -661,18 +661,18 @@ private struct ManagedAppDetailView: View {
                 Button { sessionStore.reopen(latest) } label: {
                     Text(latestActionTitle(latest))
                         .font(.headline)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, minHeight: 50)
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .liquidGlassCapsule(tint: Color.blue.opacity(0.18), interactive: true)
+                .liquidGlassCapsule(tint: .blue, interactive: true)
                 .accessibilityIdentifier("latestBuildButton")
             }
             agentTestingButton
         }
         .padding(20)
-        .cardSurface(cornerRadius: 28, tint: Color.white.opacity(0.22))
+        .cardSurface(cornerRadius: 28, tint: Color.blue.opacity(0.18))
     }
 
     private var appIdentity: some View {
