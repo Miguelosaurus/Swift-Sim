@@ -9,7 +9,7 @@ test("generates a scoped curated report without a universal claim", () => {
     attempts: [
       { attemptId: "one", expectedLane: "hot-reload", predictedLane: "hot-reload" },
     ],
-    environment: { path: "/Users/miguel/project" },
+    environment: { path: "/Users/developer/project" },
   });
   assert.match(summary.claim, /Scoped result/);
   assert.equal(summary.environment.path, "<home>/project");

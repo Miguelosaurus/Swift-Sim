@@ -19,11 +19,11 @@ the real four-file artifact have compiled representation: six Swift replacement
 records and one exact Objective-C category mapping. Full mixed physical
 acceptance remains unproven.
 
-Primary checkout: `/Users/miguel/Documents/Swift-Sim`.
-Working checkout: `/Users/miguel/.codex/worktrees/swift-sim-p4-reconcile/Swift-Sim`,
+Primary checkout: `<primary-checkout>/Swift-Sim`.
+Working checkout: `<qualification-worktree>/Swift-Sim`,
 branch `codex/swift-sim-p4-live-requalification`.
 Native SDK/engine checkout:
-`/Users/miguel/.codex/worktrees/swift-sim-client-reconnect/InjectionNext`.
+`<sdk-worktree>/InjectionNext`.
 Its pre-work HEAD is test-only `d6a3abf`; production runtime pin remains
 `43966021a3782af65ecc9e594c7e7a7e3cbf409e` in root Package.swift.
 

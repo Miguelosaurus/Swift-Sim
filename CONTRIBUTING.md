@@ -65,6 +65,23 @@ plan; never uninstall their app or assume a prepared build has been installed.
 
 See [Development](docs/DEVELOPMENT.md) for device builds, integration validation, and manual end-to-end checks. Use the [Documentation Guide](docs/README.md) to find public guides, evidence, and internal records.
 
+## Security Checks
+
+Before sharing a patch, scan its staged changes and check the locked dependencies:
+
+```sh
+brew install gitleaks
+bash scripts/check-secrets.sh --staged
+npm audit --audit-level=moderate
+```
+
+Run `bash scripts/check-secrets.sh --history` to scan all reachable Git history.
+`GITLEAKS_BIN` can select an existing executable. Scanner output is redacted;
+keep detailed reports private. CI runs the history scan and dependency audit on
+pushes and pull requests. A clean scan reduces risk; it does not prove that no
+secret was ever exposed. If you find a real credential, report it privately and
+rotate it before discussing history cleanup.
+
 ## Pull Requests
 
 Keep each pull request focused and explain the user-visible result. Include:

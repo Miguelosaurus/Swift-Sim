@@ -96,7 +96,7 @@ test("paired status and logs preserve the private projection while capability ou
       verifiedAt: "now",
       devices: [{ name: "Private iPhone" }],
     },
-    logs: ["/Users/miguel/secret/App.xcodeproj", "Build is ready to install."],
+    logs: ["/Users/developer/secret/App.xcodeproj", "Build is ready to install."],
   });
   const paired = createDeviceBuildCapabilityApplicationService(dependencies({
     pairingTokenMatches: () => true,

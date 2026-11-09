@@ -4,7 +4,10 @@
 
 Please do not open a public issue for a suspected vulnerability.
 
-Email `serram1994@gmail.com` with:
+Use [GitHub private vulnerability reporting](https://github.com/Miguelosaurus/Swift-Sim/security/advisories/new).
+If you cannot use GitHub, email `serram1994@gmail.com`.
+
+Include:
 
 - the affected Swift Sim version or commit;
 - the component involved;

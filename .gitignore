@@ -22,3 +22,11 @@ __pycache__/
 *.mobileprovision
 *.ipa
 *.xcarchive/
+
+# Local Apple CLI credentials, signing exports and test results.
+.asc/
+*.pem
+*.key
+*.pfx
+*.xcresult/
+*.dSYM/

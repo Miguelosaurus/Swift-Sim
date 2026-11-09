@@ -4,7 +4,7 @@ import { sanitizeError, sanitizeValue } from "../src/sanitize.js";
 
 test("redacts paths, identifiers, tokens, and source-bearing fields", () => {
   const value = sanitizeValue({
-    path: "/Users/miguel/Documents/Swift-Sim/Card.swift",
+    path: "/Users/developer/Documents/Swift-Sim/Card.swift",
     device: "01234567-89AB-CDEF-0123-456789ABCDEF",
     team: "AB12CD34EF",
     url: "https://example.ts.net/d/build?token=secret",
@@ -18,5 +18,5 @@ test("redacts paths, identifiers, tokens, and source-bearing fields", () => {
 });
 
 test("sanitizes process errors", () => {
-  assert.equal(sanitizeError(new Error("/Users/miguel/.swift-sim/helper.log")), "<swift-sim-state>");
+  assert.equal(sanitizeError(new Error("/Users/developer/.swift-sim/helper.log")), "<swift-sim-state>");
 });

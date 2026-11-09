@@ -18,7 +18,7 @@
 
 Swift Sim connects the coding agent on your Mac to the real app on your iPhone. Ask for a change, let the agent deliver it, and test it on your phone from anywhere. Compatible Debug edits hot reload; changes that need a new binary use a signed Xcode build.
 
-Swift Sim is a public beta. Mac tools and the Debug SDK are available in tagged releases. **Companion beta status, November 8, 2026:** the previous TestFlight builds have expired. A refreshed Companion build must complete distribution before new testers can use the public link. Check [TestFlight availability](docs/TESTFLIGHT.md#availability) before starting.
+Swift Sim is a public beta. Mac tools and the Debug SDK are available in tagged releases. Check the current [Companion beta availability](docs/TESTFLIGHT.md#availability) before starting.
 
 ## Quick Start
 
@@ -114,9 +114,4 @@ Read [Contributing](CONTRIBUTING.md) for the source map and isolated checks,
 [Code of Conduct](CODE_OF_CONDUCT.md); report vulnerabilities privately using
 [Security](SECURITY.md).
 
-Read [Contributing](CONTRIBUTING.md) before opening a pull request. Follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through the private process in [Security Policy](SECURITY.md).
-
 Swift Sim is open source under the [Apache License 2.0](LICENSE).
-
-Activity updates and optional iPhone alerts cover ready builds, queued edits and
-confirmed results. See [notifications setup and proof limits](docs/NOTIFICATIONS.md).

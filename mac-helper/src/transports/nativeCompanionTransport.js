@@ -82,9 +82,9 @@ export class NativeCompanionTransport {
 }
 
 function avccUrl(previewUrl) {
-  const url = new URL(previewUrl);
-  url.pathname = "/stream.avcc";
-  url.search = "";
+  // Current providers mount each device below /helper/<id>/; AVCC is a
+  // sibling of the advertised MJPEG stream, including legacy root mounts.
+  const url = new URL("stream.avcc", previewUrl);
   return url.toString();
 }
 

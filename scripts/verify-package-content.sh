@@ -43,6 +43,7 @@ const required = [
   "dist/mac-helper/optional/app-control/vendor/provenance.json",
   "dist/mac-helper/optional/app-control/vendor/LICENSE",
   "docs/APP_CONTROL.md",
+  "docs/GETTING_HELP.md",
   "docs/XCODE_BUILD_IMPORT.md",
   "dist/mac-helper/src/xcodeImport.js",
   "dist/mac-helper/optional/xcode-import/app_metadata.py",

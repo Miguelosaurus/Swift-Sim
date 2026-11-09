@@ -3,7 +3,7 @@
   "version": "0.6.5",
   "private": true,
   "type": "module",
-  "description": "Install signed iPhone builds and preview Mac Simulators from mobile-controlled coding agents.",
+  "description": "Build and test iPhone apps from your Mac-hosted coding agent, over a private remote connection.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -40,6 +40,7 @@
     "docs/TESTFLIGHT.md",
     "docs/SETUP.md",
     "docs/TROUBLESHOOTING.md",
+    "docs/GETTING_HELP.md",
     "docs/AGENT_WORKFLOWS.md",
     "docs/ASYNC_HOT_RELOAD.md",
     "docs/NOTIFICATIONS.md",
@@ -86,14 +87,22 @@
     "node": "24.x"
   },
   "devDependencies": {
-    "@types/node": "24.13.3",
-    "eslint": "9.39.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.14.0",
     "prettier": "3.7.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.46.2"
+    "typescript-eslint": "8.72.2"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0",
-    "serve-sim": "0.1.44"
+    "serve-sim": "0.1.49"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.5"
+    },
+    "eslint": {
+      "minimatch": "11.0.5"
+    }
   }
 }

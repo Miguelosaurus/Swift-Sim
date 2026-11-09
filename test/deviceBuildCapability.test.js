@@ -42,7 +42,7 @@ function build(overrides = {}) {
       verifiedAt: "2026-07-31T11:51:00.000Z",
       devices: [{ name: "iPhone 17 Pro", state: "installed", version: "1.2", build: "34" }],
     },
-    liveReload: { eligible: true, engineReady: false, compilerReady: false, error: "/Users/miguel/private/path" },
+    liveReload: { eligible: true, engineReady: false, compilerReady: false, error: "/Users/developer/private/path" },
     remoteBaseUrl: "https://build.example",
     installTTLMinutes: 120,
     capabilities: [],

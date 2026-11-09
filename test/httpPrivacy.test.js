@@ -23,11 +23,11 @@ test("token-bearing JSON responses disable referrers and MIME sniffing", () => {
 test("main-helper capability errors do not expose internal details", () => {
   const bad = recorder();
   bad.swiftSimPublicCapability = true;
-  badRequest(bad, 400, "/Users/miguel/private/project failed");
+  badRequest(bad, 400, "/Users/developer/private/project failed");
   assert.doesNotMatch(bad.body, /Users|miguel|project/);
 
   const missing = recorder();
   missing.swiftSimPublicCapability = true;
-  notFound(missing, "/Users/miguel/private/App.ipa");
+  notFound(missing, "/Users/developer/private/App.ipa");
   assert.doesNotMatch(missing.body, /Users|miguel|App\.ipa/);
 });

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const bundledServeSim = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "node_modules", ".bin", "serve-sim");
-const pinnedServeSimPackage = "serve-sim@0.1.44";
+const pinnedServeSimPackage = "serve-sim@0.1.49";
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_KILL_TIMEOUT_MS = 10_000;
 const DEFAULT_FORCE_KILL_DELAY_MS = 1_000;

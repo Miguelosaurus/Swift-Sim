@@ -4,11 +4,11 @@ import { externalRequestBase } from "../mac-helper/src/requestOrigin.js";
 
 test("Tailscale reverse-proxy requests preserve their external HTTPS origin", () => {
   const req = { headers: {} };
-  const url = new URL("http://miguels-macbook-air.example.ts.net/pair");
+  const url = new URL("http://developer-mac.example.ts.net/pair");
 
   assert.equal(
     externalRequestBase(req, url),
-    "https://miguels-macbook-air.example.ts.net"
+    "https://developer-mac.example.ts.net"
   );
 });
 

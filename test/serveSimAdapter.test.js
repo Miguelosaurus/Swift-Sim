@@ -192,34 +192,36 @@ test("codex session prefers the dedicated MJPEG preview for native sessions", ()
   assert.equal(session.stream.localUrl, undefined);
 });
 
-test("native companion wraps serve-sim AVCC without changing its adapter contract", async () => {
-  const runtimeRootPath = mkdtempSync(join(tmpdir(), "swift-sim-native-runtime-"));
-  const adapter = {
-    async inspect() {
-      return { version: "0.1.41" };
-    },
-    async start() {
-      return {
-        previewUrl: "http://127.0.0.1:3100/stream.mjpeg",
-        wsUrl: "ws://127.0.0.1:3100/ws",
-        port: 3100,
-        pid: 123,
-        raw: {},
-        logs: [],
-      };
-    },
-  };
-  try {
-    const transport = new NativeCompanionTransport({ adapter, runtimeRootPath });
-    const stream = await transport.start({ simulatorUDID: "SIM-NATIVE-START" });
-    assert.equal(stream.localUrl, "http://127.0.0.1:3100/stream.avcc");
-    assert.equal(stream.previewUrl, "http://127.0.0.1:3100/stream.mjpeg");
-    assert.equal(stream.transport, "native-companion");
-    assert.equal(stream.quality, "native-h264");
-  } finally {
-    rmSync(runtimeRootPath, { recursive: true, force: true });
-  }
-});
+for (const mount of ["", "/helper/SIM-NATIVE-START"]) {
+  test(`native companion preserves the ${mount ? "device-mounted" : "legacy root"} stream path`, async () => {
+    const runtimeRootPath = mkdtempSync(join(tmpdir(), "swift-sim-native-runtime-"));
+    const adapter = {
+      async inspect() {
+        return { version: "0.1.41" };
+      },
+      async start() {
+        return {
+          previewUrl: `http://127.0.0.1:3100${mount}/stream.mjpeg`,
+          wsUrl: `ws://127.0.0.1:3100${mount}/ws`,
+          port: 3100,
+          pid: 123,
+          raw: {},
+          logs: [],
+        };
+      },
+    };
+    try {
+      const transport = new NativeCompanionTransport({ adapter, runtimeRootPath });
+      const stream = await transport.start({ simulatorUDID: "SIM-NATIVE-START" });
+      assert.equal(stream.localUrl, `http://127.0.0.1:3100${mount}/stream.avcc`);
+      assert.equal(stream.previewUrl, `http://127.0.0.1:3100${mount}/stream.mjpeg`);
+      assert.equal(stream.transport, "native-companion");
+      assert.equal(stream.quality, "native-h264");
+    } finally {
+      rmSync(runtimeRootPath, { recursive: true, force: true });
+    }
+  });
+}
 
 test("native companion rejects serve-sim versions without AVCC", async () => {
   const runtimeRootPath = mkdtempSync(join(tmpdir(), "swift-sim-native-runtime-"));

@@ -4,6 +4,12 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 
 ## Unreleased
 
+- Add redacted Git-history secret scanning and dependency auditing to CI. Remove
+  owner-specific fixture paths and clarify private security reporting.
+- Update the supported lint toolchain and vulnerable transitive dependencies.
+  Update the optional Simulator provider to 0.1.49, including upstream access
+  controls and scoped helper shutdown fixes.
+
 - Restore the brighter tinted-glass cards. Group app identity and latest-build
   status in one panel, with separate Install update and Test with agent buttons.
   Keep New build compact beside history and explain it before starting.
@@ -21,8 +27,8 @@ Notable changes to Swift Sim are recorded here. The project follows [Semantic Ve
 - Lead the empty, unpaired app library with Connect your Mac, keeping the
   existing install-link fallback one tap away.
 - Update public setup, delivery, SDK recovery, retention and privacy guidance to
-  the published component contract. Record the expired TestFlight distribution
-  as an explicit launch blocker instead of promising an available beta build.
+  the published component contract. Track TestFlight availability from Apple's
+  actual processing and external-review state; 0.6.5 (15) is awaiting review.
 - Include the linked public privacy, security, distribution and contributor
   guides in the installed Mac package.
 

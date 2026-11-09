@@ -187,3 +187,13 @@ Never replace an asset on an existing release. A changed artifact requires a new
 ## Pull Requests
 
 Keep changes focused. Include the commands used to verify helper tests, simulator builds, and any affected remote-session behavior. Redact links and local machine details from screenshots and logs.
+
+## Dependency pins
+
+Node 24, TypeScript 5 and the existing Prettier version are deliberate toolchain
+pins. Major upgrades need their own compatibility check. ESLint and its
+TypeScript parser use scoped `minimatch` overrides to select the patched 11.0.5
+release on Node 24; the shipped runtime dependencies do not use those overrides.
+Check `npm audit` and lint/type checks before removing them. The optional
+`serve-sim` adapter and package dependency must select the same version; qualify
+actual Simulator frames before updating that pin.
