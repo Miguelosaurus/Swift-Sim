@@ -104,3 +104,11 @@ glass treatment. The existing layout, confirmation and action callbacks remain.
 This material-only adjustment was built and reviewed in the stock Simulator in
 light, dark and accessibility-text layouts, without contacting a phone. It does
 not change the earlier physical-validation or release-candidate boundaries.
+
+The subsequent tone correction restores the earlier 8% blue tint, replacing the
+18% tint the owner rejected. Test with agent no longer stacks a second glass
+material over the panel. Its translucent surface, blue outline and semantic
+black/white label keep the button distinct in both themes. The full capsule is
+tappable, and the existing testing-sheet callback remains. The corrected source
+was rebuilt, reviewed in light/dark Simulator renders, and its sheet opened and
+dismissed without starting testing. No phone was used.

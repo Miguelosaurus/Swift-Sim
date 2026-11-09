@@ -672,7 +672,7 @@ private struct ManagedAppDetailView: View {
             agentTestingButton
         }
         .padding(20)
-        .cardSurface(cornerRadius: 28, tint: Color.blue.opacity(0.18))
+        .cardSurface(cornerRadius: 28, tint: Color.blue.opacity(0.08))
     }
 
     private var appIdentity: some View {
@@ -726,14 +726,19 @@ private struct ManagedAppDetailView: View {
             sessionStore.appTestingAutoAllowRequestID = nil
             sessionStore.isAppTestingPresented = true
         } label: {
-            Label("Test with agent", systemImage: "iphone.and.arrow.forward")
+            Label {
+                Text("Test with agent").foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: "iphone.and.arrow.forward").foregroundStyle(.blue)
+            }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.blue)
                 .padding(.horizontal, 18)
                 .frame(maxWidth: .infinity, minHeight: 48)
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .liquidGlassCapsule(tint: Color.white.opacity(0.16), interactive: true)
+        .background(Color.white.opacity(0.14), in: Capsule())
+        .overlay { Capsule().strokeBorder(Color.blue.opacity(0.35), lineWidth: 1) }
         .accessibilityIdentifier("testWithAgentButton")
     }
 
