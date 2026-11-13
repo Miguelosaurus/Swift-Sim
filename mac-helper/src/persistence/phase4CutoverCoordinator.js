@@ -236,6 +236,61 @@ export class Phase4CutoverCoordinator {
     });
   }
 
+  /**
+   * Unattended migration with the same mechanics as prepare + activate: locked
+   * per-domain imports (which back up every legacy source), then one critical
+   * section under all domain locks that re-reads, reapplies, proves projection
+   * equality and freshness, and atomically selects SQLite. A writer that changes
+   * any source in between makes activation reject; any failure cancels the
+   * preparation so legacy stays authoritative.
+   *
+   * @param {{ rollbackWindowMs: number }} input
+   */
+  migrateAutomatically(input) {
+    const rollbackWindowMs = requirePositiveInteger(input.rollbackWindowMs, "Phase-4 rollback window");
+    const initial = this.#authority.getState();
+    if (initial.mode === "preparing") this.#cancelCurrentPreparation();
+    else if (initial.mode !== "legacy") return Object.freeze({ status: "not-legacy", authority: initial });
+    const preparationID = randomBytes(32).toString("hex");
+    try {
+      const current = this.#authority.getState();
+      this.#preparePairingFence(preparationID);
+      const domains = this.#runPreparationImports();
+      const authority = this.#authority.beginPreparation({
+        expectedRevision: current.revision,
+        preparationID,
+        evidence: { version: 1, automatic: true, domains },
+      });
+      const prepared = requirePreparedEvidence(authority.evidence);
+      const evidenceHash = requireHash(authority.evidenceHash, "Phase-4 prepared evidenceHash");
+      return this.#withAllDomainLocks(() =>
+        this.#activateLocked({ authority, preparationID, evidenceHash, prepared, rollbackWindowMs }),
+      );
+    } catch (error) {
+      try {
+        this.#cancelCurrentPreparation();
+      } catch {
+        // The original failure is the actionable one; a later start retries cancellation.
+      }
+      throw error;
+    }
+  }
+
+  #cancelCurrentPreparation() {
+    const state = this.#authority.getState();
+    if (state.mode === "preparing" && state.preparationID) {
+      this.cancelPreparation({ expectedRevision: state.revision, preparationID: state.preparationID });
+      return;
+    }
+    const pairing = this.#pairingAuthority.current();
+    if (state.mode === "legacy" && pairing.mode === "legacy-preparing" && pairing.preparationID) {
+      this.#pairingAuthority.cancelPreparation({
+        expectedRevision: pairing.revision,
+        preparationID: pairing.preparationID,
+      });
+    }
+  }
+
   /** @param {{ expectedRevision: number, preparationID: string }} input */
   cancelPreparation(input) {
     const current = this.#authority.getState();
