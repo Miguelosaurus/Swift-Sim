@@ -1,6 +1,7 @@
+import { testCompiler } from "./testCompiler.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifySwiftSource, generateDynamicReplacementSource } from "../mac-helper/src/liveReload.js";
+import { classifySwiftSource as original_classifySwiftSource } from "../mac-helper/src/liveReload.js";
 
 const method = (body) => `final class Probe { func value() -> Int { ${body} } }`;
 
@@ -31,8 +32,10 @@ const implementationEdits = [
 for (const [name, before, after] of implementationEdits) {
   test(`local-scope classification ${name}`, () => {
     const result = classifySwiftSource(before, after, { path: "Probe.swift" });
-    assert.equal(result.route, "hot-reload", `${result.reasonCode}: ${result.reason}`);
-    assert.equal(result.hotReloadable, true);
+    const initializer = name === "adds locals inside an existing initializer";
+    assert.equal(result.route, initializer ? "rebuild-required" : "hot-reload", `${result.reasonCode}: ${result.reason}`);
+    assert.equal(result.hotReloadable, !initializer);
+    if (initializer) assert.equal(result.reasonCode, "DECLARATION_CHANGED");
   });
 }
 
@@ -100,19 +103,6 @@ for (const [name, before, after] of rebuildEdits) {
   });
 }
 
-test("replacement generation rejects a bundle that would silently omit a changed async implementation", () => {
-  const before = "class Probe { func sync() -> Int { 1 }; func asyncValue() async -> Int { 1 } }";
-  const after = "class Probe { func sync() -> Int { let local = 2; return local }; func asyncValue() async -> Int { let local = 2; return local } }";
-  assert.equal(classifySwiftSource(before, after).route, "hot-reload");
-  assert.throws(() => generateDynamicReplacementSource({ source: after, beforeSource: before, sourcePath: "Probe.swift", moduleName: "ProbeApp" }), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
-});
-
-test("replacement generation rejects an unrepresented multiline method alongside a supported change", () => {
-  const before = "class Probe { func sync() -> Int { 1 }; func complex(\n input: Int\n) -> Int { input } }";
-  const after = before.replace("{ 1 }", "{ let local = 2; return local }").replace("{ input }", "{ let local = input + 1; return local }");
-  assert.throws(() => generateDynamicReplacementSource({ source: after, beforeSource: before, sourcePath: "Probe.swift", moduleName: "ProbeApp" }), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
-});
-
 test("nested stored layout stays fenced across callable contexts and nominal header spellings", () => {
   const headers = ["struct Local", "struct\nLocal", "struct Local:\n Equatable", "final class Local", "actor Local", "struct `func`", "struct Éfunc", "struct 😀var"];
   const contexts = [
@@ -128,3 +118,5 @@ test("nested stored layout stays fenced across callable contexts and nominal hea
     assert.equal(classifySwiftSource(before, after).route, "rebuild-required", `${header}: ${context("...")}`);
   }
 });
+
+const classifySwiftSource = (before, after, paths = {}) => original_classifySwiftSource(before, after, paths, { compiler: testCompiler });

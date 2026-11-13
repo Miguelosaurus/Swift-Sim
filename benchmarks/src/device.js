@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { inspectLiveReload, routeLiveEditSet, startLiveReload } from "../../mac-helper/src/liveReload.js";
+import { inspectLiveReload, startLiveReload } from "../../mac-helper/src/liveReload.js";
 import { loadCorpus } from "./corpus.js";
 import { materializeCase } from "./materialize.js";
 import { BenchmarkOracle, benchmarkMarkerPrefix } from "./oracle.js";
@@ -64,6 +64,7 @@ export async function runDeviceBenchmark({
   const deviceAddress = selectedDevice.name || selectedDevice.identifier || selectedDevice.udid || selectedDevice.dnsName || device;
   let workspace;
   let session;
+  let pendingDelivery = false;
   try {
     workspace = createDisposableDeviceWorkspace({ project, fixtureRoot, buildSettings });
     const runtimeProject = workspace.project;
@@ -107,6 +108,11 @@ export async function runDeviceBenchmark({
         });
         let records = Array.isArray(caseResult) ? caseResult : [caseResult];
         let attempt = records[0];
+        if (attempt.terminalState === "queued" || records.some(record => record.errorCode === "RESTORE_QUEUED")) {
+          appendRecords(records);
+          pendingDelivery = true;
+          throw new Error(`Delivery remains queued; benchmark stopped with its workspace preserved at ${workspace.root}.`);
+        }
         if (attempt.dangerousFalseLive) {
           throw new Error(`Dangerous false-live result for ${benchmarkCase.id}; device run stopped.`);
         }
@@ -189,7 +195,7 @@ export async function runDeviceBenchmark({
     return { outputDirectory: output, summary, attempts };
   } finally {
     session?.close?.();
-    workspace?.cleanup?.();
+    if (!pendingDelivery) workspace?.cleanup?.();
   }
 }
 
@@ -301,8 +307,12 @@ async function runCase({ benchmarkCase, attemptId, iteration, fixtureRoot, corpu
       timing: { ...(route.timing || {}), totalMs: elapsedMs(startedAt) },
       applied: route.action === "hot-reload",
     };
+    if (route.action === "queued") {
+      attempt.terminalState = "queued";
+      return attempt;
+    }
     if (benchmarkCase.expectedLane === "build-device") {
-      attempt.terminalState = predictedLane === "build-device" ? "fallback-selected" : "dangerous-false-live";
+      attempt.terminalState = predictedLane === "build-device" ? "fallback-selected" : predictedLane === "hot-reload" ? "dangerous-false-live" : "delivery-unconfirmed";
       attempt.dangerousFalseLive = predictedLane === "hot-reload";
       return attempt;
     }
@@ -372,6 +382,7 @@ async function restoreCase({ materialized, fixtureRoot, project, scheme, session
     afterPath: join(fixtureRoot, change.path),
   }));
   const route = await (adapters.route || defaultRoute)({ project, scheme, changes, restore: true });
+  if (route.action === "queued") throw Object.assign(new Error("Baseline restore is queued and has not been confirmed."), { code: "RESTORE_QUEUED" });
   if (route.action !== "hot-reload") {
     // Legacy source interposition can reset the engine-side connection after
     // applying a patch. Re-launch the already-installed Debug app and observe
@@ -612,8 +623,20 @@ async function defaultLaunch({ device, bundleID }) {
   return launchDeviceConsole({ device, bundleID });
 }
 
-async function defaultRoute({ changes, project }) {
-  return routeLiveEditSet({ project, files: changes });
+async function defaultRoute({ changes, project, scheme }) {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-benchmark-delivery-"));
+  const manifest = join(directory, "changes.json");
+  try {
+    writeFileSync(manifest, JSON.stringify({ files: changes.map(change => ({ ...change, status: change.status === "deleted" ? "removed" : change.status })) }), { mode: 0o600 });
+    const args = [join(repositoryRoot, "mac-helper", "bin", "swift-sim.js"), "deliver-change", "--live-only", "--project", project, "--scheme", scheme, "--changes-manifest", manifest];
+    let stdout;
+    try { ({ stdout } = await execFileAsync(process.execPath, args)); }
+    catch (error) { if (!error.stdout) throw error; stdout = error.stdout; }
+    const delivery = parseLastJSON(stdout);
+    if (!delivery?.outcome) throw new Error("Swift Sim did not return a delivery outcome.");
+    return { ...delivery, action: delivery.outcome === "hot-reloaded" ? "hot-reload" : delivery.error?.code === "REBUILD_REQUIRED" ? "build-device" : delivery.outcome,
+      requestId: delivery.delivery?.requestId || "" };
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 async function defaultStartLive({ project }) {
