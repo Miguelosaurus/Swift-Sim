@@ -3,13 +3,16 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runtimeHealthPayload, HELPER_RUNTIME_ROLE, inspectRuntimeHealth } from "../mac-helper/src/runtimeHealth.js";
 import { deliveryRuntimeHealth } from "../mac-helper/src/helperDeliveryReadiness.js";
 import { deliverChange } from "../mac-helper/src/changeDelivery.js";
+import { warmLiveClassifier } from "../mac-helper/src/liveReload.js";
+import { createFullCallableCompiler } from "../mac-helper/src/fullCallableCompiler.js";
+import { NodeCommandRunner } from "../mac-helper/src/infrastructure/nodeCommandRunner.js";
 
 const entrypoint = fileURLToPath(new URL("../mac-helper/bin/swift-sim-entry.js", import.meta.url));
 const rawEntrypoint = fileURLToPath(new URL("../mac-helper/bin/swift-sim.js", import.meta.url));
@@ -119,8 +122,23 @@ async function withHealthServer(respond, run) {
   finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
 }
 
+// Fresh HOMEs would otherwise compile the Swift classifier per spawn; these
+// tests measure helper diagnosis, so every fixture copies one warmed cache.
+let warmedCache;
+function warmCache() {
+  if (warmedCache) return warmedCache;
+  const home = mkdtempSync(join(tmpdir(), "swift-sim-classifier-warm-"));
+  warmedCache = join(home, ".swift-sim", "live", "compiler-cache"); mkdirSync(warmedCache, { recursive: true, mode: 0o700 });
+  const result = warmLiveClassifier({ compiler: createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }), cacheRoot: warmedCache }) });
+  assert.equal(result.state, "ready");
+  return warmedCache;
+}
+
 function createFixture() {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-delivery-health-"));
+  mkdirSync(join(root, ".swift-sim", "live"), { recursive: true, mode: 0o700 });
+  // cp -p keeps the owner-only modes the cache integrity check requires.
+  assert.equal(spawnSync("/bin/cp", ["-Rp", warmCache(), join(root, ".swift-sim", "live", "compiler-cache")]).status, 0);
   const bin = join(root, "bin"); mkdirSync(bin);
   const before = join(root, "Before.swift"); const after = join(root, "After.swift");
   writeFileSync(before, hotFiles[0].beforeSource); writeFileSync(after, hotFiles[0].afterSource);

@@ -11,6 +11,7 @@ import {
   classifyLiveChanges,
   classifyEditSet,
   ensureLiveEngineInstalled,
+  warmLiveClassifier,
   inspectLiveReload,
   inspectInstalledEngineForSetup,
   startLiveReload,
@@ -407,6 +408,7 @@ async function setup(args) {
   try { actions.push(await ensureLiveEngineInstalled()); }
   catch (error) { actions.push({ id: "live-engine", label: "Live patch engine", state: "needs-attention",
     code: error.code || "ENGINE_SETUP_FAILED", detail: "The matching hot-reload engine could not be installed. Existing engine files were preserved. Resolve this item before using remote hot reload." }); }
+  actions.push(warmLiveClassifier());
 
   const report = await buildDoctorReport();
   const result = { ...report, actions };

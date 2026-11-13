@@ -318,6 +318,17 @@ export function classifySwiftSource(before, after, paths = {}, { compiler } = {}
   return swiftResult(swiftClassifier(compiler).classify([{ path, before, after }])[0], paths);
 }
 
+// Setup compiles the cached classifier once so the first delivery stays fast.
+export function warmLiveClassifier({ compiler } = {}) {
+  try {
+    swiftClassifier(compiler).classify([{ path: "Warm.swift", before: "", after: "" }]);
+    return { id: "live-classifier", label: "Hot reload classifier", state: "ready" };
+  } catch (error) {
+    return { id: "live-classifier", label: "Hot reload classifier", state: "needs-attention", code: error?.code || "FULL_CALLABLE_COMPILER_UNAVAILABLE",
+      detail: "The Swift hot reload classifier could not be compiled with the selected Xcode. Hot reload edits will need a signed build until Xcode is available." };
+  }
+}
+
 let defaultSwiftClassifier;
 function swiftClassifier(compiler) {
   return compiler || (defaultSwiftClassifier ||= createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }),
