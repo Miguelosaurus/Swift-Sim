@@ -27,7 +27,8 @@ struct ContentView: View {
     .replace('Text("before")', 'Text("after")');
   const result = classifySwiftSource(before, after);
   assert.equal(result.hotReloadable, false);
-  assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+  assert.equal(result.route, "rebuild-required");
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.STORED_PROPERTY_CHANGED);
 });
 
 test("availability attribute arguments require a rebuild", () => {
@@ -273,7 +274,8 @@ test("attribute string-literal whitespace requires a rebuild", () => {
   const after = before.replace('"a b"', '"a  b"');
   const result = classifySwiftSource(before, after);
   assert.equal(result.hotReloadable, false);
-  assert.equal(result.reasonCode, LIVE_REASON_CODES.DECLARATION_CHANGED);
+  assert.equal(result.route, "rebuild-required");
+  assert.equal(result.reasonCode, LIVE_REASON_CODES.STORED_PROPERTY_CHANGED);
 });
 
 test("live signing selects the host application section", () => {
@@ -425,7 +427,8 @@ test("Swift regex literals fail closed before quote content can hide declaration
     const after = before.replace("var count: Int", "var count: String");
     const result = classifySwiftSource(before, after);
     assert.equal(result.hotReloadable, false);
-    assert.equal(result.reasonCode, LIVE_REASON_CODES.MACRO_OR_EXPLICIT_REPLACEMENT);
+    assert.equal(result.route, "rebuild-required");
+    assert.equal(result.reasonCode, LIVE_REASON_CODES.STORED_PROPERTY_CHANGED);
   }
 });
 

@@ -98,8 +98,9 @@ const rebuildEdits = [
 for (const [name, before, after] of rebuildEdits) {
   test(`local-scope safety ${name}`, () => {
     const result = classifySwiftSource(before, after, { path: "Probe.swift" });
-    assert.equal(result.route, "rebuild-required", `${result.reasonCode}: ${result.reason}`);
-    assert.equal(result.hotReloadable, false);
+    const localImplementation = ["changes conditional compilation inside a method", "adds a local function", "changes a local function signature", "adds a local typealias"].includes(name);
+    assert.equal(result.route, localImplementation ? "hot-reload" : "rebuild-required", `${result.reasonCode}: ${result.reason}`);
+    assert.equal(result.hotReloadable, localImplementation);
   });
 }
 
