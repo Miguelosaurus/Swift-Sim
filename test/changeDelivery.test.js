@@ -5,10 +5,73 @@ import { deliveryEnvelope, validateDeliveryEnvelope } from "../mac-helper/src/ch
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 const HOT = [{ path: "Card.swift", kind: "swift", status: "modified", beforeSource: "struct Card { var body: String { \"old\" } }", afterSource: "struct Card { var body: String { \"new\" } }" }];
 const STRUCTURAL = [{ path: "Model.swift", kind: "swift", status: "modified", beforeSource: "struct Model { var count = 0 }", afterSource: "struct Model { var count = 0; var title = \"new\" }" }];
 const build = () => ({ state: "ready", expiresAt: "2026-08-02T12:00:00.000Z", preserveData: true, signing: { warnings: [] }, installation: { state: "unknown" }, links: { universalLink: "https://mac.example.test/d/build-1?token=opaque-token", customScheme: "swift-sim://device-build/build-1?token=opaque-token" } });
+
+test("implicit snapshots use scoped queue state and exact installed sources", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-before-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "Card.swift"), original = HOT[0].beforeSource, current = HOT[0].afterSource;
+  const git = (...args) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
+  git("init", "-q"); git("config", "user.email", "test@example.invalid"); git("config", "user.name", "Test");
+  writeFileSync(path, original); git("add", "Card.swift"); git("commit", "-qm", "baseline"); writeFileSync(path, current);
+  const hash = value => createHash("sha256").update(value).digest("hex");
+  const scope = { project: root, scheme: "App", appIdentity: "app", binaryIdentity: "binary", sessionIdentity: "pending-client" };
+  const manifest = { binding: { projectRoot: root }, sourceBaselines: { [path]: hash(original) }, compilations: [{ sources: [path] }] };
+  const queue = { desiredStates: () => [], list: () => [], binaryBaseline: () => null };
+  const context = { scope, manifest, queue };
+  const invoke = (overrides = {}) => deliverChange({ files: [{ path, afterPath: path }], sourceContext: context, liveOnly: true,
+    queueLive: async ({ files }) => { assert.equal(files[0].beforeSource, original); return deliveryEnvelope({ outcome: "hot-reloaded", message: "Applied", delivery: { kind: "live", revision: 1 } }); }, ...overrides });
+  await t.test("HEAD baseline matches", async () => assert.equal((await invoke()).outcome, "hot-reloaded"));
+  await t.test("queue desired and newer pending state win", async () => {
+    const desired = "struct Card { var body: String { \"desired\" } }";
+    const pending = "struct Card { var body: String { \"pending\" } }";
+    const other = { ...scope, binaryIdentity: "other" };
+    const q = { ...queue, desiredStates: () => [{ confirmedThroughSequence: 1, files: [{ path, afterSource: desired }] }],
+      list: () => [{ scope, sequence: 2, expiresAt: Number.MAX_SAFE_INTEGER, state: "queued", files: [{ path, afterSource: pending }] },
+        { scope: other, sequence: 3, expiresAt: Number.MAX_SAFE_INTEGER, state: "queued", files: [{ path, afterSource: "wrong" }] }] };
+    let before;
+    await invoke({ sourceContext: { ...context, queue: q }, queueLive: async ({ files }) => { before = files[0].beforeSource; return deliveryEnvelope({ outcome: "queued", message: "Queued" }); } });
+    assert.equal(before, pending);
+    q.list = () => [];
+    await invoke({ sourceContext: { ...context, queue: q }, queueLive: async ({ files }) => { before = files[0].beforeSource; return deliveryEnvelope({ outcome: "queued", message: "Queued" }); } });
+    assert.equal(before, desired);
+  });
+  await t.test("index and retained originals are hash checked", async () => {
+    const staged = original.replace("old", "staged"); writeFileSync(path, staged); git("add", "Card.swift"); writeFileSync(path, current);
+    const stagedContext = { ...context, manifest: { ...manifest, sourceBaselines: { [path]: hash(staged) } } };
+    let before;
+    const capture = async ({ files }) => { before = files[0].beforeSource; return deliveryEnvelope({ outcome: "queued", message: "Queued" }); };
+    await invoke({ sourceContext: stagedContext, queueLive: capture }); assert.equal(before, staged);
+    await invoke({ sourceContext: { ...context, queue: { ...queue, binaryBaseline: () => ({ beforeSource: original }) } }, queueLive: capture }); assert.equal(before, original);
+  });
+  await t.test("unmatched hash fails safely", async () => {
+    const result = await invoke({ sourceContext: { ...context, manifest: { ...manifest, sourceBaselines: { [path]: hash("unavailable") } } } });
+    assert.equal(result.outcome, "needs-user-action"); assert.equal(result.reasonCode, "BEFORE_SNAPSHOT_UNAVAILABLE");
+    assert.match(result.message, /--before/); assert.ok(!JSON.stringify(result).includes(root));
+  });
+  await t.test("new file is added", async () => {
+    const added = join(root, "New.swift"); writeFileSync(added, "struct New {}\n");
+    const result = await invoke({ files: [{ path: added, afterPath: added }], buildDevice: async ({ change }) => { assert.equal(change.reasonCode, "FILE_ADDED_OR_REMOVED"); return build(); }, liveOnly: false });
+    assert.equal(result.outcome, "install-link-ready");
+  });
+  await t.test("explicit before bypasses lookup and unchanged source skips runtime", async () => {
+    const result = await deliverChange({ files: [{ path, beforeSource: current, afterPath: path }], sourceContext: { get queue() { throw new Error("must not read"); } }, runtimeCheck: () => { throw new Error("must not check"); } });
+    assert.equal(result.outcome, "no-change");
+    assert.equal((await invoke({ files: [{ path, afterSource: original }] })).outcome, "no-change");
+  });
+  await t.test("explicit and implicit snapshots can be mixed", async () => {
+    const second = join(root, "Second.swift"); writeFileSync(second, original);
+    const mixedContext = { ...context, manifest: { ...manifest, sourceBaselines: { ...manifest.sourceBaselines, [second]: hash(original) }, compilations: [{ sources: [path, second] }] },
+      queue: { ...queue, binaryBaseline: () => ({ beforeSource: original }) } };
+    const result = await invoke({ files: [{ path, beforeSource: current, afterSource: current }, { path: second, afterPath: second }], sourceContext: mixedContext });
+    assert.equal(result.outcome, "no-change");
+  });
+});
 
 test("hot delivery returns a compact proven live envelope without building", async () => {
   let builds = 0; const result = await deliverChange({ files: HOT, runtimeCheck: async () => ({ ok: true }), queueLive: async () => deliveryEnvelope({ outcome: "hot-reloaded", message: "Proven refreshed receipt.", delivery: { kind: "live", revision: 42 } }), buildDevice: async () => { builds += 1; return build(); } });

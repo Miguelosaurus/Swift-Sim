@@ -35,6 +35,18 @@ async function fixture({ wait: waitOverride } = {}) {
   return { adapter, status, record, observed, calls, report, manifestPath, artifact, setResult(value) { result = value; }, setPrepareDigest(value) { prepareDigest = value; }, advance(ms) { clock += ms; }, cleanup() { rmSync(root, { recursive: true, force: true }); } };
 }
 
+test("source binding checks project and scheme without contacting the engine", async () => {
+  const f = await fixture();
+  try {
+    const calls = f.calls.length;
+    const source = f.adapter.sourceBinding({ project: f.record.scope.project, scheme: "Example" });
+    assert.equal(source.scope.binaryIdentity, f.record.scope.binaryIdentity);
+    assert.equal(f.calls.length, calls);
+    assert.throws(() => f.adapter.sourceBinding({ project: "/different/Other.xcodeproj", scheme: "Example" }), { code: "LIVE_PROJECT_MISMATCH" });
+    assert.throws(() => f.adapter.sourceBinding({ project: f.record.scope.project, scheme: "Other" }), { code: "LIVE_PROJECT_MISMATCH" });
+  } finally { f.cleanup(); }
+});
+
 test("prepared proof requires exact request, signed digest, binary, process, replacement and newer revision", async () => {
   const f = await fixture();
   try {

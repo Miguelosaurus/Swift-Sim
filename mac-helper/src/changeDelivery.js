@@ -1,21 +1,73 @@
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { extname } from "node:path";
+import { resolve, relative, isAbsolute } from "node:path";
+import { execFileSync } from "node:child_process";
 import { classifyEditSet } from "./liveReload.js";
 import { DELIVERY_OUTCOMES, deliveryEnvelope, validateDeliveryEnvelope } from "./changeDeliveryContract.js";
 import { liveDeliveryService } from "./liveDeliveryService.js";
 import { buildFailureNotice } from "./buildFailure.js";
+import { createLiveDeliveryAdapter } from "./liveDeliveryAdapter.js";
+import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
+import { sameBinaryScope } from "./liveDeliverySnapshots.js";
 
 const activeDeliveries = new Map();
 
-export async function deliverChange({ files = [], project = "", workspace = "", host = "", scheme = "", build = {}, liveOnly = false, queueLive = (input) => liveDeliveryService().enqueue(input), buildDevice, installBuild, runtimeCheck, verbose = false, now = () => Date.now() } = {}) {
+export async function deliverChange({ files = [], project = "", workspace = "", host = "", scheme = "", build = {}, liveOnly = false, queueLive = (input) => liveDeliveryService().enqueue(input), buildDevice, installBuild, runtimeCheck, verbose = false, now = () => Date.now(), sourceContext } = {}) {
   if (!Array.isArray(files) || files.length === 0) return failedEnvelope("INVALID_EDIT_SET", "Pass at least one before/after file pair.");
   try { files = materializeDeliveryFiles(files); } catch (error) { return failedEnvelope("INVALID_EDIT_SET", safeError(error)); }
+  if (files.some(file => file.beforeSource === undefined && !file.beforePath)) {
+    try {
+      const context = sourceContext || { ...createLiveDeliveryAdapter().sourceBinding({ project: project || workspace, scheme }), queue: createLiveDeliveryQueue() };
+      files = resolveBeforeSources(files, context, now());
+      files = materializeDeliveryFiles(files);
+    } catch (error) {
+      const code = error?.code === "LIVE_PROJECT_MISMATCH" ? error.code : "BEFORE_SNAPSHOT_UNAVAILABLE";
+      const message = code === "LIVE_PROJECT_MISMATCH" ? error.message : "The previous Swift source could not be verified for this build. Pass --before explicitly and retry.";
+      return deliveryEnvelope({ outcome: "needs-user-action", reasonCode: code, message, error: { code, message } });
+    }
+  }
   const key = createHash("sha256").update(JSON.stringify({ files, project, workspace, host, scheme, build, liveOnly, automaticInstall: typeof installBuild === "function" })).digest("hex");
   if (activeDeliveries.has(key)) return activeDeliveries.get(key);
   const promise = deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, installBuild, runtimeCheck, verbose, now }).catch((error) => failedEnvelope("DELIVERY_FAILED", safeError(error)));
   activeDeliveries.set(key, promise);
   try { return await promise; } finally { activeDeliveries.delete(key); }
+}
+
+function resolveBeforeSources(files, { manifest, scope, queue }, now) {
+  const desired = queue.desiredStates({ scope }).at(-1);
+  const history = queue.list().filter(record => sameBinaryScope(record.scope, scope) && record.sequence > (desired?.confirmedThroughSequence || 0)
+    && record.expiresAt > now && !["expired", "superseded", "failed"].includes(record.state));
+  return files.map(file => {
+    if (file.beforeSource !== undefined || file.beforePath) return file;
+    const path = resolve(file.path || file.afterPath);
+    const pending = history.flatMap(record => record.files).findLast(item => item.path === path);
+    const latest = pending || desired?.files.find(item => item.path === path);
+    if (latest) return { ...file, beforeSource: latest.afterSource };
+    const hash = manifest.sourceBaselines?.[path];
+    if (hash === undefined && Array.isArray(manifest.compilations) && !manifest.compilations.some(context => context.sources?.includes(path))) {
+      const name = relative(realpathSync(manifest.binding.projectRoot), realpathSync(path));
+      if (!name || name.startsWith("../") || isAbsolute(name)) throw new Error("Outside project");
+      return { ...file, beforeSource: "", status: file.afterSource === "" ? "modified" : "added" };
+    }
+    if (!/^[a-f0-9]{64}$/.test(hash || "")) throw new Error("Baseline unavailable");
+    const matches = source => typeof source === "string" && createHash("sha256").update(source).digest("hex") === hash;
+    let source = queue.binaryBaseline(scope, path)?.beforeSource;
+    if (!matches(source)) {
+      const root = manifest.binding.projectRoot;
+      try {
+        const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+        const name = relative(realpathSync(gitRoot), realpathSync(path));
+        if (!name || name.startsWith("../") || isAbsolute(name)) throw new Error("outside repository");
+        for (const revision of [`HEAD:${name}`, `:${name}`]) {
+          try { source = execFileSync("git", ["show", revision], { cwd: gitRoot, encoding: "utf8", timeout: 5000, maxBuffer: 1024 * 1024 + 1, stdio: ["ignore", "pipe", "ignore"] }); } catch { source = undefined; }
+          if (matches(source)) break;
+        }
+      } catch { source = undefined; }
+    }
+    if (!matches(source)) throw new Error("Baseline unavailable");
+    return { ...file, beforeSource: source };
+  });
 }
 
 async function deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, installBuild, runtimeCheck, verbose, now }) {
