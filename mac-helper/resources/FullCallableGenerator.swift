@@ -942,9 +942,119 @@ final class SourceContextExpressions: SyntaxVisitor {
         return .visitChildren
     }
 }
+// Classification applies the generator's own structural rule: every token outside
+// a replaceable body must match, and changed bodies must be representable. The
+// remaining code only explains why a file needs a signed build.
+struct ClassifyInput: Decodable {
+    struct File: Decodable { let path: String; let before: String; let after: String }
+    let files: [File]
+}
+func classify(_ input: ClassifyInput) throws -> [String: Any] {
+    guard !input.files.isEmpty, input.files.count <= 64,
+          input.files.allSatisfy({ $0.before.utf8.count <= 1024 * 1024 && $0.after.utf8.count <= 1024 * 1024 }) else {
+        throw Failure(description: "invalid bounded classification input")
+    }
+    return ["schemaVersion": 1, "capability": "classify-v1", "files": input.files.map { classifyFile(before: $0.before, after: $0.after) }]
+}
+final class ExplicitReplacementOrMacroDecl: SyntaxVisitor {
+    var found = false
+    init() { super.init(viewMode: .sourceAccurate) }
+    override func visit(_ node: MacroDeclSyntax) -> SyntaxVisitorContinueKind { found = true; return .skipChildren }
+    override func visit(_ node: AttributeSyntax) -> SyntaxVisitorContinueKind {
+        if node.attributeName.trimmedDescription == "_dynamicReplacement" { found = true }
+        return .visitChildren
+    }
+}
+// Declaration facts used only to name the first structural difference.
+final class StructureFacts: SyntaxVisitor {
+    var imports: [String] = [], conditions: [String] = []
+    var stored: [(member: String, text: String, line: Int)] = []
+    var owners: [String] = []
+    let converter: SourceLocationConverter
+    init(_ tree: SourceFileSyntax) { converter = SourceLocationConverter(fileName: "", tree: tree); super.init(viewMode: .sourceAccurate); walk(tree) }
+    private func line(_ node: some SyntaxProtocol) -> Int { node.startLocation(converter: converter).line }
+    override func visit(_ n: ImportDeclSyntax) -> SyntaxVisitorContinueKind { imports.append(n.trimmedDescription); return .skipChildren }
+    override func visit(_ n: IfConfigDeclSyntax) -> SyntaxVisitorContinueKind { conditions.append(n.trimmedDescription); return .skipChildren }
+    override func visit(_ n: AvailabilityConditionSyntax) -> SyntaxVisitorContinueKind { conditions.append(n.trimmedDescription); return .skipChildren }
+    override func visit(_ n: StructDeclSyntax) -> SyntaxVisitorContinueKind { owners.append(n.name.text); return .visitChildren }
+    override func visitPost(_ n: StructDeclSyntax) { owners.removeLast() }
+    override func visit(_ n: ClassDeclSyntax) -> SyntaxVisitorContinueKind { owners.append(n.name.text); return .visitChildren }
+    override func visitPost(_ n: ClassDeclSyntax) { owners.removeLast() }
+    override func visit(_ n: ActorDeclSyntax) -> SyntaxVisitorContinueKind { owners.append(n.name.text); return .visitChildren }
+    override func visitPost(_ n: ActorDeclSyntax) { owners.removeLast() }
+    override func visit(_ n: EnumDeclSyntax) -> SyntaxVisitorContinueKind { owners.append(n.name.text); return .visitChildren }
+    override func visitPost(_ n: EnumDeclSyntax) { owners.removeLast() }
+    override func visit(_ n: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind { owners.append(n.extendedType.trimmedDescription); return .visitChildren }
+    override func visitPost(_ n: ExtensionDeclSyntax) { owners.removeLast() }
+    // Bindings inside callable/accessor/closure bodies are implementation, not layout.
+    override func visit(_ n: CodeBlockSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ n: AccessorBlockSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ n: ClosureExprSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ n: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        let observed: Bool = {
+            guard case .accessors(let list)? = n.bindings.first?.accessorBlock?.accessors else { return false }
+            return list.contains { ["willSet", "didSet"].contains($0.accessorSpecifier.text) }
+        }()
+        if n.bindings.contains(where: { $0.accessorBlock == nil || $0.initializer != nil }) || observed {
+            let name = n.bindings.first?.pattern.trimmedDescription ?? "storage"
+            stored.append(((owners + [name]).joined(separator: "."), n.trimmedDescription, line(n)))
+        }
+        return .skipChildren
+    }
+}
+func classifyFile(before beforeSource: String, after afterSource: String) -> [String: Any] {
+    func rebuild(_ code: String, _ reason: String, _ category: String = "unsupported-live-edit", member: String? = nil, line: Int? = nil) -> [String: Any] {
+        var diagnostic: [String: Any] = ["category": category]
+        if let member { diagnostic["member"] = member }
+        if let line { diagnostic["line"] = line }
+        return ["route": "rebuild-required", "reasonCode": code, "reason": reason, "diagnostic": diagnostic]
+    }
+    if beforeSource == afterSource { return ["route": "no-change", "reasonCode": "NO_CHANGE", "reason": "The Swift source is unchanged."] }
+    let before = Parser.parse(source: beforeSource), after = Parser.parse(source: afterSource)
+    guard !before.hasError, !after.hasError else { return rebuild("MACRO_OR_EXPLICIT_REPLACEMENT", "Incomplete Swift syntax requires a rebuild.") }
+    for tree in [before, after] {
+        let check = ExplicitReplacementOrMacroDecl(); check.walk(tree)
+        if check.found { return rebuild("MACRO_OR_EXPLICIT_REPLACEMENT", "Macro declarations and explicit dynamic replacement require a rebuild.") }
+    }
+    let generation = String(repeating: "0", count: 32)
+    let old = Inventory(beforeSource, fileIndex: 0, generation: generation), new = Inventory(afterSource, fileIndex: 0, generation: generation)
+    old.walk(before); new.walk(after)
+    let oldKeys = old.members.map(\.key), newKeys = new.members.map(\.key)
+    if surface(before, inventory: old) == surface(after, inventory: new), Set(oldKeys) == Set(newKeys),
+       Set(oldKeys).count == oldKeys.count, Set(newKeys).count == newKeys.count {
+        let previous = Dictionary(uniqueKeysWithValues: old.members.map { ($0.key, $0) })
+        let changed = new.members.filter { previous[$0.key]?.body != $0.body }
+        if changed.isEmpty { return ["route": "no-change", "reasonCode": "NO_CHANGE", "reason": "Only comments or formatting changed."] }
+        for member in changed {
+            let body = Parser.parse(source: member.replacement)
+            let locals = LocalTypes(); locals.walk(body)
+            if locals.found { return rebuild("DECLARATION_CHANGED", "A changed body declares a local type.", member: member.target, line: member.line) }
+            let context = SourceContextExpressions(); context.walk(body)
+            if context.found { return rebuild("MACRO_OR_EXPLICIT_REPLACEMENT", "A changed body uses a macro or source-location expression.", member: member.target, line: member.line) }
+        }
+        return ["route": "hot-reload", "reasonCode": "IMPLEMENTATION_ONLY", "reason": "Only implementation bodies or literal values changed."]
+    }
+    let was = StructureFacts(before), now = StructureFacts(after)
+    if was.imports.sorted() != now.imports.sorted() { return rebuild("IMPORT_CHANGED", "Imports changed.") }
+    if was.conditions != now.conditions { return rebuild("DECLARATION_CHANGED", "A conditional-compilation or availability condition changed.") }
+    if let index = now.stored.indices.first(where: { $0 >= was.stored.count || was.stored[$0].text != now.stored[$0].text }) {
+        return rebuild("STORED_PROPERTY_CHANGED", "A stored property or its initializer changed.", "installed-structure",
+                       member: now.stored[index].member, line: now.stored[index].line)
+    }
+    if was.stored.count > now.stored.count {
+        return rebuild("STORED_PROPERTY_CHANGED", "A stored property or its initializer changed.", "installed-structure", member: was.stored[now.stored.count].member)
+    }
+    if let changed = new.members.first(where: { !Set(oldKeys).contains($0.key) }) ?? old.members.first(where: { !Set(newKeys).contains($0.key) }) {
+        let existing = old.members.contains { $0.owner == changed.owner && $0.target == changed.target }
+            && new.members.contains { $0.owner == changed.owner && $0.target == changed.target }
+        return rebuild("SIGNATURE_CHANGED", "A function, initializer, subscript, or type signature changed.",
+                       existing ? "installed-structure" : "unsupported-live-edit", member: changed.target, line: changed.line)
+    }
+    return rebuild("DECLARATION_CHANGED", "A declaration, initializer body, type shape, or other compiled structure changed.")
+}
 do {
     let mode = Array(CommandLine.arguments.dropFirst())
-    guard mode == ["--full-callable-generator-v1"] || mode == ["--instrument-stateful-v1"] else {
+    guard mode == ["--full-callable-generator-v1"] || mode == ["--instrument-stateful-v1"] || mode == ["--classify-v1"] else {
         throw Failure(description: "versioned generator invocation required")
     }
     let limit = 8 * 1024 * 1024
@@ -955,6 +1065,7 @@ do {
     }
     let result = mode == ["--instrument-stateful-v1"]
         ? try instrument(JSONDecoder().decode(InstrumentInput.self, from: data))
+        : mode == ["--classify-v1"] ? try classify(JSONDecoder().decode(ClassifyInput.self, from: data))
         : try generate(JSONDecoder().decode(Input.self, from: data))
     FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]))
     print()

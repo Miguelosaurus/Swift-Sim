@@ -94,6 +94,20 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
         || file.owners.some(owner => typeof owner !== "string" || owner.length > 256))) throw unsupported();
     return { ...result, resourceDigest: compilerResourceDigest(resourcePath) };
   }
+  // One SwiftSyntax pass per edit set; the same structural rule as generate().
+  function classify(files) {
+    if (!Array.isArray(files) || !files.length || files.length > 64 || files.some(file => typeof file?.path !== "string"
+      || typeof file.before !== "string" || typeof file.after !== "string"
+      || Buffer.byteLength(file.before) > 1024 * 1024 || Buffer.byteLength(file.after) > 1024 * 1024)) throw unsupported();
+    let result;
+    try { result = JSON.parse(run(executable(), ["--classify-v1"], { input: JSON.stringify({ files }) })); }
+    catch (error) { if (/^FULL_CALLABLE_/.test(error?.code || "")) throw error; throw unsupported("FULL_CALLABLE_GENERATOR_INVALID"); }
+    const routes = ["hot-reload", "rebuild-required", "no-change"];
+    if (result?.schemaVersion !== 1 || result.capability !== "classify-v1" || !Array.isArray(result.files) || result.files.length !== files.length
+      || result.files.some(file => !routes.includes(file?.route) || !/^[A-Z][A-Z0-9_]{1,79}$/.test(file.reasonCode || "")
+        || typeof file.reason !== "string" || file.reason.length > 200)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+    return result.files;
+  }
   function inspectCoverage({ dylibPath, generation, moduleName }) {
     validateGeneration(generation);
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(moduleName || "")) throw unsupported();
@@ -183,7 +197,7 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     return { version: 1, artifactDigest: hash(bytes), replacementProof, coverageDigest: replacementProofDigest(replacementProof),
       changedMemberCount: members.length, members, swiftSymbols: replacementVariables };
   }
-  return Object.freeze({ generate, instrument, inspectCoverage });
+  return Object.freeze({ generate, instrument, classify, inspectCoverage });
 }
 
 export function replacementProofDigest(proof) { return replacementCoverageDigest(proof); }

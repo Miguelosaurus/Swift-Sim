@@ -115,12 +115,18 @@ export function classifyLiveChanges({ beforePaths = [], afterPaths = [] }) {
  * by the benchmark and by the compatibility wrappers above. A single
  * structural or non-Swift member makes the complete operation rebuild-safe.
  */
-export function classifyEditSet({ files = [], allowAdditive = false, additiveOptions } = {}) {
+export function classifyEditSet({ files = [], allowAdditive = false, additiveOptions, compiler } = {}) {
   if (!Array.isArray(files) || files.length === 0) {
     throw new Error("Pass a nonempty edit set.");
   }
 
   const changes = files.map((file) => classifyEditFile(file));
+  // Swift pairs are classified together by the same SwiftSyntax rule the patch compiler uses.
+  const pending = changes.flatMap((change, index) => change.swift ? [index] : []);
+  if (pending.length) {
+    const results = swiftClassifier(compiler).classify(pending.map((index) => changes[index].swift));
+    pending.forEach((changeIndex, index) => { changes[changeIndex] = swiftResult(results[index], changes[changeIndex].paths); });
+  }
   const rebuild = changes.find((change) => change.route === "rebuild-required");
   if (rebuild) {
     if (allowAdditive) {
@@ -299,95 +305,24 @@ function classifyEditFile(file = {}) {
 
   const before = file.beforeSource ?? requiredSwiftSource(file.beforePath, "before");
   const after = file.afterSource ?? requiredSwiftSource(file.afterPath, "after");
-  return classifySwiftSource(before, after, paths);
+  // Filled in by classifyEditSet's single batched SwiftSyntax pass.
+  return { paths, swift: { path, before, after } };
 }
 
-export function classifySwiftSource(before, after, paths = {}) {
-  if (before === after) {
-    return result(
-      "no-change",
-      true,
-      "The Swift source is unchanged.",
-      paths,
-      LIVE_REASON_CODES.NO_CHANGE,
-    );
-  }
+export function classifySwiftSource(before, after, paths = {}, { compiler } = {}) {
+  const path = paths.path || paths.afterPath || paths.beforePath || "Source.swift";
+  return swiftResult(swiftClassifier(compiler).classify([{ path, before, after }])[0], paths);
+}
 
-  const beforeSurface = declarationSurface(before);
-  const afterSurface = declarationSurface(after);
-  const rebuild = (reason, reasonCode, category = "unsupported-live-edit", kinds = []) => {
-    const storage = reasonCode === LIVE_REASON_CODES.STORED_PROPERTY_CHANGED;
-    const select = (member) => (!kinds.length || kinds.includes(member.kind)) && (!storage || member.storedValue !== undefined);
-    const beforeMembers = (beforeSurface.members || []).filter(select);
-    const afterMembers = (afterSurface.members || []).filter(select);
-    const key = storage ? "storedValue" : "signature";
-    const index = afterMembers.findIndex((member, position) => member[key] !== beforeMembers[position]?.[key]);
-    const member = afterMembers[index] || (beforeMembers.length > afterMembers.length ? beforeMembers[afterMembers.length] : null);
-    return { ...result("rebuild-required", false, reason, paths, reasonCode), diagnostic: { category, ...(member ? { member: member.member, line: member.line } : {}) } };
-  };
-  if (beforeSurface.unsupported || afterSurface.unsupported) {
-    return rebuild(
-      beforeSurface.unsupported || afterSurface.unsupported,
-      LIVE_REASON_CODES.MACRO_OR_EXPLICIT_REPLACEMENT,
-    );
-  }
-
-  if (beforeSurface.imports !== afterSurface.imports) {
-    return rebuild(
-      "Imports changed.",
-      LIVE_REASON_CODES.IMPORT_CHANGED,
-    );
-  }
-  if (beforeSurface.compilerConditions !== afterSurface.compilerConditions) {
-    return rebuild(
-      "A conditional-compilation or availability condition changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-  if (beforeSurface.attributes !== afterSurface.attributes) {
-    return rebuild(
-      "A declaration attribute or property-wrapper argument changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-  if (beforeSurface.modifiers !== afterSurface.modifiers) {
-    return rebuild(
-      "A declaration access modifier or attribute changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-  if (beforeSurface.storedProperties !== afterSurface.storedProperties) {
-    return rebuild(
-      "A stored property or its initializer changed.",
-      LIVE_REASON_CODES.STORED_PROPERTY_CHANGED,
-      "installed-structure", ["let", "var"],
-    );
-  }
-  if (beforeSurface.signatures !== afterSurface.signatures) {
-    const kinds = ["func", "init", "subscript", "typealias", "operator", "precedencegroup"];
-    const previous = beforeSurface.members.filter((member) => kinds.includes(member.kind));
-    const current = afterSurface.members.filter((member) => kinds.includes(member.kind));
-    const existing = previous.length === current.length && previous.every((member, index) => member.member === current[index].member && member.kind === current[index].kind);
-    return rebuild(
-      "A function, initializer, subscript, or type signature changed.",
-      LIVE_REASON_CODES.SIGNATURE_CHANGED,
-      existing ? "installed-structure" : "unsupported-live-edit", kinds,
-    );
-  }
-  if (beforeSurface.declarations !== afterSurface.declarations) {
-    return rebuild(
-      "A declaration, stored property, type shape, or function signature changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-
-  return result(
-    "hot-reload",
-    true,
-    "Only implementation bodies or literal values changed.",
-    paths,
-    LIVE_REASON_CODES.IMPLEMENTATION_ONLY,
-  );
+let defaultSwiftClassifier;
+function swiftClassifier(compiler) {
+  return compiler || (defaultSwiftClassifier ||= createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }),
+    cacheRoot: join(LIVE_ROOT, "compiler-cache") }));
+}
+function swiftResult(value, paths) {
+  const route = value.route;
+  const classified = result(route, route !== "rebuild-required", value.reason, paths, value.reasonCode);
+  return value.diagnostic ? { ...classified, diagnostic: value.diagnostic } : classified;
 }
 
 export async function inspectLiveReload(options = {}) {
