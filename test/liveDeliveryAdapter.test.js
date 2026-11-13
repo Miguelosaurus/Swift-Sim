@@ -21,7 +21,7 @@ async function fixture() {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-adapter-"));
   const manifestPath = join(root, "compilations.json"); const artifact = join(root, "prepared.dylib");
   const bytes = Buffer.from("synthetic signed fixture bytes"); writeFileSync(artifact, bytes, { mode: 0o600 });
-  const status = { prepared_delivery_protocol: 1, client_capabilities: ["prepared-delivery-v1", "receipt-v1", "replacement-proof-v2"], client_identity: { ...identity }, has_connected_client: true };
+  const status = { prepared_delivery_protocol: 1, prepared_replacement_proof_protocol: 3, client_capabilities: ["prepared-delivery-v1", "receipt-v1", "replacement-proof-v2", "replacement-proof-v3"], client_identity: { ...identity }, has_connected_client: true };
   writeFileSync(manifestPath, JSON.stringify({ binaryIdentity: identity, binding: { projectPath: join(root, "Example.xcodeproj", "project.pbxproj"), projectRoot: root, scheme: "Example" }, sourceBaselines: {} }), { mode: 0o600 });
   let clock = 1000; const calls = []; let result; let prepareDigest = digest(bytes);
   const adapter = createLiveDeliveryAdapter({ manifestPath, compile: async (_record, options) => ({ path: artifact, mode: "swift-dynamic-replacement-bundle", receivedSignal: options?.cancellationSignal }),
@@ -92,6 +92,18 @@ test("only authenticated current-attempt pre-admission rejection is retryable", 
       f.setResult({ success: true, data: { state: "rejected-no-effect", report: { ...rejection, ...mutation } } });
       assert.equal(await f.adapter.apply(f.record, f.observed), null);
     }
+  } finally { f.cleanup(); }
+});
+
+test("incomplete engines and legacy prepared patches fail closed", async () => {
+  const f = await fixture();
+  try {
+    f.status.prepared_replacement_proof_protocol = 2;
+    f.calls.length = 0;
+    await assert.rejects(f.adapter.binding({}), { code: "LIVE_ENGINE_UPDATE_REQUIRED" });
+    await assert.rejects(f.adapter.prepare(f.record, {}), { code: "LIVE_ENGINE_UPDATE_REQUIRED" });
+    assert.equal(f.calls.some(call => call.action === "prepare_dylib" || call.action === "inject_prepared"), false);
+    assert.throws(() => f.adapter.validatePrepared(f.record), { code: "LIVE_ENGINE_UPDATE_REQUIRED" });
   } finally { f.cleanup(); }
 });
 
