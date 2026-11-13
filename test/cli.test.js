@@ -312,3 +312,19 @@ function isolatedCliEnvironment(directory) {
   const fixture = new URL("./fixtures/cli-isolation-preload.js", import.meta.url).href;
   return { ...process.env, HOME: isolatedHome, XDG_CONFIG_HOME: join(directory, "config"), NODE_OPTIONS: `--import=${fixture}` };
 }
+
+test("app-tools parses environment flags and rejects invalid or combined values", () => {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-cli-environment-"));
+  try {
+    for (const [args, expected] of [
+      [["--text-size", "ax5"], "APP_CONTEXT_UNAVAILABLE"],
+      [["--layout-direction", "rtl"], "APP_CONTEXT_UNAVAILABLE"],
+      [["--text-size", "huge"], "APP_CONTEXT_TOOL_INVALID"],
+      [["--layout-direction", "rtl", "--refresh-screen"], "APP_CONTEXT_TOOL_INVALID"],
+    ]) {
+      const result = spawnSync(process.execPath, [cli.pathname, "app-tools", ...args],
+        { encoding: "utf8", env: { ...process.env, HOME: root } });
+      assert.equal(JSON.parse(result.stdout).code, expected);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

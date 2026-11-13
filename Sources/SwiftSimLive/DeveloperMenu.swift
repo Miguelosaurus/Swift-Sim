@@ -59,6 +59,10 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
     private var draggingLauncher = false
     private var appearanceOriginal: UIUserInterfaceStyle?
     private var appearanceWritten: UIUserInterfaceStyle?
+    private var textSizeOriginal: UIContentSizeCategory?
+    private var textSizeWritten: UIContentSizeCategory?
+    private var directionOriginal: UITraitEnvironmentLayoutDirection?
+    private var directionWritten: UITraitEnvironmentLayoutDirection?
     private var observers: [NSObjectProtocol] = []
     private var captureTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
@@ -84,6 +88,9 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
     @Published var includeImage = true
     @Published var showLauncher = false { didSet { updateLauncher() } }
     @Published var appearance = Appearance.appDefault { didSet { applyAppearance() } }
+
+    @Published var textSize = TextSize.appDefault { didSet { applyTextSize() } }
+    @Published var layoutDirection = LayoutDirection.appDefault { didSet { applyLayoutDirection() } }
 
     enum Page { case menu, report }
     enum Appearance: String, CaseIterable, Identifiable {
@@ -184,6 +191,8 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
     func detach() {
         close(animated: false)
         restoreAppearance()
+        restoreTextSize()
+        restoreLayoutDirection()
         if let window {
             if let hold { window.removeGestureRecognizer(hold) }
             let key = ObjectIdentifier(window)
@@ -309,7 +318,7 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
 
     private func performRemoteTool(_ info: [AnyHashable: Any]?) {
         guard let info, let id = info["operation_id"] as? String, UUID(uuidString: id) != nil,
-              let tool = info["tool"] as? String, ["appearance", "refresh", "inspect"].contains(tool) else { return }
+              let tool = info["tool"] as? String, ["appearance", "text-size", "layout-direction", "refresh", "inspect"].contains(tool) else { return }
         // Ignore broadcasts owned by another coordinator; its negative reply
         // must not race the selected scene's actual result.
         guard let window, let target = info["target_scene"] as? String,
@@ -378,6 +387,20 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
                 return
             }
             appearance = mode
+            _ = InjectionCompleteDeveloperTool(id, ["success": true, "tool": tool])
+        } else if tool == "text-size" || tool == "layout-direction" {
+            guard #available(iOS 17.0, *), let value = info["value"] as? String else {
+                _ = InjectionCompleteDeveloperTool(id, ["success": false, "error": "DEVELOPER_TOOL_UNSUPPORTED"])
+                return
+            }
+            if tool == "text-size", let mode = TextSize(rawValue: value) {
+                textSize = mode
+            } else if tool == "layout-direction", let mode = LayoutDirection(rawValue: value) {
+                layoutDirection = mode
+            } else {
+                _ = InjectionCompleteDeveloperTool(id, ["success": false, "error": "DEVELOPER_TOOL_UNSUPPORTED"])
+                return
+            }
             _ = InjectionCompleteDeveloperTool(id, ["success": true, "tool": tool])
         } else if let refresh {
             // An explicit agent action requests only local presentation recreation.
@@ -508,6 +531,50 @@ final class SwiftSimDeveloperMenuCoordinator: NSObject, ObservableObject,
             self.refresh?()
         }
         updateLauncher()
+    }
+
+    private func applyTextSize() {
+        guard #available(iOS 17.0, *), let window else { return }
+        guard let category = textSize.category else { restoreTextSize(); return }
+        if textSizeWritten == nil || !window.traitOverrides.contains(UITraitPreferredContentSizeCategory.self)
+            || window.traitOverrides.preferredContentSizeCategory != textSizeWritten {
+            textSizeOriginal = window.traitOverrides.contains(UITraitPreferredContentSizeCategory.self)
+                ? window.traitOverrides.preferredContentSizeCategory : nil
+        }
+        window.traitOverrides.preferredContentSizeCategory = category
+        textSizeWritten = category
+    }
+
+    private func restoreTextSize() {
+        if #available(iOS 17.0, *), let window, let written = textSizeWritten,
+           window.traitOverrides.contains(UITraitPreferredContentSizeCategory.self),
+           window.traitOverrides.preferredContentSizeCategory == written {
+            if let original = textSizeOriginal { window.traitOverrides.preferredContentSizeCategory = original }
+            else { window.traitOverrides.remove(UITraitPreferredContentSizeCategory.self) }
+        }
+        textSizeOriginal = nil; textSizeWritten = nil
+    }
+
+    private func applyLayoutDirection() {
+        guard #available(iOS 17.0, *), let window else { return }
+        guard let direction = layoutDirection.direction else { restoreLayoutDirection(); return }
+        if directionWritten == nil || !window.traitOverrides.contains(UITraitLayoutDirection.self)
+            || window.traitOverrides.layoutDirection != directionWritten {
+            directionOriginal = window.traitOverrides.contains(UITraitLayoutDirection.self)
+                ? window.traitOverrides.layoutDirection : nil
+        }
+        window.traitOverrides.layoutDirection = direction
+        directionWritten = direction
+    }
+
+    private func restoreLayoutDirection() {
+        if #available(iOS 17.0, *), let window, let written = directionWritten,
+           window.traitOverrides.contains(UITraitLayoutDirection.self),
+           window.traitOverrides.layoutDirection == written {
+            if let original = directionOriginal { window.traitOverrides.layoutDirection = original }
+            else { window.traitOverrides.remove(UITraitLayoutDirection.self) }
+        }
+        directionOriginal = nil; directionWritten = nil
     }
 
     private func applyAppearance() {

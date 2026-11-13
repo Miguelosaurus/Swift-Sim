@@ -204,6 +204,38 @@ test("tool operation refuses ambiguous options and a changed process without cla
   } finally { f.cleanup(); }
 });
 
+test("environment tools validate values, gate old engines, and forward exact wire values", async () => {
+  const f = fixture();
+  try {
+    for (const [option, tool, values] of [
+      ["textSize", "text-size", ["app-default", "xs", "s", "m", "l", "xl", "xxl", "xxxl", "ax1", "ax2", "ax3", "ax4", "ax5"]],
+      ["layoutDirection", "layout-direction", ["app-default", "ltr", "rtl"]],
+    ]) {
+      const calls = [];
+      const old = await performAppTool({ ...f.options, [option]: values[0], control: async request => { calls.push(request); return response(); } });
+      assert.equal(old.code, "APP_CONTEXT_UPDATE_REQUIRED");
+      assert.equal(calls.length, 1);
+      for (const value of values) {
+        const requests = [];
+        const result = await performAppTool({ ...f.options, [option]: value, control: async request => {
+          requests.push(request);
+          return request.action === "developer_context"
+            ? response({ capabilities: [...capabilities, "developer-environment-v1"] })
+            : response({ operation_id: request.operation_id, result: { success: true } });
+        } });
+        assert.equal(result.outcome, "tool-completed");
+        assert.equal(result.tool, tool); assert.equal(result.value, value);
+        assert.equal(requests[1].tool, tool); assert.equal(requests[1].value, value);
+      }
+      assert.equal((await performAppTool({ ...f.options, [option]: "invalid" })).code, "APP_CONTEXT_TOOL_INVALID");
+    }
+    for (const options of [{ textSize: "l", layoutDirection: "rtl" }, { appearance: "dark", textSize: "l" },
+      { layoutDirection: "ltr", refresh: true }]) {
+      assert.equal((await performAppTool({ ...f.options, ...options })).code, "APP_CONTEXT_TOOL_INVALID");
+    }
+  } finally { f.cleanup(); }
+});
+
 test("lost tool replies and native timeouts preserve uncertainty instead of recommending an update", async () => {
   const f = fixture();
   try {

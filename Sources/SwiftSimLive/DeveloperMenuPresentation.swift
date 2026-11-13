@@ -13,6 +13,8 @@ final class SwiftSimDeveloperMenuSheetController: UIViewController, UITextFieldD
     private let connection = UILabel()
     private let latest = UILabel()
     private let appearance = UIButton(type: .system)
+    private let textSize = UIButton(type: .system)
+    private let layoutDirection = UIButton(type: .system)
     private let tools = UISwitch()
     private let screenshot = UIImageView()
     private let include = UISwitch()
@@ -116,12 +118,20 @@ final class SwiftSimDeveloperMenuSheetController: UIViewController, UITextFieldD
         appearance.contentHorizontalAlignment = .leading
         appearance.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
         actions.addArrangedSubview(appearance)
+        if #available(iOS 17.0, *) {
+            for control in [textSize, layoutDirection] {
+                control.showsMenuAsPrimaryAction = true
+                control.contentHorizontalAlignment = .leading
+                control.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+                actions.addArrangedSubview(control)
+            }
+        }
         stack.addArrangedSubview(card(actions))
         tools.addAction(UIAction { [weak self] _ in
             guard let self else { return }; self.model.showLauncher = self.tools.isOn
         }, for: .valueChanged)
         stack.addArrangedSubview(row("Show tools button", control: tools))
-        stack.addArrangedSubview(label("Hold three fingers to open these tools. Drag the tools button to move it. Appearance changes last for this session.", style: .footnote, secondary: true))
+        stack.addArrangedSubview(label("Hold three fingers to open these tools. Drag the tools button to move it. Environment changes last for this session.", style: .footnote, secondary: true))
     }
 
     private func buildReport(in stack: UIStackView) {
@@ -176,6 +186,18 @@ final class SwiftSimDeveloperMenuSheetController: UIViewController, UITextFieldD
         appearance.menu = UIMenu(children: SwiftSimDeveloperMenuCoordinator.Appearance.allCases.map { item in
             UIAction(title: item.rawValue, state: item == model.appearance ? .on : .off) { [weak model] _ in model?.appearance = item }
         })
+        if #available(iOS 17.0, *) {
+            textSize.setTitle("Text size · \(model.textSize.title)  ⌄", for: .normal)
+            textSize.accessibilityLabel = "Text size, \(model.textSize.title)"
+            textSize.menu = UIMenu(children: SwiftSimDeveloperMenuCoordinator.TextSize.allCases.map { item in
+                UIAction(title: item.title, state: item == model.textSize ? .on : .off) { [weak model] _ in model?.textSize = item }
+            })
+            layoutDirection.setTitle("Layout direction · \(model.layoutDirection.title)  ⌄", for: .normal)
+            layoutDirection.accessibilityLabel = "Layout direction, \(model.layoutDirection.title)"
+            layoutDirection.menu = UIMenu(children: SwiftSimDeveloperMenuCoordinator.LayoutDirection.allCases.map { item in
+                UIAction(title: item.title, state: item == model.layoutDirection ? .on : .off) { [weak model] _ in model?.layoutDirection = item }
+            })
+        }
         refreshButton?.isEnabled = model.refreshAllowed
         inspectButton?.isEnabled = model.refreshAllowed
         shareButton?.isEnabled = !model.isSaving && !model.didSave

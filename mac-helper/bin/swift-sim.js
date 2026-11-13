@@ -132,11 +132,12 @@ async function main() {
   if (command === "app-tools") {
     const { values } = parseArgs({ args, options: {
       project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" },
-      appearance: { type: "string" }, "refresh-screen": { type: "boolean" },
+      appearance: { type: "string" }, "text-size": { type: "string" }, "layout-direction": { type: "string" }, "refresh-screen": { type: "boolean" },
     } });
     const { performAppTool } = await import("../src/appContext.js");
     const result = await performAppTool({ project: values.project, workspace: values.workspace,
-      scheme: values.scheme, appearance: values.appearance, refresh: values["refresh-screen"] });
+      scheme: values.scheme, appearance: values.appearance, textSize: values["text-size"],
+      layoutDirection: values["layout-direction"], refresh: values["refresh-screen"] });
     console.log(JSON.stringify(result, null, 2));
     if (result.outcome !== "tool-completed") process.exitCode = 1;
     return;
@@ -1021,7 +1022,7 @@ Usage:
   swift-sim app-context ...       Read Debug context; --elements, --screenshot or --report latest on demand
   swift-sim app-control ...       Optional, on-demand testing through a separately installed phone runner
   swift-sim request-install ...   Ask a matching Debug app to show iOS installation confirmation; --build-id, --status, --cancel
-  swift-sim app-tools ...         Deliberately set --appearance or request --refresh-screen in this Debug app
+  swift-sim app-tools ...         Set a Debug app environment override or request --refresh-screen
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
   swift-sim route-change ...      Choose hot reload or a new signed build

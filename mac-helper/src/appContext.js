@@ -10,11 +10,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_IMAGE = 1024 * 1024;
 const MAX_AGE = 24 * 60 * 60 * 1000;
 
-export async function performAppTool({ appearance, refresh = false, project, workspace, scheme,
+export async function performAppTool({ appearance, textSize, layoutDirection, refresh = false, project, workspace, scheme,
   cwd = process.cwd(), capturePath = join(homedir(), ".swift-sim/live/compilations.json"), control,
 } = {}) {
   try {
-    if ((appearance !== undefined) === refresh || (appearance !== undefined && !["app-default", "light", "dark"].includes(appearance))) throw failure("APP_CONTEXT_TOOL_INVALID");
+    const choices = [
+      ["appearance", appearance, ["app-default", "light", "dark"]],
+      ["text-size", textSize, ["app-default", "xs", "s", "m", "l", "xl", "xxl", "xxxl", "ax1", "ax2", "ax3", "ax4", "ax5"]],
+      ["layout-direction", layoutDirection, ["app-default", "ltr", "rtl"]],
+    ].filter(([, value]) => value !== undefined);
+    if (choices.length + Number(refresh) !== 1 || choices.some(([, value, allowed]) => !allowed.includes(value))) throw failure("APP_CONTEXT_TOOL_INVALID");
+    const [tool, value] = refresh ? ["refresh", undefined] : choices[0];
     if (project && workspace) throw failure("APP_CONTEXT_SCOPE_REQUIRED");
     const capture = readCapture(capturePath), binding = capture.binding;
     const selected = workspace || project;
@@ -27,6 +33,7 @@ export async function performAppTool({ appearance, refresh = false, project, wor
     const selector = { bundle_id: expected.bundle_id, executable_uuid: expected.executable_uuid, debug_dylib_uuid: expected.debug_dylib_uuid };
     const current = validateResponse(await request({ action: "developer_context", ...selector, screenshot: false }, { timeoutMs: 10_000 }), expected);
     if (!current.capabilities?.includes("developer-context-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
+    if ((tool === "text-size" || tool === "layout-direction") && !current.capabilities?.includes("developer-environment-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
     if (!current.identity.is_active || !current.identity.root_ready) throw failure("APP_CONTEXT_FOREGROUND_REQUIRED");
     if (!UUID.test(current.identity.process_nonce) || !UUID.test(current.identity.connection_nonce)) throw failure("APP_CONTEXT_INVALID");
     const operation = randomUUID();
@@ -34,7 +41,7 @@ export async function performAppTool({ appearance, refresh = false, project, wor
     try {
       actionResponse = await request({ action: "developer_tool", ...selector,
         process_nonce: current.identity.process_nonce, connection_nonce: current.identity.connection_nonce,
-        operation_id: operation, tool: refresh ? "refresh" : "appearance", ...(refresh ? {} : { value: appearance }),
+        operation_id: operation, tool, ...(refresh ? {} : { value }),
       }, { timeoutMs: 10_000 });
     } catch { throw failure("APP_CONTEXT_TOOL_UNCONFIRMED"); }
     if (!actionResponse || String(actionResponse.error || "").includes("UNCONFIRMED")) throw failure("APP_CONTEXT_TOOL_UNCONFIRMED");
@@ -45,7 +52,7 @@ export async function performAppTool({ appearance, refresh = false, project, wor
     if (data.result?.success === false && String(data.result.error || "").includes("FOREGROUND")) throw failure("APP_CONTEXT_FOREGROUND_REQUIRED");
     if (data.result?.success !== true) throw failure("APP_CONTEXT_TOOL_UNCONFIRMED");
     return { schemaVersion: 1, outcome: "tool-completed", app: { bundleId: expected.bundle_id, build: expected.build_number },
-      tool: refresh ? "refresh" : "appearance", ...(refresh ? { state: "refresh-requested" } : { appearance }),
+      tool, ...(refresh ? { state: "refresh-requested" } : tool === "appearance" ? { appearance: value } : { value }),
       nativeCodeUpdate: false };
   } catch (error) {
     const code = error?.code && Object.hasOwn(GUIDANCE, error.code) ? error.code : "APP_CONTEXT_UNAVAILABLE";
@@ -315,7 +322,7 @@ export function validateContextJPEG(value) {
 
 function failure(code) { return Object.assign(new Error(GUIDANCE[code] || "App context unavailable."), { code }); }
 const GUIDANCE = {
-  APP_CONTEXT_TOOL_INVALID: "Choose exactly one tool: --appearance app-default|light|dark or --refresh-screen.",
+  APP_CONTEXT_TOOL_INVALID: "Choose exactly one valid tool: --appearance, --text-size, --layout-direction, or --refresh-screen.",
   APP_CONTEXT_TOOL_UNCONFIRMED: "The app did not confirm this developer tool operation. Its effect is unconfirmed; do not blindly repeat it.",
   APP_CONTEXT_FOREGROUND_REQUIRED: "The matching Debug app must be in the foreground for this tool. No action was performed.",
   APP_CONTEXT_SCOPE_REQUIRED: "Run this command from the matching app project, or pass its --project/--workspace and --scheme. No other app was inspected.",
