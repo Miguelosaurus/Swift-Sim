@@ -28,6 +28,7 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
       message: "The hot reload compiler could not be verified. Restore its tooling before retrying; no build was started.",
       error: { code: error.code, message: "The hot reload compiler could not be verified. No patch or signed build was started." } });
   }
+  const classifyMs = elapsed(now, startedAt);
   if (change.route === "no-change") return finish(deliveryEnvelope({ outcome: "no-change", message: "No Swift source changes need delivery.", timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { route: "none" }) }), !verbose);
   const health = await checkRuntime(runtimeCheck);
   if (!health.ok) return finish(deliveryEnvelope({ outcome: health.userAction ? "needs-user-action" : "failed", message: health.message, reasonCode: health.code, error: { code: health.code, message: health.message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { runtime: health.diagnostic || { code: health.code } }) }), !verbose);
@@ -41,10 +42,11 @@ async function deliverOnce({ files, project, workspace, host, scheme, build, liv
   try {
     // Compatible intent is durable before compilation/application. Device
     // absence, refresh uncertainty and compile failure never invoke a builder.
+    const enqueueStartedAt = now();
     const result = await queueLive({ files: files.filter((_, index) => change.changes[index]?.route === "hot-reload"), project, host, scheme,
       ...(change.requiresCompleteCoverage ? { requiresCompleteCoverage: true } : {}),
       ...(change.requiresAddedState ? { requiresAddedState: true } : {}) });
-    return finish({ ...result, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { action: "queue-live", reasonCode: result.reasonCode || "IMPLEMENTATION_ONLY" }) }, !verbose);
+    return finish({ ...result, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, { action: "queue-live", reasonCode: result.reasonCode || "IMPLEMENTATION_ONLY", timings: { classifyMs, enqueueMs: elapsed(now, enqueueStartedAt) } }) }, !verbose);
   } catch (error) {
     const code = /^[A-Z][A-Z0-9_]{1,79}$/.test(error?.code || "") ? error.code : "LIVE_QUEUE_FAILED";
     const message = safeError(error);

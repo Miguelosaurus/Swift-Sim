@@ -17,7 +17,7 @@ const identity = {
   is_active: true, root_ready: true, root_revision: 3,
 };
 
-async function fixture() {
+async function fixture({ wait: waitOverride } = {}) {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-adapter-"));
   const manifestPath = join(root, "compilations.json"); const artifact = join(root, "prepared.dylib");
   const bytes = Buffer.from("synthetic signed fixture bytes"); writeFileSync(artifact, bytes, { mode: 0o600 });
@@ -25,8 +25,8 @@ async function fixture() {
   writeFileSync(manifestPath, JSON.stringify({ binaryIdentity: identity, binding: { projectPath: join(root, "Example.xcodeproj", "project.pbxproj"), projectRoot: root, scheme: "Example" }, sourceBaselines: {} }), { mode: 0o600 });
   let clock = 1000; const calls = []; let result; let prepareDigest = digest(bytes);
   const adapter = createLiveDeliveryAdapter({ manifestPath, compile: async (_record, options) => ({ path: artifact, mode: "swift-dynamic-replacement-bundle", receivedSignal: options?.cancellationSignal }),
-    control: async (request) => { calls.push(structuredClone(request)); if (request.action === "status") return { success: true, data: status }; if (request.action === "prepare_dylib") return { success: true, data: { patch_digest: prepareDigest } }; return result; },
-    lock: (operation) => operation(), now: () => clock, wait: async (ms) => { clock += Math.max(ms, 1000); },
+    control: async (request) => { calls.push(structuredClone(request)); if (request.action === "status") return { success: true, data: status }; if (request.action === "prepare_dylib") return { success: true, data: { patch_digest: prepareDigest } }; return typeof result === "function" ? result(request) : result; },
+    lock: (operation) => operation(), now: () => clock, wait: async (ms) => { clock += waitOverride ? ms : Math.max(ms, 1000); waitOverride?.(ms); },
   });
   const binding = await adapter.binding({});
   const record = { requestId: "fixture-request-one", scope: binding.scope, baselineRevision: 3, expiresAt: 100_000, claim: { token: "fixture-attempt-one" }, applyClaimToken: "fixture-attempt-one", preparedPatch: { path: artifact, patchDigest: digest(bytes) } };
@@ -52,6 +52,22 @@ test("prepared proof requires exact request, signed digest, binary, process, rep
     const proof = await f.adapter.apply(f.record, f.observed);
     assert.equal(proof.refreshed, true); assert.equal(proof.revision, 4); assert.equal(proof.requestId, f.record.requestId);
     assert.equal("client_identity" in proof, false); assert.equal("path" in proof, false);
+  } finally { f.cleanup(); }
+});
+
+test("receipt polling accelerates early confirmation and preserves its deadline and proof", async () => {
+  const waits = []; const f = await fixture({ wait: ms => waits.push(ms) });
+  try {
+    f.setResult(request => request.action === "prepared_receipt"
+      ? { success: true, data: { state: "completed", report: f.report() } } : undefined);
+    assert.equal((await f.adapter.apply(f.record, f.observed)).refreshed, true);
+    assert.deepEqual(waits, [25]);
+    waits.length = 0;
+    f.setResult({ success: true, data: { state: "completed", report: { ...f.report(), patch_digest: "f".repeat(64) } } });
+    assert.equal(await f.adapter.apply(f.record, f.observed), null);
+    assert.equal(waits.reduce((a, b) => a + b, 0), 5000);
+    assert.deepEqual(waits.slice(0, 12), Array(12).fill(25));
+    assert(waits.slice(12).every(ms => ms === 100));
   } finally { f.cleanup(); }
 });
 

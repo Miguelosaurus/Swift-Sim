@@ -177,9 +177,10 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       let result = await control(request(record, observed), { timeoutMs: 2_000 });
       let proof = proofFrom(result, record, observed);
       if (proof?.refreshed || proof?.noEffect) return proof;
-      const deadline = now() + 5_000;
+      const startedAt = now();
+      const deadline = startedAt + 5_000;
       while (now() < deadline && !cancellationSignal?.aborted) {
-        await wait(100);
+        await wait(now() - startedAt < 300 ? 25 : 100);
         result = await control({ action: "prepared_receipt", request_id: record.requestId, patch_digest: record.preparedPatch.patchDigest });
         proof = proofFrom(result, record, observed);
         if (proof?.refreshed || proof?.noEffect) return proof;

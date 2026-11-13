@@ -14,6 +14,15 @@ test("hot delivery returns a compact proven live envelope without building", asy
   let builds = 0; const result = await deliverChange({ files: HOT, runtimeCheck: async () => ({ ok: true }), queueLive: async () => deliveryEnvelope({ outcome: "hot-reloaded", message: "Proven refreshed receipt.", delivery: { kind: "live", revision: 42 } }), buildDevice: async () => { builds += 1; return build(); } });
   assert.equal(result.outcome, "hot-reloaded"); assert.equal(result.delivery.revision, 42); assert.equal(builds, 0); assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 1024);
 });
+test("verbose live diagnostics report classification and enqueue time only when requested", async () => {
+  let clock = 0;
+  const options = { files: HOT, now: () => clock++, runtimeCheck: async () => ({ ok: true }),
+    queueLive: async () => { clock += 20; return deliveryEnvelope({ outcome: "queued", message: "Queued", delivery: { kind: "pending", requestId: "request-timing", state: "queued", expiresAt: "2026-11-01T00:00:00Z" } }); } };
+  const verbose = await deliverChange({ ...options, verbose: true });
+  assert.deepEqual(verbose.diagnostics.timings, { classifyMs: 1, enqueueMs: 22 });
+  assert.equal(validateDeliveryEnvelope(verbose).valid, true);
+  assert.equal((await deliverChange(options)).diagnostics, undefined);
+});
 test("no-change returns before runtime or build adapters", async () => {
   let checks = 0; let builds = 0; const result = await deliverChange({ files: [{ ...HOT[0], afterSource: HOT[0].beforeSource }], runtimeCheck: async () => { checks += 1; return { ok: false }; }, buildDevice: async () => { builds += 1; return build(); } });
   assert.equal(result.outcome, "no-change"); assert.equal(checks, 0); assert.equal(builds, 0);
