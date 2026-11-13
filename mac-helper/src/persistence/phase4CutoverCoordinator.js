@@ -247,10 +247,14 @@ export class Phase4CutoverCoordinator {
    * @param {{ rollbackWindowMs: number }} input
    */
   migrateAutomatically(input) {
-    const rollbackWindowMs = requirePositiveInteger(input.rollbackWindowMs, "Phase-4 rollback window");
+    const rollbackWindowMs = requirePositiveInteger(
+      input.rollbackWindowMs,
+      "Phase-4 rollback window",
+    );
     const initial = this.#authority.getState();
     if (initial.mode === "preparing") this.#cancelCurrentPreparation();
-    else if (initial.mode !== "legacy") return Object.freeze({ status: "not-legacy", authority: initial });
+    else if (initial.mode !== "legacy")
+      return Object.freeze({ status: "not-legacy", authority: initial });
     const preparationID = randomBytes(32).toString("hex");
     try {
       const current = this.#authority.getState();
@@ -264,7 +268,13 @@ export class Phase4CutoverCoordinator {
       const prepared = requirePreparedEvidence(authority.evidence);
       const evidenceHash = requireHash(authority.evidenceHash, "Phase-4 prepared evidenceHash");
       return this.#withAllDomainLocks(() =>
-        this.#activateLocked({ authority, preparationID, evidenceHash, prepared, rollbackWindowMs }),
+        this.#activateLocked({
+          authority,
+          preparationID,
+          evidenceHash,
+          prepared,
+          rollbackWindowMs,
+        }),
       );
     } catch (error) {
       try {
@@ -279,7 +289,10 @@ export class Phase4CutoverCoordinator {
   #cancelCurrentPreparation() {
     const state = this.#authority.getState();
     if (state.mode === "preparing" && state.preparationID) {
-      this.cancelPreparation({ expectedRevision: state.revision, preparationID: state.preparationID });
+      this.cancelPreparation({
+        expectedRevision: state.revision,
+        preparationID: state.preparationID,
+      });
       return;
     }
     const pairing = this.#pairingAuthority.current();

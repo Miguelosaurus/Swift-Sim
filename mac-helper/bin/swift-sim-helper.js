@@ -320,7 +320,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
   let storage;
   try {
     pairingStore.current();
-    storage = migrateToSqliteAutomatically({ log: (line) => console.error(line) });
+    storage = migrateToSqliteAutomatically({ spawn: spawnSync, log: (line) => console.error(line) });
   } catch (error) {
     storage = { status: "legacy" };
     console.error(`Swift Sim could not inspect its local state format: ${error instanceof Error ? error.message : error}`);

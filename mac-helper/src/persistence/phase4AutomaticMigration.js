@@ -1,6 +1,5 @@
 // @ts-check
 
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -21,10 +20,14 @@ const STATUS_FILE = "storage-migration.json";
  * the original JSON untouched; the operator rollback stays available for the
  * window. Failures keep legacy authority and retry at most once per day.
  *
- * @param {{ stateRoot?: string, now?: () => number, spawn?: typeof spawnSync, log?: (line: string) => void,
+ * The caller supplies its process boundary (`spawn`, a spawnSync), as for the operator path.
+ *
+ * @param {{ spawn: (command: string, args: string[], options: { encoding: string }) => unknown, stateRoot?: string, now?: () => number, log?: (line: string) => void,
  *   openDatabase?: (path: string) => SwiftSimSqliteDatabase }} [options]
  */
-export function migrateToSqliteAutomatically(options = {}) {
+export function migrateToSqliteAutomatically(options) {
+  if (typeof options?.spawn !== "function")
+    throw new TypeError("Automatic migration requires an injected spawnSync.");
   const stateRoot = options.stateRoot || join(homedir(), ".swift-sim");
   const now = options.now || Date.now;
   const log = options.log || (() => {});
@@ -40,11 +43,20 @@ export function migrateToSqliteAutomatically(options = {}) {
     if (previous?.failedAt && now() - Date.parse(previous.failedAt) < RETRY_AFTER_MS) {
       return Object.freeze({ status: "deferred", code: previous.code });
     }
-    const result = new Phase4CutoverCoordinator({ database, stateRoot, spawnSync: options.spawn || spawnSync })
-      .migrateAutomatically({ rollbackWindowMs: AUTOMATIC_ROLLBACK_WINDOW_MS });
+    const result = new Phase4CutoverCoordinator({
+      database,
+      stateRoot,
+      spawnSync: options.spawn,
+    }).migrateAutomatically({ rollbackWindowMs: AUTOMATIC_ROLLBACK_WINDOW_MS });
     const rollbackExpiresAt = result.authority?.rollbackExpiresAt || null;
-    writeStatus(statusPath, { version: 1, migratedAt: new Date(now()).toISOString(), rollbackExpiresAt });
-    log(`Swift Sim moved its local state to SQLite. Legacy backups are kept until ${rollbackExpiresAt}.`);
+    writeStatus(statusPath, {
+      version: 1,
+      migratedAt: new Date(now()).toISOString(),
+      rollbackExpiresAt,
+    });
+    log(
+      `Swift Sim moved its local state to SQLite. Legacy backups are kept until ${rollbackExpiresAt}.`,
+    );
     return Object.freeze({ status: "migrated", rollbackExpiresAt });
   } catch (error) {
     const code = failureCode(error);
@@ -82,7 +94,12 @@ function readStatus(path) {
 
 /** @param {string} path @param {Record<string, unknown>} value */
 function writeStatus(path, value) {
-  new NodeAtomicFileStore().writeJSONSync(path, value, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+  new NodeAtomicFileStore().writeJSONSync(path, value, {
+    mode: 0o600,
+    createParentMode: 0o700,
+    replace: true,
+    syncDirectory: true,
+  });
 }
 
 /** @param {unknown} error */

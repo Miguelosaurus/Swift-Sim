@@ -523,7 +523,7 @@ function writeJSON(path, value) {
 
 test("automatic migration waits for pairing and preserves a credential through cutover", () => {
   withRoot(({ stateRoot }) => {
-    assert.deepEqual(migrateToSqliteAutomatically({ stateRoot }), { status: "waiting" });
+    assert.deepEqual(migrateToSqliteAutomatically({ stateRoot, spawn: spawnSync }), { status: "waiting" });
     seedLegacyState(stateRoot);
     for (const name of ["pairing-invites.json", "device-builds.json", "sessions.json"]) rmSync(join(stateRoot, name));
     const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
