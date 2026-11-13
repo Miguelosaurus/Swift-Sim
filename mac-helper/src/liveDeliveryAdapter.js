@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { canonicalProjectPath } from "./liveSessionDescriptor.js";
 import { normalizedLiveBinaryIdentity, liveBinaryMatches } from "./liveBinaryIdentity.js";
-import { prepareQueuedLivePatchAsync, cleanupQueuedLiveArtifacts, queuedLiveEngineControl, validateQueuedLivePatchCoverage, validateCompleteQueuedLivePatchCoverage, sealCompleteQueuedLivePatch, CLASSIFIER_VERSION } from "./liveReload.js";
+import { prepareQueuedLivePatchAsync, cleanupQueuedLiveArtifacts, queuedLiveEngineControl, validateCompleteQueuedLivePatchCoverage, sealCompleteQueuedLivePatch, CLASSIFIER_VERSION } from "./liveReload.js";
 import { normalizeReplacementProof, replacementCoverageDigest, verifyReplacementProofReceipt, REPLACEMENT_PROOF_CAPABILITY } from "./replacementProof.js";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 
@@ -144,14 +144,15 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       return { scope, manifest };
     },
     validatePrepared(record) {
-      if (record.preparedPatch?.replacementProof) { validateCompleteQueuedLivePatchCoverage(record); return; }
-      if (!/^[a-f0-9]{64}$/.test(record.snapshotDigest || "") || record.preparedPatch?.coverageVersion !== CLASSIFIER_VERSION || record.preparedPatch?.sourceSnapshotDigest !== record.snapshotDigest) validateQueuedLivePatchCoverage(record);
+      if (!record.preparedPatch?.replacementProof) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "This queued patch requires the matching live engine and must be prepared again. No patch was sent.");
+      validateCompleteQueuedLivePatchCoverage(record);
     },
     async binding({ project, scheme }) {
       const manifest = capture(); const scope = scopeFor(manifest);
       if ((project && canonicalProjectPath(project) !== scope.project) || (scheme && scheme !== scope.scheme)) throw deliveryError("LIVE_PROJECT_MISMATCH", "The live build belongs to a different project or scheme. Select the intended Debug integration; no rebuild was started.");
       const observed = await inspect({ scope });
-      if (manifest.stateful && (!observed.completeEngine || !observed.statefulEngine)) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "This Debug build needs its matching state-preserving live engine. No patch was compiled or sent.");
+      if (!observed.completeEngine) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The installed live engine needs an update. No patch was compiled or sent.");
+      if (manifest.stateful && !observed.statefulEngine) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "This Debug build needs its matching state-preserving live engine. No patch was compiled or sent.");
       if (observed.engineReachable && !observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The installed engine cannot process durable live edits. Activate the matching engine and SDK before using the queued workflow; no build was started.");
       if (observed.clientPresent && !observed.supportsReceipts) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "The connected Debug app needs the matching reconnect and receipt SDK. Complete its one-time Debug update; no automatic rebuild was started.");
       if (observed.completeEngine && observed.clientPresent && !observed.completeClient) throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "This Debug app needs the complete replacement receipt SDK. Install its one-time Debug update before using broader hot reload; no automatic rebuild was started.");
@@ -162,8 +163,8 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
     inspect,
     async prepare(record, options) {
       const observed = await inspect(record);
-      if (!observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The matching live engine is unavailable. No patch was compiled or sent.");
-      const raw = await compile(record, { ...options, completeCoverage: observed.completeEngine });
+      if (!observed.completeEngine || !observed.engineAvailable) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "The matching live engine is unavailable. No patch was compiled or sent.");
+      const raw = await compile(record, { ...options, completeCoverage: true });
       if (raw.addedStateProtocol === 1 && observed.clientPresent && observed.matchesBinary && !observed.addedStateClient)
         throw deliveryError("LIVE_CLIENT_UPDATE_REQUIRED", "Adding State needs the matching Debug state-slot SDK. Install its one-time Debug update; no patch was sent or automatic build started.");
       const response = await control({ action: "prepare_dylib", path: raw.path }, { timeoutMs: 30_000 });

@@ -115,12 +115,18 @@ export function classifyLiveChanges({ beforePaths = [], afterPaths = [] }) {
  * by the benchmark and by the compatibility wrappers above. A single
  * structural or non-Swift member makes the complete operation rebuild-safe.
  */
-export function classifyEditSet({ files = [], allowAdditive = false, additiveOptions } = {}) {
+export function classifyEditSet({ files = [], allowAdditive = false, additiveOptions, compiler } = {}) {
   if (!Array.isArray(files) || files.length === 0) {
     throw new Error("Pass a nonempty edit set.");
   }
 
   const changes = files.map((file) => classifyEditFile(file));
+  // Swift pairs are classified together by the same SwiftSyntax rule the patch compiler uses.
+  const pending = changes.flatMap((change, index) => change.swift ? [index] : []);
+  if (pending.length) {
+    const results = swiftClassifier(compiler).classify(pending.map((index) => changes[index].swift));
+    pending.forEach((changeIndex, index) => { changes[changeIndex] = swiftResult(results[index], changes[changeIndex].paths); });
+  }
   const rebuild = changes.find((change) => change.route === "rebuild-required");
   if (rebuild) {
     if (allowAdditive) {
@@ -301,95 +307,24 @@ function classifyEditFile(file = {}) {
 
   const before = file.beforeSource ?? requiredSwiftSource(file.beforePath, "before");
   const after = file.afterSource ?? requiredSwiftSource(file.afterPath, "after");
-  return classifySwiftSource(before, after, paths);
+  // Filled in by classifyEditSet's single batched SwiftSyntax pass.
+  return { paths, swift: { path, before, after } };
 }
 
-export function classifySwiftSource(before, after, paths = {}) {
-  if (before === after) {
-    return result(
-      "no-change",
-      true,
-      "The Swift source is unchanged.",
-      paths,
-      LIVE_REASON_CODES.NO_CHANGE,
-    );
-  }
+export function classifySwiftSource(before, after, paths = {}, { compiler } = {}) {
+  const path = paths.path || paths.afterPath || paths.beforePath || "Source.swift";
+  return swiftResult(swiftClassifier(compiler).classify([{ path, before, after }])[0], paths);
+}
 
-  const beforeSurface = declarationSurface(before);
-  const afterSurface = declarationSurface(after);
-  const rebuild = (reason, reasonCode, category = "unsupported-live-edit", kinds = []) => {
-    const storage = reasonCode === LIVE_REASON_CODES.STORED_PROPERTY_CHANGED;
-    const select = (member) => (!kinds.length || kinds.includes(member.kind)) && (!storage || member.storedValue !== undefined);
-    const beforeMembers = (beforeSurface.members || []).filter(select);
-    const afterMembers = (afterSurface.members || []).filter(select);
-    const key = storage ? "storedValue" : "signature";
-    const index = afterMembers.findIndex((member, position) => member[key] !== beforeMembers[position]?.[key]);
-    const member = afterMembers[index] || (beforeMembers.length > afterMembers.length ? beforeMembers[afterMembers.length] : null);
-    return { ...result("rebuild-required", false, reason, paths, reasonCode), diagnostic: { category, ...(member ? { member: member.member, line: member.line } : {}) } };
-  };
-  if (beforeSurface.unsupported || afterSurface.unsupported) {
-    return rebuild(
-      beforeSurface.unsupported || afterSurface.unsupported,
-      LIVE_REASON_CODES.MACRO_OR_EXPLICIT_REPLACEMENT,
-    );
-  }
-
-  if (beforeSurface.imports !== afterSurface.imports) {
-    return rebuild(
-      "Imports changed.",
-      LIVE_REASON_CODES.IMPORT_CHANGED,
-    );
-  }
-  if (beforeSurface.compilerConditions !== afterSurface.compilerConditions) {
-    return rebuild(
-      "A conditional-compilation or availability condition changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-  if (beforeSurface.attributes !== afterSurface.attributes) {
-    return rebuild(
-      "A declaration attribute or property-wrapper argument changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-  if (beforeSurface.modifiers !== afterSurface.modifiers) {
-    return rebuild(
-      "A declaration access modifier or attribute changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-  if (beforeSurface.storedProperties !== afterSurface.storedProperties) {
-    return rebuild(
-      "A stored property or its initializer changed.",
-      LIVE_REASON_CODES.STORED_PROPERTY_CHANGED,
-      "installed-structure", ["let", "var"],
-    );
-  }
-  if (beforeSurface.signatures !== afterSurface.signatures) {
-    const kinds = ["func", "init", "subscript", "typealias", "operator", "precedencegroup"];
-    const previous = beforeSurface.members.filter((member) => kinds.includes(member.kind));
-    const current = afterSurface.members.filter((member) => kinds.includes(member.kind));
-    const existing = previous.length === current.length && previous.every((member, index) => member.member === current[index].member && member.kind === current[index].kind);
-    return rebuild(
-      "A function, initializer, subscript, or type signature changed.",
-      LIVE_REASON_CODES.SIGNATURE_CHANGED,
-      existing ? "installed-structure" : "unsupported-live-edit", kinds,
-    );
-  }
-  if (beforeSurface.declarations !== afterSurface.declarations) {
-    return rebuild(
-      "A declaration, stored property, type shape, or function signature changed.",
-      LIVE_REASON_CODES.DECLARATION_CHANGED,
-    );
-  }
-
-  return result(
-    "hot-reload",
-    true,
-    "Only implementation bodies or literal values changed.",
-    paths,
-    LIVE_REASON_CODES.IMPLEMENTATION_ONLY,
-  );
+let defaultSwiftClassifier;
+function swiftClassifier(compiler) {
+  return compiler || (defaultSwiftClassifier ||= createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }),
+    cacheRoot: join(LIVE_ROOT, "compiler-cache") }));
+}
+function swiftResult(value, paths) {
+  const route = value.route;
+  const classified = result(route, route !== "rebuild-required", value.reason, paths, value.reasonCode);
+  return value.diagnostic ? { ...classified, diagnostic: value.diagnostic } : classified;
 }
 
 export async function inspectLiveReload(options = {}) {
@@ -869,48 +804,6 @@ export async function queuedLiveEngineControl(request, options = {}) {
   return engineControl(request, options);
 }
 
-export function validateQueuedLivePatchCoverage(record) {
-  if (classifyEditSet({ files: record.files.map((file) => ({ ...file, kind: "swift", status: "modified" })) }).route !== "hot-reload") throw Object.assign(new Error("The queued snapshot is not an implementation-only edit."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
-  for (const file of record.files) {
-    if (!generateDynamicReplacementSource({ source: file.afterSource, beforeSource: file.beforeSource, sourcePath: file.path, moduleName: "SwiftSimCoverageValidation" })) throw unsupportedReplacement();
-  }
-}
-
-export function prepareQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, "queued-artifacts") } = {}) {
-  if (classifyEditSet({ files: record.files.map((file) => ({ ...file, kind: "swift", status: "modified" })) }).route !== "hot-reload") throw Object.assign(new Error("The queued snapshot is not an implementation-only edit."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
-  ensureDirectoryModeSync(artifactRoot, 0o700);
-  const key = createHash("sha256").update(JSON.stringify([record.requestId, record.snapshotDigest, record.scope.binaryIdentity])).digest("hex");
-  const path = join(artifactRoot, `eval_injection_swift_sim_dynamic_${key}.dylib`);
-  const marker = `${path}.json`;
-  const previous = readJSONFile(marker);
-  if (existsSync(path)) {
-    const stats = lstatSync(path);
-    if (!stats.isFile() || stats.isSymbolicLink() || (stats.mode & 0o077) !== 0 || previous?.key !== key || previous.requestId !== record.requestId || previous.snapshotDigest !== record.snapshotDigest) throw Object.assign(new Error("The queued artifact cannot be reused safely."), { code: "PATCH_ARTIFACT_INVALID" });
-    validateQueuedLivePatchCoverage(record);
-    return { path, mode: "swift-dynamic-replacement-bundle" };
-  }
-  const entries = readdirSync(artifactRoot);
-  if (entries.length > 1024) throw Object.assign(new Error("Queued artifact capacity is exhausted."), { code: "PATCH_STORAGE_INSUFFICIENT" });
-  const volume = statfsSync(artifactRoot);
-  if (queuedArtifactUsage(artifactRoot) > 120 * 1024 * 1024 || Number(volume.bavail) * Number(volume.bsize) < 128 * 1024 * 1024) throw Object.assign(new Error("There is not enough bounded storage for a queued patch."), { code: "PATCH_STORAGE_INSUFFICIENT" });
-  // Publish ownership before compilation too, so an interrupted/failed compile
-  // has a bounded deterministic directory which expiry cleanup can reclaim.
-  writeFileSync(marker, JSON.stringify({ version: 1, key, requestId: record.requestId, snapshotDigest: record.snapshotDigest, binaryIdentity: record.scope.binaryIdentity, expiresAt: record.expiresAt }), { flag: "w", mode: 0o600 });
-  const generated = compileDynamicReplacementBundle(record.files.map((file) => ({ sourcePath: file.path, sourceText: file.afterSource, beforeSourceText: file.beforeSource })), { identifier: `queued_${key}` });
-  if (!generated) throw Object.assign(new Error("This edit cannot be prepared as a queued replacement."), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
-  const size = statSync(generated.dylibPath).size;
-  if (size > 32 * 1024 * 1024 || queuedArtifactUsage(artifactRoot) + size + 1024 * 1024 > 128 * 1024 * 1024) {
-    rmSync(dirname(generated.dylibPath), { recursive: true, force: true });
-    throw Object.assign(new Error("The prepared patch exceeds its storage quota."), { code: "PATCH_STORAGE_INSUFFICIENT" });
-  }
-  // A deterministic owner marker makes a failed publication reusable and gives
-  // expiry cleanup exact ownership; no unrelated app/build artifact is touched.
-  writeFileSync(path, readFileSync(generated.dylibPath), { flag: "wx", mode: 0o600 });
-  return { path, mode: "swift-dynamic-replacement-bundle" };
-}
-
-// Complete coverage is a negotiated SDK/engine contract. Legacy callers retain
-// their qualified compiler; new requests never infer coverage from nonzero TX.
 export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIVE_ROOT, "queued-artifacts"), manifestPath = LIVE_MANIFEST,
   runner = new NodeCommandRunner({ spawn, spawnSync }), compiler, patchRoot = LIVE_PATCH_ROOT } = {}) {
   assertCompleteEditSet(record, { allowAdditive: true });
@@ -1175,15 +1068,15 @@ export function cleanupQueuedLiveArtifacts(records, { artifactRoot = join(LIVE_R
   }
 }
 
-export async function prepareQueuedLivePatchAsync(record, { cancellationSignal, completeCoverage = false } = {}) {
+export async function prepareQueuedLivePatchAsync(record, { cancellationSignal } = {}) {
   const runner = new NodeCommandRunner({ spawn, spawnSync });
   const result = await runner.run({
     executable: process.execPath,
-    args: [fileURLToPath(new URL("../bin/swift-sim-live-prepare.js", import.meta.url)), ...(completeCoverage ? ["--complete-coverage-v3"] : [])],
+    args: [fileURLToPath(new URL("../bin/swift-sim-live-prepare.js", import.meta.url))],
     input: Buffer.from(JSON.stringify(record)),
     ...(cancellationSignal ? { cancellationSignal } : {}),
     environment: { inherit: ["HOME", "PATH", "TMPDIR", "DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS"], overrides: {}, unset: [] },
-    policy: { timeoutMs: completeCoverage ? 150_000 : 60_000, outputLimitBytes: 1024 * 1024, processGroup: "new", acceptedExitCodes: [0] },
+    policy: { timeoutMs: 150_000, outputLimitBytes: 1024 * 1024, processGroup: "new", acceptedExitCodes: [0] },
   });
   if (result.code !== 0 || result.timedOut || result.cancellationError) {
     let failure;
