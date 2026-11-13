@@ -91,7 +91,8 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
     if (result?.schemaVersion !== 1 || result.capability !== "stateful-overlay-v1" || !Array.isArray(result.files)
       || result.files.length > input.files.length || result.files.some(file => !input.files.some(value => value.path === file.path)
         || typeof file.source !== "string" || !Array.isArray(file.owners) || file.owners.length > 1024
-        || file.owners.some(owner => typeof owner !== "string" || owner.length > 256))) throw unsupported();
+        || file.owners.some(owner => typeof owner !== "string" || owner.length > 256)
+        || (file.constants !== undefined && !validNameIndex({ [file.path]: file.constants })))) throw unsupported();
     return { ...result, resourceDigest: compilerResourceDigest(resourcePath) };
   }
   function inspectCoverage({ dylibPath, generation, moduleName }) {
@@ -228,6 +229,13 @@ function validateInput(input) {
   if (input.statefulBodies !== undefined && (!input.statefulBodies || typeof input.statefulBodies !== "object" || Array.isArray(input.statefulBodies)
     || Object.entries(input.statefulBodies).some(([path, owners]) => !isAbsolute(path) || !Array.isArray(owners) || owners.length > 1024
       || owners.some(owner => !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(owner))))) throw unsupported();
+  if (input.statefulConstants !== undefined && !validNameIndex(input.statefulConstants)) throw unsupported();
+}
+// Path -> dotted declaration names, as recorded by the Debug overlay build.
+export function validNameIndex(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    && Object.entries(value).every(([path, names]) => isAbsolute(path) && Array.isArray(names) && names.length <= 1024
+      && names.every(name => typeof name === "string" && name.length <= 256 && /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/.test(name)));
 }
 function validateGeneration(value, input) {
   if (value?.schemaVersion !== 1 || value.capability !== VERSION || !Number.isSafeInteger(value.changedMemberCount) || value.changedMemberCount < 1 || value.changedMemberCount > 512
@@ -239,6 +247,8 @@ function validateGeneration(value, input) {
   if (value.sharedAdditive !== undefined && (typeof value.sharedAdditive !== "boolean"
     || (value.sharedAdditive && ((input && input.allowSharedAdditive !== true) || value.additiveProtocol !== 1)))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.additiveProtocol !== undefined && ![0, 1].includes(value.additiveProtocol)) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
+  if (value.constantProtocol !== undefined && (![0, 1].includes(value.constantProtocol)
+    || (value.constantProtocol === 1 && input && input.statefulConstants === undefined))) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
   if (value.additiveProtocol === 1 && ((input && input.allowAdditive !== true) || value.requiresPrivateScopes !== true
     || !Array.isArray(value.additions) || value.additions.length > 512 || value.additions.some(item => !item
       || typeof item.file !== "string" || !item.file.endsWith(".swift") || typeof item.owner !== "string"

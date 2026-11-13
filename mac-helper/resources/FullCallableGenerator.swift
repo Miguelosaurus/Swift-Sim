@@ -20,6 +20,7 @@ struct Input: Decodable {
     let stateGeneration: UInt64?
     let allowStatefulAdditive: Bool?
     let statefulOrigins: [StatefulOrigin]?
+    let statefulConstants: [String: [String]]?
 }
 
 struct InstrumentInput: Decodable {
@@ -101,21 +102,159 @@ final class StatefulInstrumenter: SyntaxRewriter {
     }
 }
 
+// Debug-only constant lowering: `static let x: T = <pure constant>` becomes the
+// line-preserving `static var x: T { <pure constant> }`, so a later value edit is
+// an ordinary replaceable getter. Only value types from a fixed list qualify,
+// and only when the module declares nothing that could shadow them.
+let constantTypes: Set<String> = ["Color", "Font", "Font.Weight", "CGFloat", "Double", "Float", "Int", "Bool", "String",
+    "CGSize", "CGPoint", "EdgeInsets", "Angle", "UnitPoint", "URL"]
+let constantModulePrefixes = ["SwiftUI.", "Foundation.", "CoreGraphics.", "Swift."]
+func constantBase(_ text: String) -> String {
+    constantModulePrefixes.first(where: text.hasPrefix).map { String(text.dropFirst($0.count)) } ?? text
+}
+// Calls are pure only for initializers of allowlisted types and these members.
+let pureConstantMembers: Set<String> = ["init", "system", "custom", "opacity", "weight", "bold", "italic", "monospaced",
+    "monospacedDigit", "degrees", "radians"]
+// Nominal names the module declares anywhere: a shadowing guard at build time.
+func shadowingTypeNames(_ trees: [SourceFileSyntax]) -> Set<String> {
+    final class Names: SyntaxVisitor {
+        var types = Set<String>()
+        init() { super.init(viewMode: .sourceAccurate) }
+        override func visit(_ n: StructDeclSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+        override func visit(_ n: ClassDeclSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+        override func visit(_ n: ActorDeclSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+        override func visit(_ n: EnumDeclSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+        override func visit(_ n: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+        override func visit(_ n: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+        override func visit(_ n: AssociatedTypeDeclSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+        override func visit(_ n: GenericParameterSyntax) -> SyntaxVisitorContinueKind { types.insert(n.name.text); return .visitChildren }
+    }
+    let names = Names(); trees.forEach { names.walk($0) }; return names.types
+}
+struct ConstantPolicy {
+    let types: Set<String>  // allowlisted type names the module does not shadow
+    init(shadowing trees: [SourceFileSyntax]) {
+        let declared = shadowingTypeNames(trees)
+        types = constantTypes.filter { !declared.contains(String($0.split(separator: ".")[0])) }
+    }
+    // Patch time: only names already lowered by the build-time policy are eligible.
+    init() { types = constantTypes }
+    func type(_ type: TypeSyntax) -> Bool {
+        if let array = type.as(ArrayTypeSyntax.self) { return self.type(array.element) }
+        if let optional = type.as(OptionalTypeSyntax.self) { return self.type(optional.wrappedType) }
+        return types.contains(constantBase(type.trimmedDescription))
+    }
+    // Literals, implicit/explicit members of allowlisted types, and calls on
+    // them with constant arguments. No closures, operators, try or await.
+    func expression(_ node: ExprSyntax) -> Bool {
+        if node.is(IntegerLiteralExprSyntax.self) || node.is(FloatLiteralExprSyntax.self)
+            || node.is(BooleanLiteralExprSyntax.self) || node.is(NilLiteralExprSyntax.self) { return true }
+        if let string = node.as(StringLiteralExprSyntax.self) {
+            return string.segments.allSatisfy { $0.is(StringSegmentSyntax.self) }
+        }
+        if let prefix = node.as(PrefixOperatorExprSyntax.self) {
+            return prefix.operator.text == "-" && (prefix.expression.is(IntegerLiteralExprSyntax.self) || prefix.expression.is(FloatLiteralExprSyntax.self))
+        }
+        if let array = node.as(ArrayExprSyntax.self) { return array.elements.count <= 64 && array.elements.allSatisfy { expression($0.expression) } }
+        if let reference = node.as(DeclReferenceExprSyntax.self) {
+            return types.contains(constantBase(reference.baseName.text)) && reference.argumentNames == nil
+        }
+        if let member = node.as(MemberAccessExprSyntax.self) {
+            guard member.declName.argumentNames == nil else { return false }
+            guard let base = member.base else { return true }
+            if types.contains(constantBase(base.trimmedDescription)) { return true }
+            return expression(base)
+        }
+        if let call = node.as(FunctionCallExprSyntax.self) {
+            guard call.trailingClosure == nil, call.additionalTrailingClosures.isEmpty,
+                  call.arguments.count <= 8, call.arguments.allSatisfy({ expression($0.expression) }) else { return false }
+            let callee = call.calledExpression
+            if let reference = callee.as(DeclReferenceExprSyntax.self) { return expression(ExprSyntax(reference)) }
+            guard let member = callee.as(MemberAccessExprSyntax.self), pureConstantMembers.contains(member.declName.baseName.text) else { return false }
+            return expression(callee)
+        }
+        return false
+    }
+}
+final class ConstantLowering: SyntaxVisitor {
+    let policy: ConstantPolicy
+    let only: Set<String>?
+    var owners: [String] = [], keys: [String] = []
+    var edits: [(range: Range<Int>, text: String)] = []
+    init(policy: ConstantPolicy, only: Set<String>?) { self.policy = policy; self.only = only; super.init(viewMode: .sourceAccurate) }
+    override func visit(_ n: StructDeclSyntax) -> SyntaxVisitorContinueKind { enter(n.name.text, n.genericParameterClause == nil && n.genericWhereClause == nil) }
+    override func visitPost(_ n: StructDeclSyntax) { owners.removeLast() }
+    override func visit(_ n: EnumDeclSyntax) -> SyntaxVisitorContinueKind { enter(n.name.text, n.genericParameterClause == nil && n.genericWhereClause == nil) }
+    override func visitPost(_ n: EnumDeclSyntax) { owners.removeLast() }
+    override func visit(_ n: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        enter(n.extendedType.trimmedDescription, n.genericWhereClause == nil && (n.extendedType.is(IdentifierTypeSyntax.self) || n.extendedType.is(MemberTypeSyntax.self)))
+    }
+    override func visitPost(_ n: ExtensionDeclSyntax) { owners.removeLast() }
+    override func visit(_ n: ClassDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ n: ActorDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ n: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ n: FunctionDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ n: IfConfigDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    private func enter(_ name: String, _ eligible: Bool) -> SyntaxVisitorContinueKind {
+        // An ineligible owner poisons its nested members too.
+        owners.append(eligible && !owners.contains("") ? name : ""); return .visitChildren
+    }
+    override func visit(_ n: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard let owner = owners.last, !owner.isEmpty, owners.allSatisfy({ !$0.isEmpty }),
+              n.bindingSpecifier.tokenKind == .keyword(.let), n.attributes.isEmpty,
+              n.modifiers.contains(where: { $0.name.text == "static" }),
+              n.modifiers.allSatisfy({ ["static", "public", "internal", "private", "fileprivate", "package"].contains($0.name.text) && $0.detail == nil }),
+              n.bindings.count == 1, let binding = n.bindings.first,
+              let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
+              let annotation = binding.typeAnnotation, policy.type(annotation.type),
+              let initializer = binding.initializer, binding.accessorBlock == nil,
+              policy.expression(initializer.value) else { return .skipChildren }
+        let key = owners.joined(separator: ".") + "." + name
+        if let only, !only.contains(key) { return .skipChildren }
+        let value = initializer.value
+        let opening = value.leadingTrivia.contains(where: \.isNewline) ? "{" + value.leadingTrivia.description : "{ "
+        edits.append((n.bindingSpecifier.positionAfterSkippingLeadingTrivia.utf8Offset..<n.bindingSpecifier.endPositionBeforeTrailingTrivia.utf8Offset, "var"))
+        edits.append((initializer.equal.positionAfterSkippingLeadingTrivia.utf8Offset..<value.endPositionBeforeTrailingTrivia.utf8Offset,
+                      opening + value.trimmedDescription + " }"))
+        keys.append(key)
+        return .skipChildren
+    }
+}
+// Returns the lowered text and the lowered keys. Line count is preserved.
+func lowerConstants(_ source: String, policy: ConstantPolicy, only: Set<String>? = nil) -> (source: String, keys: [String]) {
+    if only?.isEmpty == true { return (source, []) }
+    let tree = Parser.parse(source: source)
+    guard !tree.hasError else { return (source, []) }
+    let lowering = ConstantLowering(policy: policy, only: only); lowering.walk(tree)
+    var bytes = Array(source.utf8)
+    for edit in lowering.edits.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
+        bytes.replaceSubrange(edit.range, with: Array(edit.text.utf8))
+    }
+    let lowered = String(decoding: bytes, as: UTF8.self)
+    guard lowered.filter({ $0 == "\n" }).count == source.filter({ $0 == "\n" }).count,
+          !Parser.parse(source: lowered).hasError else { return (source, []) }
+    return (lowered, lowering.keys)
+}
+
 func instrument(_ input: InstrumentInput) throws -> [String: Any] {
     guard input.files.count <= 2048 else { throw Failure(description: "instrumentation file limit") }
     var result: [[String: Any]] = []
+    let policy = ConstantPolicy(shadowing: input.files.map { Parser.parse(source: $0.source) })
     for file in input.files {
-        let tree = Parser.parse(source: file.source)
+        let (lowered, constants) = lowerConstants(file.source, policy: policy)
+        let tree = Parser.parse(source: lowered)
         guard !tree.hasError else { continue }
         let rewrite = StatefulInstrumenter()
         let output = rewrite.rewrite(tree).description
-        if !rewrite.wrapped.isEmpty {
+        if !rewrite.wrapped.isEmpty || !constants.isEmpty {
             guard output.filter({ $0 == "\n" }).count == file.source.filter({ $0 == "\n" }).count else { continue }
             let encoder = JSONEncoder(); encoder.outputFormatting = [.withoutEscapingSlashes]
             let filename = String(data: try encoder.encode(file.path), encoding: .utf8)!
-            let final = "import SwiftSimLive\nimport SwiftUI\n#sourceLocation(file: \(filename), line: 1)\n" + output
+            // Constant-only files gain no imports: name resolution stays unchanged.
+            let imports = rewrite.wrapped.isEmpty ? "" : "import SwiftSimLive\nimport SwiftUI\n"
+            let final = imports + "#sourceLocation(file: \(filename), line: 1)\n" + output
             guard !Parser.parse(source: final).hasError else { continue }
-            result.append(["path": file.path, "source": final, "owners": rewrite.wrapped.sorted()])
+            result.append(["path": file.path, "source": final, "owners": rewrite.wrapped.sorted(), "constants": constants.sorted()])
         }
     }
     return ["schemaVersion": 1, "capability": "stateful-overlay-v1", "files": result]
@@ -735,8 +874,9 @@ func generate(_ input: Input) throws -> [String: Any] {
     var addedOwners: [[String: Any]] = []
     var usesAddedState = false
     var addedStateLookups: [(path: String, owner: String, names: Set<String>)] = []
+    var loweredConstants = 0
     for (fileIndex, file) in input.files.enumerated() {
-        let baseline = input.allowAdditive == true ? (file.installedBaseline ?? file.before) : file.before
+        var baseline = input.allowAdditive == true ? (file.installedBaseline ?? file.before) : file.before
         guard file.isNewFile != true || (input.allowSharedAdditive == true && baseline.isEmpty) else { throw Failure(description: "new file requires empty installed baseline and shared admission") }
         let origins = (input.statefulOrigins ?? []).filter { $0.path == file.path }
         let allowedStateOwners = input.allowAddedState == true ? Set((input.statefulBodies?[file.path] ?? []) + origins.filter { $0.stateNames != nil }.map(\.owner)) : []
@@ -746,8 +886,8 @@ func generate(_ input: Input) throws -> [String: Any] {
         let priorPlan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true,
             allowStateful: input.allowStatefulAdditive == true, origins: origins, fileIndex: fileIndex, generation: input.generation,
             addedStateOwners: allowedStateOwners, module: input.module, sourcePath: file.path)
-        let desiredSource = input.allowAdditive == true ? try plan.strip(baseline: baseline, desired: file.after) : file.after
-        let previousSource = input.allowAdditive == true ? try priorPlan.strip(baseline: baseline, desired: file.before) : file.before
+        var desiredSource = input.allowAdditive == true ? try plan.strip(baseline: baseline, desired: file.after) : file.after
+        var previousSource = input.allowAdditive == true ? try priorPlan.strip(baseline: baseline, desired: file.before) : file.before
         let stateOwners = Set(plan.addedStates.map(\.owner)).union(priorPlan.addedStates.map(\.owner))
         if !stateOwners.isEmpty {
             guard let sequence = input.stateGeneration, sequence > 0 else { throw Failure(description: "new State needs a durable generation") }
@@ -767,6 +907,10 @@ func generate(_ input: Input) throws -> [String: Any] {
         additiveContext = additiveContext || !plan.additions.isEmpty || !priorPlan.additions.isEmpty
         sharedNames += plan.sharedNames
         sharedContext = sharedContext || file.isNewFile == true || !plan.sharedNames.isEmpty || !priorPlan.sharedNames.isEmpty
+        // The installed Debug binary compiled recorded constants as getters.
+        let constants = Set(input.statefulConstants?[file.path] ?? [])
+        let lowered = { (text: String) in lowerConstants(text, policy: ConstantPolicy(), only: constants).source }
+        (baseline, previousSource, desiredSource) = (lowered(baseline), lowered(previousSource), lowered(desiredSource))
         let before = Parser.parse(source: baseline), after = Parser.parse(source: desiredSource)
         guard !before.hasError, !after.hasError else { throw Failure(description: "parse error in file \(fileIndex)") }
         let old = Inventory(baseline, fileIndex: fileIndex, generation: input.generation), new = Inventory(desiredSource, fileIndex: fileIndex, generation: input.generation)
@@ -862,6 +1006,7 @@ func generate(_ input: Input) throws -> [String: Any] {
                              "replacementName": member.replacementName, "kind": member.kind, "accessors": member.accessors,
                              "isStatic": member.isStatic]
             if let targetModule { covered["targetModule"] = targetModule }
+            if member.kind == "property", member.isStatic, constants.contains(member.owner + "." + member.target) { loweredConstants += 1 }
             coverage.append(covered)
         }
         generated.append(chunks.joined(separator: "\n"))
@@ -916,7 +1061,7 @@ func generate(_ input: Input) throws -> [String: Any] {
             "sharedAdditive": sharedContext,
             "statefulComponentProtocol": statefulComponents.isEmpty && originUses.isEmpty ? 0 : 1,
             "statefulComponents": statefulComponents, "statefulOriginUses": originUses,
-            "requiresPrivateScopes": additiveContext || sharedContext]
+            "requiresPrivateScopes": additiveContext || sharedContext, "constantProtocol": loweredConstants > 0 ? 1 : 0]
     if usesAddedState {
         output["addedStateProtocol"] = 1; output["addedStateGeneration"] = input.stateGeneration!
         output["addedStateOwners"] = addedOwners

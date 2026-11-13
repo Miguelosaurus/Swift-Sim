@@ -177,19 +177,21 @@ export function classifyPrivateAdditiveEditSet(files, { manifest: suppliedManife
     const projected = queue.compilationPreview({ binaryIdentity, files: deltas });
     const { snapshots, reference } = additiveSnapshots(projected, manifest, { baselineForFile, queue, binaryIdentity });
     const fullCompiler = compiler || createFullCallableCompiler({ runner: new NodeCommandRunner({ spawn, spawnSync }), cacheRoot: join(LIVE_ROOT, "compiler-cache") });
-    let addedStateBodies;
-    try { addedStateBodies = statefulBodyIndex(manifest.stateful, reference.moduleName).bodies; }
+    let addedStateBodies, statefulConstants;
+    try { ({ bodies: addedStateBodies, constants: statefulConstants } = statefulBodyIndex(manifest.stateful, reference.moduleName)); }
     catch { throw registrationError("FULL_CALLABLE_STATEFUL_ABI_INVALID", "The captured state-preserving view ABI could not be verified. No patch or signed build was started."); }
     const generation = generateAdditive(fullCompiler, { module: reference.moduleName,
       generation: createHash("sha256").update(JSON.stringify(snapshots)).digest("hex").slice(0, 32),
       allowAdditive: true, allowAddedState: true, stateGeneration: 1,
-      statefulBodies: addedStateBodies,
+      statefulBodies: addedStateBodies, ...(Object.keys(statefulConstants).length ? { statefulConstants } : {}),
       availableModules: availableAdditiveModules(reference, snapshots), files: snapshots },
     () => sharedModuleSources(manifest, reference, snapshots, { baselineForFile, queue, binaryIdentity }));
-    if (generation.additiveProtocol !== 1 || generation.requiresPrivateScopes !== true) return null;
-    if (manifest.compilerContextProtocol !== 2) throw registrationError("LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED",
+    const constantOnly = generation.constantProtocol === 1 && generation.additiveProtocol !== 1;
+    if (!constantOnly && (generation.additiveProtocol !== 1 || generation.requiresPrivateScopes !== true)) return null;
+    if (!constantOnly && manifest.compilerContextProtocol !== 2) throw registrationError("LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED",
       "Additions need the concurrency-aware compiler capture. Re-capture the original build metadata before retrying; no app rebuild was started.");
-    const reasonCode = generation.sharedAdditive ? LIVE_REASON_CODES.SHARED_ADDITIVE : LIVE_REASON_CODES.PRIVATE_ADDITIVE;
+    const reasonCode = constantOnly ? LIVE_REASON_CODES.IMPLEMENTATION_ONLY
+      : generation.sharedAdditive ? LIVE_REASON_CODES.SHARED_ADDITIVE : LIVE_REASON_CODES.PRIVATE_ADDITIVE;
     const changes = deltas.map(file => result(file.beforeSource === file.afterSource ? "no-change" : "hot-reload", true,
       "Additions have complete callable representation against the installed source baseline.", { path: file.path }, reasonCode));
     return { ...normalizedClassification({ route: "hot-reload", hotReloadable: true,
@@ -944,7 +946,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   ensureDirectoryModeSync(artifactRoot, 0o700);
   const fullCompiler = compiler || createFullCallableCompiler({ runner, cacheRoot: join(LIVE_ROOT, "compiler-cache") });
   const generationInput = { module: reference.moduleName, generation: key.slice(0, 32),
-    statefulBodies: stateful.bodies,
+    statefulBodies: stateful.bodies, ...(Object.keys(stateful.constants).length ? { statefulConstants: stateful.constants } : {}),
     ...(baselinesVerified ? { preserveViewFunctions: true } : {}),
     ...(needsAdditive ? { allowAdditive: true, allowStatefulAdditive: true, allowAddedState: true, stateGeneration: record.sequence ?? 1, statefulOrigins: componentInput.descriptors, availableModules } : {}),
     files: snapshots };

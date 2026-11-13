@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createFullCallableCompiler } from "./fullCallableCompiler.js";
+import { createFullCallableCompiler, validNameIndex } from "./fullCallableCompiler.js";
 import { NodeAtomicFileStore, ensureDirectoryModeSync } from "./infrastructure/nodeAtomicFileStore.js";
 
 const DRIVER = fileURLToPath(new URL("../resources/StatefulSwiftDriver.py", import.meta.url));
@@ -24,7 +24,8 @@ export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPa
       else if (entry.isFile() && entry.name.endsWith(".swift")) {
         const stat = lstatSync(path); if (stat.size > 1024 * 1024) continue;
         const source = readFileSync(path, "utf8");
-        if (!/\b(?:SwiftUI\.)?View\b/.test(source)) continue;
+        // Views get state-preserving bodies; `static let` constants may become getters.
+        if (!/\b(?:SwiftUI\.)?View\b|\bstatic\s+let\b/.test(source)) continue;
         bytes += Buffer.byteLength(source);
         if (bytes > 7 * 1024 * 1024 || files.length >= 2048) throw invalid();
         files.push({ path, source });
@@ -48,7 +49,7 @@ export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPa
   const featuresPath = join(root, "share", "swift", "features.json"); write(featuresPath, featureBytes);
   const records = generated.files.map((file, index) => {
     const generatedPath = join(directory, `View${index}.swift`); write(generatedPath, file.source);
-    return { path: file.path, sourceDigest: digest(files.find(value => value.path === file.path).source), generatedPath, generatedDigest: digest(file.source), owners: file.owners };
+    return { path: file.path, sourceDigest: digest(files.find(value => value.path === file.path).source), generatedPath, generatedDigest: digest(file.source), owners: file.owners, constants: file.constants || [] };
   });
   const overlayPath = join(directory, "swift-sim-stateful-overlay.json");
   const overlay = JSON.stringify({ version: 0, "case-sensitive": true, "use-external-names": false,
@@ -76,23 +77,25 @@ export function inspectStatefulBuild(overlayPath, sourcePaths) {
     || manifest.featuresPath !== resolve(directory, "../share/swift/features.json")
     || digest(privateBytes(manifest.featuresPath)) !== manifest.featuresDigest
     || manifest.wrapperPath !== join(directory, "swiftc") || digest(privateBytes(manifest.wrapperPath)) !== manifest.wrapperDigest) throw invalid();
-  const inputs = [manifestPath, overlayPath, usagePath, manifest.wrapperPath, manifest.featuresPath]; const bodies = {};
+  const inputs = [manifestPath, overlayPath, usagePath, manifest.wrapperPath, manifest.featuresPath]; const bodies = {}; const constants = {};
   for (const file of manifest.files) {
     if (dirname(file.generatedPath) !== directory || !/^View\d+\.swift$/.test(file.generatedPath.slice(directory.length + 1))
       || !isAbsolute(file.path) || realpathSync(file.path) !== file.path || !Array.isArray(file.owners)
       || file.owners.some(owner => !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(owner))
-      || digest(privateBytes(file.generatedPath)) !== file.generatedDigest) throw invalid();
+      || digest(privateBytes(file.generatedPath)) !== file.generatedDigest
+      || (file.constants !== undefined && !validNameIndex({ [file.path]: file.constants }))) throw invalid();
     inputs.push(file.generatedPath);
     if (sourcePaths.has(file.path)) {
       if (digest(readFileSync(file.path)) !== file.sourceDigest) throw invalid();
       bodies[file.path] = file.owners;
+      if (file.constants?.length) constants[file.path] = file.constants;
     }
   }
-  return { inputs, index: { version: 1, manifestPath, manifestDigest, moduleName: manifest.moduleName, bodies } };
+  return { inputs, index: { version: 1, manifestPath, manifestDigest, moduleName: manifest.moduleName, bodies, constants } };
 }
 
 export function statefulBodyIndex(index, moduleName) {
-  if (!index) return { bodies: {}, digest: "legacy" };
+  if (!index) return { bodies: {}, constants: {}, digest: "legacy" };
   // Original source files may now contain the edit. Immutable generated build
   // inputs, rather than current source text, establish the installed ABI.
   const bytes = privateBytes(index.manifestPath); const manifest = JSON.parse(bytes);
@@ -106,7 +109,14 @@ export function statefulBodyIndex(index, moduleName) {
       || digest(privateBytes(file.generatedPath)) !== file.generatedDigest) throw invalid();
     bodies[path] = owners;
   }
-  return { bodies, digest: index.manifestDigest };
+  // Constants recorded for the installed binary; the manifest digest binds them.
+  const constants = {};
+  for (const [path, names] of Object.entries(index.constants || {})) {
+    const file = manifest.files.find(value => value.path === path);
+    if (!file || JSON.stringify(names) !== JSON.stringify(file.constants)) throw invalid();
+    constants[path] = names;
+  }
+  return { bodies, constants, digest: index.manifestDigest };
 }
 
 function privateBytes(path) {
