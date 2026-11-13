@@ -109,4 +109,43 @@ struct SwiftSimDeveloperReportReceipt {
     }
 }
 
+#if canImport(UIKit) && os(iOS)
+import UIKit
+
+extension SwiftSimDeveloperMenuCoordinator {
+    enum TextSize: String, CaseIterable {
+        case appDefault = "app-default", xs, s, m, l, xl, xxl, xxxl, ax1, ax2, ax3, ax4, ax5
+        var title: String {
+            switch self {
+            case .appDefault: "App default"
+            case .xs: "Extra small"; case .s: "Small"; case .m: "Medium"; case .l: "Large"
+            case .xl: "Extra large"; case .xxl: "Extra extra large"; case .xxxl: "Extra extra extra large"
+            case .ax1: "Accessibility 1"; case .ax2: "Accessibility 2"; case .ax3: "Accessibility 3"
+            case .ax4: "Accessibility 4"; case .ax5: "Accessibility 5"
+            }
+        }
+        var category: UIContentSizeCategory? {
+            switch self {
+            case .appDefault: nil
+            case .xs: .extraSmall; case .s: .small; case .m: .medium; case .l: .large
+            case .xl: .extraLarge; case .xxl: .extraExtraLarge; case .xxxl: .extraExtraExtraLarge
+            case .ax1: .accessibilityMedium; case .ax2: .accessibilityLarge
+            case .ax3: .accessibilityExtraLarge; case .ax4: .accessibilityExtraExtraLarge
+            case .ax5: .accessibilityExtraExtraExtraLarge
+            }
+        }
+    }
+    enum LayoutDirection: String, CaseIterable {
+        case appDefault = "app-default", ltr, rtl
+        var title: String {
+            switch self { case .appDefault: "App default"; case .ltr: "Left-to-right"; case .rtl: "Right-to-left" }
+        }
+        var direction: UITraitEnvironmentLayoutDirection? {
+            switch self { case .appDefault: nil; case .ltr: .leftToRight; case .rtl: .rightToLeft }
+        }
+    }
+
+}
+#endif
+
 #endif

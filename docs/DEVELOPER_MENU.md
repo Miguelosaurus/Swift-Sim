@@ -26,6 +26,9 @@ Release apps do not include the menu.
   window. App default restores the app's own original theme behavior. No iPhone
 Settings or saved app preferences are written by Swift Sim. App-specific theme
 overrides may take precedence.
+- **Text size** and **Layout direction** temporarily override Dynamic Type and
+  left-to-right or right-to-left layout for the app window on iOS 17 or later.
+  Choose App default to restore the app’s original behavior.
 
 The menu shows the current Debug build and Swift Sim delivery context. It is not
 a console, network inspector or continuous recorder. Captures contain only the
@@ -88,6 +91,8 @@ The agent can also use these tools without opening the menu or asking for taps:
 ```sh
 swift-sim app-tools --appearance dark
 swift-sim app-tools --appearance app-default
+swift-sim app-tools --text-size ax1
+swift-sim app-tools --layout-direction rtl
 swift-sim app-tools --refresh-screen
 ```
 
@@ -95,7 +100,11 @@ These are deliberate actions for the active task, never part of a read-only
 context request. Exactly one tool can be requested at a time. Actions are bound
 to the observed app process and connection, and require a native response. A
 screen refresh reports `refresh-requested`, not a new code update or receipt.
-Restore App default after a temporary appearance test. An unconfirmed operation
+Restore App default after a temporary appearance, text size or layout direction test.
+Text size values are `app-default`, `xs`, `s`, `m`, `l`, `xl`, `xxl`, `xxxl`,
+`ax1`, `ax2`, `ax3`, `ax4`, and `ax5`; layout direction values are `app-default`,
+`ltr`, and `rtl`. These two tools require iOS 17 and engine capability
+`developer-environment-v1`. An unconfirmed operation
 must not be blindly repeated.
 
 Pass `--project <App.xcodeproj>` or `--workspace <App.xcworkspace>` and optionally
