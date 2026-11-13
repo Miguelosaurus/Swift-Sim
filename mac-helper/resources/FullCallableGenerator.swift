@@ -1148,6 +1148,14 @@ final class StructureFacts: SyntaxVisitor {
         return .skipChildren
     }
 }
+func availabilityConditions(_ tree: SourceFileSyntax) -> [String] {
+    final class Conditions: SyntaxVisitor {
+        var values: [String] = []
+        init() { super.init(viewMode: .sourceAccurate) }
+        override func visit(_ n: AvailabilityConditionSyntax) -> SyntaxVisitorContinueKind { values.append(tokens(n)); return .skipChildren }
+    }
+    let conditions = Conditions(); conditions.walk(tree); return conditions.values
+}
 func classifyFile(before beforeSource: String, after afterSource: String) -> [String: Any] {
     func rebuild(_ code: String, _ reason: String, _ category: String = "unsupported-live-edit", member: String? = nil, line: Int? = nil) -> [String: Any] {
         var diagnostic: [String: Any] = ["category": category]
@@ -1161,6 +1169,11 @@ func classifyFile(before beforeSource: String, after afterSource: String) -> [St
     for tree in [before, after] {
         let check = ExplicitReplacementOrMacroDecl(); check.walk(tree)
         if check.found { return rebuild("MACRO_OR_EXPLICIT_REPLACEMENT", "Macro declarations and explicit dynamic replacement require a rebuild.") }
+    }
+    // Policy kept from the reviewed classifier: runtime availability is a rebuild
+    // boundary even inside bodies, until physical replacement evidence exists.
+    if availabilityConditions(before) != availabilityConditions(after) {
+        return rebuild("DECLARATION_CHANGED", "A conditional-compilation or availability condition changed.")
     }
     let generation = String(repeating: "0", count: 32)
     let old = Inventory(beforeSource, fileIndex: 0, generation: generation), new = Inventory(afterSource, fileIndex: 0, generation: generation)
@@ -1191,8 +1204,9 @@ func classifyFile(before beforeSource: String, after afterSource: String) -> [St
         return rebuild("STORED_PROPERTY_CHANGED", "A stored property or its initializer changed.", "installed-structure", member: was.stored[now.stored.count].member)
     }
     if let changed = new.members.first(where: { !Set(oldKeys).contains($0.key) }) ?? old.members.first(where: { !Set(newKeys).contains($0.key) }) {
-        let existing = old.members.contains { $0.owner == changed.owner && $0.target == changed.target }
-            && new.members.contains { $0.owner == changed.owner && $0.target == changed.target }
+        // Same owner and base name on both sides: an installed callable changed shape.
+        let base = { (member: Member) in member.owner + "." + (member.target.split(separator: "(").first.map(String.init) ?? member.target) }
+        let existing = old.members.contains { base($0) == base(changed) } && new.members.contains { base($0) == base(changed) }
         return rebuild("SIGNATURE_CHANGED", "A function, initializer, subscript, or type signature changed.",
                        existing ? "installed-structure" : "unsupported-live-edit", member: changed.target, line: changed.line)
     }
