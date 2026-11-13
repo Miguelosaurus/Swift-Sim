@@ -14,7 +14,7 @@ const digest = value => createHash("sha256").update(value).digest("hex");
 export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPath, runner, compiler }) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(moduleName || "") || !isAbsolute(compilerPath || "")) return null;
   const base = dirname(resolve(projectPath));
-  const files = []; let visited = 0; let bytes = 0; let hasCandidates = false; let oversized = false;
+  const files = []; let visited = 0; let bytes = 0; let complete = true;
   function scan(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (++visited > 30_000) throw invalid();
@@ -22,21 +22,22 @@ export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPa
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) { if (!OMIT.has(entry.name) && !entry.name.startsWith(".") && !/\.(?:xcodeproj|xcworkspace|app|framework)$/.test(entry.name)) scan(path); }
       else if (entry.isFile() && entry.name.endsWith(".swift")) {
-        const stat = lstatSync(path); if (stat.size > 1024 * 1024) { oversized = true; continue; }
-        const source = readFileSync(path, "utf8");
-        // All source files inform the module-wide shadowing guard. Only invoke
-        // instrumentation when at least one file may need an overlay.
-        if (/\b(?:SwiftUI\.)?View\b|\bstatic\s+let\b/.test(source)) hasCandidates = true;
-        bytes += Buffer.byteLength(source);
-        if (bytes > 7 * 1024 * 1024 || files.length >= 2048) throw invalid();
-        files.push({ path, source });
+        const stat = lstatSync(path); if (stat.size > 1024 * 1024) { complete = false; continue; }
+        // Every file informs the constant-shadowing guard; only candidates can need an overlay.
+        files.push({ path, source: readFileSync(path, "utf8") });
       }
     }
   }
   scan(base);
-  if (!hasCandidates) return null;
-  if (oversized) throw invalid();
-  const generated = (compiler || createFullCallableCompiler({ runner, cacheRoot: join(root, "stateful-compiler-cache") })).instrument({ files });
+  const candidates = files.filter(file => /\b(?:SwiftUI\.)?View\b|\bstatic\s+let\b/.test(file.source));
+  if (!candidates.length) return null;
+  for (const file of candidates) if ((bytes += Buffer.byteLength(file.source)) > 7 * 1024 * 1024 || candidates.length > 2048) throw invalid();
+  // Constant lowering needs the whole module for its shadowing guard. When that
+  // inventory is incomplete, keep view instrumentation and leave constants stored.
+  const total = files.reduce((sum, file) => sum + Buffer.byteLength(file.source), 0);
+  const lowerConstants = complete && files.length <= 2048 && total <= 7 * 1024 * 1024;
+  const generated = (compiler || createFullCallableCompiler({ runner, cacheRoot: join(root, "stateful-compiler-cache") }))
+    .instrument({ files: lowerConstants ? files : candidates, lowerConstants });
   if (!generated.files.length) return null;
   const directory = join(root, "stateful-sources"); ensureDirectoryModeSync(directory, 0o700);
   const store = new NodeAtomicFileStore();

@@ -26,6 +26,7 @@ struct Input: Decodable {
 struct InstrumentInput: Decodable {
     struct File: Decodable { let path: String; let source: String }
     let files: [File]
+    let lowerConstants: Bool?
 }
 
 func statefulBody(_ statements: CodeBlockItemListSyntax, lineCount: Int) -> AccessorBlockSyntax {
@@ -241,7 +242,7 @@ func instrument(_ input: InstrumentInput) throws -> [String: Any] {
     var result: [[String: Any]] = []
     let policy = ConstantPolicy(shadowing: input.files.map { Parser.parse(source: $0.source) })
     for file in input.files {
-        let (lowered, constants) = lowerConstants(file.source, policy: policy)
+        let (lowered, constants) = input.lowerConstants == false ? (file.source, []) : lowerConstants(file.source, policy: policy)
         let tree = Parser.parse(source: lowered)
         guard !tree.hasError else { continue }
         let rewrite = StatefulInstrumenter()

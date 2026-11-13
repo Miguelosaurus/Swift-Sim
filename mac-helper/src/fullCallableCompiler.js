@@ -82,7 +82,8 @@ export function createFullCallableCompiler({ runner, cacheRoot, resourcePath = S
   function instrument(input) {
     if (!Array.isArray(input?.files) || input.files.length > 2048 || input.files.some(file =>
       !isAbsolute(file.path || "") || typeof file.source !== "string")
-      || new Set(input.files.map(file => file.path)).size !== input.files.length) throw unsupported();
+      || new Set(input.files.map(file => file.path)).size !== input.files.length
+      || (input.lowerConstants !== undefined && typeof input.lowerConstants !== "boolean")) throw unsupported();
     const encoded = JSON.stringify(input);
     if (Buffer.byteLength(encoded) > INPUT_LIMIT) throw unsupported();
     let result;

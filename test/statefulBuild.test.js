@@ -130,3 +130,18 @@ test("overlay instrumentation sees shadowing declarations in otherwise ordinary 
     compilerPath: join(f.root, "tool", "bin", "swiftc"), compiler: { instrument({ files }) { scanned = files; return { files: [] }; } } });
   assert(scanned.some(file => file.path === shadow), "shadowing declarations must be included in the generator's module-wide policy");
 });
+
+test("an incomplete module inventory keeps view instrumentation but disables constant lowering", t => {
+  const f = fixture(t);
+  writeFileSync(join(f.root, "Huge.swift"), "// " + "x".repeat(1024 * 1024 + 1));
+  writeFileSync(join(f.root, "Plain.swift"), "struct Model {}");
+  let received;
+  const build = prepareStatefulBuild({ projectPath: join(f.root, "App.xcodeproj"), root: join(f.root, "incomplete-build"),
+    moduleName: "App", compilerPath: join(f.root, "tool", "bin", "swiftc"), compiler: { instrument(input) {
+      received = input;
+      return { resourceDigest: "a".repeat(64), files: input.files.map(file => ({ ...file, owners: ["Screen"] })) };
+    } } });
+  assert.ok(build);
+  assert.equal(received.lowerConstants, false);
+  assert.deepEqual(received.files.map(file => file.path), [f.source]);
+});
