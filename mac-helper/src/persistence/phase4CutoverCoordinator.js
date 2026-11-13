@@ -185,45 +185,54 @@ export class Phase4CutoverCoordinator {
       "Phase-4 rollback window",
     );
 
-    return this.#withAllDomainLocks(() => {
-      const current = this.#readAllLockedSnapshots(prepared.domains);
-      requirePreparedDomainsMatch(prepared.domains, current, "activation");
-      this.#applyLockedSnapshots(current);
-      requireSqliteProjectionEquality(
-        current,
-        this.#pairingRepository,
-        this.#deviceRepository,
-        this.#sessionRepository,
-      );
+    return this.#withAllDomainLocks(() =>
+      this.#activateLocked({ authority, preparationID, evidenceHash, prepared, rollbackWindowMs }),
+    );
+  }
 
-      const fresh = this.#readAllLockedSnapshots(prepared.domains);
-      requirePreparedDomainsMatch(prepared.domains, fresh, "final freshness");
-      requireSnapshotsMatch(current, fresh);
+  /**
+   * Apply and verify the locked snapshots and atomically select SQLite.
+   * The caller must hold every legacy domain lock throughout this method.
+   * @param {{ authority: any, preparationID: string, evidenceHash: string, prepared: any, rollbackWindowMs: number }} input
+   */
+  #activateLocked({ authority, preparationID, evidenceHash, prepared, rollbackWindowMs }) {
+    const current = this.#readAllLockedSnapshots(prepared.domains);
+    requirePreparedDomainsMatch(prepared.domains, current, "activation");
+    this.#applyLockedSnapshots(current);
+    requireSqliteProjectionEquality(
+      current,
+      this.#pairingRepository,
+      this.#deviceRepository,
+      this.#sessionRepository,
+    );
 
-      const cutoverAt = new Date().toISOString();
-      const rollbackExpiresAt = new Date(Date.parse(cutoverAt) + rollbackWindowMs).toISOString();
-      const pairing = fresh.pairing;
-      const activated = this.#authority.activateSqliteRollback({
-        expectedRevision: authority.revision,
-        preparationID,
-        evidenceHash,
-        now: cutoverAt,
-        rollbackExpiresAt,
-        beforeSelectorCommit: ({ cutoverAt: committedAt, rollbackExpiresAt: committedExpiry }) => {
-          this.#pairingBridge.activateInsideGlobalCommit({
-            preparationID,
-            sourceRevision: pairing.sourceRevision,
-            projectionHash: pairing.projectionHash,
-            cutoverAt: committedAt,
-            rollbackExpiresAt: committedExpiry,
-          });
-        },
-      });
-      return Object.freeze({
-        status: "activated",
-        authority: activated,
-        domains: summarizeLockedDomains(fresh),
-      });
+    const fresh = this.#readAllLockedSnapshots(prepared.domains);
+    requirePreparedDomainsMatch(prepared.domains, fresh, "final freshness");
+    requireSnapshotsMatch(current, fresh);
+
+    const cutoverAt = new Date().toISOString();
+    const rollbackExpiresAt = new Date(Date.parse(cutoverAt) + rollbackWindowMs).toISOString();
+    const pairing = fresh.pairing;
+    const activated = this.#authority.activateSqliteRollback({
+      expectedRevision: authority.revision,
+      preparationID,
+      evidenceHash,
+      now: cutoverAt,
+      rollbackExpiresAt,
+      beforeSelectorCommit: ({ cutoverAt: committedAt, rollbackExpiresAt: committedExpiry }) => {
+        this.#pairingBridge.activateInsideGlobalCommit({
+          preparationID,
+          sourceRevision: pairing.sourceRevision,
+          projectionHash: pairing.projectionHash,
+          cutoverAt: committedAt,
+          rollbackExpiresAt: committedExpiry,
+        });
+      },
+    });
+    return Object.freeze({
+      status: "activated",
+      authority: activated,
+      domains: summarizeLockedDomains(fresh),
     });
   }
 
