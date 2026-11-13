@@ -6,12 +6,17 @@ import {
   mkdtempSync,
   readFileSync as readBytes,
   rmSync,
+  readdirSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { collectPhase4OperatorDiagnostics } from "../mac-helper/src/commands/phase4OperatorDiagnostics.js";
+import { DEVICE_BUILD_CUTOVER_LEGACY_RAW } from "./fixtures/deviceBuildCutoverFixtures.js";
+import { migrateToSqliteAutomatically, AUTOMATIC_ROLLBACK_WINDOW_MS } from "../mac-helper/src/persistence/phase4AutomaticMigration.js";
+import { Phase4PairingAuthorityBridge } from "../mac-helper/src/persistence/phase4PairingAuthorityBridge.js";
 import { Phase4AuthorityRouter } from "../mac-helper/src/persistence/phase4AuthorityRouter.js";
 import { Phase4CutoverCoordinator } from "../mac-helper/src/persistence/phase4CutoverCoordinator.js";
 import { createPhase4ProductionStoreFactories } from "../mac-helper/src/persistence/phase4ProductionStores.js";
@@ -514,3 +519,117 @@ test("maintenance status requires explicit state root and does not mutate SQLite
 function writeJSON(path, value) {
   writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
 }
+
+
+test("automatic migration waits for pairing and preserves a credential through cutover", () => {
+  withRoot(({ stateRoot }) => {
+    assert.deepEqual(migrateToSqliteAutomatically({ stateRoot, spawn: spawnSync }), { status: "waiting" });
+    seedLegacyState(stateRoot);
+    for (const name of ["pairing-invites.json", "device-builds.json", "sessions.json"]) rmSync(join(stateRoot, name));
+    const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
+    const before = stores.createPairingStore().current();
+    const started = Date.now();
+    const result = migrateToSqliteAutomatically({ stateRoot, spawn: fakeSpawnSync });
+    assert.equal(result.status, "migrated");
+    assert.ok(Math.abs(Date.parse(result.rollbackExpiresAt) - started - AUTOMATIC_ROLLBACK_WINDOW_MS) < 5000);
+    assert.equal(stores.router.current().mode, "sqlite-rollback");
+    assert.deepEqual(stores.createPairingStore().current(), before);
+    const statusPath = join(stateRoot, "storage-migration.json");
+    const status = readBytes(statusPath);
+    const recorded = JSON.parse(status);
+    assert.equal(recorded.rollbackExpiresAt, result.rollbackExpiresAt);
+    assert.ok(Date.parse(recorded.migratedAt) >= started);
+    assert.equal(statSync(statusPath).mode & 0o077, 0);
+    assert.equal(migrateToSqliteAutomatically({ stateRoot, spawn: fakeSpawnSync }).status, "sqlite");
+    assert.deepEqual(readBytes(statusPath), status);
+    stores.database.close();
+  });
+});
+
+test("automatic migration preserves populated product reads, source bytes and private backups", () => {
+  withRoot(({ stateRoot }) => {
+    seedLegacyState(stateRoot);
+    const device = JSON.parse(DEVICE_BUILD_CUTOVER_LEGACY_RAW);
+    device.apps["app-2"] = { ...device.apps["app-1"] };
+    device.builds.push({ ...device.builds[0], id: "legacy-build-2", scheme: "Second", app: { ...device.builds[0].app, identity: "app-2", bundleIdentifier: "com.example.second" } });
+    writeJSON(join(stateRoot, "device-builds.json"), device);
+    const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
+    const pairing = stores.createPairingStore().current();
+    const invites = stores.createPairingInviteStore();
+    const { invite } = invites.create({ pairing });
+    const builds = stores.createDeviceBuildStore();
+    const sessions = stores.createSessionStore();
+    const snapshot = () => ({
+      pairing: stores.createPairingStore().current(),
+      status: stores.createPairingStore().status(),
+      invite: invites.inspect(invite, pairing),
+      builds: builds.list(),
+      build: builds.get("legacy-build-1"),
+      apps: builds.listApps({ includeArchived: true }),
+      sessions: sessions.list(),
+    });
+    const before = snapshot();
+    assert.equal(before.builds.length, 2);
+    assert.ok(before.invite);
+    assert.equal(before.apps.length, 2);
+    assert.equal(before.sessions.length, 1);
+    const names = ["pairing.json", "pairing-invites.json", "device-builds.json", "sessions.json"];
+    const original = names.map((name) => readBytes(join(stateRoot, name)));
+    assert.equal(migrateToSqliteAutomatically({ stateRoot, spawn: fakeSpawnSync }).status, "migrated");
+    assert.deepEqual(snapshot(), before);
+    assert.deepEqual(names.map((name) => readBytes(join(stateRoot, name))), original);
+    const backupRoot = join(stateRoot, "migration-backups");
+    const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      assert.equal(statSync(path).mode & 0o077, 0, path);
+      return entry.isDirectory() ? walk(path) : [readBytes(path)];
+    });
+    const backups = walk(backupRoot);
+    for (const bytes of original) assert.ok(backups.some((backup) => backup.equals(bytes)));
+    stores.database.close();
+  });
+});
+
+test("automatic failure clears fences, defers for a day and retries", () => {
+  withRoot(({ stateRoot }) => {
+    seedLegacyState(stateRoot);
+    const path = join(stateRoot, "sessions.json");
+    const valid = readBytes(path);
+    writeFileSync(path, "{bad json", { mode: 0o600 });
+    const start = Date.now();
+    const run = (time) => migrateToSqliteAutomatically({ stateRoot, spawn: fakeSpawnSync, now: () => time });
+    const failed = run(start);
+    assert.equal(failed.status, "legacy");
+    const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
+    const authority = stores.authorityRepository.getState();
+    assert.equal(authority.mode, "legacy");
+    assert.equal(new Phase4PairingAuthorityBridge(stores.database).current().mode, "legacy");
+    const status = JSON.parse(readBytes(join(stateRoot, "storage-migration.json"), "utf8"));
+    assert.equal(status.failedAt, new Date(start).toISOString());
+    assert.equal(status.code, failed.code);
+    writeFileSync(path, valid);
+    assert.equal(run(start + 86_400_000 - 1).status, "deferred");
+    assert.deepEqual(stores.authorityRepository.getState(), authority);
+    assert.equal(run(start + 86_400_000).status, "migrated");
+    stores.database.close();
+  });
+});
+
+test("automatic migration recovers interrupted preparation and supports operator rollback", () => {
+  withRoot(({ stateRoot }) => {
+    seedLegacyState(stateRoot);
+    const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
+    const coordinator = new Phase4CutoverCoordinator({ database: stores.database, stateRoot, spawnSync: fakeSpawnSync });
+    coordinator.prepare({ expectedRevision: 0, preparationID: PREPARATION_ID, maintenanceEvidence: maintenanceEvidence() });
+    assert.equal(stores.router.current().mode, "preparing");
+    assert.equal(migrateToSqliteAutomatically({ stateRoot, spawn: fakeSpawnSync }).status, "migrated");
+    const pairing = stores.createPairingStore().rotate();
+    const active = stores.authorityRepository.getState();
+    const result = new Phase4RollbackCoordinator({ database: stores.database, stateRoot, spawnSync: fakeSpawnSync }).run({
+      expectedRevision: active.revision, expectedCutoverEpoch: active.cutoverEpoch, maintenanceEvidence: maintenanceEvidence(),
+    });
+    assert.equal(result.authority.mode, "legacy");
+    assert.equal(stores.createPairingStore().current().token, pairing.token);
+    stores.database.close();
+  });
+});

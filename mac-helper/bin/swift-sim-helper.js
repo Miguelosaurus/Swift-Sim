@@ -52,6 +52,7 @@ import { createSessionHttpApplicationService } from "../src/http/sessionHttpAppl
 import { handleSessionRoutes } from "../src/http/sessionRoutes.js";
 import { createCompatibilityHelperRuntime } from "../src/infrastructure/compatibilityHelperRuntime.js";
 import { prepareDeviceBuildShadowCompatibility } from "../src/persistence/deviceBuildShadowCompatibility.js";
+import { migrateToSqliteAutomatically } from "../src/persistence/phase4AutomaticMigration.js";
 import { runExtractedHelperCommand } from "../src/helperCliRuntime.js";
 import { dispatchCompatibilityCommand } from "../src/commands/compatibilityCommands.js";
 import { createSessionRuntimeController } from "../src/sessionRuntimeController.js";
@@ -314,12 +315,24 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     closeResources: () => deviceBuildShadow.close(),
   });
   await lifecycle.prepare();
-  deviceBuildShadow = await prepareDeviceBuildShadowCompatibility({
-    deviceBuildStore,
-    spawnSync,
-    clock,
-    reportError: (message) => console.error(message),
-  });
+  // Ensure the pairing credential exists, then move legacy JSON state to SQLite
+  // once. Shadow comparison only applies while JSON is still authoritative.
+  let storage;
+  try {
+    pairingStore.current();
+    storage = migrateToSqliteAutomatically({ spawn: spawnSync, log: (line) => console.error(line) });
+  } catch (error) {
+    storage = { status: "legacy" };
+    console.error(`Swift Sim could not inspect its local state format: ${error instanceof Error ? error.message : error}`);
+  }
+  if (storage.status !== "sqlite" && storage.status !== "migrated") {
+    deviceBuildShadow = await prepareDeviceBuildShadowCompatibility({
+      deviceBuildStore,
+      spawnSync,
+      clock,
+      reportError: (message) => console.error(message),
+    });
+  }
   const deviceAppService = createDeviceAppApplicationService({
     pairingTokenMatches,
     listBuilds: () => deviceBuildStore.list(),
