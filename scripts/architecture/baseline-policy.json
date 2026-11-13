@@ -262,7 +262,18 @@
   },
   "allowlists": {
     "preloadRuntimePatchModules": [],
-    "childProcessImporters": [],
+    "childProcessImporters": [
+      {
+        "id": "implicit-before-git-baseline",
+        "path": "mac-helper/src/changeDelivery.js",
+        "max": 1,
+        "adr": "docs/internal/adr/ADR-0002-explicit-infrastructure-ports.md",
+        "reason": "Read a bounded Git source snapshot only when the installed baseline hash verifies it.",
+        "owner": "Change delivery",
+        "removalPhase": "Move Git baseline reads behind the command runner when delivery gains an injected infrastructure boundary.",
+        "expiresOn": "2027-08-04"
+      }
+    ],
     "destructiveFilesystemImporters": [
       {
         "id": "phase-2-atomic-file-store",

@@ -29,15 +29,14 @@ After each completed logical change, invoke once:
 
 ```sh
 swift-sim deliver-change \
-  --before "<previous.swift>" \
   --after "<current.swift>" \
   --project "<App.xcodeproj>" \
   --scheme "<App>" \
   --allow-provisioning-updates
 ```
 
-Use `--workspace` for workspaces, matching `--before`/`--after` pairs for multiple
-files, and preserve `--build-setting` arguments.
+Use `--workspace` for workspaces, repeat `--after` for multiple files, and preserve
+`--build-setting` arguments. Pass a matching `--before` snapshot when requested.
 The command owns immutable snapshots, classification, cheap warm validation,
 durable queueing and strict applied/refresh/revision proof. Use `--live-only` when rebuilds are explicitly forbidden or for hot reload
 qualification; it never builds an app.

@@ -26,3 +26,17 @@ test("normal CLI and no-change delivery never load the recovery modules", (t) =>
     assert.doesNotMatch(result.stderr, /RECOVERY_MODULE_LOADED/);
   }
 });
+
+test("deliver-change accepts implicit after and asks for an unavailable snapshot", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "swift-sim-cli-before-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "Card.swift"); writeFileSync(path, "struct Card {}\n");
+  const result = spawnSync(process.execPath, [entry, "deliver-change", "--after", path, "--project", join(root, "App.xcodeproj"), "--scheme", "App"], {
+    env: { ...process.env, HOME: root }, encoding: "utf8", timeout: 10000,
+  });
+  assert.equal(result.status, 1, result.stderr);
+  const envelope = JSON.parse(result.stdout);
+  assert.equal(envelope.outcome, "needs-user-action");
+  assert.equal(envelope.reasonCode, "BEFORE_SNAPSHOT_UNAVAILABLE");
+  assert.doesNotMatch(result.stdout, /Card\.swift/);
+});

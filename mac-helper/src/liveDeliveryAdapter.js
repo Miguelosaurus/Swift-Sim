@@ -138,6 +138,11 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
   return Object.freeze({
     withLock: lock,
     cleanup: cleanupQueuedLiveArtifacts,
+    sourceBinding({ project, scheme }) {
+      const manifest = capture(); const scope = scopeFor(manifest);
+      if ((project && canonicalProjectPath(project) !== scope.project) || (scheme && scheme !== scope.scheme)) throw deliveryError("LIVE_PROJECT_MISMATCH", "The live build belongs to a different project or scheme. Select the intended Debug integration; no rebuild was started.");
+      return { scope, manifest };
+    },
     validatePrepared(record) {
       if (record.preparedPatch?.replacementProof) { validateCompleteQueuedLivePatchCoverage(record); return; }
       if (!/^[a-f0-9]{64}$/.test(record.snapshotDigest || "") || record.preparedPatch?.coverageVersion !== CLASSIFIER_VERSION || record.preparedPatch?.sourceSnapshotDigest !== record.snapshotDigest) validateQueuedLivePatchCoverage(record);

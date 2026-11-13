@@ -373,8 +373,8 @@ async function deliverChangeCommand(args) {
 }
 
 function deliveryFiles(beforePaths, afterPaths) {
-  if (beforePaths.length === 0 || beforePaths.length !== afterPaths.length) throw new Error("Pass the same nonzero number of --before and --after Swift files.");
-  return beforePaths.map((beforePath, index) => ({ path: afterPaths[index] || beforePath, status: "modified", kind: "swift", beforePath, afterPath: afterPaths[index] }));
+  if (!afterPaths.length || beforePaths.length > afterPaths.length) throw new Error("Pass --after for each Swift file, with optional matching --before snapshots first.");
+  return afterPaths.map((afterPath, index) => ({ path: afterPath, status: "modified", kind: "swift", ...(beforePaths[index] ? { beforePath: beforePaths[index] } : {}), afterPath }));
 }
 
 
@@ -1025,7 +1025,8 @@ Usage:
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
   swift-sim route-change ...      Choose hot reload or a new signed build
-  swift-sim deliver-change ...    Deliver edits to iPhone; --install auto|link
+  swift-sim deliver-change ...    Deliver edits: --after <file> (repeatable), optional --before <snapshot>; --install auto|link
+                                 Explicit --before snapshots pair with --after files in order, starting with the first
   swift-sim integrate-xcode ...   Add/remove bounded Debug build hooks
   swift-sim import-xcode-build ... Record signed Xcode output without copying it
   swift-sim export-xcode-build ... Export one recorded app to a new local IPA
