@@ -21,7 +21,7 @@ while IFS= read -r -d '' path; do
       ;;
     .agents/*|.claude-plugin/*|.cursor-plugin/*|plugins/*|Companion/*|\
     benchmarks/corpora/*|benchmarks/fixtures/*|benchmarks/schema/*|\
-    test/fixtures/*|test/xcode-import-python/*|mac-helper/*|scripts/*|packaging/*|README.md|CHANGELOG.md|\
+    test/fixtures/*|test/xcode-import-python/*|test/native-install-python/*|mac-helper/*|scripts/*|packaging/*|README.md|CHANGELOG.md|\
     LICENSE|SECURITY.md|package.json|package-lock.json)
       copy_tracked_asset "$path"
       ;;

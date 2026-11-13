@@ -52,7 +52,7 @@ pinned-peer/device check found the current endpoint, and build 34 was submitted
 once and verified. This was endpoint recovery from a pre-connection failure, not
 a retry of an uncertain installation.
 
-The optional [endpoint refresh command](../../mac-helper/optional/direct-install/refresh_endpoint.py)
+The optional `mac-helper/optional/direct-install/refresh_endpoint.py` (archived; see git tag archive/pre-lean-2026-11-13)
 now packages those steps into bounded, on-demand Mac work. It checks the cache
 first, queries local Bonjour only after a connection failure, and updates the
 private port only after native authentication/device verification succeeds. It

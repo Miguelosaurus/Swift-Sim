@@ -11,7 +11,6 @@ version records; it does not replace their license texts.
 | CI credential scanner | [Gitleaks](https://github.com/gitleaks/gitleaks), MIT; CI pins version 8.30.1 and verifies its archive checksum. It is a build-time tool, not a shipped runtime dependency. |
 | Live engine and native client | [Swift Sim InjectionNext fork](https://github.com/Miguelosaurus/InjectionNext), based on [johnno1962/InjectionNext](https://github.com/johnno1962/InjectionNext), MIT; `Package.swift` and `mac-helper/compatibility.json` bind the exact tag, source and engine archive. The signed engine retains its license. |
 | Optional app-testing provider | [OpenMinis/iCTRL](https://github.com/OpenMinis/iCTRL), Apache-2.0; [vendor provenance](mac-helper/optional/app-control/vendor/provenance.json), [license](mac-helper/optional/app-control/vendor/LICENSE), and [runner changes](mac-helper/optional/app-control/runner/README.md). |
-| Optional native-install prototype | [mh-mobile/idevice](https://github.com/mh-mobile/idevice), MIT; the isolated [prototype](mac-helper/optional/direct-install/README.md) records its pinned provider and qualification limits. It is not bundled into the Debug SDK. |
 
 Preserve license/provenance files when changing vendored material. Review the
 exact upstream revision and its terms before updating a dependency. Document

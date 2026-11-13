@@ -11,7 +11,7 @@ The dispatch baseline was `e783454`; earlier work is preserved.
 | Mechanism | Evidence | Current claim / bootstrap |
 | --- | --- | --- |
 | Whole-callable async, throws/rethrows/typed throws, parameters/results, closures, task groups, continuations, overloads, generic constraints, actors and accessors | [Async native experiments](HOT_RELOAD_ASYNC_NATIVE_EXPERIMENTS_2026_10_30.md): 39 runtime checks in Swift 5 and 6, 18 Swift replacement definitions per generation | Host prototype; existing implicit-dynamic/private-import Debug bootstrap suffices for tested forms |
-| Compiler-backed generation of complete callable bodies from ordinary source | [Generate.swift](../../scripts/experimental/hot-reload/full-callable/Generate.swift), [verification](../../scripts/experimental/hot-reload/full-callable/verify.mjs): 21 native observations, seven definitions each in two generated patches | Experimental capability; six actual iPhone replacements and restoration proven below |
+| Compiler-backed generation of complete callable bodies from ordinary source | `scripts/experimental/hot-reload/full-callable/Generate.swift` (archived; see git tag archive/pre-lean-2026-11-13), `scripts/experimental/hot-reload/full-callable/verify.mjs` (archived; see git tag archive/pre-lean-2026-11-13): 21 native observations, seven definitions each in two generated patches | Experimental capability; six actual iPhone replacements and restoration proven below |
 | Added private/fileprivate functions, helpers/types/extensions, generic/protocol dependencies and an available-module import | [Additive experiments and generator](HOT_RELOAD_ADDITIVE_NATIVE_EXPERIMENTS_2026_10_30.md): handwritten mechanism 20 native assertions; AST-generated two-file patches 10 native assertions, three existing methods plus eight additions per generation | Host prototype; preserve file boundaries, exact private imports and unique generation module identities |
 | Richer structural state and externally staged resources | [State/component experiment](HOT_RELOAD_COVERAGE_FRONTIER_2026_10_30.md): 38 native checks and five fresh-process checks | One new opt-in Debug bootstrap is needed; explicit sidecars/versioned components and migration, not instance resizing |
 | Objective-C-inferred UIKit callbacks | Separate native Objective-C dispatch experiment linked from the async record | Mixed Swift/Objective-C coverage needs a distinct pre-admission inventory and truthful native proof; Swift TX count alone is incomplete |
@@ -95,7 +95,7 @@ Private receipts: `.build/hot-reload-frontier/physical-async-admission/` and
 pointing to the successful restoration. The original failed result remains
 intact. The original full-target failure is under `physical/`.
 
-The maintainer-only [phone qualification tool](../../scripts/experimental/hot-reload/full-callable/qualify-phone.mjs)
+The maintainer-only `scripts/experimental/hot-reload/full-callable/qualify-phone.mjs` (archived; see git tag archive/pre-lean-2026-11-13)
 uses separate queues and explicit capability/phone-readiness arguments. Its
 cleanup obligation begins at mutation dispatch, regardless of acknowledgement.
 Compensation uses a distinct request and an authenticated current revision in

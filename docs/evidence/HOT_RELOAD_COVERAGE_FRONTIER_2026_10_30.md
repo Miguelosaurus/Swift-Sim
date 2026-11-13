@@ -68,17 +68,17 @@ also keep development loading separate from the Release distribution boundary.
 
 Owned sources and executable harness:
 
-- [Bootstrap.swift](../../scripts/experimental/hot-reload/native-state/Bootstrap.swift)
+- `scripts/experimental/hot-reload/native-state/Bootstrap.swift` (archived; see git tag archive/pre-lean-2026-11-13)
   defines a fixed bootstrap object, stable component protocol, state registry,
   immutable operation leases and exact account/object keys.
-- [Component.swift](../../scripts/experimental/hot-reload/native-state/Component.swift)
+- `scripts/experimental/hot-reload/native-state/Component.swift` (archived; see git tag archive/pre-lean-2026-11-13)
   compiles into independent versioned dylibs. V2 adds private history and
   multiplier state; V3 changes behavior while migrating that state. V4 is a
   forward compensation with the original increment behavior and current schema.
-- [Host.swift](../../scripts/experimental/hot-reload/native-state/Host.swift)
+- `scripts/experimental/hot-reload/native-state/Host.swift` (archived; see git tag archive/pre-lean-2026-11-13)
   actually loads those dylibs and exercises existing/new object identity,
   migrations, stale operations, account separation and fresh-process restore.
-- [run.py](../../scripts/experimental/hot-reload/native-state/run.py) compiles,
+- `scripts/experimental/hot-reload/native-state/run.py` (archived; see git tag archive/pre-lean-2026-11-13) compiles,
   executes and checks both feature gates. It deletes temporary binaries and can
   retain bounded command/diagnostic receipts.
 

@@ -60,7 +60,7 @@ function foreground(result) {
 }
 async function nativeInstall(build, { device, status }) {
   const { runCommandWithDeadline } = await import("./deviceInventory.js");
-  const args = [fileURLToPath(new URL("../optional/direct-install/deliver.py", import.meta.url)),
+  const args = [fileURLToPath(new URL("../resources/native-install.py", import.meta.url)),
     "--root", join(homedir(), ".swift-sim", "native-build-delivery"), "--build-id", build.id,
     "--bundle", build.app.bundleIdentifier, "--team", build.app.teamID, "--version", build.app.version,
     "--build", build.app.build, "--ipa", build.artifacts.ipaPath, "--expires-at", String(Date.parse(build.expiresAt) / 1000)];

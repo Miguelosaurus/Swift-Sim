@@ -25,7 +25,7 @@ Release/TestFlight/App Store execution remains excluded.
 
 ## Actual normal delivery evidence
 
-The maintainer [qualification script](../../scripts/experimental/hot-reload/full-callable/qualify-normal-phone.mjs)
+The maintainer `scripts/experimental/hot-reload/full-callable/qualify-normal-phone.mjs` (archived; see git tag archive/pre-lean-2026-11-13)
 submitted immutable snapshots to compiled `deliverChange` and
 `liveDeliveryService`, without a replacement compiler, queue, adapter or
 native control implementation. Historical snapshots identified the real

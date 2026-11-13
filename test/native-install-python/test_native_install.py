@@ -1,13 +1,14 @@
+import importlib.util
 import json
 from pathlib import Path
-import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).parents[1]))
-import deliver as module
+spec = importlib.util.spec_from_file_location("native_install", Path(__file__).parents[2] / "mac-helper/resources/native-install.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 
 
 class DeliveryTests(unittest.TestCase):

@@ -13,7 +13,7 @@ and silent lock/reboot behavior remain unproven.
 
 ## Implementation
 
-The [optional Mac client](../../mac-helper/optional/direct-install/README.md)
+The `mac-helper/optional/direct-install/README.md` (archived; see git tag archive/pre-lean-2026-11-13)
 reuses existing Xcode-signed IPAs and the already-trialled pinned MIT `idevice`
 provider. It connects to an explicit private Tailscale address, performs mutual
 RemotePairing authentication against the pinned peer, opens the existing
