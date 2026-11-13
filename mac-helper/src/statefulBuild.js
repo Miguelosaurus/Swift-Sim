@@ -14,7 +14,7 @@ const digest = value => createHash("sha256").update(value).digest("hex");
 export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPath, runner, compiler }) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(moduleName || "") || !isAbsolute(compilerPath || "")) return null;
   const base = dirname(resolve(projectPath));
-  const files = []; let visited = 0; let bytes = 0;
+  const files = []; let visited = 0; let bytes = 0; let hasCandidates = false; let oversized = false;
   function scan(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (++visited > 30_000) throw invalid();
@@ -22,10 +22,11 @@ export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPa
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) { if (!OMIT.has(entry.name) && !entry.name.startsWith(".") && !/\.(?:xcodeproj|xcworkspace|app|framework)$/.test(entry.name)) scan(path); }
       else if (entry.isFile() && entry.name.endsWith(".swift")) {
-        const stat = lstatSync(path); if (stat.size > 1024 * 1024) continue;
+        const stat = lstatSync(path); if (stat.size > 1024 * 1024) { oversized = true; continue; }
         const source = readFileSync(path, "utf8");
-        // Views get state-preserving bodies; `static let` constants may become getters.
-        if (!/\b(?:SwiftUI\.)?View\b|\bstatic\s+let\b/.test(source)) continue;
+        // All source files inform the module-wide shadowing guard. Only invoke
+        // instrumentation when at least one file may need an overlay.
+        if (/\b(?:SwiftUI\.)?View\b|\bstatic\s+let\b/.test(source)) hasCandidates = true;
         bytes += Buffer.byteLength(source);
         if (bytes > 7 * 1024 * 1024 || files.length >= 2048) throw invalid();
         files.push({ path, source });
@@ -33,7 +34,8 @@ export function prepareStatefulBuild({ projectPath, root, moduleName, compilerPa
     }
   }
   scan(base);
-  if (!files.length) return null;
+  if (!hasCandidates) return null;
+  if (oversized) throw invalid();
   const generated = (compiler || createFullCallableCompiler({ runner, cacheRoot: join(root, "stateful-compiler-cache") })).instrument({ files });
   if (!generated.files.length) return null;
   const directory = join(root, "stateful-sources"); ensureDirectoryModeSync(directory, 0o700);

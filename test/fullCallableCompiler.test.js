@@ -373,3 +373,13 @@ test("concrete property accessors preserve added State only on their exact admit
   delete f.state.generated.addedStateProtocol; delete f.state.generated.addedStateGeneration; delete f.state.generated.addedStateOwners;
   assert.throws(() => f.compiler.generate(f.allowed), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
 });
+
+test("constant indices and protocol claims are validated", t => {
+  const f = fixture(t); const path = join(f.root, "Fixture.swift");
+  for (const statefulConstants of [null, [], { relative: ["Theme.accent"] }, { [path]: "Theme.accent" }, { [path]: ["accent"] }, { [path]: ["Theme.bad-name"] }]) {
+    assert.throws(() => f.compiler.generate({ ...input, statefulConstants }), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
+  }
+  f.state.generated.constantProtocol = 1;
+  assert.throws(() => f.compiler.generate(input), { code: "FULL_CALLABLE_GENERATOR_INVALID" });
+  assert.equal(f.compiler.generate({ ...input, statefulConstants: { [path]: ["Theme.accent"] } }).constantProtocol, 1);
+});

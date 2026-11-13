@@ -6,22 +6,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { prepareStatefulBuild, inspectStatefulBuild, statefulBodyIndex } from "../mac-helper/src/statefulBuild.js";
+import { classifyPrivateAdditiveEditSet } from "../mac-helper/src/liveReload.js";
 
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 const fixtureFiles = new NodeAtomicFileStore();
 
 const hash = value => createHash("sha256").update(value).digest("hex");
-function fixture(t) {
+function fixture(t, { sourceText = 'struct Screen: View { var body: some View { Text("before") } }', constants = [] } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "swift-sim-stateful-test-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const project = join(root, "App.xcodeproj"); mkdirSync(project);
-  const source = join(root, "Screen.swift"); writeFileSync(source, "struct Screen: View { var body: some View { Text(\"before\") } }");
+  const source = join(root, "Screen.swift"); writeFileSync(source, sourceText);
   const compilerPath = join(root, "tool", "bin", "swiftc");
   mkdirSync(join(root, "tool", "bin"), { recursive: true });
   mkdirSync(join(root, "tool", "share", "swift"), { recursive: true });
   writeFileSync(join(root, "tool", "share", "swift", "features.json"), JSON.stringify({ features: [{ name: "emit-abi-descriptor" }] }));
   writeFileSync(compilerPath, '#!/usr/bin/python3\nimport os,sys,json\nif "-typecheck" in sys.argv: sys.exit(int(os.environ.get("TEST_OLD_SDK", "0")))\nwith open(os.environ["TEST_ARGS_PATH"], "w") as f: json.dump(sys.argv[1:],f)\n', { mode: 0o700 });
-  const compiler = { instrument({ files }) { return { resourceDigest: "a".repeat(64), files: files.map(file => ({ ...file, source: file.source.replace('"before"', '"overlay"'), owners: ["Screen"] })) }; } };
+  const compiler = { instrument({ files }) { return { resourceDigest: "a".repeat(64), files: files.map(file => ({ ...file, source: file.source.replace('"before"', '"overlay"'), owners: ["Screen"], constants })) }; } };
   const build = prepareStatefulBuild({ projectPath: project, root: join(root, "build"), moduleName: "App", compilerPath, compiler });
   const run = (args, env = {}) => {
     const output = join(root, "args.json");
@@ -79,4 +80,53 @@ test("the real integrated driver retains ABI descriptor output with the private 
   assert.match(result.stdout, /-emit-abi-descriptor-path/);
   const manifest = JSON.parse(fixtureFiles.readTextSync(build.manifestPath));
   assert.equal(manifest.featuresDigest, hash(fixtureFiles.readTextSync(manifest.featuresPath)));
+});
+
+
+test("constant-only sources are captured and constant index is bound to the manifest", t => {
+  const f = fixture(t, { sourceText: "struct Theme { static let accent: Int = 1 }", constants: ["Theme.accent"] });
+  f.run(["-module-name", "App", "-DDEBUG"]);
+  const manifest = JSON.parse(fixtureFiles.readTextSync(f.build.manifestPath));
+  assert.deepEqual(manifest.files[0].constants, ["Theme.accent"]);
+  const capture = inspectStatefulBuild(f.build.overlayPath, new Set([f.source]));
+  assert.deepEqual(capture.index.constants, { [f.source]: ["Theme.accent"] });
+  assert.deepEqual(statefulBodyIndex(capture.index, "App").constants, capture.index.constants);
+  assert.throws(() => statefulBodyIndex({ ...capture.index, constants: { [f.source]: ["Theme.other"] } }, "App"), { code: "STATEFUL_BUILD_INVALID" });
+  manifest.files[0].constants = ["invalid"];
+  const bytes = JSON.stringify(manifest); writeFileSync(f.build.manifestPath, bytes);
+  const usagePath = join(f.root, "build", "stateful-sources", "usage.json");
+  const usage = JSON.parse(fixtureFiles.readTextSync(usagePath)); usage.manifestDigest = hash(bytes);
+  writeFileSync(usagePath, JSON.stringify(usage));
+  assert.throws(() => inspectStatefulBuild(f.build.overlayPath, new Set([f.source])), { code: "STATEFUL_BUILD_INVALID" });
+});
+
+
+test("constant routing uses the captured index and requires complete coverage", t => {
+  const before = "struct Theme { static let accent: Int = 1 }";
+  const f = fixture(t, { sourceText: before, constants: ["Theme.accent"] });
+  f.run(["-module-name", "App", "-DDEBUG"]);
+  const capture = inspectStatefulBuild(f.build.overlayPath, new Set([f.source]));
+  const manifest = { compilerContextProtocol: 2, stateful: capture.index,
+    binaryIdentity: { bundle_id: "dev.fixture.app", bundle_version: "1", build_number: "1",
+      executable_uuid: "11111111-1111-1111-1111-111111111111", debug_dylib_uuid: "22222222-2222-2222-2222-222222222222" },
+    sourceBaselines: { [f.source]: hash(before) }, compilations: [{ moduleName: "App", sources: [f.source], workingDirectory: f.root, compilerArguments: [] }] };
+  const compiler = { generate(input) {
+    assert.deepEqual(input.statefulConstants, capture.index.constants);
+    if (input.files[0].after.includes("other")) throw Object.assign(new Error("unsupported"), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
+    return { constantProtocol: 1, additiveProtocol: 0 };
+  } };
+  const file = { path: f.source, kind: "swift", status: "modified", beforeSource: before, afterSource: before.replace("= 1", "= 2") };
+  const result = classifyPrivateAdditiveEditSet([file], { manifest, compiler });
+  assert.equal(result.route, "hot-reload"); assert.equal(result.reasonCode, "IMPLEMENTATION_ONLY"); assert.equal(result.requiresCompleteCoverage, true);
+  assert.equal(classifyPrivateAdditiveEditSet([{ ...file, afterSource: before.replace("accent", "other") }], { manifest, compiler }), null);
+});
+
+
+test("overlay instrumentation sees shadowing declarations in otherwise ordinary Swift files", t => {
+  const f = fixture(t, { sourceText: "struct Theme { static let accent: Color = .blue }" });
+  const shadow = join(f.root, "Shadow.swift"); writeFileSync(shadow, "struct Color {}\n");
+  let scanned;
+  prepareStatefulBuild({ projectPath: join(f.root, "App.xcodeproj"), root: join(f.root, "shadow-build"), moduleName: "App",
+    compilerPath: join(f.root, "tool", "bin", "swiftc"), compiler: { instrument({ files }) { scanned = files; return { files: [] }; } } });
+  assert(scanned.some(file => file.path === shadow), "shadowing declarations must be included in the generator's module-wide policy");
 });
