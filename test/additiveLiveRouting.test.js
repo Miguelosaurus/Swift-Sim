@@ -1,10 +1,11 @@
+import { testCompiler } from "./testCompiler.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyEditSet, classifyPrivateAdditiveEditSet } from "../mac-helper/src/liveReload.js";
+import { classifyEditSet as original_classifyEditSet, classifyPrivateAdditiveEditSet as original_classifyPrivateAdditiveEditSet } from "../mac-helper/src/liveReload.js";
 
 const original = 'struct Card { func label() -> String { "old" } }';
 const path = "/private/fixture/Card.swift";
@@ -246,3 +247,6 @@ test("an unverified installed body capture never falls back to a guessed additiv
  assert.throws(()=>classifyPrivateAdditiveEditSet([file],f),{code:"FULL_CALLABLE_STATEFUL_ABI_INVALID"});
  assert.equal(f.calls.length,0);
 });
+
+const classifyEditSet = (options = {}) => original_classifyEditSet({ ...options, compiler: options.compiler || testCompiler });
+const classifyPrivateAdditiveEditSet = (files, options = {}) => original_classifyPrivateAdditiveEditSet(files, { ...options, compiler: options.compiler || testCompiler });

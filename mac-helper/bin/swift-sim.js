@@ -13,9 +13,6 @@ import {
   ensureLiveEngineInstalled,
   inspectLiveReload,
   inspectInstalledEngineForSetup,
-  routeLiveEditSet,
-  routeLiveChange,
-  routeLiveChanges,
   startLiveReload,
 } from "../src/liveReload.js";
 import { COMPONENTS, componentReadiness } from "../src/componentCompatibility.js";
@@ -170,7 +167,6 @@ async function main() {
   }
   if (command === "live-start") return liveStart(args);
   if (command === "classify-change") return classifyChange(args);
-  if (command === "route-change") return routeChange(args);
   if (command === "deliver-change") return deliverChangeCommand(args);
   if (command === "pair") return pair(args);
 
@@ -283,39 +279,6 @@ function classifyChange(args) {
     ? classifyLiveChange({ beforePath: beforePaths[0], afterPath: afterPaths[0] })
     : classifyLiveChanges({ beforePaths, afterPaths });
   console.log(JSON.stringify(result, null, 2));
-}
-
-async function routeChange(args) {
-  const { values } = parseArgs({
-    args,
-    options: {
-      ...liveOptions(),
-      before: { type: "string", multiple: true },
-      after: { type: "string", multiple: true },
-      "changes-manifest": { type: "string" },
-    },
-  });
-  if (values["changes-manifest"]) {
-    const result = routeLiveEditSet({
-      files: readChangesManifest(values["changes-manifest"]),
-      project: values.project,
-      host: values.host,
-      scheme: values.scheme,
-    });
-    return console.log(JSON.stringify(await result, null, 2));
-  }
-  const beforePaths = values.before || [];
-  const afterPaths = values.after || [];
-  const result = beforePaths.length === 1 && afterPaths.length === 1
-    ? routeLiveChange({
-      beforePath: beforePaths[0], afterPath: afterPaths[0],
-      project: values.project, host: values.host, scheme: values.scheme,
-    })
-    : routeLiveChanges({
-      beforePaths, afterPaths,
-      project: values.project, host: values.host, scheme: values.scheme,
-    });
-  console.log(JSON.stringify(await result, null, 2));
 }
 
 async function deliverChangeCommand(args) {
@@ -1025,7 +988,6 @@ Usage:
   swift-sim app-tools ...         Set a Debug app environment override or request --refresh-screen
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
-  swift-sim route-change ...      Choose hot reload or a new signed build
   swift-sim deliver-change ...    Deliver edits: --after <file> (repeatable), optional --before <snapshot>; --install auto|link
                                  Explicit --before snapshots pair with --after files in order, starting with the first
   swift-sim integrate-xcode ...   Add/remove bounded Debug build hooks

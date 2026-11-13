@@ -1,10 +1,11 @@
+import { testCompiler } from "./testCompiler.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  classifySwiftSource,
+  classifySwiftSource as original_classifySwiftSource,
   expandedSigningIdentities,
   LIVE_REASON_CODES,
   registerLiveBuildResult,
@@ -13,8 +14,7 @@ import {
   selectLiveScheme,
   withLiveBuildSession,
   workspaceProjectReferences,
-  xcodeContainerArguments,
-} from "../mac-helper/src/liveReload.js";
+  xcodeContainerArguments } from "../mac-helper/src/liveReload.js";
 
 test("attribute argument changes require a rebuild", () => {
   const before = `import SwiftUI
@@ -168,8 +168,7 @@ test("compiler registration holds lifecycle admission through a rejected engine 
     await assert.rejects(registerLiveBuildResult({ resultBundle, runtime: {
       buildLog: { emittedOutput: `/toolchain/usr/bin/swift-frontend -frontend -c -primary-file ${source} -module-name Example -o ${directory}/Card.o` },
       async lock(operation) { locked = true; events.push("lock"); try { return await operation(); } finally { locked = false; events.push("unlock"); } },
-      async engineControl() { assert.equal(locked, true); events.push("inspect"); return { success: true, data: { compilation_registration_protocol: 0 } }; },
-    } }), { code: "LIVE_ENGINE_REGISTRATION_UPDATE_REQUIRED" });
+      async engineControl() { assert.equal(locked, true); events.push("inspect"); return { success: true, data: { compilation_registration_protocol: 0 } }; } } }), { code: "LIVE_ENGINE_REGISTRATION_UPDATE_REQUIRED" });
     assert.deepEqual(events, ["lock", "inspect", "unlock"]);
     assert.equal(locked, false);
   } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -235,8 +234,7 @@ test("live build session keeps start, build, and registration under one lock", a
       register: async () => {
         events.push("register");
         return { registered: 1 };
-      },
-    },
+      } },
   );
   assert.equal(result, "done");
   assert.deepEqual(events, [
@@ -255,26 +253,6 @@ test("device live build uses the complete lifecycle lease", () => {
   assert.doesNotMatch(source, /await startLiveReload\(/);
   assert.doesNotMatch(source, /await registerLiveBuildResult\(/);
 });
-
-test("production live routing holds one lifecycle lease", () => {
-  const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
-  assert.ok(source.includes(
-    "if (!injectedLifecycle && runtime.lifecycleLocked !== true) {\n"
-      + "    return withLiveEngineLifecycleLock",
-  ));
-  assert.ok(source.includes(
-    "runtime.lifecycleLocked\n"
-      + "    ? ((options) => inspectLiveReloadWarmUnlocked(options))",
-  ));
-  assert.ok(source.includes(
-    "runtime.lifecycleLocked\n"
-      + "    ? ((sourcePath, options = {}) => injectLiveSourceUnlocked",
-  ));
-  assert.ok(source.includes(
-    "const start = lifecycleLocked ? startLiveReloadUnlocked : startLiveReload",
-  ));
-});
-
 
 test("nested block comments cannot truncate runtime availability scanning", () => {
   const before = `func value() -> Int {
@@ -352,23 +330,19 @@ test("live readiness is bound to the active engine scheme", () => {
   const session = {
     projectRoot: "/tmp/Repo",
     scheme: "OtherApp",
-    engineVersion: "0.4.0",
-  };
+    engineVersion: "0.4.0" };
   assert.equal(liveEngineSessionMatches(session, {
     projectRoot: "/tmp/Repo",
     scheme: "SelectedApp",
-    expectedEngineVersion: "0.4.0",
-  }), false);
+    expectedEngineVersion: "0.4.0" }), false);
   assert.equal(liveEngineSessionMatches(session, {
     projectRoot: "/tmp/Repo",
     scheme: "OtherApp",
-    expectedEngineVersion: "0.4.0",
-  }), true);
+    expectedEngineVersion: "0.4.0" }), true);
   assert.equal(liveEngineSessionMatches(session, {
     projectRoot: "/tmp/AnotherRepo",
     scheme: "OtherApp",
-    expectedEngineVersion: "0.4.0",
-  }), false);
+    expectedEngineVersion: "0.4.0" }), false);
 
   const source = readFileSync("mac-helper/src/liveReload.js", "utf8");
   assert.match(source, /const matchingEngineSession = liveEngineSessionMatches\(engineSession/);
@@ -478,3 +452,5 @@ test("worker identity verification is prepared before supervised commands spawn"
   assert.ok(validationCommand.indexOf("prepareOwnedWorkerProcessIdentity()") >= 0);
   assert.ok(validationCommand.indexOf("prepareOwnedWorkerProcessIdentity()") < validationCommand.indexOf("const child = spawn"));
 });
+
+const classifySwiftSource = (before, after, paths = {}) => original_classifySwiftSource(before, after, paths, { compiler: testCompiler });

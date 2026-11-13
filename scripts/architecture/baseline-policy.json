@@ -223,9 +223,6 @@
       "mac-helper/src/simulatorLifecycleClaims.js": 1
     },
     "sourceTextImplementationTests": {
-      "benchmarks/test/liquidGlass.test.js": 1,
-      "benchmarks/test/mechanisms.test.js": 1,
-      "benchmarks/test/nativeSurfaces.test.js": 1,
       "test/artifactCleanupBoundaryPreload.test.js": 1,
       "test/buildValidation.test.js": 1,
       "test/cli.test.js": 1,

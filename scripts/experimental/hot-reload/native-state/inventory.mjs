@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { classifySwiftSource, generateDynamicReplacementSource, CLASSIFIER_VERSION } from "../../../../mac-helper/src/liveReload.js";
+import { classifySwiftSource, CLASSIFIER_VERSION } from "../../../../mac-helper/src/liveReload.js";
 
 const [beforeRoot, sourceRoot] = process.argv.slice(2);
 if (!beforeRoot || !sourceRoot) throw new Error("Usage: inventory.mjs <before-snapshots> <current-app-source-root>");
@@ -18,11 +18,6 @@ const rows = entries.map(([file, directory, changedMembers]) => {
   const before = readFileSync(join(beforeRoot, file), "utf8");
   const after = readFileSync(join(sourceRoot, directory, file), "utf8");
   const result = classifySwiftSource(before, after, { beforePath: file, afterPath: file });
-  let generation;
-  try {
-    const source = generateDynamicReplacementSource({ source: after, beforeSource: before, sourcePath: file, moduleName: "ZenicsCalisthenicsVideo" });
-    generation = { completeSourceGenerated: Boolean(source), bytes: Buffer.byteLength(source) };
-  } catch (error) { generation = { completeSourceGenerated: false, error: error.code || "unknown" }; }
-  return { file, beforeSha256: sha256(before), afterSha256: sha256(after), classifierVersion: CLASSIFIER_VERSION, route: result.route, reasonCode: result.reasonCode, changedMembers, generation };
+  return { file, beforeSha256: sha256(before), afterSha256: sha256(after), classifierVersion: CLASSIFIER_VERSION, route: result.route, reasonCode: result.reasonCode, changedMembers };
 });
 console.log(JSON.stringify({ kind: "read-only-historical-target", physicalApplication: false, rows }, null, 2));
