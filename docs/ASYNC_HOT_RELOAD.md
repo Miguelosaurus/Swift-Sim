@@ -12,7 +12,7 @@ Supported edits include SwiftUI bodies and modifiers, function implementations, 
 
 Existing stored layout, signatures, many declaration changes, resources, packages, build settings and signing changes need a signed build. A compatible edit does not trigger a build just because the phone is unavailable or its result is uncertain. `--live-only` never builds or installs. The [evidence index](evidence/README.md) describes tested cases, not every possible Swift edit.
 
-Eligible concrete SwiftUI view bodies and instance functions can refresh while keeping state tied to unchanged view identities, such as drafts and navigation. Other callable edits can reset the root. Changing a subtree's type or explicit ID can reset that subtree. Manual **Refresh screen** intentionally resets it. Release, TestFlight and App Store builds of your app exclude live loading.
+Eligible concrete SwiftUI view bodies, instance functions and `static let` constants can refresh while keeping state tied to unchanged view identities, such as drafts and navigation. Other callable edits can reset the root. Changing a subtree's type or explicit ID can reset that subtree. Manual **Refresh screen** intentionally resets it. Release, TestFlight and App Store builds of your app exclude live loading.
 
 ## Request and status
 
