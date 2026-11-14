@@ -3,15 +3,20 @@ import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { NodeArtifactStore } from "./infrastructure/nodeArtifactStore.js";
+import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 import { liveBinaryMatches, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 import { canonicalProjectPath } from "./liveSessionDescriptor.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_IMAGE = 1024 * 1024;
 const MAX_AGE = 24 * 60 * 60 * 1000;
+// Element IDs act like agent-device refs: valid only for the latest screen read.
+const ELEMENT_REF_AGE = 60 * 1000;
+const POINT = /^\d{1,5}(\.\d+)?$/;
 
-export async function performAppTool({ appearance, textSize, layoutDirection, refresh = false, project, workspace, scheme,
-  cwd = process.cwd(), capturePath = join(homedir(), ".swift-sim/live/compilations.json"), control,
+export async function performAppTool({ appearance, textSize, layoutDirection, refresh = false, tap, swipe, scroll, type,
+  project, workspace, scheme, cwd = process.cwd(), capturePath = join(homedir(), ".swift-sim/live/compilations.json"), control,
+  artifactRoot = join(homedir(), ".swift-sim"), elementsPath = join(artifactRoot, "app-context-elements.json"), now = () => Date.now(),
 } = {}) {
   try {
     const choices = [
@@ -19,8 +24,10 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
       ["text-size", textSize, ["app-default", "xs", "s", "m", "l", "xl", "xxl", "xxxl", "ax1", "ax2", "ax3", "ax4", "ax5"]],
       ["layout-direction", layoutDirection, ["app-default", "ltr", "rtl"]],
     ].filter(([, value]) => value !== undefined);
-    if (choices.length + Number(refresh) !== 1 || choices.some(([, value, allowed]) => !allowed.includes(value))) throw failure("APP_CONTEXT_TOOL_INVALID");
-    const [tool, value] = refresh ? ["refresh", undefined] : choices[0];
+    const inputs = [["tap", tap], ["swipe", swipe], ["scroll", scroll], ["type", type]].filter(([, value]) => value !== undefined);
+    if (choices.length + inputs.length + Number(refresh) !== 1 || choices.some(([, value, allowed]) => !allowed.includes(value))) throw failure("APP_CONTEXT_TOOL_INVALID");
+    const input = inputs[0];
+    let [tool, value] = refresh ? ["refresh", undefined] : input ? [input[0] === "scroll" ? "swipe" : input[0], undefined] : choices[0];
     if (project && workspace) throw failure("APP_CONTEXT_SCOPE_REQUIRED");
     const capture = readCapture(capturePath), binding = capture.binding;
     const selected = workspace || project;
@@ -36,6 +43,10 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
     if ((tool === "text-size" || tool === "layout-direction") && !current.capabilities?.includes("developer-environment-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
     if (!current.identity.is_active || !current.identity.root_ready) throw failure("APP_CONTEXT_FOREGROUND_REQUIRED");
     if (!UUID.test(current.identity.process_nonce) || !UUID.test(current.identity.connection_nonce)) throw failure("APP_CONTEXT_INVALID");
+    if (input) {
+      if (!current.capabilities?.includes("developer-input-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
+      value = inputValue(input, readElements(elementsPath), current.identity, now());
+    }
     const operation = randomUUID();
     let actionResponse;
     try {
@@ -50,7 +61,15 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
       || data.identity.connection_nonce !== current.identity.connection_nonce) throw failure("APP_CONTEXT_TOOL_UNCONFIRMED");
     if (data.result?.success === false && String(data.result.error || "").includes("BUSY")) throw failure("APP_CONTEXT_BUSY");
     if (data.result?.success === false && String(data.result.error || "").includes("FOREGROUND")) throw failure("APP_CONTEXT_FOREGROUND_REQUIRED");
+    if (data.result?.success === false && String(data.result.error || "").includes("DEVELOPER_INPUT")) throw failure("APP_CONTEXT_INPUT_REJECTED");
     if (data.result?.success !== true) throw failure("APP_CONTEXT_TOOL_UNCONFIRMED");
+    if (input) {
+      // The screen has probably changed; element IDs must be read again.
+      forgetElementIDs(elementsPath);
+      return { schemaVersion: 1, outcome: "tool-completed", app: { bundleId: expected.bundle_id, build: expected.build_number },
+        tool: input[0], ...(input[0] === "type" ? {} : { target: input[1] }), nativeCodeUpdate: false,
+        next: "Read the screen again with app-context --elements before the next element action." };
+    }
     return { schemaVersion: 1, outcome: "tool-completed", app: { bundleId: expected.bundle_id, build: expected.build_number },
       tool, ...(refresh ? { state: "refresh-requested" } : tool === "appearance" ? { appearance: value } : { value }),
       nativeCodeUpdate: false };
@@ -64,6 +83,7 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
 export async function readAppContext({ project, workspace, scheme, screenshot = false, elements = false, report,
   cwd = process.cwd(), capturePath = join(homedir(), ".swift-sim/live/compilations.json"),
   artifactRoot = join(homedir(), ".swift-sim"), control, now = () => Date.now(),
+  elementsPath = join(artifactRoot, "app-context-elements.json"),
   saveImage = (value) => saveContextImage(value, { rootPath: artifactRoot, now }),
 } = {}) {
   try {
@@ -133,6 +153,9 @@ export async function readAppContext({ project, workspace, scheme, screenshot = 
         || inspected.identity.root_revision !== identity.root_revision
         || inspected.result?.success !== true) throw failure("APP_CONTEXT_INSPECTION_UNAVAILABLE");
       result.screen = validateInspection(inspected.result.inspection, identity.root_revision, now());
+      saveElements(elementsPath, { version: 1, processNonce: identity.process_nonce, revision: identity.root_revision,
+        savedAt: now(), width: result.screen.width, height: result.screen.height,
+        elements: result.screen.elements.map(({ id, frame }) => ({ id, frame })) });
       // A screenshot and element list are separate timestamped observations,
       // not an atomic capture of business/UI state.
     }
@@ -321,8 +344,63 @@ export function validateContextJPEG(value) {
 }
 
 function failure(code) { return Object.assign(new Error(GUIDANCE[code] || "App context unavailable."), { code }); }
+/** Engine value for one input action, in app-window points. */
+function inputValue([kind, raw], snapshot, identity, nowMs) {
+  const sameProcess = snapshot && snapshot.processNonce === identity.process_nonce;
+  const point = (x, y) => `${Math.round(x * 2) / 2},${Math.round(y * 2) / 2}`;
+  if (kind === "type") {
+    if (typeof raw !== "string" || !raw.length || [...raw].length > 512) throw failure("APP_CONTEXT_TOOL_INVALID");
+    return raw;
+  }
+  if (kind === "scroll") {
+    if (!["up", "down", "left", "right"].includes(raw)) throw failure("APP_CONTEXT_TOOL_INVALID");
+    if (!sameProcess) throw failure("APP_CONTEXT_ELEMENTS_STALE");
+    const { width: w, height: h } = snapshot;
+    // "down" reveals content below, so the finger moves up the screen.
+    const path = { down: [w / 2, h * 0.7, w / 2, h * 0.3], up: [w / 2, h * 0.3, w / 2, h * 0.7],
+      right: [w * 0.8, h / 2, w * 0.2, h / 2], left: [w * 0.2, h / 2, w * 0.8, h / 2] }[raw];
+    return `${point(path[0], path[1])},${point(path[2], path[3])}`;
+  }
+  if (kind === "swipe") {
+    const parts = String(raw).split(",");
+    if (parts.length !== 4 || !parts.every(part => POINT.test(part))) throw failure("APP_CONTEXT_TOOL_INVALID");
+    return parts.join(",");
+  }
+  if (/^e[1-9][0-9]?$/.test(raw)) {
+    const element = sameProcess && snapshot.revision === identity.root_revision && nowMs - snapshot.savedAt <= ELEMENT_REF_AGE
+      ? snapshot.elements.find(item => item.id === raw) : null;
+    if (!element) throw failure("APP_CONTEXT_ELEMENTS_STALE");
+    const [x, y, width, height] = element.frame;
+    return point(x + width / 2, y + height / 2);
+  }
+  const parts = String(raw).split(",");
+  if (parts.length !== 2 || !parts.every(part => POINT.test(part))) throw failure("APP_CONTEXT_TOOL_INVALID");
+  return parts.join(",");
+}
+
+function readElements(path) {
+  try {
+    const stat = lstatSync(path);
+    if (!privateFile(stat) || stat.size > 64 * 1024) return null;
+    const value = JSON.parse(readFileSync(path, "utf8"));
+    return value?.version === 1 && Array.isArray(value.elements) ? value : null;
+  } catch { return null; }
+}
+
+function saveElements(path, value) {
+  try { new NodeAtomicFileStore().writeJSONSync(path, value, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: false }); }
+  catch { /* Element actions then ask for a fresh read; the observation itself still succeeded. */ }
+}
+
+function forgetElementIDs(path) {
+  const value = readElements(path);
+  if (value) saveElements(path, { ...value, elements: [] });
+}
+
 const GUIDANCE = {
-  APP_CONTEXT_TOOL_INVALID: "Choose exactly one valid tool: --appearance, --text-size, --layout-direction, or --refresh-screen.",
+  APP_CONTEXT_TOOL_INVALID: "Choose exactly one valid tool: --appearance, --text-size, --layout-direction, --refresh-screen, --tap, --swipe, --scroll, or --type.",
+  APP_CONTEXT_ELEMENTS_STALE: "Element IDs come from the latest screen read and are cleared by each action. Run app-context --elements again, then use an ID from it.",
+  APP_CONTEXT_INPUT_REJECTED: "The app rejected the input: the point is outside its window, or no text field is focused for --type. Nothing was tapped or typed.",
   APP_CONTEXT_TOOL_UNCONFIRMED: "The app did not confirm this developer tool operation. Its effect is unconfirmed; do not blindly repeat it.",
   APP_CONTEXT_FOREGROUND_REQUIRED: "The matching Debug app must be in the foreground for this tool. No action was performed.",
   APP_CONTEXT_SCOPE_REQUIRED: "Run this command from the matching app project, or pass its --project/--workspace and --scheme. No other app was inspected.",

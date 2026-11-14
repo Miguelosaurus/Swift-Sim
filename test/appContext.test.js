@@ -273,7 +273,8 @@ test("on-demand elements use exact connection without UI actions and allowlist n
     assert.equal(value.screen.elements[1].value, undefined); assert.equal(value.screen.elements[0].rawSecret, undefined);
     assert.equal(requests.length, 2); assert.equal(requests[1].tool, "inspect");
     assert.equal(requests[1].connection_nonce, identity.connection_nonce);
-    assert.equal(readdirSync(f.root).length, 2);
+    assert.deepEqual(readdirSync(f.root).sort(), ["Fixture.xcodeproj", "app-context-elements.json", "compilations.json"]);
+    assert.equal(lstatSync(join(f.root, "app-context-elements.json")).mode & 0o777, 0o600);
   } finally { f.cleanup(); }
 });
 
@@ -303,5 +304,68 @@ test("inspection refuses unsupported, changed-process, changed-revision, wrong-o
       v => ({ ...v, data: { ...v.data, identity: { ...identity, process_nonce: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" } } })]) {
       assert.equal((await readAppContext({ ...f.options, elements: true, control: inspectionControl(inspection(), mutate) })).code, "APP_CONTEXT_INSPECTION_UNAVAILABLE");
     }
+  } finally { f.cleanup(); }
+});
+
+test("agent input taps a fresh element once, sends exact points, and never echoes typed text", async () => {
+  const f = fixture(); let clock = Date.now();
+  try {
+    await readAppContext({ ...f.options, now: () => clock, elements: true, control: inspectionControl(inspection()) });
+    const sent = [];
+    const input = (options, result = { success: true }) => performAppTool({ ...f.options, now: () => clock, ...options,
+      control: async request => {
+        if (request.action === "developer_context") return response({ capabilities: [...capabilities, "developer-input-v1"] });
+        sent.push(request); return response({ operation_id: request.operation_id, result });
+      } });
+
+    const tapped = await input({ tap: "e1" });
+    assert.equal(tapped.outcome, "tool-completed"); assert.equal(tapped.target, "e1");
+    assert.deepEqual([sent[0].tool, sent[0].value], ["tap", "70,62"]);
+    assert.equal((await input({ tap: "e1" })).code, "APP_CONTEXT_ELEMENTS_STALE", "an action clears element IDs");
+    assert.equal(sent.length, 1);
+
+    const scrolled = await input({ scroll: "down" });
+    assert.deepEqual([sent[1].tool, sent[1].value], ["swipe", "195,591,195,253"], "the screen size survives an action");
+    assert.equal(scrolled.tool, "scroll");
+    await input({ tap: "10.5,20" }); assert.equal(sent[2].value, "10.5,20");
+    await input({ swipe: "1,2,3,4" }); assert.equal(sent[3].value, "1,2,3,4");
+
+    const typed = await input({ type: "secret note" });
+    assert.equal(sent[4].value, "secret note");
+    assert.equal(JSON.stringify(typed).includes("secret"), false);
+    assert.equal((await input({ type: "x" }, { success: false, error: "DEVELOPER_INPUT_NO_FOCUSED_FIELD" })).code, "APP_CONTEXT_INPUT_REJECTED");
+
+    await readAppContext({ ...f.options, now: () => clock, elements: true, control: inspectionControl(inspection()) });
+    clock += 61_000;
+    assert.equal((await input({ tap: "e1" })).code, "APP_CONTEXT_ELEMENTS_STALE", "element IDs expire");
+  } finally { f.cleanup(); }
+});
+
+test("agent input refuses malformed values, old engines and another process's elements before sending", async () => {
+  const f = fixture();
+  try {
+    await readAppContext({ ...f.options, elements: true, control: inspectionControl(inspection()) });
+    const sent = [];
+    const input = (options, extra = { capabilities: [...capabilities, "developer-input-v1"] }) => performAppTool({ ...f.options, ...options,
+      control: async request => {
+        if (request.action === "developer_context") return response(extra);
+        sent.push(request); return response({ operation_id: request.operation_id, result: { success: true } });
+      } });
+    for (const options of [{ tap: "e1", type: "x" }, { tap: "e1", appearance: "dark" }]) {
+      assert.equal((await input(options)).code, "APP_CONTEXT_TOOL_INVALID");
+    }
+    for (const options of [{ tap: "1" }, { tap: "-1,2" }, { tap: "a,b" }, { swipe: "1,2,3" }, { scroll: "sideways" },
+      { type: "" }, { type: "x".repeat(513) }]) {
+      assert.equal((await input(options)).code, "APP_CONTEXT_TOOL_INVALID", JSON.stringify(options).slice(0, 40));
+    }
+    assert.equal((await input({ tap: "e9" })).code, "APP_CONTEXT_ELEMENTS_STALE");
+    assert.equal((await input({ tap: "e1" }, { capabilities })).code, "APP_CONTEXT_UPDATE_REQUIRED");
+    assert.equal((await input({ tap: "e1" }, { capabilities: [...capabilities, "developer-input-v1"],
+      identity: { ...identity, process_nonce: "ffffffff-ffff-ffff-ffff-ffffffffffff" } })).code, "APP_CONTEXT_ELEMENTS_STALE");
+    assert.equal((await input({ scroll: "down" }, { capabilities: [...capabilities, "developer-input-v1"],
+      identity: { ...identity, root_revision: 3 } })).outcome, "tool-completed", "scrolling needs only the same process");
+    assert.equal((await input({ tap: "e1" }, { capabilities: [...capabilities, "developer-input-v1"],
+      identity: { ...identity, root_revision: 3 } })).code, "APP_CONTEXT_ELEMENTS_STALE");
+    assert.equal(sent.length, 1);
   } finally { f.cleanup(); }
 });

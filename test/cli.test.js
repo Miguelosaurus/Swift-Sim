@@ -321,6 +321,9 @@ test("app-tools parses environment flags and rejects invalid or combined values"
       [["--layout-direction", "rtl"], "APP_CONTEXT_UNAVAILABLE"],
       [["--text-size", "huge"], "APP_CONTEXT_TOOL_INVALID"],
       [["--layout-direction", "rtl", "--refresh-screen"], "APP_CONTEXT_TOOL_INVALID"],
+      [["--tap", "e1"], "APP_CONTEXT_UNAVAILABLE"],
+      [["--scroll", "down"], "APP_CONTEXT_UNAVAILABLE"],
+      [["--tap", "e1", "--type", "hello"], "APP_CONTEXT_TOOL_INVALID"],
     ]) {
       const result = spawnSync(process.execPath, [cli.pathname, "app-tools", ...args],
         { encoding: "utf8", env: { ...process.env, HOME: root } });

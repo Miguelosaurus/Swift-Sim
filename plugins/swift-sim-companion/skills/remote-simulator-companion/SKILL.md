@@ -113,10 +113,11 @@ and introduce **Test with Agent**. Keep testing opt-in; never invoke it for
 ordinary coding, hot reload, delivery, or notifications.
 
 For requested phone debugging, the agent can pull scoped app context directly
-with `swift-sim app-context`, `--elements`, `--screenshot`, or `--report latest`. Do not ask the
-user to upload a screenshot or copy a report ID when this access is available.
+with `swift-sim app-context`, `--elements`, `--screenshot`, or `--report latest`,
+and tap, scroll or type with `swift-sim app-tools`. Do not ask the user for
+screenshots or report IDs when this access works.
 Read [developer-menu context](references/developer-menu.md) only for that task;
-never fetch or inject it into ordinary chats or the normal warm delivery path.
+never fetch it for ordinary chats or the warm delivery path.
 
 Requests from the same iPhone background the target app. Submit once, report
 `normalWaiting`/`guidanceCode`, and let the user return when ready. Reconnection

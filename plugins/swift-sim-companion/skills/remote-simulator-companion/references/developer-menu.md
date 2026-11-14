@@ -56,3 +56,29 @@ For temporary environment tests on iOS 17 or later, use `swift-sim app-tools
 temporary test with the same flag and `app-default`. Text sizes are `xs`, `s`,
 `m`, `l`, `xl`, `xxl`, `xxxl`, `ax1` through `ax5`; directions are `ltr` and
 `rtl`. These tools require engine capability `developer-environment-v1`.
+
+## Taps, scrolling and typing
+
+When the task needs you to operate the app yourself (reach a screen, check a
+control, reproduce a bug), use the in-app input tools. They need no runner or
+phone setup, only a current Debug build with engine capability
+`developer-input-v1` and the app in the foreground:
+
+1. `swift-sim app-context --elements` and pick the element ID.
+2. `swift-sim app-tools --tap e7`, or `--tap x,y` in app-window points.
+3. Read the screen again before the next element action.
+
+Each action clears the saved element IDs, and an ID is accepted only from the
+latest read of the same process and screen revision within 60 seconds; otherwise
+`APP_CONTEXT_ELEMENTS_STALE` asks for a fresh read and nothing is tapped.
+`--scroll down|up|left|right` swipes across the middle of the window (`down`
+reveals content below). `--swipe x1,y1,x2,y2` sends an exact gesture. `--type
+<text>` inserts up to 512 characters into the focused field; tap the field
+first. Typed text is never echoed in the result. `APP_CONTEXT_INPUT_REJECTED`
+means the point was outside the window or no field was focused.
+
+These are synthesized touches inside the app process: they cannot reach system
+alerts, the keyboard's own keys, other apps or the Home Screen. Use them only
+when the task calls for interaction, one action at a time, and never on
+purchase, delete, send or sign-out controls without the user's go-ahead. For
+full UI tests across launches, use [optional app control](app-control.md).
