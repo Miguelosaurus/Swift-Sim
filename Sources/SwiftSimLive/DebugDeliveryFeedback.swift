@@ -104,7 +104,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
 
     var estimatedRemaining: Double {
         let phase = presentation?.phase ?? .receiving
-        if phase == .preparing, let estimate = presentation?.estimate { return max(estimate, timing.remaining(for: .receiving)) }
+        if phase == .preparing, let estimate = presentation?.estimate { return estimate }
         return timing.remaining(for: phase)
     }
 
@@ -247,51 +247,38 @@ struct SwiftSimReloadTiming {
     }
 }
 
-/// One monotonic clock owns estimated travel, final contact, and the wave.
-/// Sparse native stage events retarget speed without jumping position/velocity.
-/// Only an admitted native receipt can schedule contact at 100%.
+/// The perimeter is the edit's progress bar: one constant speed, set once from
+/// the Mac's estimate. It eases only if the edit runs late, and closes faster
+/// only if the edit finishes well ahead of it. Only an admitted native receipt
+/// can schedule contact at 100%.
 struct SwiftSimReloadChoreography {
     private static let forecastReveal = 0.85
     static let waitingReveal = 0.97
-    static let minimumSweepDuration = 1.4
+    static let minimumSweepDuration = 1.0
+    static let maximumFinishDuration = 0.6
     static let waveDuration = 2.1
-    private static let velocityResponse = 0.25
     private let startedAt: TimeInterval
-    private var segmentAt: TimeInterval = 0
-    private var travel: Double = 0
-    private var velocity: Double
-    private var targetVelocity: Double
-    private var completion: (at: Double, reveal: Double, velocity: Double, duration: Double)?
+    private let velocity: Double
+    private var completion: (at: Double, reveal: Double, duration: Double)?
 
     init(startedAt: TimeInterval = 0, estimatedDuration: Double = 4) {
         self.startedAt = startedAt
         let duration = estimatedDuration.isFinite ? max(Self.minimumSweepDuration, estimatedDuration) : 4
         velocity = 1 / duration
-        targetVelocity = velocity
     }
 
-    mutating func retarget(at now: TimeInterval, estimatedRemaining: Double) {
-        guard completion == nil, now >= startedAt + segmentAt,
-              estimatedRemaining.isFinite, estimatedRemaining > 0 else { return }
-        let elapsed = now - startedAt
-        let current = motion(elapsed: elapsed)
-        travel = current.travel
-        velocity = current.velocity
-        segmentAt = elapsed
-        targetVelocity = min(1 / Self.minimumSweepDuration,
-            max(0.12, 1 - travel) / max(0.15, estimatedRemaining))
-    }
+    /// Stage events no longer change the speed; a steady bar reads better
+    /// than one that re-aims at every native step.
+    mutating func retarget(at now: TimeInterval, estimatedRemaining: Double) {}
 
     mutating func confirm(at now: TimeInterval) {
-        guard completion == nil, now >= startedAt + segmentAt else { return }
+        guard completion == nil, now >= startedAt else { return }
         let elapsed = now - startedAt
-        let current = pending(elapsed: elapsed)
-        let naturalFinish = min(0.6, max(0.12, (1 - current.reveal) / max(0.01, current.velocity)))
+        let reveal = pending(elapsed: elapsed)
+        let steady = (1 - reveal) / velocity
         // Native application stays immediate; only presentation has a floor.
-        // Spread a fast success across the remaining sweep instead of holding
-        // or flashing the whole outline, then start the wave at exact contact.
-        let duration = max(naturalFinish, Self.minimumSweepDuration - elapsed)
-        completion = (elapsed, current.reveal, current.velocity, duration)
+        let duration = max(min(steady, Self.maximumFinishDuration), Self.minimumSweepDuration - elapsed, 0.05)
+        completion = (elapsed, reveal, duration)
     }
 
     var contactAt: TimeInterval? {
@@ -311,21 +298,15 @@ struct SwiftSimReloadChoreography {
     func frame(at now: TimeInterval) -> Frame {
         let elapsed = max(0, now - startedAt)
         guard let completion, elapsed >= completion.at else {
-            return Frame(reveal: pending(elapsed: elapsed).reveal, waveProgress: 0, waveStarted: false,
+            return Frame(reveal: pending(elapsed: elapsed), waveProgress: 0, waveStarted: false,
                 finished: false, auraOpacity: min(1, elapsed / 0.2))
         }
         // Compare boundaries in the same absolute clock as contactAt. Moving
         // through elapsed time can round the exact contact tick to either side.
         let contact = startedAt + completion.at + completion.duration
         if now < contact {
-            let t = (elapsed - completion.at) / completion.duration
-            let gap = 1 - completion.reveal
-            // Cubic Hermite: carry current speed into completion; do not ease
-            // back to zero before the wave. Bound tangents to stay monotonic.
-            let initialSlope = min(3, completion.velocity * completion.duration / gap)
-            let fraction = (-2 * t * t * t + 3 * t * t)
-                + (t * t * t - 2 * t * t + t) * initialSlope + (t * t * t - t * t)
-            return Frame(reveal: min(1.0.nextDown, completion.reveal + gap * fraction), waveProgress: 0,
+            let fraction = (elapsed - completion.at) / completion.duration
+            return Frame(reveal: min(1.0.nextDown, completion.reveal + (1 - completion.reveal) * fraction), waveProgress: 0,
                 waveStarted: false, finished: false, auraOpacity: min(1, elapsed / 0.2))
         }
         let progress = now >= contact + Self.waveDuration ? 1 : max(0, (now - contact) / Self.waveDuration)
@@ -333,25 +314,13 @@ struct SwiftSimReloadChoreography {
             finished: progress >= 1, auraOpacity: max(0, 1 - progress * 2))
     }
 
-    private func motion(elapsed: Double) -> (travel: Double, velocity: Double) {
-        let dt = max(0, elapsed - segmentAt)
-        let decay = exp(-dt / Self.velocityResponse)
-        let difference = velocity - targetVelocity
-        return (travel + targetVelocity * dt + difference * Self.velocityResponse * (1 - decay),
-                targetVelocity + difference * decay)
-    }
-
-    private func pending(elapsed: Double) -> (reveal: Double, velocity: Double) {
-        let current = motion(elapsed: elapsed)
-        // Keep a completion margin in the forecast, so ordinary runs cruise
-        // until their predicted receipt instead of slowing early at 80%.
-        // Only overruns enter the soft boundary; time never closes the loop.
-        let linear = current.travel * Self.forecastReveal
-        let speed = current.velocity * Self.forecastReveal
-        if linear <= Self.forecastReveal { return (linear, speed) }
+    /// Constant speed to 85%, then a soft approach to 97% only when the edit
+    /// is running late. The slope is continuous at the boundary.
+    private func pending(elapsed: Double) -> Double {
+        let linear = velocity * elapsed
+        if linear <= Self.forecastReveal { return linear }
         let tail = Self.waitingReveal - Self.forecastReveal
-        let decay = exp(-(linear - Self.forecastReveal) / tail)
-        return (min(Self.waitingReveal, Self.forecastReveal + tail * (1 - decay)), speed * decay)
+        return Self.forecastReveal + tail * (1 - exp(-(linear - Self.forecastReveal) / tail))
     }
 }
 
