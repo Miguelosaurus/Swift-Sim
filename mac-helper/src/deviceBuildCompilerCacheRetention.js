@@ -9,13 +9,16 @@ export function createCompilerCacheRetention({
   references,
   storage,
   withEngineLock,
+  rollbackProtectedBuildIDs = /** @type {(() => Set<string>) | undefined} */ (undefined),
   now = () => new Date().toISOString(),
 }) {
   const readQueue = () =>
     queue.compilerRetentionSnapshot ? queue.compilerRetentionSnapshot() : queue.pollingSnapshot();
   function authority() {
     const state = store.phase4AuthorityState?.() || { mode: "legacy" };
-    if (!["legacy", "sqlite-final"].includes(state.mode))
+    const rollbackWindow =
+      state.mode === "sqlite-rollback" && typeof rollbackProtectedBuildIDs === "function";
+    if (!["legacy", "sqlite-final"].includes(state.mode) && !rollbackWindow)
       throw new Error("Compiler cache cleanup is paused during storage migration or rollback.");
     return JSON.stringify(state);
   }
@@ -39,8 +42,16 @@ export function createCompilerCacheRetention({
     if (authority() !== before)
       throw new Error("Storage authority changed during compiler cache planning.");
     const result = planCompilerCacheRetention({ builds, artifactDirectory, references: refs });
+    // During the rollback window, builds in the frozen legacy snapshot keep
+    // their caches so a rollback never loses one. Newer builds prune normally.
+    const protectedIDs =
+      JSON.parse(before).mode === "sqlite-rollback" ? rollbackProtectedBuildIDs() : new Set();
     const candidates = [];
     for (const candidate of result.candidates) {
+      if (protectedIDs.has(candidate.buildID)) {
+        result.skipped.push({ buildID: candidate.buildID, reasons: ["rollback-snapshot"] });
+        continue;
+      }
       try {
         const inspected = storage.inspect(
           candidate,

@@ -412,6 +412,34 @@ test("authority changes and rollback windows never grant cache deletion", async 
   assert.throws(() => f.service.plan(), /rollback/);
 });
 
+test("rollback windows prune only builds newer than the frozen legacy snapshot", async (t) => {
+  const f = fixture(t);
+  const legacy = f.build();
+  const newer = f.build();
+  f.build();
+  f.build();
+  f.store.phase4AuthorityState = () => ({ mode: "sqlite-rollback", epoch: 1 });
+  const service = createCompilerCacheRetention({
+    ...f.options,
+    rollbackProtectedBuildIDs: () => new Set([legacy.id]),
+  });
+  const plan = service.plan();
+  assert.deepEqual(
+    plan.candidates.map((candidate) => candidate.buildID),
+    [newer.id],
+  );
+  assert.equal((await service.apply(plan)).pruned, 1);
+  assert.equal(cached(legacy), true);
+  assert.equal(cached(newer), false);
+  const unreadable = createCompilerCacheRetention({
+    ...f.options,
+    rollbackProtectedBuildIDs: () => {
+      throw new Error("legacy snapshot unreadable");
+    },
+  });
+  assert.throws(() => unreadable.plan(), /unreadable/);
+});
+
 test("concurrent cleaners cannot both claim the same workspace", async (t) => {
   const f = fixture(t);
   const old = f.build();

@@ -6,6 +6,7 @@ import { createCompilerCacheRetention } from "./deviceBuildCompilerCacheRetentio
 import { createNodeCompilerCacheReferences, createNodeCompilerCacheStorage } from "./infrastructure/nodeCompilerCacheRetention.js";
 import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
 import { liveRuntimeLockManager, withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /**
@@ -49,6 +50,7 @@ export function createDeviceBuildArtifactRetentionCompatibility({ deviceBuildSto
     storage: createNodeCompilerCacheStorage(artifactStore),
     // Do not wait behind a real hot reload just to reclaim cache space.
     withEngineLock: (/** @type {() => unknown} */ operation) => withLiveEngineLifecycleLock(operation, { waitMs: 0 }),
+    rollbackProtectedBuildIDs: () => legacyBuildIDs(join(stateRoot, "device-builds.json")),
     now: () => clock.now().toISOString(),
   });
   return Object.freeze({
@@ -60,4 +62,14 @@ export function createDeviceBuildArtifactRetentionCompatibility({ deviceBuildSto
       return result;
     },
   });
+}
+
+// The untouched pre-migration build list. Unreadable means unknown, so the
+// caller stays paused rather than guessing.
+/** @param {string} path @returns {Set<string>} */
+function legacyBuildIDs(path) {
+  const value = JSON.parse(readFileSync(path, "utf8"));
+  const builds = Array.isArray(value) ? value : value?.builds;
+  if (!Array.isArray(builds)) throw new Error("The legacy build snapshot is unreadable.");
+  return new Set(builds.map((build) => String(build?.id || "")));
 }
