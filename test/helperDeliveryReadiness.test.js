@@ -133,6 +133,8 @@ function warmCache() {
   assert.equal(result.state, "ready");
   return warmedCache;
 }
+// A cold compile takes ~25s; pay it once here, outside any per-test timeout.
+test.before(() => { warmCache(); }, { timeout: 180_000 });
 
 function createFixture() {
   const root = mkdtempSync(join(tmpdir(), "swift-sim-delivery-health-"));
