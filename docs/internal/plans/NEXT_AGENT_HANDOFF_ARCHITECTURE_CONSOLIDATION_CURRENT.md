@@ -8,4 +8,4 @@ The reviewed Phase 2–4 spine, R2 fixes, legacy-source/helper-absence compatibi
 
 The observed installation is npm-linked v0.6.1, with no active helper; the database already has accepted v9 and remains legacy/revision0/epoch0. The private real-metadata rehearsal passed for 24 builds and8 sessions. Actual installed candidate transition/service and real-root staging remain explicit unclaimed gates. No authority switch, rollback expiry, legacy/artifact deletion or automatic cleanup is authorized.
 
-Continue by checking exact main/CI and using `scripts/phase4/requalify-state.mjs` with the runbook. Do not restart superseded feeder assignments or infer that a successful package/CI check establishes persistent-Mac proof.
+Continue by checking exact main/CI and recognizing the manual cutover tooling has been retired. Do not restart superseded feeder assignments or infer that a successful package/CI check establishes persistent-Mac proof.

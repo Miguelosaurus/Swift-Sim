@@ -345,56 +345,6 @@ function publishRuntimeUnlocked(store, durableByID, sessions) {
   BaseSessionStore.prototype.writeStateUnlocked.call(store, runtime);
 }
 
-/**
- * Current-state rollback exporter for the hybrid session boundary. It runs
- * under the exact existing sessions.json lock, preserves the current runtime
- * fields, overlays current SQLite durable values, atomically republishes the
- * legacy representation, then re-reads and verifies durable equality. It does
- * not change authority itself; the global selector commit happens only after
- * this method succeeds for every domain.
- */
-export class SessionCurrentStateRollbackExport {
-  /** @type {SqliteDurableSessionMutationRepository} */
-  #durableRepository;
-  /** @type {SessionStore} */
-  #runtimeStore;
-
-  /** @param {{ durableRepository: SqliteDurableSessionMutationRepository, runtimeStore: SessionStore }} options */
-  constructor({ durableRepository, runtimeStore }) {
-    if (!durableRepository || typeof durableRepository.list !== "function") {
-      throw new TypeError("Session rollback requires the durable SQLite repository.");
-    }
-    if (!runtimeStore || typeof runtimeStore.withLock !== "function") {
-      throw new TypeError("Session rollback requires the exact legacy runtime store lock.");
-    }
-    this.#durableRepository = durableRepository;
-    this.#runtimeStore = runtimeStore;
-  }
-
-  exportCurrent() {
-    return this.#runtimeStore.withLock(() => {
-      const rawRuntime = readRawRuntimeState(this.#runtimeStore);
-      // Rollback may use an ordinary legacy store, whose lock does not run the
-      // hybrid opener's recovery hook. Resolve unpublished creates under this
-      // same lock before exporting the current durable set into legacy state.
-      this.#durableRepository.reconcileCreateIntents(rawRuntime);
-      const durable = this.#durableRepository.list();
-      const merged = reconstructSessionState(rawRuntime, durable);
-      BaseSessionStore.prototype.writeStateUnlocked.call(this.#runtimeStore, merged);
-      const reread = readRawRuntimeState(this.#runtimeStore);
-      const actualDurable = [...reread.values()].map(projectDurableSession).sort(compareDurable);
-      const expectedDurable = durable.map(parseDurableSession).sort(compareDurable);
-      if (durableSetKey(actualDurable) !== durableSetKey(expectedDurable)) {
-        throw new Error("Session rollback export durable projection did not verify after publish.");
-      }
-      return Object.freeze({
-        recordCount: expectedDurable.length,
-        durableProjection: expectedDurable,
-      });
-    });
-  }
-}
-
 /** @param {SessionStore} store */
 function readRawRuntimeState(store) {
   return BaseSessionStore.prototype.readStateUnlocked.call(store);
@@ -425,14 +375,4 @@ function durableKey(value) {
     durable.simulatorUDID,
     durable.createdAt,
   ]);
-}
-
-/** @param {DurableSessionRecord} left @param {DurableSessionRecord} right */
-function compareDurable(left, right) {
-  return left.id.localeCompare(right.id);
-}
-
-/** @param {readonly DurableSessionRecord[]} records */
-function durableSetKey(records) {
-  return JSON.stringify(records.map(durableKey));
 }

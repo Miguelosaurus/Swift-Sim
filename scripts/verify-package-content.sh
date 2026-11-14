@@ -27,7 +27,6 @@ const required = [
   "dist/mac-helper/src/installPresentationReader.js",
   "dist/mac-helper/bin/swift-sim-entry.js",
   "dist/mac-helper/bin/swift-sim-helper-entry.js",
-  "dist/mac-helper/bin/swift-sim-phase4-cutover.js",
   "dist/mac-helper/build-provenance.json",
   "dist/mac-helper/src/appControlCli.js",
   "dist/mac-helper/optional/app-control/control.py",
