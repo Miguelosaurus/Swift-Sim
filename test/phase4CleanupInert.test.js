@@ -183,7 +183,7 @@ test("helper startup and reopen never drain artifact cleanup", () => {
   });
 });
 
-test("doctor and maintenance status never drain artifact cleanup", () => {
+test("doctor never drains artifact cleanup", () => {
   withCleanupRoot(({ stateRoot, assertPreserved }) => {
     const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
     collectPhase4OperatorDiagnostics({
@@ -200,18 +200,6 @@ test("doctor and maintenance status never drain artifact cleanup", () => {
         measurementIssueCount: 0,
       },
     });
-    assert.equal(legacyCleanupJobCount(stateRoot), 1);
-    assertPreserved();
-    const status = spawnSync(
-      process.execPath,
-      [new URL("../mac-helper/bin/swift-sim-phase4-cutover.js", import.meta.url).pathname,
-        "status", "--state-root", stateRoot],
-      { encoding: "utf8", timeout: 10_000 },
-    );
-    assert.equal(status.status, 0, status.stderr);
-    const report = JSON.parse(status.stdout);
-    assert.equal(report.readOnly, true);
-    assert.equal(report.mutationAllowed, false);
     assert.equal(legacyCleanupJobCount(stateRoot), 1);
     assertPreserved();
     stores.database.close();

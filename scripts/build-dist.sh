@@ -28,22 +28,6 @@ while IFS= read -r -d '' path; do
   esac
 done < <(git -C "$ROOT" ls-files -z)
 
-# The maintenance executor is a deliberately pinned compiled entrypoint.
-# tsc compiles importable modules but bin/ files are omitted from the build
-# output; the reviewed cutover entrypoint must exist at the exact installed
-# libexec path the runbook documents, so it is copied verbatim alongside the
-# compiled tree. Its relative imports resolve against dist/mac-helper/src.
-if [[ -f "$ROOT/mac-helper/bin/swift-sim-phase4-cutover.js" ]]; then
-  copy_tracked_asset "mac-helper/bin/swift-sim-phase4-cutover.js"
-  chmod +x "$DIST/mac-helper/bin/swift-sim-phase4-cutover.js"
-fi
-
-# Keep the local operator runner available to compiled process verification.
-# It loads the explicitly supplied installed candidate; it never starts a helper.
-if [[ -f "$ROOT/scripts/phase4/requalify-state.mjs" ]]; then
-  copy_tracked_asset "scripts/phase4/requalify-state.mjs"
-fi
-
 # Record immutable candidate provenance inside the packaged mac-helper tree.
 # Pull-request Actions check out a synthetic merge ref by default, so prefer the
 # immutable PR head SHA from the event payload. Release/push/local builds fall

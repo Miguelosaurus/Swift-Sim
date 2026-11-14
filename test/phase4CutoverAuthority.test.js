@@ -489,33 +489,6 @@ test("global activation routes writes only to SQLite and current-state rollback 
   });
 });
 
-test("maintenance status requires explicit state root and does not mutate SQLite bytes", () => {
-  withRoot(({ stateRoot, databasePath }) => {
-    const database = new SwiftSimSqliteDatabase({
-      path: databasePath,
-      migrations: PHASE4_SQLITE_MIGRATIONS,
-    });
-    database.close();
-    const cli = new URL("../mac-helper/bin/swift-sim-phase4-cutover.js", import.meta.url);
-    const missingRoot = spawnSync(process.execPath, [cli.pathname, "status"], {
-      encoding: "utf8",
-    });
-    assert.notEqual(missingRoot.status, 0);
-    assert.match(missingRoot.stderr, /--state-root/);
-    const before = readBytes(databasePath);
-    const status = spawnSync(
-      process.execPath,
-      [cli.pathname, "status", "--state-root", stateRoot],
-      { encoding: "utf8" },
-    );
-    assert.equal(status.status, 0, status.stderr);
-    const report = JSON.parse(status.stdout);
-    assert.equal(report.authority, "legacy");
-    assert.equal(report.latestSchemaVersion, 9);
-    assert.deepEqual(readBytes(databasePath), before);
-  });
-});
-
 function writeJSON(path, value) {
   writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
 }
