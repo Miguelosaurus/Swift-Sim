@@ -325,7 +325,20 @@ final class SwiftSimReloadBackgroundRenderer: NSObject, @unchecked Sendable {
     }
 
     func update(_ input: SwiftSimReloadRenderInput, size: CGSize) {
-        lock.withLock { self.input = input; self.size = size }
+        let image = input.frozenImage
+        let device: MTLDevice? = lock.withLock {
+            self.input = input; self.size = size
+            guard let image, image !== preEditImage else { return nil }
+            preEditImage = image
+            return resources?.device
+        }
+        guard let image, let device else { return }
+        // Converting the picture costs tens of milliseconds; doing it on the
+        // render thread would drop frames right before the ripple.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let texture = SwiftSimReloadRipple.texture(from: image, device: device)
+            self?.lock.withLock { if self?.preEditImage === image { self?.preEditTexture = texture } }
+        }
     }
 
     func start() {
@@ -351,11 +364,7 @@ final class SwiftSimReloadBackgroundRenderer: NSObject, @unchecked Sendable {
         lock.lock()
         guard running, !done, let input, input.active, size.width > 0, size.height > 0,
               let resources, let queue, let emptyTexture, inFlight.wait(timeout: .now()) == .success else { lock.unlock(); return }
-        if input.frozenImage !== preEditImage {
-            // Uploaded on this thread, well before the ripple needs it.
-            preEditImage = input.frozenImage
-            preEditTexture = input.frozenImage.flatMap { SwiftSimReloadRipple.texture(from: $0, device: resources.device) }
-        }
+        if input.frozenImage == nil { preEditTexture = nil; preEditImage = nil }
         let sample = timeline.sampled(at: ProcessInfo.processInfo.systemUptime, ready: ready,
             state: input.state, estimatedRemaining: input.estimatedRemaining)
         timeline = sample.timeline

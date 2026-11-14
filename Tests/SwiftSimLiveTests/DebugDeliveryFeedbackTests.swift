@@ -72,14 +72,15 @@ func fastProofStillCompletesTheClockwiseSweepAndTheWaitingGapCannotBeBlurredClos
 @Test
 func theSweepKeepsOneSteadySpeedAndStageEventsCannotChangeIt() {
     var choreography = SwiftSimReloadChoreography(estimatedDuration: 4)
-    #expect(abs(choreography.frame(at: 1).reveal - 0.25) < 0.000001)
-    #expect(abs(choreography.frame(at: 2).reveal - 0.5) < 0.000001)
-    #expect(abs(choreography.frame(at: 3).reveal - 0.75) < 0.000001)
+    let speed = 1 / (4 * SwiftSimReloadChoreography.lead)
+    #expect(abs(choreography.frame(at: 1).reveal - speed) < 0.000001)
+    #expect(abs(choreography.frame(at: 2).reveal - 2 * speed) < 0.000001)
+    #expect(abs(choreography.frame(at: 2.5).reveal - 2.5 * speed) < 0.000001)
     let before = choreography.frame(at: 1.2).reveal
     choreography.retarget(at: 1.2, estimatedRemaining: 0.1)
     choreography.retarget(at: 1.3, estimatedRemaining: 60)
     #expect(choreography.frame(at: 1.2).reveal == before)
-    #expect(abs(choreography.frame(at: 2).reveal - 0.5) < 0.000001, "no brake or sprint at a stage event")
+    #expect(abs(choreography.frame(at: 2).reveal - 2 * speed) < 0.000001, "no brake or sprint at a stage event")
     var previous = 0.0
     for tick in 1...18000 {
         let frame = choreography.frame(at: Double(tick) / 30)
@@ -112,9 +113,9 @@ func receiptOnScheduleFinishesAtTheSameSpeedAndAnEarlyOneNeverSlowsDown() throws
     }
     // Arriving on schedule keeps exactly the bar's own speed into the top.
     var onTime = SwiftSimReloadChoreography(estimatedDuration: 3)
-    onTime.confirm(at: 2.7)
-    let speed = (onTime.frame(at: 2.71).reveal - onTime.frame(at: 2.7).reveal) / 0.01
-    #expect(abs(speed - 1.0 / 3) < 0.001)
+    onTime.confirm(at: 2.0)
+    let speed = (onTime.frame(at: 2.01).reveal - onTime.frame(at: 2.0).reveal) / 0.01
+    #expect(abs(speed - 1.0 / (3 * SwiftSimReloadChoreography.lead)) < 0.001)
 }
 
 @Test

@@ -274,9 +274,13 @@ struct SwiftSimReloadChoreography {
     private let velocity: Double
     private var completion: (at: Double, reveal: Double, duration: Double)?
 
+    /// The bar aims a little ahead of the expected edit; the soft approach
+    /// near the top absorbs an edit that runs to its full estimate.
+    static let lead = 0.85
+
     init(startedAt: TimeInterval = 0, estimatedDuration: Double = 4) {
         self.startedAt = startedAt
-        let duration = estimatedDuration.isFinite ? max(Self.minimumSweepDuration, estimatedDuration) : 4
+        let duration = estimatedDuration.isFinite ? max(Self.minimumSweepDuration, estimatedDuration * Self.lead) : 4
         velocity = 1 / duration
     }
 
