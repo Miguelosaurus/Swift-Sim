@@ -130,7 +130,9 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     /// The pre-edit screen, shown until the ripple uncovers the new content.
     /// The edit itself applies immediately underneath.
     @Published private(set) var frozenFrame: UIView?
-    @Published private(set) var revealingFrozenFrame = false
+    /// Media time the ripple left the top, so the reveal stays in step with it
+    /// even if the main thread delivers this late.
+    @Published private(set) var frozenRevealAt: CFTimeInterval?
     private var freezeObserver: NSObjectProtocol?
     private var frozenRequestID: String?
     private var freezeWatchdog: Task<Void, Never>?
@@ -145,7 +147,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
               let snapshot = window.snapshotView(afterScreenUpdates: false) else { return }
         frozenRequestID = requestID
         frozenFrame = snapshot
-        revealingFrozenFrame = false
+        frozenRevealAt = nil
         // Never hold a stale screen if the ripple does not arrive.
         freezeWatchdog = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
@@ -154,13 +156,13 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
         }
     }
 
-    func revealFrozenFrame() {
-        if frozenFrame != nil { revealingFrozenFrame = true }
+    func revealFrozenFrame(at time: CFTimeInterval) {
+        if frozenFrame != nil, frozenRevealAt == nil { frozenRevealAt = time }
     }
 
     func releaseFrozenFrame() {
         freezeWatchdog?.cancel()
-        frozenFrame = nil; frozenRequestID = nil; revealingFrozenFrame = false
+        frozenFrame = nil; frozenRequestID = nil; frozenRevealAt = nil
     }
     #endif
 
@@ -542,7 +544,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     let state: SwiftSimDeliveryFeedbackState
     let estimatedRemaining: Double
     var onFinished: () -> Void = {}
-    var onWaveStart: () -> Void = {}
+    var onWaveStart: (CFTimeInterval) -> Void = { _ in }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var scenePhase
@@ -621,7 +623,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                     if finished { animationFinished = true; onFinished() }
                 }
                 .onChange(of: frame.waveStarted) { started in
-                    if started { onWaveStart() }
+                    if started { onWaveStart(CACurrentMediaTime()) }
                 }
             }
             .ignoresSafeArea()
@@ -692,17 +694,15 @@ struct SwiftSimReloadWindowShape: UIViewRepresentable {
 /// new content inside the ripple's front (same origin and speed as the shader).
 struct SwiftSimFrozenFrame: UIViewRepresentable {
     let snapshot: UIView
-    let revealing: Bool
+    let revealAt: CFTimeInterval?
     let onRevealed: () -> Void
 
     func makeUIView(context: Context) -> Host { Host(snapshot: snapshot) }
     func updateUIView(_ host: Host, context: Context) {
-        if revealing { host.reveal(completion: onRevealed) }
+        if let revealAt { host.reveal(at: revealAt, completion: onRevealed) }
     }
 
     final class Host: UIView {
-        /// Hidden while the ripple captures the refreshed screen it refracts.
-        static weak var current: Host?
         private let snapshot: UIView
         private var revealing = false
 
@@ -712,7 +712,6 @@ struct SwiftSimFrozenFrame: UIViewRepresentable {
             isUserInteractionEnabled = false
             accessibilityElementsHidden = true
             addSubview(snapshot)
-            Host.current = self
         }
         required init?(coder: NSCoder) { nil }
 
@@ -721,7 +720,7 @@ struct SwiftSimFrozenFrame: UIViewRepresentable {
             snapshot.frame = window.map { convert($0.bounds, from: $0) } ?? bounds
         }
 
-        func reveal(completion: @escaping () -> Void) {
+        func reveal(at time: CFTimeInterval, completion: @escaping () -> Void) {
             guard !revealing else { return }
             revealing = true
             let frame = snapshot.frame
@@ -743,6 +742,10 @@ struct SwiftSimFrozenFrame: UIViewRepresentable {
             animation.fromValue = path(0)
             animation.toValue = path(travel + 2)
             animation.duration = duration
+            // Starting from the ripple's own timestamp keeps the two in step
+            // even when this arrives a few frames late.
+            animation.beginTime = mask.convertTime(time, from: nil)
+            animation.fillMode = .backwards
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
             mask.add(animation, forKey: "reveal")
             CATransaction.commit()

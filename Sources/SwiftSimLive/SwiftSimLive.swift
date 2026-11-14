@@ -58,9 +58,9 @@ private struct SwiftSimLiveModifier: ViewModifier {
 
     init() { SwiftSimLiveObserver.shared.registerRoot() }
 
-    private func revealFrozenFrame() {
+    private func revealFrozenFrame(at time: CFTimeInterval) {
         #if canImport(UIKit) && os(iOS)
-        feedback.revealFrozenFrame()
+        feedback.revealFrozenFrame(at: time)
         #endif
     }
 
@@ -71,7 +71,7 @@ private struct SwiftSimLiveModifier: ViewModifier {
                 ZStack {
                     #if canImport(UIKit) && os(iOS)
                     if let frozen = feedback.frozenFrame {
-                        SwiftSimFrozenFrame(snapshot: frozen, revealing: feedback.revealingFrozenFrame) {
+                        SwiftSimFrozenFrame(snapshot: frozen, revealAt: feedback.frozenRevealAt) {
                             feedback.releaseFrozenFrame()
                         }
                         .ignoresSafeArea()
@@ -81,7 +81,7 @@ private struct SwiftSimLiveModifier: ViewModifier {
                     if let state = feedback.presentation {
                         SwiftSimDeliveryFeedbackEffect(state: state, estimatedRemaining: feedback.estimatedRemaining,
                             onFinished: { feedback.dismissPresentation(requestID: state.requestID, sequence: state.sequence) },
-                            onWaveStart: { revealFrozenFrame() })
+                            onWaveStart: { revealFrozenFrame(at: $0) })
                             .id(state.requestID)
                     }
                 }

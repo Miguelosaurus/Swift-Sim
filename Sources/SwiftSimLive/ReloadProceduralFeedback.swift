@@ -15,7 +15,15 @@ struct SwiftSimReloadRenderInput {
     let lightAppearance: Bool
     let active: Bool
 
-    var prepareSnapshot: Bool { state.phase == .refreshed }
+    /// On iOS the held pre-edit frame and the ripple mask reveal the edit, so
+    /// no main-thread window capture (and its dropped frames) is needed.
+    var prepareSnapshot: Bool {
+        #if os(iOS)
+        false
+        #else
+        state.phase == .refreshed
+        #endif
+    }
 }
 
 /// Distance-delayed, damped displacement, following Mehta's WWDC-based ripple.
@@ -61,7 +69,7 @@ enum SwiftSimReloadRipple {
 
 // Immutable Metal objects are shared across the compiler task and main actor.
 // Each presentation owns its queue, capture and transient drawable resources.
-private final class SwiftSimReloadGPUResources: @unchecked Sendable {
+final class SwiftSimReloadGPUResources: @unchecked Sendable {
     let device: MTLDevice
     let pipeline: MTLRenderPipelineState
 
@@ -229,21 +237,8 @@ final class SwiftSimReloadMetalView: MTKView {
             waveSignaled = true
             DispatchQueue.main.async { [weak self] in self?.waveStarted?() }
         }
-        uniforms[0] = SIMD4(Float(bounds.width), Float(bounds.height), Float(input.cornerRadius), Float(visualTimeline.elapsed))
-        uniforms[1] = SIMD4(Float(frame.auraOpacity), frame.waveStarted ? Float(frame.waveProgress * SwiftSimReloadChoreography.waveDuration) : -1,
-            Float(SwiftSimReloadChoreography.waveDuration), input.lightAppearance ? 1 : 0)
-        uniforms[2] = SIMD4(Float(SwiftSimReloadRipple.amplitude), Float(SwiftSimReloadRipple.frequency),
-            Float(SwiftSimReloadRipple.decay), capture == nil ? 0 : 1)
-        uniforms[3] = SIMD4(SwiftSimReloadShader.revealProgress(for: frame), SwiftSimReloadShader.revealSoftness, 0, 0)
-        // Uniform work belongs once per frame, not in every fragment.
-        let time = Float(visualTimeline.elapsed)
-        let burst = exp(-time * 1.6)
-        for index in 0..<11 {
-            let n = Float(index), phase = n * 2.39996
-            let drift = time * (0.24 + 0.018 * n) + burst * sin(time * 4) * 0.2
-            uniforms[index + 4] = SIMD4(Float(bounds.width) * (0.5 + 0.46 * sin(drift + phase)),
-                Float(bounds.height) * (0.5 + 0.46 * cos(drift * 0.83 + phase * 1.37)), 0, 0)
-        }
+        SwiftSimReloadShader.fill(&uniforms, size: bounds.size, input: input, frame: frame,
+            elapsed: visualTimeline.elapsed, hasCapture: capture != nil)
         encoder.setRenderPipelineState(resources.pipeline)
         uniforms.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
         encoder.setFragmentTexture(capture ?? emptyTexture, index: 0)
@@ -299,11 +294,7 @@ final class SwiftSimReloadMetalView: MTKView {
         var complete = false
         let hidden = isHidden
         isHidden = true
-        // The ripple refracts the new screen, never the held pre-edit frame.
-        let frozen = SwiftSimFrozenFrame.Host.current
-        let frozenHidden = frozen?.isHidden ?? false
-        frozen?.isHidden = true
-        defer { isHidden = hidden; frozen?.isHidden = frozenHidden }
+        defer { isHidden = hidden }
         let image = UIGraphicsImageRenderer(size: bounds.size, format: format).image { _ in
             complete = window.drawHierarchy(in: CGRect(origin: CGPoint(x: -origin.x, y: -origin.y),
                 size: window.bounds.size), afterScreenUpdates: true)
@@ -331,36 +322,176 @@ final class SwiftSimReloadMetalView: MTKView {
 }
 
 #if canImport(UIKit)
+/// Draws the glow on its own display-link thread. Applying a patch and
+/// re-rendering SwiftUI both happen on the main thread; neither can stall it.
+final class SwiftSimReloadBackgroundRenderer: NSObject, @unchecked Sendable {
+    private let lock = NSLock()
+    private let metalLayer: CAMetalLayer
+    private var input: SwiftSimReloadRenderInput?
+    private var size = CGSize.zero
+    private var resources: SwiftSimReloadGPUResources?
+    private var queue: MTLCommandQueue?
+    private var emptyTexture: MTLTexture?
+    private var timeline = SwiftSimReloadVisualTimeline()
+    private var ready = false, readyScheduled = false, waveSignaled = false, done = false, running = false
+    private var uniforms = [SIMD4<Float>](repeating: .zero, count: 15)
+    private let inFlight = DispatchSemaphore(value: 2)
+    private let finished: @Sendable () -> Void
+    private let waveStarted: @Sendable (CFTimeInterval) -> Void
+
+    init(layer: CAMetalLayer, finished: @escaping @Sendable () -> Void, waveStarted: @escaping @Sendable (CFTimeInterval) -> Void) {
+        metalLayer = layer; self.finished = finished; self.waveStarted = waveStarted
+    }
+
+    func configure(resources: SwiftSimReloadGPUResources, queue: MTLCommandQueue, empty: MTLTexture) {
+        lock.withLock { self.resources = resources; self.queue = queue; emptyTexture = empty }
+    }
+
+    func update(_ input: SwiftSimReloadRenderInput, size: CGSize) {
+        lock.withLock { self.input = input; self.size = size }
+    }
+
+    func start() {
+        guard lock.withLock({ () -> Bool in defer { running = true }; return !running }) else { return }
+        let thread = Thread { [self] in
+            let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+            if #available(iOS 15, *) { link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120) }
+            link.add(to: .current, forMode: .default)
+            while lock.withLock({ running }) {
+                autoreleasepool { _ = RunLoop.current.run(mode: .default, before: .distantFuture) }
+            }
+            link.invalidate()
+        }
+        thread.name = "SwiftSimReloadRenderer"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+    }
+
+    /// The render thread exits on its next display-link tick.
+    func stop() { lock.withLock { running = false; input = nil } }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        lock.lock()
+        guard running, !done, let input, input.active, size.width > 0, size.height > 0,
+              let resources, let queue, let emptyTexture, inFlight.wait(timeout: .now()) == .success else { lock.unlock(); return }
+        let sample = timeline.sampled(at: ProcessInfo.processInfo.systemUptime, ready: ready,
+            state: input.state, estimatedRemaining: input.estimatedRemaining)
+        timeline = sample.timeline
+        let frame = sample.frame
+        SwiftSimReloadShader.fill(&uniforms, size: size, input: input, frame: frame, elapsed: timeline.elapsed, hasCapture: false)
+        let signalWave = frame.waveStarted && !waveSignaled
+        if signalWave { waveSignaled = true }
+        let firstFrame = !readyScheduled
+        readyScheduled = true
+        if frame.finished { done = true }
+        let values = uniforms
+        lock.unlock()
+
+        guard let drawable = metalLayer.nextDrawable(), let command = queue.makeCommandBuffer() else { inFlight.signal(); return }
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = drawable.texture
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0)
+        pass.colorAttachments[0].storeAction = .store
+        guard let encoder = command.makeRenderCommandEncoder(descriptor: pass) else { inFlight.signal(); return }
+        encoder.setRenderPipelineState(resources.pipeline)
+        values.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
+        encoder.setFragmentTexture(emptyTexture, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.endEncoding()
+        let semaphore = inFlight
+        command.addCompletedHandler { [weak self] command in
+            semaphore.signal()
+            // The visual clock stays at zero until the first drawable is ready.
+            if firstFrame && command.status == .completed { self?.lock.withLock { self?.ready = true } }
+        }
+        command.present(drawable)
+        command.commit()
+        if signalWave { waveStarted(link.timestamp) }
+        if frame.finished { finished() }
+    }
+}
+
+/// iOS host for the background renderer.
+final class SwiftSimReloadLayerView: UIView {
+    override class var layerClass: AnyClass { CAMetalLayer.self }
+    var unavailable: (() -> Void)?
+    var finished: (() -> Void)?
+    var waveStarted: ((CFTimeInterval) -> Void)?
+    private var renderer: SwiftSimReloadBackgroundRenderer!
+    private var compilation: Task<Void, Never>?
+    private var input: SwiftSimReloadRenderInput?
+
+    init() {
+        super.init(frame: .zero)
+        isOpaque = false; backgroundColor = .clear
+        isUserInteractionEnabled = false; accessibilityElementsHidden = true
+        let metal = layer as! CAMetalLayer
+        metal.pixelFormat = .bgra8Unorm; metal.isOpaque = false; metal.framebufferOnly = true
+        metal.maximumDrawableCount = 3
+        renderer = SwiftSimReloadBackgroundRenderer(layer: metal,
+            finished: { [weak self] in Task { @MainActor in self?.finished?() } },
+            waveStarted: { [weak self] time in Task { @MainActor in self?.waveStarted?(time) } })
+        compilation = Task { [weak self] in
+            let resources = await SwiftSimReloadGPUCache.compilation.value
+            guard !Task.isCancelled, let self else { return }
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 1, height: 1, mipmapped: false)
+            guard let resources, let queue = resources.device.makeCommandQueue(maxCommandBufferCount: 2),
+                  let empty = resources.device.makeTexture(descriptor: descriptor) else { self.unavailable?(); return }
+            var clear: UInt32 = 0
+            empty.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: &clear, bytesPerRow: 4)
+            metal.device = resources.device
+            self.renderer.configure(resources: resources, queue: queue, empty: empty)
+            self.renderer.start()
+        }
+    }
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let scale = SwiftSimReloadRipple.snapshotScale(size: bounds.size, nativeScale: 2)
+        (layer as! CAMetalLayer).drawableSize = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
+        if let input { renderer.update(input, size: bounds.size) }
+    }
+
+    func update(_ input: SwiftSimReloadRenderInput) {
+        self.input = input
+        renderer.update(input, size: bounds.size)
+    }
+
+    func stop() { compilation?.cancel(); renderer.stop() }
+}
+
 struct SwiftSimReloadProceduralFeedback: UIViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
     var onFinished: () -> Void
-    var onWaveStart: () -> Void = {}
-    func makeUIView(context: Context) -> SwiftSimReloadMetalView {
-        let view = SwiftSimReloadMetalView()
+    var onWaveStart: (CFTimeInterval) -> Void = { _ in }
+    func makeUIView(context: Context) -> SwiftSimReloadLayerView {
+        let view = SwiftSimReloadLayerView()
         view.unavailable = onUnavailable
         view.finished = onFinished
         view.waveStarted = onWaveStart
         return view
     }
-    func updateUIView(_ view: SwiftSimReloadMetalView, context: Context) {
+    func updateUIView(_ view: SwiftSimReloadLayerView, context: Context) {
         view.finished = onFinished
         view.waveStarted = onWaveStart
         view.update(input)
     }
-    static func dismantleUIView(_ view: SwiftSimReloadMetalView, coordinator: ()) { view.stop() }
+    static func dismantleUIView(_ view: SwiftSimReloadLayerView, coordinator: ()) { view.stop() }
 }
 #elseif canImport(AppKit)
 struct SwiftSimReloadProceduralFeedback: NSViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
     var onFinished: () -> Void
-    var onWaveStart: () -> Void = {}
+    var onWaveStart: (CFTimeInterval) -> Void = { _ in }
     func makeNSView(context: Context) -> SwiftSimReloadMetalView {
         let view = SwiftSimReloadMetalView()
         view.unavailable = onUnavailable
         view.finished = onFinished
-        view.waveStarted = onWaveStart
+        view.waveStarted = { onWaveStart(CACurrentMediaTime()) }
         return view
     }
     func updateNSView(_ view: SwiftSimReloadMetalView, context: Context) {
@@ -376,6 +507,25 @@ struct SwiftSimReloadProceduralFeedback: NSViewRepresentable {
 /// Runtime compilation keeps CLI SwiftPM and Xcode on the same Debug-only source.
 enum SwiftSimReloadShader {
     static let revealSoftness: Float = 56
+
+    /// Per-frame uniforms, computed once per frame rather than per fragment.
+    static func fill(_ uniforms: inout [SIMD4<Float>], size: CGSize, input: SwiftSimReloadRenderInput,
+                     frame: SwiftSimReloadChoreography.Frame, elapsed: Double, hasCapture: Bool) {
+        uniforms[0] = SIMD4(Float(size.width), Float(size.height), Float(input.cornerRadius), Float(elapsed))
+        uniforms[1] = SIMD4(Float(frame.auraOpacity), frame.waveStarted ? Float(frame.waveProgress * SwiftSimReloadChoreography.waveDuration) : -1,
+            Float(SwiftSimReloadChoreography.waveDuration), input.lightAppearance ? 1 : 0)
+        uniforms[2] = SIMD4(Float(SwiftSimReloadRipple.amplitude), Float(SwiftSimReloadRipple.frequency),
+            Float(SwiftSimReloadRipple.decay), hasCapture ? 1 : 0)
+        uniforms[3] = SIMD4(revealProgress(for: frame), revealSoftness, 0, 0)
+        let time = Float(elapsed)
+        let burst = exp(-time * 1.6)
+        for index in 0..<11 {
+            let n = Float(index), phase = n * 2.39996
+            let drift = time * (0.24 + 0.018 * n) + burst * sin(time * 4) * 0.2
+            uniforms[index + 4] = SIMD4(Float(size.width) * (0.5 + 0.46 * sin(drift + phase)),
+                Float(size.height) * (0.5 + 0.46 * cos(drift * 0.83 + phase * 1.37)), 0, 0)
+        }
+    }
 
     static func revealProgress(for frame: SwiftSimReloadChoreography.Frame) -> Float {
         frame.waveStarted ? 1 : min(Float(1).nextDown, Float(frame.reveal))
@@ -469,7 +619,14 @@ enum SwiftSimReloadShader {
             float travel = length(float2(size.x * .5, size.y - 5));
             float speed = travel / max(.2, u.animation.z - 1.0);
             float age = waveTime - distanceFromOrigin / speed;
-            if (age > 0 && age < 1.0) {
+            if (age > 0 && age < 1.0 && u.ripple.w < .5) {
+                // No captured image (iOS): a luminous ring rides the front and
+                // the held pre-edit frame's mask performs the reveal under it.
+                float ring = smoothstep(0.0, .025, age) * (1 - smoothstep(.025, .16, age));
+                float fade = 1 - smoothstep(.75, 1.0, waveTime / max(.2, u.animation.z - 1.0));
+                float a = ring * .6 * fade;
+                result = float4(float3(.0, .92, .72) * a, a) + result * (1 - a);
+            } else if (age > 0 && age < 1.0) {
                 float envelope = exp(-u.ripple.z * age);
                 float displacement = u.ripple.x * sin(u.ripple.y * age) * envelope
                     * (1 - smoothstep(.60, .85, age));
@@ -482,8 +639,7 @@ enum SwiftSimReloadShader {
                 float waveAlpha = 1 - smoothstep(.85, 1.0, age);
                 float highlight = displacement / u.ripple.x;
                 float3 refracted = max(float3(0), sample.rgb + highlight * float3(.10, .15, .14));
-                if (u.ripple.w < .5) { refracted = teal; waveAlpha *= .14; }
-                else { waveAlpha *= sample.a; }
+                waveAlpha *= sample.a;
                 float4 wave = float4(refracted * waveAlpha, waveAlpha);
                 result = wave + result * (1 - wave.a);
             }
