@@ -300,3 +300,16 @@ test("an old native install receipt superseded by newer inventory cannot produce
   assert.equal(result.outcome, "needs-user-action");
   assert.equal(result.reasonCode, "INSTALL_RECEIPT_SUPERSEDED"); assert.equal(result.delivery, undefined);
 });
+
+test("the next delivery reports a queued update that failed after the agent's last call", async () => {
+  const deliver = (lastLiveRecord) => deliverChange({ files: HOT, project: "/fixture/App.xcodeproj", scheme: "App", runtimeCheck: async () => ({ ok: true }), lastLiveRecord,
+    queueLive: async () => deliveryEnvelope({ outcome: "hot-reloaded", message: "Proven refreshed receipt.", delivery: { kind: "live", revision: 7 } }) });
+  const failed = await deliver(() => ({ requestId: "earlier-request", state: "failed", reasonCode: "QUEUED_EDIT_NOT_COMPATIBLE" }));
+  assert.equal(failed.outcome, "hot-reloaded");
+  assert.equal(failed.previousFailure.requestId, "earlier-request");
+  assert.equal(failed.previousFailure.code, "QUEUED_EDIT_NOT_COMPATIBLE");
+  assert.match(failed.previousFailure.message, /\S/);
+  assert.equal(validateDeliveryEnvelope(failed).valid, true);
+  assert.equal((await deliver(() => ({ requestId: "earlier-request", state: "refreshed", proof: { revision: 3 }, createdAt: 1, updatedAt: 2 }))).previousFailure, undefined);
+  assert.equal((await deliver(() => null)).previousFailure, undefined);
+});

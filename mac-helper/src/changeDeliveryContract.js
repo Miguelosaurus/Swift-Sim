@@ -125,6 +125,9 @@ export function validateDeliveryEnvelope(value) {
   )) {
     errors.push("warning requires a typed code and message.");
   }
+  if (value.previousFailure !== undefined && (!isMessage(value.previousFailure) || typeof value.previousFailure.requestId !== "string")) {
+    errors.push("previousFailure requires a request, typed code and message.");
+  }
   if (value.timing !== undefined && (
     !value.timing || typeof value.timing !== "object" || Array.isArray(value.timing)
     || !isNonNegativeNumber(value.timing.totalMs)

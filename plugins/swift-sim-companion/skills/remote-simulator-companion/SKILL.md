@@ -51,7 +51,11 @@ build, unless `--live-only` forbids it. Compilation alone is insufficient.
 Schema 2 adds incomplete `queued` delivery. Report its state; the helper applies
 it when the matching app can run. Never claim done, require a specific screen,
 or retry delivery. Read progress with `swift-sim live-delivery-status --request
-<opaque-request-id>`.
+<opaque-request-id>`; check it again after the user returns to the app.
+
+If a result includes `previousFailure`, an earlier queued edit failed after you
+last checked. Tell the user its `message` and act on its `code` (for example,
+`QUEUED_EDIT_NOT_COMPATIBLE` needs a signed build).
 
 For `hot-reloaded`, say:
 

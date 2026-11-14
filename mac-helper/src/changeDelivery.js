@@ -10,10 +10,12 @@ import { buildFailureNotice } from "./buildFailure.js";
 import { createLiveDeliveryAdapter } from "./liveDeliveryAdapter.js";
 import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
 import { sameBinaryScope } from "./liveDeliverySnapshots.js";
+import { projectLiveDelivery } from "./liveDeliveryRuntime.js";
+import { canonicalProjectPath } from "./liveSessionDescriptor.js";
 
 const activeDeliveries = new Map();
 
-export async function deliverChange({ files = [], project = "", workspace = "", host = "", scheme = "", build = {}, liveOnly = false, queueLive = (input) => liveDeliveryService().enqueue(input), buildDevice, installBuild, runtimeCheck, verbose = false, now = () => Date.now(), sourceContext } = {}) {
+export async function deliverChange({ files = [], project = "", workspace = "", host = "", scheme = "", build = {}, liveOnly = false, queueLive = (input) => liveDeliveryService().enqueue(input), buildDevice, installBuild, runtimeCheck, verbose = false, now = () => Date.now(), sourceContext, lastLiveRecord = latestLiveRecord } = {}) {
   if (!Array.isArray(files) || files.length === 0) return failedEnvelope("INVALID_EDIT_SET", "Pass at least one before/after file pair.");
   try { files = materializeDeliveryFiles(files); } catch (error) { return failedEnvelope("INVALID_EDIT_SET", safeError(error)); }
   if (files.some(file => file.beforeSource === undefined && !file.beforePath)) {
@@ -27,11 +29,30 @@ export async function deliverChange({ files = [], project = "", workspace = "", 
       return deliveryEnvelope({ outcome: "needs-user-action", reasonCode: code, message, error: { code, message } });
     }
   }
+  // A queued update can fail after the agent's last call returned. Report it
+  // once, on the next delivery for the same app, before this one replaces it.
+  const previousFailure = (project || workspace) && scheme ? priorFailure(lastLiveRecord(project || workspace, scheme)) : null;
   const key = createHash("sha256").update(JSON.stringify({ files, project, workspace, host, scheme, build, liveOnly, automaticInstall: typeof installBuild === "function" })).digest("hex");
   if (activeDeliveries.has(key)) return activeDeliveries.get(key);
   const promise = deliverOnce({ files, project, workspace, host, scheme, build, liveOnly, queueLive, buildDevice, installBuild, runtimeCheck, verbose, now }).catch((error) => failedEnvelope("DELIVERY_FAILED", safeError(error)));
   activeDeliveries.set(key, promise);
-  try { return await promise; } finally { activeDeliveries.delete(key); }
+  try {
+    const result = await promise;
+    return previousFailure ? { ...result, previousFailure } : result;
+  } finally { activeDeliveries.delete(key); }
+}
+
+function latestLiveRecord(project, scheme) {
+  try {
+    const target = canonicalProjectPath(project);
+    return createLiveDeliveryQueue().list().filter(record => record.scope.project === target && record.scope.scheme === scheme).at(-1) || null;
+  } catch { return null; }
+}
+
+function priorFailure(record) {
+  if (!record || !["failed", "uncertain"].includes(record.state)) return null;
+  const projected = projectLiveDelivery(record);
+  return { requestId: record.requestId, code: record.reasonCode || "LIVE_DELIVERY_FAILED", message: projected.message };
 }
 
 function resolveBeforeSources(files, { manifest, scope, queue }, now) {
