@@ -565,3 +565,14 @@ function createFixture(files) {
   }
   return { root, files: Object.keys(files).sort() };
 }
+
+test("the line budget blocks growth and forces reductions to be locked in", async () => {
+  const { checkLineBudget } = await import("../scripts/architecture/inventory.js");
+  const inventory = { productionFiles: [{ path: "a.js", lines: 600 }, { path: "b.js", lines: 400 }] };
+  assert.deepEqual(checkLineBudget(inventory, {}), []);
+  assert.deepEqual(checkLineBudget(inventory, { lineBudget: 1000 }), []);
+  assert.deepEqual(checkLineBudget(inventory, { lineBudget: 1300 }), []);
+  assert.match(checkLineBudget(inventory, { lineBudget: 999 })[0], /over the 999-line budget/);
+  assert.match(checkLineBudget(inventory, { lineBudget: 1301 })[0], /lower lineBudget to at most 1300/);
+  assert.match(checkLineBudget(inventory, { lineBudget: -1 })[0], /positive integer/);
+});

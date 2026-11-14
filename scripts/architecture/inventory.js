@@ -10,6 +10,7 @@ const repositoryRoot = join(scriptDirectory, "../..");
 const policyPath = join(scriptDirectory, "baseline-policy.json");
 const policyRepositoryPath = "scripts/architecture/baseline-policy.json";
 const MAX_PRODUCTION_LINES_WITHOUT_ADR = 800;
+const LINE_BUDGET_SLACK = 300;
 const policyCategories = [
   "preloadRuntimePatchModules",
   "childProcessImporters",
@@ -181,6 +182,7 @@ export function checkInventory(inventory, policy, options = {}) {
   if (normalized.policy) {
     violations.push(...validateAllowlistEntries(normalized.policy.allowlists, options));
     violations.push(...compareCurrentInventory(inventory, normalized.policy, options));
+    violations.push(...checkLineBudget(inventory, normalized.policy));
   }
 
   if (inventory.unsupportedNodeFiles.length > 0) {
@@ -366,6 +368,18 @@ function compareAllowlistsMonotonic(current, base) {
     }
   }
   return violations;
+}
+
+// Leanness ratchet: production code may not grow past the budget, and a
+// reduction must be locked in by lowering the budget to within the slack.
+export function checkLineBudget(inventory, policy) {
+  if (policy.lineBudget === undefined) return [];
+  const budget = Number(policy.lineBudget);
+  if (!Number.isInteger(budget) || budget <= 0) return ["lineBudget must be a positive integer"];
+  const total = inventory.productionFiles.reduce((sum, entry) => sum + entry.lines, 0);
+  if (total > budget) return [`production code is ${total} lines, over the ${budget}-line budget; remove code or raise lineBudget deliberately`];
+  if (budget - total > LINE_BUDGET_SLACK) return [`production code shrank to ${total} lines; lower lineBudget to at most ${total + LINE_BUDGET_SLACK} to keep the reduction`];
+  return [];
 }
 
 export function snapshotFromInventory(inventory) {
