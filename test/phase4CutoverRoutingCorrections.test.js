@@ -10,7 +10,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { collectPhase4OperatorDiagnostics } from "../mac-helper/src/commands/phase4OperatorDiagnostics.js";
 import { createExtractedHelperServices } from "../mac-helper/src/helperCliRuntime.js";
 import { validatePhase4MaintenanceEvidence } from "../mac-helper/src/persistence/phase4CutoverPreflight.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
@@ -19,17 +18,7 @@ import { SqlitePhase4AuthorityRepository } from "../mac-helper/src/persistence/s
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
 const PREPARATION_ID = "c".repeat(64);
-const ARTIFACT_AUDIT = Object.freeze({
-  readOnly: true,
-  cleanupEnabled: false,
-  measurementComplete: true,
-  totalKiB: 0,
-  reclaimableKiB: 0,
-  protectedKiB: 0,
-  manualReviewKiB: 0,
-  orphanRootCount: 0,
-  measurementIssueCount: 0,
-});
+
 
 function withRoot(operation) {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-phase4-routing-"));
@@ -185,21 +174,7 @@ test("rollback-preparing survives reopen, remains SQLite-authoritative, and is v
     reopened.close();
     chmodSync(databasePath, 0o600);
 
-    const diagnostics = collectPhase4OperatorDiagnostics({
-      stateRoot,
-      artifactAudit: ARTIFACT_AUDIT,
-    });
-    assert.equal(diagnostics.readOnly, true);
-    assert.equal(diagnostics.redacted, true);
-    assert.equal(diagnostics.mutationAllowed, false);
-    assert.equal(diagnostics.authority.mode, "rollback-preparing");
-    assert.equal(diagnostics.authority.rollbackPreparationActive, true);
-    assert.equal(diagnostics.authority.rollbackAvailable, true);
-    assert.ok(
-      diagnostics.recovery.actionCodes.includes(
-        "keep-sqlite-authority-and-resume-current-state-rollback-export",
-      ),
-    );
+
   });
 });
 

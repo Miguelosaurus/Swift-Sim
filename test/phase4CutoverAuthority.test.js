@@ -13,7 +13,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { collectPhase4OperatorDiagnostics } from "../mac-helper/src/commands/phase4OperatorDiagnostics.js";
 import { DEVICE_BUILD_CUTOVER_LEGACY_RAW } from "./fixtures/deviceBuildCutoverFixtures.js";
 import { migrateToSqliteAutomatically, AUTOMATIC_ROLLBACK_WINDOW_MS } from "../mac-helper/src/persistence/phase4AutomaticMigration.js";
 import { Phase4PairingAuthorityBridge } from "../mac-helper/src/persistence/phase4PairingAuthorityBridge.js";
@@ -28,17 +27,7 @@ import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSq
 
 const PREPARATION_ID = "a".repeat(64);
 const CANDIDATE_SHA = "b".repeat(40);
-const ARTIFACT_AUDIT = Object.freeze({
-  readOnly: true,
-  cleanupEnabled: false,
-  measurementComplete: true,
-  totalKiB: 64,
-  reclaimableKiB: 0,
-  protectedKiB: 64,
-  manualReviewKiB: 0,
-  orphanRootCount: 0,
-  measurementIssueCount: 0,
-});
+
 
 function withRoot(operation) {
   const directory = mkdtempSync(join(tmpdir(), "swift-sim-phase4-cutover-"));

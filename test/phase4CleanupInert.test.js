@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { readStateBytes } from "./fixtures/state-bytes.js";
-import { collectPhase4OperatorDiagnostics } from "../mac-helper/src/commands/phase4OperatorDiagnostics.js";
+import { deviceBuildArtifactDoctorSection } from "../mac-helper/src/commands/deviceBuildArtifactDoctorProjection.js";
 import { Phase4CutoverCoordinator } from "../mac-helper/src/persistence/phase4CutoverCoordinator.js";
 import { createPhase4ProductionStoreFactories } from "../mac-helper/src/persistence/phase4ProductionStores.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
@@ -154,9 +154,7 @@ test("helper startup and reopen never drain artifact cleanup", () => {
 test("doctor never drains artifact cleanup", () => {
   withCleanupRoot(({ stateRoot, assertPreserved }) => {
     const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
-    collectPhase4OperatorDiagnostics({
-      stateRoot,
-      artifactAudit: {
+    deviceBuildArtifactDoctorSection({
         readOnly: true,
         cleanupEnabled: false,
         measurementComplete: true,
@@ -166,7 +164,6 @@ test("doctor never drains artifact cleanup", () => {
         manualReviewKiB: 0,
         orphanRootCount: 0,
         measurementIssueCount: 0,
-      },
     });
     assert.equal(legacyCleanupJobCount(stateRoot), 1);
     assertPreserved();

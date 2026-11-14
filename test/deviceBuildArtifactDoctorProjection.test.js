@@ -18,6 +18,8 @@ test("doctor storage section keeps artifact cleanup informational and disabled",
     warnings: [],
   });
 
+  assert.equal("phase4Support" in section, false);
+  assert.doesNotMatch(section.artifacts.detail, /Phase-4 support/);
   assert.equal(section.artifacts.available, true);
   assert.equal(section.artifacts.informational, true);
   assert.equal(section.artifacts.cleanupEnabled, false);
