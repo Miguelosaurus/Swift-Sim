@@ -10,7 +10,7 @@ navigate to the changed screen later to see the result.
 ## Availability
 
 This workflow is included in the published matching Mac package, engine and
-Debug SDK. Swift Sim 0.6.5 uses engine/SDK 0.5.8; `Package.swift` and
+Debug SDK. Swift Sim 0.6.6 uses engine/SDK 0.5.9; `Package.swift` and
 `mac-helper/compatibility.json` bind the exact version, source revision and
 archive checksum. Normal setup installs the matching verified public engine.
 Local candidate activation is only for separate contributor qualification.
@@ -266,7 +266,7 @@ or still-admitted work is queried by its original request, digest, attempt,
 baseline, coverage, strategy and binary/process identity. A receipt query never
 loads an image or reports success without native evidence, including after expiry.
 
-With engine/SDK 0.5.8's negotiated `prepared-receipt-fence-v1`, an unadmitted
+Since engine/SDK 0.5.8, the negotiated `prepared-receipt-fence-v1` lets an unadmitted
 attempt can be atomically retired in that ledger. Only its exact native
 `PREPARED_ATTEMPT_FENCED` no-effect proof permits the same request, snapshots and
 prepared image to use a new attempt token. Delayed copies of the retired attempt

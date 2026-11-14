@@ -252,14 +252,14 @@ Do not add live loading to Release, TestFlight, or App Store configurations.
 
 ## Swift Package Manager Version Pin
 
-The published Swift Sim 0.6.5 package pins the fork's exact `0.5.8` tag, matching its
+The published Swift Sim 0.6.6 package pins the fork's exact `0.5.9` tag, matching its
 verified engine archive and source revision in the compatibility contract.
 Apps can use the published stable exact version:
 
 ```swift
 .package(
     url: "https://github.com/Miguelosaurus/Swift-Sim.git",
-    exact: "0.6.5"
+    exact: "0.6.6"
 )
 ```
 

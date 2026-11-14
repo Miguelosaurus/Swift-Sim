@@ -2,6 +2,28 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
+## 0.6.6 - 2026-11-14
+
+- Hot reload decides with a SwiftSyntax classifier shared with the patch
+  compiler, closing eleven structural edits the old lexical classifier let
+  through. Changed `static let` constants hot reload with state kept.
+- The first edit to a file that was uncommitted at build time no longer needs
+  `--before`. Builds that pass their signing team on the command line keep hot
+  reload, and builds report when state preservation is off.
+- The reload glow is a steady progress bar for the whole edit, starting when the
+  Mac compiles. The new screen appears behind a refracting ripple, rendered off
+  the main thread. The glow follows the real screen or window shape.
+- Engine 0.5.9: faster reconnect after unlock or network changes, and text
+  size and layout direction developer tools.
+- A queued edit that fails later is reported to the agent on its next delivery
+  and explained in Companion. Edits queued before an app relaunch no longer wait
+  for a force quit.
+- Existing installs move to SQLite storage automatically, keeping the JSON files
+  as backups for 30 days. Compiler cache cleanup keeps running meanwhile.
+- About 11,000 lines removed, including the legacy JavaScript patch generator,
+  the Rust prototype and experimental scripts. A production line budget now
+  guards against regrowth.
+
 ## 0.6.5 - 2026-11-09
 
 - Add redacted Git-history secret scanning and dependency auditing to CI. Remove

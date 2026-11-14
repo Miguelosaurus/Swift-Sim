@@ -114,7 +114,7 @@ partially apply. Require the same exact native replacement and refresh receipts.
 ## Asynchronous edits
 
 The reconnect SDK and prepared-delivery engine are a matching published contract.
-Swift Sim 0.6.5 ships engine/SDK 0.5.8. Setup uses the verified public archive;
+Swift Sim 0.6.6 ships engine/SDK 0.5.9. Setup uses the verified public archive;
 local candidates are only explicit contributor qualifications. An old engine,
 SDK or helper reports its typed update requirement. Complete one matching
 Debug bootstrap; temporary absence does not require another app build.
@@ -137,7 +137,7 @@ is authenticated at revision zero and prior claims expire, cumulative recovery
 can supersede the old uncertain operation while preserving its evidence.
 
 Matching `prepared-receipt-query-v1` clients recover admitted receipts over the
-existing connection. Engine/SDK 0.5.8 additionally negotiates
+existing connection. Since 0.5.8, engine/SDK also negotiate
 `prepared-receipt-fence-v1`: an exact native no-effect proof can permanently
 retire an unadmitted attempt before the same queued request and compiled image
 uses a new token. Admitted work never replays; delayed retired attempts cannot
