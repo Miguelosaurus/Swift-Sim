@@ -632,10 +632,10 @@ enum SwiftSimReloadShader {
                 // A pre-edit image bends at the front and washes away quickly,
                 // uncovering the new screen just behind the crest.
                 float waveAlpha = u.ripple.w > 1.5 ? 1 - smoothstep(.12, .42, age) : 1 - smoothstep(.85, 1.0, age);
-                // The pre-edit picture holds the glow as it was; never bend that copy.
-                if (u.ripple.w > 1.5) waveAlpha *= 1 - smoothstep(-48.0, -20.0, edge);
+                if (u.ripple.w > 1.5) waveAlpha *= 1 - smoothstep(-110.0, -20.0, edge); // never bend the picture's glow
                 float highlight = displacement / u.ripple.x;
-                float3 refracted = max(float3(0), sample.rgb + highlight * float3(.10, .15, .14));
+                // Only the crest brightens; a darkened trough reads as a grey smudge.
+                float3 refracted = max(float3(0), sample.rgb + (u.ripple.w > 1.5 ? max(0.0, highlight) : highlight) * float3(.10, .15, .14));
                 waveAlpha *= sample.a;
                 float4 wave = float4(refracted * waveAlpha, waveAlpha);
                 result = wave + result * (1 - wave.a);
