@@ -179,6 +179,7 @@ export interface DeviceBuildRecord {
     engineReady?: boolean;
     compilerReady?: boolean;
     capturedCompilations?: number;
+    statePreserving?: boolean;
     error?: string;
     host?: string;
   };
@@ -361,6 +362,7 @@ const isLiveReload = (value: unknown): boolean =>
   hasOptionalString(value, "error") &&
   hasOptionalString(value, "host") &&
   hasOptionalNumber(value, "capturedCompilations") &&
+  hasOptionalBoolean(value, "statePreserving") &&
   (!Object.prototype.hasOwnProperty.call(value, "capturedCompilations") ||
     (isInteger(value.capturedCompilations) && value.capturedCompilations >= 0));
 

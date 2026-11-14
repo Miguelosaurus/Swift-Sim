@@ -344,6 +344,7 @@ export async function runDeviceBuild(build, {
         const liveResult = await withLiveBuildSession({
           project: join(target.path, "project.pbxproj"),
           scheme: build.scheme,
+          buildSettings: build.buildSettings,
         }, async ({ liveSession, registerLiveBuildResult: registerBuildResult }) => {
           if (!liveSession.started) return { completed: false, liveSession };
           liveBuildEntered = true;
@@ -417,8 +418,12 @@ export async function runDeviceBuild(build, {
               capturedCompilations: capture.registered,
               presentation: capture.presentation,
               recovery: { ...checkpoint, phase: "registered" },
+              ...(statefulBuild ? { statePreserving: statefulOverlayActive(statefulBuild.wrapperPath) } : {}),
             };
             log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
+            if (build.liveReload.statePreserving === false) {
+              log("State-preserving reload is off for this build: its Debug configuration must define the DEBUG compilation condition. Edits still hot reload, but view state resets.");
+            }
           } catch (error) {
             const failure = new DeviceBuildError(`The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`);
             if (typeof error?.code === "string") failure.code = error.code;
@@ -1223,4 +1228,11 @@ function escapeXml(value) {
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// The stateful compiler shim records usage only for the app module's Debug
+// compile; an absent or inactive record means edits reset view state.
+function statefulOverlayActive(wrapperPath) {
+  try { return JSON.parse(readFileSync(join(dirname(wrapperPath), "usage.json"), "utf8")).active === true; }
+  catch { return false; }
 }

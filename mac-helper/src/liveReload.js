@@ -79,6 +79,36 @@ const LIVE_ROOT = join(homedir(), ".swift-sim", "live");
 const ENGINE_SOCKET = join(LIVE_ROOT, "engine.sock");
 const ENGINE_LOG = join(LIVE_ROOT, "engine.log");
 const LIVE_MANIFEST = join(LIVE_ROOT, "compilations.json");
+const SOURCE_SNAPSHOTS = join(LIVE_ROOT, "source-baselines");
+const SOURCE_SNAPSHOT_LIMIT = 64 * 1024 * 1024;
+
+// Byte-exact sources the registered Debug binary was compiled from, keyed by
+// hash. The first edit to a file that was uncommitted at build time still has a
+// verified "before". Only the current registration's set is kept.
+export function retainSourceSnapshots(sourceFiles, root = SOURCE_SNAPSHOTS) {
+  try {
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    const keep = new Set(); let bytes = 0;
+    for (const { path, hash } of sourceFiles) {
+      if (!/^[a-f0-9]{64}$/.test(hash || "")) continue;
+      const name = `${hash}.swift`; keep.add(name);
+      const target = join(root, name);
+      if (existsSync(target)) continue;
+      const content = readFileSync(path);
+      bytes += content.length;
+      if (bytes > SOURCE_SNAPSHOT_LIMIT || createHash("sha256").update(content).digest("hex") !== hash) continue;
+      writeFileSync(`${target}.tmp`, content, { mode: 0o600 }); renameSync(`${target}.tmp`, target);
+    }
+    for (const name of readdirSync(root)) if (!keep.has(name)) rmSync(join(root, name), { force: true });
+  } catch {
+    // Snapshots only spare an explicit --before; registration never depends on them.
+  }
+}
+
+export function sourceSnapshot(hash, root = SOURCE_SNAPSHOTS) {
+  if (!/^[a-f0-9]{64}$/.test(hash || "")) return undefined;
+  try { return readFileSync(join(root, `${hash}.swift`), "utf8"); } catch { return undefined; }
+}
 const LIVE_PATCH_ROOT = join(LIVE_ROOT, "patches");
 
 export function classifyLiveChange({ beforePath, afterPath, compiler }) {
@@ -758,6 +788,7 @@ async function registerLiveBuildResultUnlocked(options) {
         || finalReceipt.provenance_digest !== provenanceDigest || finalReceipt.engine_instance_nonce !== engineNonce) throw registrationError("LIVE_REGISTRATION_SUPERSEDED", "The registered compiler map changed before local publication. Resume the preserved capture; no compiler readiness is claimed.");
       const manifestPath = resolve(String(runtime.liveManifestPath || LIVE_MANIFEST));
       const sourceBaselines = Object.fromEntries(capture.provenance.sourceFiles.map((source) => [source.path, source.hash]));
+      if (!runtime.liveManifestPath) retainSourceSnapshots(capture.provenance.sourceFiles);
       const fileStore = runtime.fileStore || new NodeAtomicFileStore();
       await fileStore.writeJSON(manifestPath, {
         version: 1, capturedAt: new Date(clock()).toISOString(), compilations: capture.compilations, presentation: capture.presentation,
@@ -1181,7 +1212,7 @@ export async function startLiveReload(options = {}) {
   return withLiveEngineLifecycleLock(() => startLiveReloadUnlocked(options));
 }
 
-async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", forceRestart = false } = {}) {
+async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", forceRestart = false, buildSettings = [] } = {}) {
   await ensureLiveEngineInstalledUnlocked();
   let status = await inspectLiveReloadUnlocked({ project, host, scheme });
   if (!status.project.readable) {
@@ -1209,7 +1240,7 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
   if (tailnet.socket) ensurePrivateTailnetForward(tailnet);
   let signingIdentities;
   try {
-    signingIdentities = resolveSigningIdentities(status.project.path, status.project.scheme);
+    signingIdentities = resolveSigningIdentities(status.project.path, status.project.scheme, buildSettings);
   } catch (error) {
     return {
       ...status,
@@ -1906,11 +1937,15 @@ export function expandedSigningIdentities(output, scheme = "") {
   );
 }
 
-function resolveSigningIdentities(projectPath, scheme = "") {
+// Device builds may supply signing as command-line build settings; the
+// patch signer must resolve the same team the archived app was signed with.
+function resolveSigningIdentities(projectPath, scheme = "", buildSettings = []) {
   const containerArguments = xcodeContainerArguments(projectPath, scheme);
+  const overrides = (Array.isArray(buildSettings) ? buildSettings : []).map(String)
+    .filter((setting) => /^[A-Z][A-Z0-9_]*=.+$/.test(setting));
   const settings = spawnSync(
     "xcodebuild",
-    [...containerArguments, "-configuration", "Debug", "-showBuildSettings"],
+    [...containerArguments, "-configuration", "Debug", "-showBuildSettings", ...overrides],
     { encoding: "utf8", timeout: 30_000 }
   );
   if (settings.status !== 0 || settings.error) {

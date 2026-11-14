@@ -877,7 +877,12 @@ func generate(_ input: Input) throws -> [String: Any] {
     var addedStateLookups: [(path: String, owner: String, names: Set<String>)] = []
     var loweredConstants = 0
     for (fileIndex, file) in input.files.enumerated() {
-        var baseline = input.allowAdditive == true ? (file.installedBaseline ?? file.before) : file.before
+        // The installed Debug binary compiled recorded constants as getters, so
+        // every comparison below sees that same lowered form.
+        let constants = Set(input.statefulConstants?[file.path] ?? [])
+        let lowered = { (text: String) in constants.isEmpty ? text : lowerConstants(text, policy: ConstantPolicy(), only: constants).source }
+        let (fileBefore, fileAfter) = (lowered(file.before), lowered(file.after))
+        let baseline = input.allowAdditive == true ? lowered(file.installedBaseline ?? file.before) : fileBefore
         guard file.isNewFile != true || (input.allowSharedAdditive == true && baseline.isEmpty) else { throw Failure(description: "new file requires empty installed baseline and shared admission") }
         let origins = (input.statefulOrigins ?? []).filter { $0.path == file.path }
         let allowedStateOwners = input.allowAddedState == true ? Set((input.statefulBodies?[file.path] ?? []) + origins.filter { $0.stateNames != nil }.map(\.owner)) : []
@@ -887,8 +892,8 @@ func generate(_ input: Input) throws -> [String: Any] {
         let priorPlan = AdditiveDeclarations(file: filenames[fileIndex], modules: input.availableModules ?? [], allowShared: input.allowSharedAdditive == true,
             allowStateful: input.allowStatefulAdditive == true, origins: origins, fileIndex: fileIndex, generation: input.generation,
             addedStateOwners: allowedStateOwners, module: input.module, sourcePath: file.path)
-        var desiredSource = input.allowAdditive == true ? try plan.strip(baseline: baseline, desired: file.after) : file.after
-        var previousSource = input.allowAdditive == true ? try priorPlan.strip(baseline: baseline, desired: file.before) : file.before
+        var desiredSource = input.allowAdditive == true ? try plan.strip(baseline: baseline, desired: fileAfter) : fileAfter
+        var previousSource = input.allowAdditive == true ? try priorPlan.strip(baseline: baseline, desired: fileBefore) : fileBefore
         let stateOwners = Set(plan.addedStates.map(\.owner)).union(priorPlan.addedStates.map(\.owner))
         if !stateOwners.isEmpty {
             guard let sequence = input.stateGeneration, sequence > 0 else { throw Failure(description: "new State needs a durable generation") }
@@ -899,7 +904,7 @@ func generate(_ input: Input) throws -> [String: Any] {
                 for field in fields {
                     if let old = priorFields.first(where: { $0.name == field.name }), old.key != field.key { throw Failure(description: "added State type/default changed; build a new Debug app for this edit") }
                 }
-                if file.after != baseline && !Set(priorFields.map(\.name)).isSubset(of: Set(fields.map(\.name))) { throw Failure(description: "removing or renaming added State needs a Debug build; only whole-baseline restoration is supported") }
+                if fileAfter != baseline && !Set(priorFields.map(\.name)).isSubset(of: Set(fields.map(\.name))) { throw Failure(description: "removing or renaming added State needs a Debug build; only whole-baseline restoration is supported") }
                 plan.emitted += try stateAccessors(fields, generation: sequence, targetModule: origins.first { $0.owner == owner }?.module)
                 addedOwners.append(["path": file.path, "owner": owner, "fields": fields.map { ["name": $0.name, "key": $0.key, "type": $0.type] }])
             }
@@ -908,10 +913,6 @@ func generate(_ input: Input) throws -> [String: Any] {
         additiveContext = additiveContext || !plan.additions.isEmpty || !priorPlan.additions.isEmpty
         sharedNames += plan.sharedNames
         sharedContext = sharedContext || file.isNewFile == true || !plan.sharedNames.isEmpty || !priorPlan.sharedNames.isEmpty
-        // The installed Debug binary compiled recorded constants as getters.
-        let constants = Set(input.statefulConstants?[file.path] ?? [])
-        let lowered = { (text: String) in lowerConstants(text, policy: ConstantPolicy(), only: constants).source }
-        (baseline, previousSource, desiredSource) = (lowered(baseline), lowered(previousSource), lowered(desiredSource))
         let before = Parser.parse(source: baseline), after = Parser.parse(source: desiredSource)
         guard !before.hasError, !after.hasError else { throw Failure(description: "parse error in file \(fileIndex)") }
         let old = Inventory(baseline, fileIndex: fileIndex, generation: input.generation), new = Inventory(desiredSource, fileIndex: fileIndex, generation: input.generation)
@@ -939,7 +940,7 @@ func generate(_ input: Input) throws -> [String: Any] {
         let previous = Dictionary(uniqueKeysWithValues: old.members.map { ($0.key, $0) })
         guard Set(prior.members.map(\.key)).count == prior.members.count else { throw Failure(description: "ambiguous previous callable") }
         let incremental = Dictionary(uniqueKeysWithValues: prior.members.map { ($0.key, $0) })
-        let importTree = desiredSource == file.after ? after : Parser.parse(source: file.after)
+        let importTree = desiredSource == fileAfter ? after : Parser.parse(source: file.after)
         let imports = importTree.statements.compactMap { $0.item.as(ImportDeclSyntax.self)?.trimmedDescription }
         let filename = URL(fileURLWithPath: file.path).lastPathComponent
         let encoded = String(data: try JSONEncoder().encode(filename), encoding: .utf8)!

@@ -64,4 +64,10 @@ class Reference { static let value: Int = 1 }
     [before.replace(".blue", ".red"), []],
   ]) assert.throws(() => generate(after, constants), { code: "QUEUED_MECHANISM_UNSUPPORTED" });
   assert.equal(generate(before.replace("{ 1 }", "{ 2 }")).constantProtocol, 0);
+  // Durable delivery tries the additive planner; it must see the installed
+  // getter form rather than a changed stored property.
+  const additive = compiler.generate({ module: "Fixture", generation: nonce, allowAdditive: true,
+    files: [{ path, before, after: before.replace(".blue", ".red"), installedBaseline: before }],
+    statefulConstants: { [path]: ["Theme.accent"] } });
+  assert.equal(additive.constantProtocol, 1); assert.notEqual(additive.additiveProtocol, 1);
 });

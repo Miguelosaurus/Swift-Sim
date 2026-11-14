@@ -3,7 +3,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { extname } from "node:path";
 import { resolve, relative, isAbsolute } from "node:path";
 import { execFileSync } from "node:child_process";
-import { classifyEditSet } from "./liveReload.js";
+import { classifyEditSet, sourceSnapshot } from "./liveReload.js";
 import { DELIVERY_OUTCOMES, deliveryEnvelope, validateDeliveryEnvelope } from "./changeDeliveryContract.js";
 import { liveDeliveryService } from "./liveDeliveryService.js";
 import { buildFailureNotice } from "./buildFailure.js";
@@ -53,6 +53,7 @@ function resolveBeforeSources(files, { manifest, scope, queue }, now) {
     if (!/^[a-f0-9]{64}$/.test(hash || "")) throw new Error("Baseline unavailable");
     const matches = source => typeof source === "string" && createHash("sha256").update(source).digest("hex") === hash;
     let source = queue.binaryBaseline(scope, path)?.beforeSource;
+    if (!matches(source)) source = sourceSnapshot(hash);
     if (!matches(source)) {
       const root = manifest.binding.projectRoot;
       try {

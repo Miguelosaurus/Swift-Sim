@@ -228,6 +228,7 @@ function isLiveReload(value) {
     optionalString(value, "error") &&
     optionalString(value, "host") &&
     optionalFiniteNumber(value, "capturedCompilations") &&
+    optionalBoolean(value, "statePreserving") &&
     (!hasOwn(value, "capturedCompilations") || isNonNegativeInteger(value.capturedCompilations))
   );
 }

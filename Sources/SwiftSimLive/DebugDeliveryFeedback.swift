@@ -508,13 +508,12 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     @State private var proceduralAvailable = true
     @State private var visualTimeline = SwiftSimReloadVisualTimeline()
 
-    private var cornerRadius: CGFloat {
-        #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone ? 55 : 24
-        #else
-        22
-        #endif
-    }
+    #if os(iOS)
+    @State private var windowCornerRadius: CGFloat?
+    private var cornerRadius: CGFloat { windowCornerRadius ?? SwiftSimReloadWindowShape.fallbackRadius }
+    #else
+    private var cornerRadius: CGFloat { 22 }
+    #endif
 
     var body: some View {
         GeometryReader { safeGeometry in
@@ -536,6 +535,9 @@ struct SwiftSimDeliveryFeedbackEffect: View {
             #endif
         }
         .transaction { $0.animation = nil }
+        #if os(iOS)
+        .background(SwiftSimReloadWindowShape(cornerRadius: $windowCornerRadius))
+        #endif
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .opacity(scenePhase == .active ? 1 : 0)
@@ -591,4 +593,44 @@ struct SwiftSimDeliveryFeedbackEffect: View {
         }
     }
 }
+
+#if os(iOS)
+/// The glow traces the app's window. A window that fills the screen follows the
+/// display's physical corners; a smaller one (Split View, Stage Manager or a
+/// compatibility-sized app) is already rounded by the system, so it stays square.
+struct SwiftSimReloadWindowShape: UIViewRepresentable {
+    @Binding var cornerRadius: CGFloat?
+
+    static var fallbackRadius: CGFloat { UIDevice.current.userInterfaceIdiom == .phone ? 55 : 18 }
+
+    @MainActor static func cornerRadius(for window: UIWindow) -> CGFloat {
+        guard let screen = window.windowScene?.screen else { return fallbackRadius }
+        let frame = window.convert(window.bounds, to: screen.coordinateSpace)
+        let fills = abs(frame.minX) < 1 && abs(frame.minY) < 1
+            && abs(frame.width - screen.bounds.width) < 1 && abs(frame.height - screen.bounds.height) < 1
+        guard fills else { return 0 }
+        // Debug-only: the display radius differs by model (0 on Home-button phones).
+        let key = "_displayCornerRadius"
+        if screen.responds(to: NSSelectorFromString(key)), let radius = screen.value(forKey: key) as? CGFloat { return radius }
+        return fallbackRadius
+    }
+
+    func makeUIView(context: Context) -> Probe {
+        let probe = Probe(); probe.isUserInteractionEnabled = false; probe.report = report; return probe
+    }
+    func updateUIView(_ probe: Probe, context: Context) { probe.report = report }
+    private func report(_ radius: CGFloat) { if cornerRadius != radius { cornerRadius = radius } }
+
+    final class Probe: UIView {
+        var report: ((CGFloat) -> Void)?
+        override func didMoveToWindow() { super.didMoveToWindow(); measure() }
+        override func layoutSubviews() { super.layoutSubviews(); measure() }
+        private func measure() {
+            guard let window else { return }
+            let radius = SwiftSimReloadWindowShape.cornerRadius(for: window)
+            DispatchQueue.main.async { [weak self] in self?.report?(radius) }
+        }
+    }
+}
+#endif
 #endif
