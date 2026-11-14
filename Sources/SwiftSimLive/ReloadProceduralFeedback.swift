@@ -17,8 +17,7 @@ struct SwiftSimReloadRenderInput {
     /// The held pre-edit screen (iOS), bent by the ripple as it is washed away.
     var frozenImage: CGImage? = nil
 
-    /// On iOS the held pre-edit frame and the ripple mask reveal the edit, so
-    /// no main-thread window capture (and its dropped frames) is needed.
+    /// iOS reveals the edit with its held pre-edit picture; no window capture.
     var prepareSnapshot: Bool {
         #if os(iOS)
         false
@@ -333,8 +332,7 @@ final class SwiftSimReloadBackgroundRenderer: NSObject, @unchecked Sendable {
             return resources?.device
         }
         guard let image, let device else { return }
-        // Converting the picture costs tens of milliseconds; doing it on the
-        // render thread would drop frames right before the ripple.
+        // Tens of milliseconds: on the render thread it would drop ripple frames.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let texture = SwiftSimReloadRipple.texture(from: image, device: device)
             self?.lock.withLock { if self?.preEditImage === image { self?.preEditTexture = texture } }
