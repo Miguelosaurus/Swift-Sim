@@ -59,9 +59,9 @@ the user reported that the connection-settings entry was too hard to find. The
 user then confirmed a fresh launch while on cellular, with Wi-Fi off and
 Tailscale connected. Authentication, the Zenics context, correlated return and
 verified shutdown passed; network state in this run is user-confirmed rather
-than independently measured. See the [handoff evidence](../../evidence/APP_TESTING_HANDOFF_2026_11_05.md).
+than independently measured. See the [handoff evidence](../../evidence/archive/APP_TESTING_HANDOFF_2026_11_05.md).
 
-The subsequent [lifetime/setup checkpoint](../../evidence/APP_TESTING_LIFETIME_2026_11_05.md)
+The subsequent [lifetime/setup checkpoint](../../evidence/archive/APP_TESTING_LIFETIME_2026_11_05.md)
 adds the reproducible optional installer and phone-enforced lifetime. The source
 build/sign path passed locally. The complete installed CLI subsequently
 installed the public-template runner on the selected physical phone, preserved
@@ -82,12 +82,12 @@ startup and verified shutdown remain available.
 Build 31 adds a remembered duration selector (5, 10, 30 or 60 minutes), enforced
 by the updated optional runner's existing timer. A physical thirty-minute
 approval, matching phone deadline, native confirmation and immediate verified
-close passed. See the [duration evidence](../../evidence/APP_TESTING_DURATION_2026_11_05.md).
+close passed. See the [duration evidence](../../evidence/archive/APP_TESTING_DURATION_2026_11_05.md).
 
 ## References
 
 - [Current integration proof](../../evidence/APP_CONTROL_INTEGRATION_2026_11_05.md)
-- [Request approval checkpoint](../../evidence/APP_TESTING_APPROVAL_2026_11_05.md)
+- [Request approval checkpoint](../../evidence/archive/APP_TESTING_APPROVAL_2026_11_05.md)
 - [Optional testing contract](../../APP_CONTROL.md)
 - [Pinned upstream URL handler](https://github.com/OpenMinis/iCTRL/blob/c1e4268859ba858d1579f7b846a56cb40641b7f6/iCTRLUITests/iCTRLUITests.swift)
 - [Upstream on-device mounting requirements](https://github.com/OpenMinis/iCTRL#option-3--the-ictrl-app)

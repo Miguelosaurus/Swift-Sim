@@ -166,4 +166,4 @@ and then pass fresh startup/recovery on the physical phone.
 - [Pinned iOS OTA source](https://github.com/zjz-connect/ios-ota/tree/d50141ad7af63acf74f92f967f17e942488c666b)
 - [Original same-Wi-Fi WDA qualification](WDA_WIRELESS_2026_11_02.md)
 - [Earlier discovery and cellular checks](WDA_CELLULAR_2026_11_03.md)
-- [Implementation spike gates](../internal/plans/APP_CONTROL_SPIKE.md)
+- [Implementation spike gates](../../internal/plans/APP_CONTROL_SPIKE.md)

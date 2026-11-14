@@ -83,7 +83,7 @@ dependency auditing on pushes and pull requests. It adds no local watcher or
 runtime service. Publication of the coordinated Mac release is separate from
 this source cleanup. TestFlight 0.6.5 (15) was still Waiting for Review at this
 pass's readback. The public-beta and fresh-developer phone gates remain as
-recorded in [TestFlight](../../TESTFLIGHT.md).
+recorded in [TestFlight](../../../TESTFLIGHT.md).
 
 Detailed reports and temporary runtime records remain in ignored
 `.build/oss-audit-20261109/` output. No raw diagnostic archive or local credential

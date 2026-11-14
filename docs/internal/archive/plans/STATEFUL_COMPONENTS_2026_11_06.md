@@ -84,7 +84,7 @@ The SDK receipt correction passed all 29 tests and was published on its main at
 `4fb06023ed70050c49a299bced16347772e486e9`; root Debug32 and Release pass. Production
 native state retention, captured iPhone three-stage compilation, source1464,
 compiled884 plus hermetic/runtime, type/lint/format/package gates passed. See
-[evidence](../../evidence/STATEFUL_COMPONENTS_2026_11_06.md). Physical installation
+[evidence](../../../evidence/archive/STATEFUL_COMPONENTS_2026_11_06.md). Physical installation
 and state retention remain the next acceptance gate, with no phone mutations yet.
 
 

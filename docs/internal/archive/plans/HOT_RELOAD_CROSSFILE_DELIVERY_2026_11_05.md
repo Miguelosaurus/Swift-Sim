@@ -65,7 +65,7 @@ passed on Zenics 40 in the same process at revisions 4, 5 and 6. The helper-only
 request contained one delta and recompiled the root and badge as its cumulative
 cohort. Product files are unchanged, synthetic new source paths remain absent,
 and no phone restoration obligation remains. See
-[physical evidence](../../evidence/CROSSFILE_HOT_RELOAD_PHONE_2026_11_05.md).
+[physical evidence](../../../evidence/archive/CROSSFILE_HOT_RELOAD_PHONE_2026_11_05.md).
 
 Review found a nested nominal guard gap and a rejected-draft correction edge
 case; both were fixed and qualified with focused tests. Pure source projection

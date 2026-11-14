@@ -2,7 +2,7 @@
 
 Date: 2026-11-01. Status: implemented and merged; local qualification complete, Debug 37 OTA ready, phone acceptance pending.
 
-See [implementation evidence](../../evidence/DEVELOPER_MENU_2026_11_01.md).
+See [implementation evidence](../../../evidence/archive/DEVELOPER_MENU_2026_11_01.md).
 
 User refinement: agent access is on demand and project scoped. Reading context,
 requesting a screenshot, retrieving the latest report and intentionally using

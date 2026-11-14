@@ -63,7 +63,7 @@ The saved receipt confirms:
   and no installation capability was marked proven.
 - Zero service channels were opened. Cleanup of the probe connection completed.
 
-The [sanitized capability receipt](data/LOCAL_SERVICE_CAPABILITIES_2026_11_07.json)
+The [sanitized capability receipt](../data/LOCAL_SERVICE_CAPABILITIES_2026_11_07.json)
 contains the complete names and proof counters, without device identifiers,
 addresses, credentials, app contents or private crash data. It qualifies local
 developer-service discovery on this device and developer-support combination,

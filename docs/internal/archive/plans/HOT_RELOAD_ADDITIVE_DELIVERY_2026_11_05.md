@@ -126,7 +126,7 @@ with retained snapshot checks. An independent read-only review found no blocker.
 Final regression passed 1,370 tests; compiled checks passed 795 tests plus three
 hermetic runtime cases; four compiled additive-routing cases passed. Type, lint,
 source, architecture, docs and format gates passed. See
-[physical evidence](../../evidence/ADDITIVE_HOT_RELOAD_PHONE_2026_11_05.md) for
+[physical evidence](../../../evidence/archive/ADDITIVE_HOT_RELOAD_PHONE_2026_11_05.md) for
 proof boundaries and private artifact locations. The normal helper remains for
 hot reload and notifications; no additional persistent service was created.
 The prior resource PIDs and pending status above describe only the historical

@@ -62,7 +62,7 @@ The runtime now marks only that authenticated no-effect result as deferred;
 the existing poll resumes it, preventing rapid self-wakes while preserving normal
 immediate compilation/application. Notification callback isolation is tested
 under a 1,000-hint burst. No additional timers or native mutation paths were added.
-See [evidence](../../evidence/HOT_RELOAD_LATENCY_2026_11_05.md) for methodology,
+See [evidence](../../../evidence/archive/HOT_RELOAD_LATENCY_2026_11_05.md) for methodology,
 sample boundaries and retained local artifacts.
 
 ## Final validation

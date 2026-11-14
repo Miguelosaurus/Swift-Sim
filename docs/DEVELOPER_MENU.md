@@ -1,92 +1,31 @@
-# Developer tools and on-demand app context
+# Developer tools and app context
 
-Debug apps using the updated SwiftSimLive integration include a native developer
-menu. Hold three fingers on the app for about a second to open it. A tools button
-is available for accessibility or can be enabled for the current session.
-Drag the tools button to move it; it snaps to either side within the safe area.
-Its position is retained for the current session and adapts to rotation.
-Release apps do not include the menu.
+In a Debug app with the updated SwiftSimLive integration, hold three fingers on the app for about a second to open the developer menu. An accessibility tools button is also available; you can enable it for the current session and drag it to either side. Release apps do not include the menu.
 
 ## Menu actions
 
-- **Inspect screen** takes a temporary element snapshot and outlines exposed
-  controls and text. Tap an outline or choose **Elements** for details. **Done**
-  restores interaction. The underlying app keeps running; this is not a freeze
-  or a live layout monitor. Rotation, backgrounding or a new hot reload closes
-  the overlay. No app actions are invoked by inspecting an element.
-- **Share a problem** captures the current app screen and a small Swift Sim
-  diagnostic snapshot. Review the preview, optionally add a note, and choose
-  **Save to Mac**. Notes are optional. The agent can retrieve the latest report
-  without a copied ID. Saving is confirmed only after the Mac acknowledges it.
-  **Share…** offers explicit export when the Mac is unavailable.
-- **Refresh screen** recreates the registered SwiftUI screen using the code
-  already loaded. Temporary screen state may reset. It does not restart the
-  process, install code, or count as a hot reload.
-- **Appearance** temporarily selects App default, Light or Dark for this app
-  window. App default restores the app's own original theme behavior. No iPhone
-Settings or saved app preferences are written by Swift Sim. App-specific theme
-overrides may take precedence.
-- **Text size** and **Layout direction** temporarily override Dynamic Type and
-  left-to-right or right-to-left layout for the app window on iOS 17 or later.
-  Choose App default to restore the app’s original behavior.
+- **Inspect screen** outlines exposed controls and text. Tap an outline or choose **Elements** for details; tap **Done** to return to the app. Inspection does not invoke app actions or freeze the screen. Rotation, backgrounding or hot reload closes it.
+- **Share a problem** previews the app screen and Swift Sim diagnostics. Add an optional note and choose **Save to Mac**, or use **Share…** to export. A save is confirmed when the Mac acknowledges it. Screenshots and labels can contain app data; review them before sharing.
+- **Refresh screen** recreates the registered SwiftUI screen with the code already loaded. It can reset temporary state; it does not install code or restart the app.
+- **Appearance** temporarily selects App default, Light or Dark for the app window.
+- **Text size** and **Layout direction** temporarily change Dynamic Type and left-to-right or right-to-left layout on iOS 17 or later. Choose App default to restore the app's behavior.
 
-The menu shows the current Debug build and Swift Sim delivery context. It is not
-a console, network inspector or continuous recorder. Captures contain only the
-app's foreground window; some protected or independently rendered content may
-not be available. A screenshot can contain app data; omit it or cancel after
-previewing it.
+These tools do not change iPhone settings or saved app preferences. App-specific theme overrides can take precedence. The menu is not a continuous recorder or network inspector. Some protected or separately rendered content may not appear in a capture.
 
 ## Agent access
 
-From the matching app project's directory, read context directly:
+From the matching project directory, an agent can request context when needed:
 
 ```sh
 swift-sim app-context
-```
-
-When diagnosing a visual problem, request the current screenshot:
-
-```sh
 swift-sim app-context --screenshot
-```
-
-Read the currently exposed screen elements without opening the menu:
-
-```sh
 swift-sim app-context --elements
-```
-
-This returns a bounded, timestamped list of labels, available identifiers,
-roles, app-window frames and known enabled/selected states. It reads public
-accessibility containers with a UIKit fallback; custom drawing and some SwiftUI
-content may be absent. Visibility means geometric intersection, not verified
-hittability. Unknown enabled state is omitted. IDs such as `e1` belong only to
-that snapshot and must not become durable automation selectors. There is no
-source-file mapping or remote tap/type action. Text-entry values are omitted;
-native switch/slider values may be included. Labels can still contain app data.
-
-If the phone inspector has a selected element, a fresh agent observation includes
-the selection only while its label, role, identifier and frame still match.
-`--elements --screenshot` is allowed, but produces separate observations, not an
-atomic image/element pair. Saved reports do not implicitly contain an element
-tree. The inspector's own controls and the Swift Sim launcher are excluded.
-
-Inspection runs only on request, with no observers or persistent scan loop.
-Limits are 64 elements, 512 visited objects, depth 24, and 32 KiB of JSON. An
-eight-millisecond work slice yields between host API calls, retaining progress
-within a single request, with a 250-millisecond overall scan budget. Arbitrary
-host getters cannot be preempted, so these are not hard latency guarantees.
-The UI keeps running during the scan; an element list is not an atomic app-state snapshot.
-Truncated results say so. Native response caches retain no inspection content.
-It requires the updated SDK and an engine with `developer-inspection-v1`.
-
-When the user saved a report, retrieve it without asking them for an ID:
-
-```sh
 swift-sim app-context --report latest
 ```
 
-The agent can also use these tools without opening the menu or asking for taps:
+The element list is a bounded, timestamped observation using accessibility and UIKit APIs. It can miss custom drawing or SwiftUI content; visibility does not guarantee a control can be tapped. Snapshot IDs are temporary. Text-entry values are omitted, but labels and some control values can contain app data. A screenshot and element list requested together are separate observations. Saved reports are historical and do not require a current phone connection.
+
+For an explicit test, the agent can also use:
 
 ```sh
 swift-sim app-tools --appearance dark
@@ -96,55 +35,12 @@ swift-sim app-tools --layout-direction rtl
 swift-sim app-tools --refresh-screen
 ```
 
-These are deliberate actions for the active task, never part of a read-only
-context request. Exactly one tool can be requested at a time. Actions are bound
-to the observed app process and connection, and require a native response. A
-screen refresh reports `refresh-requested`, not a new code update or receipt.
-Restore App default after a temporary appearance, text size or layout direction test.
-Text size values are `app-default`, `xs`, `s`, `m`, `l`, `xl`, `xxl`, `xxxl`,
-`ax1`, `ax2`, `ax3`, `ax4`, and `ax5`; layout direction values are `app-default`,
-`ltr`, and `rtl`. These two tools require iOS 17 and engine capability
-`developer-environment-v1`. An unconfirmed operation
-must not be blindly repeated.
+Request one action at a time and restore App default after testing. Text sizes are `app-default`, `xs`, `s`, `m`, `l`, `xl`, `xxl`, `xxxl`, and `ax1` through `ax5`; directions are `app-default`, `ltr`, and `rtl`. Text size and direction need iOS 17 and a compatible engine. If an action is unconfirmed, check its result before repeating it.
 
-Pass `--project <App.xcodeproj>` or `--workspace <App.xcworkspace>` and optionally
-`--scheme <scheme>` when running elsewhere. The current qualified Debug capture
-must match that project. Swift Sim refuses context from another app/build rather
-than guessing which connected client to inspect. It does not build, restart,
-launch, navigate, or update the app to satisfy a context request.
-
-Successful JSON uses `outcome: context-ready`, a timestamp, app/build and current
-runtime observations. Explicit captures/reports include a private local image
-path for the agent's image viewer; image bytes are never printed as base64.
-Saved reports do not require a current phone connection. They return
-`runtime.state: not-observed` and `fromCurrentProcess: null`; live process state
-was not inspected. Their capture time and diagnostics are historical context, not current behavior
-or a new hot reload receipt.
-
-Unavailability produces bounded guidance with `outcome: needs-user-action`.
-During hot reload, capture yields to code delivery. Do not resubmit a delivery
-or rebuild merely to fetch a screenshot.
-
-Use these commands only when the active task needs app context. Ordinary coding
-chats, menu opening and normal hot reload do not fetch or upload screenshots,
-insert reports into chats, start a log collector, or call another AI service.
+Pass `--project <App.xcodeproj>` or `--workspace <App.xcworkspace>` and optionally `--scheme <scheme>` from another directory. The current Debug build must match. These commands do not build, launch, navigate or update the app. During hot reload, capture waits for delivery. Ordinary edits do not automatically collect screenshots or reports.
 
 ## Retention and updates
 
-The Mac retains at most five private user reports for 24 hours, bounded to ten
-MiB. Locally materialized agent images are separately limited to five one-MiB
-images and expire after 24 hours; expired entries are removed on the next use.
-Export explicitly if a report needs longer retention. No cleanup daemon is added.
+The Mac keeps up to five private reports for 24 hours, up to ten MiB total. Agent images have separate five-image and one-MiB-per-image limits and expire after 24 hours. Export a report explicitly if you need it longer.
 
-Existing Debug apps need one normal SDK update/build to gain the menu. Keep the
-same app identity and install over the existing app to preserve app data. The
-engine must support `developer-context-v1`; an older engine returns an explicit
-update requirement. Pure UIKit apps without the SwiftUI root integration are
-outside this first menu version.
-
-## Optional install handoff
-
-Agents can opt into [foreground install requests](FOREGROUND_INSTALLS.md) for a
-ready signed build of the same Debug app. This uses native iOS confirmation and
-does not require App Testing. The foreground SDK path is qualified on Zenics over cellular using private
-Tailscale delivery and native iOS confirmation.
+Existing Debug apps need an SDK update and build to gain the menu. Install over the existing app with the same identity to preserve data. The engine must support developer context; older engines report an update requirement. Pure UIKit apps without the SwiftUI root integration are outside this menu version. See [foreground installs](FOREGROUND_INSTALLS.md) for the optional install handoff.

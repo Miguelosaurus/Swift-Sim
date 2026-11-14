@@ -70,7 +70,7 @@ setting resolving this failure was found in the evaluated package. No USB
 fallback, Finder pairing changes, external input hardware, framework fork,
 replacement driver, public runner exposure, or speculative tunnel was added.
 
-Per the [bounded spike plan](../internal/plans/APP_CONTROL_SPIKE.md), stop this
+Per the [bounded spike plan](../../internal/plans/APP_CONTROL_SPIKE.md), stop this
 implementation here. Requalify only when a stock upstream release or documented
 configuration addresses wireless input. A future pass still needs observed
 typing, scrolling, reconnect, one real Debug edit/test loop, and clean teardown.

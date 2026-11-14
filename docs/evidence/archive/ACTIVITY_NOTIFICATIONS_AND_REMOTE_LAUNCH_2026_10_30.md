@@ -84,7 +84,7 @@ proof boundaries.
 No Swift Sim APNs signing key was available. No real alert was sent or claimed
 received/displayed. Actual push needs an APNs key, push-enabled App ID/profile,
 matching signed Companion and explicit phone notification permission. See
-[setup](../NOTIFICATIONS.md). The inbox needs no APNs key.
+[setup](../../NOTIFICATIONS.md). The inbox needs no APNs key.
 
 Exact-build launch history works through a private live connection across
 networks over Tailscale. It is not current reachability, uninstall detection,

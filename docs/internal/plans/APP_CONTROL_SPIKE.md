@@ -32,11 +32,11 @@ from Swift Sim. Its stock CLI and Node API support native iOS apps without an
 app library. The evaluation uses the public Node API with private, task-scoped
 state and the provider's own XCTest runner.
 
-The [Simulator report](../../evidence/APP_CONTROL_SIMULATOR_2026_11_02.md)
+The [Simulator report](../../evidence/archive/APP_CONTROL_SIMULATOR_2026_11_02.md)
 records the current qualification. The only code added at this checkpoint is a
 development script; no production command or agent-skill promise is published.
 
-The subsequent [physical wireless trial](../../evidence/APP_CONTROL_WIRELESS_2026_11_02.md)
+The subsequent [physical wireless trial](../../evidence/archive/APP_CONTROL_WIRELESS_2026_11_02.md)
 failed the input gate on the stock release. App opening and semantic screen
 reads worked; the tap lost its transport response and its effect was not
 observed. The temporary runner was stopped and removed. **The agent-device lane
@@ -45,14 +45,14 @@ approved for shipping; resume that provider only after a stock fix or documented
 configuration addresses the failure.
 
 The user then authorized a separate one-hour stock **WebDriverAgent** experiment.
-That [same-Wi-Fi physical trial passed](../../evidence/WDA_WIRELESS_2026_11_02.md),
+That [same-Wi-Fi physical trial passed](../../evidence/archive/WDA_WIRELESS_2026_11_02.md),
 including native input in the companion, a reversible Zenics UI change, a full
 runner restart, repeated input, and verified cleanup. No provider source or
 app/SDK code changed. WDA is a viable candidate for a thin Mac-only integration;
 the production command, access boundary, cross-network support, and full
 hot reload edit/test loop remain unqualified.
 
-The [November 3 cellular cold-start check](../../evidence/WDA_CELLULAR_2026_11_03.md)
+The [November 3 cellular cold-start check](../../evidence/archive/WDA_CELLULAR_2026_11_03.md)
 failed at Apple developer-device discovery despite successful tailnet pings.
 The user corrected the first attempt's phone state, so it was treated as
 inconclusive; a fresh requested awake-cellular retry produced the same discovery
@@ -72,7 +72,7 @@ unqualified. Automatic Xcode
 discovery failure must not be described as proof that Tailscale cannot carry
 Apple developer traffic.
 
-The subsequent [explicit Tailscale bridge qualification](../../evidence/WDA_TAILNET_BRIDGE_2026_11_03.md)
+The subsequent [explicit Tailscale bridge qualification](../../evidence/archive/WDA_TAILNET_BRIDGE_2026_11_03.md)
 passed on the physical phone: bootstrap through existing trusted network
 lockdown, Wi-Fi-to-cellular handoff, runner installation/startup, native input,
 runner restart and repeated input, restoration, and verified removal. No new
@@ -91,7 +91,7 @@ do not substitute an always-running bridge or integrate the conditional path
 as if it met the requirement. No qualified replacement transport had been found
 at that checkpoint.
 
-A later [standalone iCTRL qualification](../../evidence/STANDALONE_CELLULAR_2026_11_03.md)
+A later [standalone iCTRL qualification](../../evidence/archive/STANDALONE_CELLULAR_2026_11_03.md)
 found a different working startup path: the user opens the separately signed
 runner on the phone while already on cellular. After a supported complete stop
 and refused runner/Apple ports, this startup, authenticated Tailscale requests,
@@ -102,7 +102,7 @@ from the cellular proof. This establishes phone-initiated fresh process startup;
 silent Mac-initiated wake and cellular-only developer-image remount after phone
 reboot remain unqualified. The trial helper remains installed but stopped.
 
-The subsequent [helper-free native-control experiment](../../evidence/NATIVE_CONTROL_TAILNET_2026_11_04.md)
+The subsequent [helper-free native-control experiment](../../evidence/archive/NATIVE_CONTROL_TAILNET_2026_11_04.md)
 passed direct, mutually authenticated RemotePairing/RSD over Tailscale while the
 phone was on Wi-Fi. Native HID/display services were absent with the mounted
 518.33 developer image; newer image preparation is required before native input
@@ -151,7 +151,7 @@ Do not expand the project to make the provider work.
 
 ## Efficiency and connection research
 
-The [measured WDA output/timing analysis](../../evidence/WDA_EFFICIENCY_ANALYSIS_2026_11_02.md)
+The [measured WDA output/timing analysis](../../evidence/archive/WDA_EFFICIENCY_ANALYSIS_2026_11_02.md)
 supports optimizing the Mac-side representation before forking native code.
 It is not an end-to-end token comparison with regular computer use.
 

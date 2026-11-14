@@ -171,7 +171,7 @@ apply the supported part of an unsupported multi-file operation.
 
 Do not run `doctor`, `live-status`, screenshots, UI analysis, or a second classification command before a normal warm delivery.
 
-For the first phone edit, complete [live bootstrap](SETUP.md#optional-remote-iphone-hot-reload)
+For the first phone edit, complete [live bootstrap](SETUP.md#prepare-signing-and-the-first-app)
 first: package/root integration, setup, private live session, signed Debug
 install, cold launch, app connection, and one reversible visible edit with
 current-request apply/refresh/increasing-revision proof without reinstalling.
