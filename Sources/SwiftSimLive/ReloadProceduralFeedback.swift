@@ -103,9 +103,14 @@ private enum SwiftSimReloadGPUCache {
     static let compilation = Task.detached(priority: .userInitiated) { SwiftSimReloadGPUResources() }
 }
 
+enum SwiftSimReloadGPU {
+    static let isAvailable = MTLCreateSystemDefaultDevice() != nil
+}
+
+#if canImport(AppKit) && !canImport(UIKit)
+/// macOS draws on the main thread; iOS uses the background renderer below.
 @MainActor
 final class SwiftSimReloadMetalView: MTKView {
-    static let isAvailable = MTLCreateSystemDefaultDevice() != nil
     var unavailable: (() -> Void)?
     var finished: (() -> Void)?
     var waveStarted: (() -> Void)?
@@ -135,15 +140,8 @@ final class SwiftSimReloadMetalView: MTKView {
         colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColorMake(0, 0, 0, 0)
         framebufferOnly = true
-        #if canImport(UIKit)
-        isOpaque = false
-        backgroundColor = .clear
-        isUserInteractionEnabled = false
-        accessibilityElementsHidden = true
-        #else
         wantsLayer = true
         layer?.isOpaque = false
-        #endif
         compilation = Task { [weak self] in
             let resources = await SwiftSimReloadGPUCache.compilation.value
             guard !Task.isCancelled, let self else { return }
@@ -169,19 +167,12 @@ final class SwiftSimReloadMetalView: MTKView {
 
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    #if canImport(AppKit) && !canImport(UIKit)
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func layout() {
         super.layout()
         if !rendererReady { scheduleCaptureIfNeeded(); draw() }
     }
-    #elseif canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        if !rendererReady { scheduleCaptureIfNeeded(); draw() }
-    }
-    #endif
 
     func update(_ input: SwiftSimReloadRenderInput) {
         self.input = input
@@ -285,24 +276,6 @@ final class SwiftSimReloadMetalView: MTKView {
 
     private func prepareCapture() {
         guard !captureAttempted, let device, bounds.width > 0, bounds.height > 0 else { return }
-        #if canImport(UIKit)
-        guard let window else { return }
-        captureAttempted = true
-        defer { signalReadinessIfPossible() }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = SwiftSimReloadRipple.snapshotScale(size: bounds.size, nativeScale: window.screen.scale)
-        format.preferredRange = .standard
-        let origin = convert(bounds, to: window).origin
-        var complete = false
-        let hidden = isHidden
-        isHidden = true
-        defer { isHidden = hidden }
-        let image = UIGraphicsImageRenderer(size: bounds.size, format: format).image { _ in
-            complete = window.drawHierarchy(in: CGRect(origin: CGPoint(x: -origin.x, y: -origin.y),
-                size: window.bounds.size), afterScreenUpdates: true)
-        }
-        guard complete, let cgImage = image.cgImage else { return }
-        #elseif canImport(AppKit)
         guard let root = window?.contentView else { return }
         captureAttempted = true
         defer { signalReadinessIfPossible() }
@@ -318,10 +291,10 @@ final class SwiftSimReloadMetalView: MTKView {
         bitmap.size = rect.size
         root.cacheDisplay(in: rect, to: bitmap)
         guard let cgImage = bitmap.cgImage else { return }
-        #endif
         capture = SwiftSimReloadRipple.texture(from: cgImage, device: device)
     }
 }
+#endif
 
 #if canImport(UIKit)
 /// Draws the glow on its own display-link thread. Applying a patch and

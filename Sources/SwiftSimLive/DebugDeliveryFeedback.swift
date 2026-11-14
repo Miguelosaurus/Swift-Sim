@@ -575,7 +575,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     var body: some View {
         GeometryReader { safeGeometry in
             #if canImport(MetalKit)
-            if !reduceMotion && !reduceTransparency && state.phase != .failed && proceduralAvailable && SwiftSimReloadMetalView.isAvailable {
+            if !reduceMotion && !reduceTransparency && state.phase != .failed && proceduralAvailable && SwiftSimReloadGPU.isAvailable {
                 GeometryReader { _ in
                     SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
                         state: state, estimatedRemaining: estimatedRemaining, cornerRadius: cornerRadius,
@@ -666,7 +666,7 @@ struct SwiftSimReloadWindowShape: UIViewRepresentable {
     /// The procedural ripple is what uncovers a frozen frame.
     static var motionSupported: Bool {
         #if canImport(MetalKit)
-        SwiftSimReloadMetalView.isAvailable
+        SwiftSimReloadGPU.isAvailable
         #else
         false
         #endif
