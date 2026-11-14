@@ -927,7 +927,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
     validateStatefulMarker(previous, stateMetadata, record);
     validateAddedStateMarker(previous, addedStateMetadata, record);
     if (stateMetadata.statefulComponentProtocol === 1) verifyStatefulOrigins(stateMetadata.statefulOrigins, { scope: record.scope, artifactRoot, patchRoot, resourceDigest });
-    return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...addedStateMetadata, ...stateMetadata };
+    return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive, generation.constantProtocol), ...addedStateMetadata, ...stateMetadata };
   }
   const volume = statfsSync(artifactRoot);
   const initialUsage = queuedArtifactUsage(artifactRoot, patchRoot);
@@ -971,7 +971,7 @@ export function prepareCompleteQueuedLivePatch(record, { artifactRoot = join(LIV
   const stateMetadata = metadata(coverage.artifactDigest);
   writeCompleteMarker(marker, { ...owner, coverageDigest: coverage.coverageDigest, artifactDigest: coverage.artifactDigest,
     ...(stateMetadata.statefulComponentProtocol === 1 ? { statefulOriginsDigest: statefulOriginsDigest(stateMetadata.statefulOrigins) } : {}) });
-  return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive), ...addedStateMetadata, ...stateMetadata };
+  return { ...completePrepared(path, coverage, resourceDigest, refreshStrategy, generation.additiveProtocol, compilerContextDigest, generation.sharedAdditive, generation.constantProtocol), ...addedStateMetadata, ...stateMetadata };
 }
 
 function availableAdditiveModules(context, files) {
@@ -987,7 +987,9 @@ function availableAdditiveModules(context, files) {
   }
   return [...modules].sort().slice(0, 128);
 }
-function assertCompleteEditSet(record, { allowAdditive = record.preparedPatch?.additiveProtocol === 1 } = {}) {
+// Additive and constant patches change declarations the structural classifier
+// rejects; their generator coverage proof is the authority instead.
+function assertCompleteEditSet(record, { allowAdditive = record.preparedPatch?.additiveProtocol === 1 || record.preparedPatch?.constantProtocol === 1 } = {}) {
   if (allowAdditive && Array.isArray(record.files) && record.files.length > 0 && record.files.length <= 32
     && record.files.every(file => typeof file.path === "string" && file.path.endsWith(".swift")
       && typeof file.beforeSource === "string" && typeof file.afterSource === "string"
@@ -996,11 +998,12 @@ function assertCompleteEditSet(record, { allowAdditive = record.preparedPatch?.a
     throw Object.assign(new Error("The queued snapshot changes compiled structure."), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
   }
 }
-function completePrepared(path, coverage, resourceDigest, refreshStrategy, additiveProtocol, compilerContextDigest, sharedAdditive) {
+function completePrepared(path, coverage, resourceDigest, refreshStrategy, additiveProtocol, compilerContextDigest, sharedAdditive, constantProtocol) {
   const replacementProof = normalizeReplacementProof(coverage.replacementProof);
   return { path, mode: "swift-complete-replacement-bundle", replacementProof,
     coverageDigest: replacementCoverageDigest(replacementProof), compilerResourceDigest: resourceDigest, artifactDigest: coverage.artifactDigest, refreshStrategy,
-    compilerContextDigest, ...(additiveProtocol === 1 ? { additiveProtocol: 1 } : {}), ...(sharedAdditive === true ? { sharedAdditive: true } : {}) };
+    compilerContextDigest, ...(additiveProtocol === 1 ? { additiveProtocol: 1 } : {}), ...(sharedAdditive === true ? { sharedAdditive: true } : {}),
+    ...(constantProtocol === 1 ? { constantProtocol: 1 } : {}) };
 }
 function completeArtifactError() { return Object.assign(new Error("The complete patch artifact is not trusted."), { code: "PATCH_ARTIFACT_INVALID" }); }
 

@@ -86,6 +86,25 @@ final class ActivityTests: XCTestCase {
     }
 
     @MainActor
+    func testProblemOpensItsExplanationInsteadOfTheAppPage() async throws {
+        let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
+        var item = event(buildID: "build-one", kind: "attention")
+        item["state"] = "failed"
+        item["targetAppName"] = "Example"
+        let center = ActivityCenter(defaults: store, notifications: CompanionNotifications(defaults: store), transport: { request in
+            (try self.feed([item]), self.response(request))
+        })
+        center.connect(to: PairedMac(token: "fixture", baseURL: URL(string: "https://paired.example")!))
+        await center.refresh()
+        var openedApp = false
+        center.onOpenEvent = { _ in openedApp = true }
+        await center.open(try XCTUnwrap(center.events.first))
+        XCTAssertFalse(openedApp)
+        XCTAssertEqual(center.selectedEvent?.id, center.events.first?.id)
+        XCTAssertTrue(center.isPresented)
+    }
+
+    @MainActor
     func testQueuedUpdateOpensItsAppPageWithoutLaunchingItsApp() async throws {
         let (store, name) = defaults(); defer { store.removePersistentDomain(forName: name) }
         var item = event(buildID: "build-one", kind: "queued")

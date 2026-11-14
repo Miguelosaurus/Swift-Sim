@@ -174,6 +174,7 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       return { ...sealed, path: raw.path, patchDigest: digest, mode: raw.mode, coverageVersion: CLASSIFIER_VERSION, sourceSnapshotDigest: record.snapshotDigest,
         ...(raw.additiveProtocol === 1 ? { additiveProtocol: 1 } : {}),
         ...(raw.sharedAdditive === true ? { sharedAdditive: true } : {}),
+        ...(raw.constantProtocol === 1 ? { constantProtocol: 1 } : {}),
         ...(raw.addedStateProtocol === 1 ? { addedStateProtocol: 1, addedStateGeneration: raw.addedStateGeneration } : {}),
         ...(raw.compilerContextDigest ? { compilerContextDigest: raw.compilerContextDigest } : {}),
         ...(raw.refreshStrategy ? { refreshStrategy: raw.refreshStrategy } : {}),

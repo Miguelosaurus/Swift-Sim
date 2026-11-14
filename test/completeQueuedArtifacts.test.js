@@ -102,6 +102,26 @@ test("additive compilation requires the exact captured baseline and preserves pr
   assert.throws(f.prepare, { code: "PATCH_ARTIFACT_INVALID" });
 });
 
+test("constant-only patches stay valid through signing and application checks", t => {
+  const f = fixture(t);
+  const file = f.record.files[0];
+  file.beforeSource = "enum Theme { static let accent: Int = 1 }\n";
+  file.afterSource = "enum Theme { static let accent: Int = 2 }\n";
+  const manifest = JSON.parse(fixtureFiles.readTextSync(f.options.manifestPath));
+  manifest.sourceBaselines = { [file.path]: hash(file.beforeSource) };
+  manifest.compilerContextProtocol = 2;
+  writeFileSync(f.options.manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+  f.options.compiler.generate = () => ({ sources: ["generated"], constantProtocol: 1 });
+  const raw = f.prepare();
+  assert.equal(raw.constantProtocol, 1);
+  f.seal(raw);
+  // The structural classifier alone rejects a changed static let; the
+  // application-time check must accept the generator's constant proof.
+  assert.doesNotThrow(() => validateCompleteQueuedLivePatchCoverage(f.record));
+  delete f.record.preparedPatch.constantProtocol;
+  assert.throws(() => validateCompleteQueuedLivePatchCoverage(f.record), { code: "QUEUED_EDIT_NOT_COMPATIBLE" });
+});
+
 test("signing explicitly seals the unsigned-to-signed transition before reuse or apply", t => {
   const f = fixture(t); const raw = f.prepare(); const signed = f.seal(raw);
   const marker = JSON.parse(fixtureFiles.readTextSync(raw.path + ".json"));

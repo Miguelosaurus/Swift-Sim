@@ -309,7 +309,9 @@ function validateGeneration(value, input) {
     const pinned = value.statefulComponentProtocol === 1 && value.statefulOriginUses.some(origin => origin.module === member.targetModule && origin.owner === member.owner
       && origin.path.split("/").at(-1) === member.file);
     if (member.targetModule !== undefined && !pinned) throw unsupported("FULL_CALLABLE_GENERATOR_INVALID");
-    if (input && !pinned && value.refreshStrategy === "preserve-state-v1" && ((member.member !== "body"
+    const constant = member.kind === "property" && member.isStatic && input?.files.some(file => file.path.split("/").at(-1) === member.file
+      && input.statefulConstants?.[file.path]?.includes(`${member.owner}.${member.member}`));
+    if (input && !pinned && !constant && value.refreshStrategy === "preserve-state-v1" && ((member.member !== "body"
       && !((input.allowAdditive === true || input.preserveViewFunctions === true) && member.kind === "function" && !member.isStatic)
       && !(member.kind === "property" && !member.isStatic && value.addedStateOwners?.some(owner => owner.owner === member.owner
         && owner.path.split("/").at(-1) === member.file)))

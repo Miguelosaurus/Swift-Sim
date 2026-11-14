@@ -454,11 +454,13 @@ final class ActivityCenter: ObservableObject {
         guard let event = cache.events.first(where: { $0.id == requestedEvent.id }) else { return }
         cache.readCursor = max(cache.readCursor, event.sequence)
         publishCache()
-        if (event.buildId != nil || event.targetAppName != nil), let onOpenEvent {
+        // A problem opens its explanation; other events open their app.
+        if !event.isAttention, (event.buildId != nil || event.targetAppName != nil), let onOpenEvent {
             selectedEvent = nil
             isPresented = false
             await onOpenEvent(event)
         } else {
+            isPresented = true
             selectedEvent = event
         }
     }

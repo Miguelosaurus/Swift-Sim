@@ -1050,6 +1050,12 @@ func generate(_ input: Input) throws -> [String: Any] {
     guard statefulComponents.count + originUses.count <= 32 else { throw Failure(description: "stateful component limit") }
     let preserving = !coverage.isEmpty && coverage.allSatisfy {
         if $0["targetModule"] as? String != nil { return true }
+        // Constants are lowered only when every view in the module is
+        // instrumented, so a state-preserving refresh re-reads them everywhere.
+        if $0["kind"] as? String == "property", $0["isStatic"] as? Bool == true,
+           let owner = $0["owner"] as? String, let member = $0["member"] as? String, let filename = $0["file"] as? String,
+           input.files.contains(where: { URL(fileURLWithPath: $0.path).lastPathComponent == filename
+               && input.statefulConstants?[$0.path]?.contains(owner + "." + member) == true }) { return true }
         guard let owner = $0["owner"] as? String,
               ($0["member"] as? String == "body" || (addedOwners.contains { item in item["owner"] as? String == owner } && $0["kind"] as? String == "property" && $0["isStatic"] as? Bool == false) || ((input.allowAdditive == true || input.preserveViewFunctions == true) && $0["kind"] as? String == "function" && $0["isStatic"] as? Bool == false)),
               let filename = $0["file"] as? String else { return false }

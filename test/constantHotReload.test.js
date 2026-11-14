@@ -56,6 +56,9 @@ class Reference { static let value: Int = 1 }
     files: [{ path, before, after }], statefulConstants: { [path]: constants } });
   const result = generate(before.replace(".blue", ".red"));
   assert.equal(result.constantProtocol, 1); assert.equal(result.changedMemberCount, 1);
+  // Constants are lowered only with a complete view inventory, so refresh keeps state.
+  assert.equal(result.refreshStrategy, "preserve-state-v1");
+  assert.equal(generate(before.replace(".blue", ".red").replace("{ 1 }", "{ 2 }")).refreshStrategy, "remount");
   assert.equal(result.members[0].kind, "property"); assert.equal(result.members[0].isStatic, true);
   assert.match(result.sources[0], /@_dynamicReplacement\(for: accent\)/);
   for (const [after, constants] of [

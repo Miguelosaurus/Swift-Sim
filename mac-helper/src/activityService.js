@@ -163,7 +163,7 @@ export function activitySnapshotEvents({ builds = [], liveDeliveries = [], insta
     }
     else if (record.state === "refreshed" && completeLiveProof(record)) add(`live:${record.requestId}`, { ...base, kind: "live-applied", revision: record.proof.revision, title: targetAppName ? `${targetAppName} updated` : "Changes applied", message: "Your changes were applied successfully. They're ready to try." });
     else if (record.state === "refreshed") current.push({ ...base, kind: "attention", state: "uncertain", title: title("Check update status"), message: "The app's complete update confirmation is missing. Ask your agent to check the existing request." });
-    else if (["uncertain", "failed"].includes(record.state)) add(`live:${record.requestId}`, { ...base, kind: "attention", title: title(record.state === "uncertain" ? "Check update status" : "Update couldn't finish"), message: record.state === "uncertain" ? "We couldn't confirm your changes were applied. Open Swift Sim to check the update." : "Your changes couldn't be applied. Open Swift Sim for details." });
+    else if (["uncertain", "failed"].includes(record.state)) add(`live:${record.requestId}`, { ...base, kind: "attention", title: title(record.state === "uncertain" ? "Check update status" : "Update couldn't finish"), message: record.state === "uncertain" ? "We couldn't confirm your changes were applied. Open Swift Sim to check the update." : liveFailureMessage(record.reasonCode) });
     else if (["superseded", "expired"].includes(record.state)) add(`live:${record.requestId}`, { ...base, kind: "queued", title: title(record.state === "superseded" ? "Newer update available" : "Update expired"), message: record.state === "superseded" ? "A newer update has replaced these changes. Check the latest update for its status." : "These changes weren't confirmed before the update expired. Open Swift Sim for the latest status.", notify: false });
   }
   for (const event of knownEvents) {
@@ -214,4 +214,15 @@ function installPresentation(state, name) {
   if (["opening", "prompt-requested"].includes(state)) return { heading: "Confirm installation", message: "Confirm Install on your iPhone, and Download if iOS asks about cellular data. Installation is confirmed separately.", deliveryCode: "CONFIRM_INSTALL", deliveryAction: "confirm-install" };
   if (state === "confirming") return { heading: "Checking installation", message: "Your Mac recorded the install request. Ask your agent to check that existing request for confirmation.", deliveryCode: "INSTALL_CONFIRMING", deliveryAction: "check-status" };
   return { heading: "Ready to install", message: "Your new version is ready. Open Swift Sim to install it.", deliveryCode: "READY_TO_INSTALL", deliveryAction: "open-swift-sim" };
+}
+
+// Plain reasons for the phone; agents read the exact code from the helper.
+function liveFailureMessage(code) {
+  if (["QUEUED_EDIT_NOT_COMPATIBLE", "QUEUED_MECHANISM_UNSUPPORTED"].includes(code))
+    return "This edit can't be applied while the app runs. Ask your agent to build and install the app again.";
+  if (["LIVE_CLIENT_UPDATE_REQUIRED", "LIVE_ENGINE_UPDATE_REQUIRED", "LIVE_COMPILER_CONTEXT_UPDATE_REQUIRED"].includes(code))
+    return "This edit needs a newer Debug build of the app. Ask your agent to build and install it again.";
+  if (["PATCH_COMPILE_FAILED", "PATCH_SIGNING_FAILED", "PATCH_STORAGE_INSUFFICIENT", "PATCH_ARTIFACT_INVALID"].includes(code))
+    return "Your Mac couldn't prepare this edit. Ask your agent to check Swift Sim on your Mac and try again.";
+  return "Your changes couldn't be applied. Ask your agent to check this update on your Mac.";
 }

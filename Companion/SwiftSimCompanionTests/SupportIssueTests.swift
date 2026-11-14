@@ -57,6 +57,7 @@ final class SupportIssueTests: XCTestCase {
         let issue = event.supportIssue
         XCTAssertEqual(issue.title, "Update needs attention")
         XCTAssertFalse(issue.message.contains("https"))
+        XCTAssertTrue(issue.message.hasPrefix("Failed at"), "the helper's reason is shown, with private links removed")
         for value in ["event-1", "build-1", "request-1", "Zenics"] { XCTAssertTrue(issue.report.contains(value)) }
         XCTAssertFalse(issue.report.contains("secret-path"))
         XCTAssertFalse(issue.report.contains("private-secret"))

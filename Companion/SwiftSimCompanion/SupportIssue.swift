@@ -141,10 +141,10 @@ struct SupportIssueView: View {
 extension ActivityEvent {
     var supportIssue: SupportIssue {
         SupportIssue(title: isAttention ? "Update needs attention" : title,
-                     message: isAttention ? "Ask your agent to check this update before trying again." : message,
+                     message: AgentReport.redact(message),
                      screen: "Activity", context: ["App": targetAppName ?? "not specified", "Event ID": id,
                                                   "Build ID": buildId ?? "none", "Request ID": requestId ?? "none",
                                                   "Revision": revision.map(String.init) ?? "none", "Status": state],
-                     diagnostic: isAttention ? message : "")
+                     diagnostic: "")
     }
 }

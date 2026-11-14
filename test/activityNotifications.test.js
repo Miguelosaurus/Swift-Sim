@@ -397,3 +397,14 @@ test("compact activity build view preserves all events and older retained-build 
   const knownEvents = [{ id: "old-event", buildId: "build-509", kind: "build-ready" }];
   assert.deepEqual(activitySnapshotEvents({ builds: compact, knownEvents, now }), activitySnapshotEvents({ builds: rows, knownEvents, now }));
 });
+
+test("failed live updates explain the reason in plain language", () => {
+  const record = (reasonCode) => ({ requestId: randomUUID(), state: "failed", reasonCode, createdAt: 1, updatedAt: 2,
+    expiresAt: Date.now() + 60_000, scope: { appIdentity: "app", binaryIdentity: "binary" } });
+  const message = (reasonCode) => activitySnapshotEvents({ liveDeliveries: [record(reasonCode)], now: Date.now() }).entries[0].message;
+  assert.match(message("QUEUED_EDIT_NOT_COMPATIBLE"), /can't be applied while the app runs.*build and install/);
+  assert.match(message("LIVE_CLIENT_UPDATE_REQUIRED"), /newer Debug build/);
+  assert.match(message("PATCH_SIGNING_FAILED"), /couldn't prepare this edit/);
+  assert.match(message("SOMETHING_NEW"), /Ask your agent/);
+  assert.doesNotMatch(message("QUEUED_EDIT_NOT_COMPATIBLE"), /for details/);
+});
