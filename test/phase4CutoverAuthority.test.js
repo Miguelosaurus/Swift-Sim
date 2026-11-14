@@ -20,9 +20,9 @@ import { Phase4PairingAuthorityBridge } from "../mac-helper/src/persistence/phas
 import { Phase4AuthorityRouter } from "../mac-helper/src/persistence/phase4AuthorityRouter.js";
 import { Phase4CutoverCoordinator } from "../mac-helper/src/persistence/phase4CutoverCoordinator.js";
 import { createPhase4ProductionStoreFactories } from "../mac-helper/src/persistence/phase4ProductionStores.js";
-import { Phase4RollbackCoordinator } from "../mac-helper/src/persistence/phase4RollbackCoordinator.js";
 import { SqliteDurableSessionMutationRepository } from "../mac-helper/src/persistence/phase4SessionStore.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
+import { SqlitePairingAuthorityRepository } from "../mac-helper/src/persistence/sqlitePairingAuthorityRepository.js";
 import { SqlitePhase4AuthorityRepository } from "../mac-helper/src/persistence/sqlitePhase4AuthorityRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
 
@@ -305,194 +305,9 @@ test("operation routing rereads authority, selects one backend, and never falls 
   assert.equal(sqliteCalls, 2);
 });
 
-test("prepare survives reopen and stale locked evidence blocks activation before cancel", () => {
-  withRoot(({ stateRoot, databasePath }) => {
-    const { pairing } = seedLegacyState(stateRoot);
-    let database = new SwiftSimSqliteDatabase({
-      path: databasePath,
-      migrations: PHASE4_SQLITE_MIGRATIONS,
-    });
-    let coordinator = new Phase4CutoverCoordinator({
-      database,
-      stateRoot,
-      spawnSync: fakeSpawnSync,
-    });
-    const prepared = coordinator.prepare({
-      expectedRevision: 0,
-      preparationID: PREPARATION_ID,
-      maintenanceEvidence: maintenanceEvidence(),
-    });
-    assert.equal(prepared.authority.mode, "preparing");
-    database.close();
-
-    database = new SwiftSimSqliteDatabase({
-      path: databasePath,
-      migrations: PHASE4_SQLITE_MIGRATIONS,
-    });
-    coordinator = new Phase4CutoverCoordinator({
-      database,
-      stateRoot,
-      spawnSync: fakeSpawnSync,
-    });
-    assert.equal(coordinator.status().authority.mode, "preparing");
-    writeJSON(join(stateRoot, "pairing.json"), {
-      ...pairing,
-      token: "changed-after-prepare",
-    });
-    assert.throws(
-      () =>
-        coordinator.activate({
-          expectedRevision: prepared.authority.revision,
-          preparationID: prepared.authority.preparationID,
-          evidenceHash: prepared.authority.evidenceHash,
-          rollbackWindowMs: 60 * 60 * 1000,
-          maintenanceEvidence: maintenanceEvidence(),
-        }),
-      /stale pairing source|stale pairing source\/projection/i,
-    );
-    const cancelled = coordinator.cancelPreparation({
-      expectedRevision: prepared.authority.revision,
-      preparationID: prepared.authority.preparationID,
-    });
-    assert.equal(cancelled.authority.mode, "legacy");
-    database.close();
-  });
-});
-
-test("global activation routes writes only to SQLite and current-state rollback preserves session runtime state", () => {
-  withRoot(({ stateRoot, databasePath }) => {
-    const cleanupRoot = join(stateRoot, "artifact-must-survive-cutover");
-    mkdirSync(cleanupRoot, { recursive: true, mode: 0o700 });
-    writeFileSync(join(cleanupRoot, "sentinel"), "do-not-clean\n", { mode: 0o600 });
-    const initial = seedLegacyState(stateRoot, cleanupRoot);
-    const pairingPath = join(stateRoot, "pairing.json");
-    const devicePath = join(stateRoot, "device-builds.json");
-    const sessionPath = join(stateRoot, "sessions.json");
-    const pairingBefore = readBytes(pairingPath, "utf8");
-    const deviceBefore = readBytes(devicePath, "utf8");
-
-    const stores = createPhase4ProductionStoreFactories({
-      stateRoot,
-      deviceMaintenance: false,
-    });
-    const coordinator = new Phase4CutoverCoordinator({
-      database: stores.database,
-      stateRoot,
-      spawnSync: fakeSpawnSync,
-    });
-    const prepared = coordinator.prepare({
-      expectedRevision: 0,
-      preparationID: PREPARATION_ID,
-      maintenanceEvidence: maintenanceEvidence(),
-    });
-    assert.equal(stores.router.current().mode, "preparing");
-    assert.equal(stores.createPairingStore().current().token, initial.pairing.token);
-    assert.throws(
-      () =>
-        coordinator.activate({
-          expectedRevision: prepared.authority.revision,
-          preparationID: prepared.authority.preparationID,
-          evidenceHash: prepared.authority.evidenceHash,
-          rollbackWindowMs: 60 * 60 * 1000,
-          maintenanceEvidence: maintenanceEvidence({ finalLockedProjectionEquality: false }),
-        }),
-      /finalLockedProjectionEquality/,
-    );
-    const activated = coordinator.activate({
-      expectedRevision: prepared.authority.revision,
-      preparationID: prepared.authority.preparationID,
-      evidenceHash: prepared.authority.evidenceHash,
-      rollbackWindowMs: 60 * 60 * 1000,
-      maintenanceEvidence: maintenanceEvidence(),
-    });
-    assert.equal(activated.authority.mode, "sqlite-rollback");
-    assert.equal(existsSync(join(cleanupRoot, "sentinel")), true);
-
-    stores.database.close();
-    const restarted = createPhase4ProductionStoreFactories({
-      stateRoot,
-      deviceMaintenance: false,
-    });
-    assert.equal(restarted.router.current().mode, "sqlite-rollback");
-
-    const rotated = restarted.createPairingStore().rotate();
-    assert.notEqual(rotated.token, initial.pairing.token);
-    assert.equal(readBytes(pairingPath, "utf8"), pairingBefore);
-
-    const build = restarted.createDeviceBuildStore().create({ scheme: "RollbackApp" });
-    assert.ok(build.id);
-    assert.equal(readBytes(devicePath, "utf8"), deviceBefore);
-
-    const sessionStore = restarted.createSessionStore();
-    const runtime = sessionStore.get(initial.session.id);
-    assert.ok(runtime);
-    runtime.logs.push("runtime-after-cutover");
-    runtime.orientation = "landscape";
-    runtime.stream.pid = 7777;
-    runtime.stream.raw = { runtimeOnly: "newer" };
-    runtime.token = "runtime-file-must-not-win";
-    sessionStore.save(runtime);
-
-    new SqliteDurableSessionMutationRepository(restarted.database).upsert({
-      id: initial.session.id,
-      token: "sqlite-current-token",
-      project: "/tmp/NewApp.xcodeproj",
-      scheme: "NewApp",
-      simulatorUDID: "SIM-NEW",
-      createdAt: initial.session.createdAt,
-    });
-    const presented = sessionStore.get(initial.session.id);
-    assert.equal(presented.token, "sqlite-current-token");
-    assert.equal(presented.stream.pid, 7777);
-    assert.equal(presented.stream.raw.runtimeOnly, "newer");
-
-    const diagnostics = collectPhase4OperatorDiagnostics({
-      stateRoot,
-      artifactAudit: ARTIFACT_AUDIT,
-    });
-    assert.equal(diagnostics.readOnly, true);
-    assert.equal(diagnostics.mutationAllowed, false);
-    assert.equal(diagnostics.authority.mode, "sqlite-rollback");
-    assert.equal(diagnostics.database.latestSchemaVersion, 9);
-
-    const active = restarted.authorityRepository.getState();
-    const rolledBack = new Phase4RollbackCoordinator({
-      database: restarted.database,
-      stateRoot,
-      spawnSync: fakeSpawnSync,
-    }).run({
-      expectedRevision: active.revision,
-      expectedCutoverEpoch: active.cutoverEpoch,
-      maintenanceEvidence: maintenanceEvidence(),
-    });
-    assert.equal(rolledBack.authority.mode, "legacy");
-    assert.equal(JSON.parse(readBytes(pairingPath, "utf8")).token, rotated.token);
-    assert.ok(JSON.parse(readBytes(devicePath, "utf8")).builds.some((row) => row.id === build.id));
-    const restoredSession = JSON.parse(readBytes(sessionPath, "utf8")).sessions[0];
-    assert.equal(restoredSession.token, "sqlite-current-token");
-    assert.equal(restoredSession.project, "/tmp/NewApp.xcodeproj");
-    assert.equal(restoredSession.stream.pid, 7777);
-    assert.equal(restoredSession.stream.raw.runtimeOnly, "newer");
-    assert.ok(restoredSession.logs.includes("runtime-after-cutover"));
-    assert.equal(existsSync(join(cleanupRoot, "sentinel")), true);
-
-    restarted.database.close();
-    const reopened = new SwiftSimSqliteDatabase({
-      path: databasePath,
-      migrations: PHASE4_SQLITE_MIGRATIONS,
-    });
-    const reopenedAuthority = new SqlitePhase4AuthorityRepository(reopened).getState();
-    assert.equal(reopenedAuthority.mode, "legacy");
-    assert.equal(reopenedAuthority.cutoverEpoch, 0);
-    assert.equal(reopened.health().ok, true);
-    reopened.close();
-  });
-});
-
 function writeJSON(path, value) {
   writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600 });
 }
-
 
 test("automatic migration waits for pairing and preserves a credential through cutover", () => {
   withRoot(({ stateRoot }) => {
@@ -588,21 +403,14 @@ test("automatic failure clears fences, defers for a day and retries", () => {
   });
 });
 
-test("automatic migration recovers interrupted preparation and supports operator rollback", () => {
+test("automatic migration recovers interrupted preparation", () => {
   withRoot(({ stateRoot }) => {
     seedLegacyState(stateRoot);
     const stores = createPhase4ProductionStoreFactories({ stateRoot, deviceMaintenance: false });
-    const coordinator = new Phase4CutoverCoordinator({ database: stores.database, stateRoot, spawnSync: fakeSpawnSync });
-    coordinator.prepare({ expectedRevision: 0, preparationID: PREPARATION_ID, maintenanceEvidence: maintenanceEvidence() });
+    new SqlitePairingAuthorityRepository(stores.database).prepareSqlite({ expectedRevision: 0, preparationID: PREPARATION_ID });
+    stores.authorityRepository.beginPreparation({ expectedRevision: 0, preparationID: PREPARATION_ID, evidence: { version: 1 } });
     assert.equal(stores.router.current().mode, "preparing");
     assert.equal(migrateToSqliteAutomatically({ stateRoot, spawn: fakeSpawnSync }).status, "migrated");
-    const pairing = stores.createPairingStore().rotate();
-    const active = stores.authorityRepository.getState();
-    const result = new Phase4RollbackCoordinator({ database: stores.database, stateRoot, spawnSync: fakeSpawnSync }).run({
-      expectedRevision: active.revision, expectedCutoverEpoch: active.cutoverEpoch, maintenanceEvidence: maintenanceEvidence(),
-    });
-    assert.equal(result.authority.mode, "legacy");
-    assert.equal(stores.createPairingStore().current().token, pairing.token);
     stores.database.close();
   });
 });

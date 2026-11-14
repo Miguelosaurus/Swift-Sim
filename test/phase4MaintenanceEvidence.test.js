@@ -297,46 +297,6 @@ for (const version of [7, 8]) {
   });
 }
 
-test("valid v8 preparation proves exact backups for all four legacy sources", async () => {
-  await withFixture(8, async ({ stateRoot, databasePath, provenancePath }) => {
-    const prepared = await withPhase4MaintenanceDatabase(
-      {
-        stateRoot,
-        evidence: evidence(),
-        stage: "prepare",
-        spawnSync: absentHelperSpawn,
-        provenancePath,
-      },
-      (database, bound) => {
-        const result = new Phase4CutoverCoordinator({
-          database,
-          stateRoot,
-          spawnSync: absentHelperSpawn,
-        }).prepare({
-          expectedRevision: 0,
-          preparationID: PREPARATION_ID,
-          maintenanceEvidence: bound,
-        });
-        const backupProof = verifyPhase4PreparationBackups({
-          stateRoot,
-          domains: result.domains,
-          sourceHashes: bound.measured.sourceHashes,
-        });
-        return { result, backupProof };
-      },
-    );
-    assert.equal(prepared.result.authority.mode, "preparing");
-    assert.equal(prepared.backupProof.verified, true);
-    assert.equal(prepared.backupProof.count, 4);
-    assert.deepEqual(
-      prepared.backupProof.proofs.map((proof) => proof.role).sort(),
-      ["credential", "deviceBuilds", "invitations", "sessions"],
-    );
-    assert.ok(prepared.backupProof.proofs.every((proof) => proof.equal));
-    assert.equal(schemaVersion(databasePath), 9);
-  });
-});
-
 test("empty permissionsMissing is success, while a private-permission defect fails closed", async () => {
   await withFixture(8, async ({ stateRoot, provenancePath }) => {
     const bound = bindPhase4MaintenanceEvidence(evidence(), "prepare", {
@@ -658,37 +618,3 @@ test("maintenance holds all four legacy leases across the asynchronous snapshot"
   });
 });
 
-test("rollback readability proves all four preserved backups and tolerates partial current exports", async () => {
-  await withFixture(8, async ({stateRoot, databasePath, provenancePath, directory}) => {
-    const prepared = await withPhase4MaintenanceDatabase({stateRoot, evidence: evidence(), stage: "prepare", spawnSync: absentHelperSpawn, provenancePath},
-      (database, bound) => new Phase4CutoverCoordinator({database, stateRoot, spawnSync: absentHelperSpawn}).prepare({expectedRevision: 0, preparationID: PREPARATION_ID, maintenanceEvidence: bound}));
-    const database = new SwiftSimSqliteDatabase({path: databasePath, migrations: PHASE4_SQLITE_MIGRATIONS});
-    try {
-      new Phase4CutoverCoordinator({database, stateRoot, spawnSync: absentHelperSpawn}).activate({expectedRevision: prepared.authority.revision,
-        preparationID: prepared.authority.preparationID, evidenceHash: prepared.authority.evidenceHash,
-        rollbackWindowMs: 60000, maintenanceEvidence: evidence()});
-    } finally { database.close(); }
-    const bind = () => bindPhase4MaintenanceEvidence(evidence(), "rollback", {stateRoot, spawnSync: absentHelperSpawn, provenancePath});
-    assert.equal(bind().measured.rollbackReadable, true);
-    // A retry after partial current-state export legitimately differs from the
-    // pre-cutover legacy snapshots. Preserved backup identity remains required.
-    const pairingPath = join(stateRoot, "pairing.json");
-    const pairing = JSON.parse(readStateBytes(pairingPath).toString());
-    writeJSON(pairingPath, {...pairing, macName: "Current SQLite export"});
-    assert.equal(bind().measured.rollbackReadable, true);
-    const paths = [...prepared.domains.pairing.backups, ...prepared.domains.deviceBuild.backups, ...prepared.domains.sessions.backups];
-    for (const [index, path] of paths.entries()) {
-      const saved = join(directory, `backup-${index}.json`);
-      copyFileSync(path, saved);
-      unlinkSync(path);
-      let opens = 0;
-      await assert.rejects(withPhase4MaintenanceDatabase({stateRoot, evidence: evidence(), stage: "rollback", spawnSync: absentHelperSpawn, provenancePath,
-        openDatabase() { opens += 1; throw new Error("unexpected migration-capable open"); }}, () => null), /rollback.*readable/i);
-      assert.equal(opens, 0);
-      copyFileSync(saved, path); chmodSync(path, 0o600);
-      writeFileSync(path, "{}", {mode: 0o600});
-      assert.equal(bind().measured.rollbackReadable, false, "changed backup digest must block");
-      copyFileSync(saved, path); chmodSync(path, 0o600);
-    }
-  });
-});

@@ -10,7 +10,6 @@ import { SessionStore as SessionStoreSubclass } from "../mac-helper/src/sessionS
 import { SessionStore as BaseSessionStore } from "../mac-helper/src/sessionStoreBase.js";
 import {
   createSqliteDurableSessionStore,
-  SessionCurrentStateRollbackExport,
   SqliteDurableSessionMutationRepository,
 } from "../mac-helper/src/persistence/phase4SessionStore.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
@@ -446,49 +445,3 @@ test("an already-open store hides a crashed unpublished row and recovers before 
   });
 });
 
-test("rollback export recovers a crashed create before publishing current durable sessions to legacy", async () => {
-  await withProcessRoot(async ({ stateRoot, database, worker }) => {
-    const sessionsPath = join(stateRoot, "sessions.json");
-    const publishedStore = createSqliteDurableSessionStore({ database, legacyPath: sessionsPath });
-    const published = publishedStore.create({ ...CREATE_INPUT, simulatorUDID: "SIM-PUBLISHED" });
-    published.logs.push("rollback-runtime-sentinel");
-    published.orientation = "landscape";
-    published.stream.pid = 1234;
-    publishedStore.save(published);
-
-    const a = worker("creator", "after-durable", "crash");
-    await a.exited;
-    const repository = new SqliteDurableSessionMutationRepository(database);
-    const rowsBefore = repository.list();
-    assert.equal(rowsBefore.length, 2);
-    const abandoned = rowsBefore.find((row) => row.id !== published.id);
-    assert.ok(abandoned);
-    assert.equal(repository.hasCreateIntent(abandoned.id), true);
-
-    // Production rollback uses this ordinary runtime/legacy store, not the
-    // hybrid store's recovery-aware withLock wrapper.
-    const runtimeStore = new SessionStoreSubclass({ path: sessionsPath });
-    const exporter = new SessionCurrentStateRollbackExport({
-      durableRepository: repository,
-      runtimeStore,
-    });
-    const exported = exporter.exportCurrent();
-    assert.equal(exported.recordCount, 1);
-    assert.deepEqual(
-      exported.durableProjection.map((row) => row.id),
-      [published.id],
-    );
-    assert.equal(repository.hasCreateIntent(abandoned.id), false);
-    assert.deepEqual(
-      repository.list().map((row) => row.id),
-      [published.id],
-    );
-    const legacy = sessionsFile(sessionsPath);
-    assert.equal(legacy.length, 1);
-    assert.equal(legacy[0].id, published.id);
-    assert.deepEqual(legacy[0].logs, ["rollback-runtime-sentinel"]);
-    assert.equal(legacy[0].orientation, "landscape");
-    assert.equal(legacy[0].stream.pid, 1234);
-    assert.deepEqual(exporter.exportCurrent(), exported);
-  });
-});

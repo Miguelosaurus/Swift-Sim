@@ -8,7 +8,6 @@ import { readStateBytes } from "./fixtures/state-bytes.js";
 import { collectPhase4OperatorDiagnostics } from "../mac-helper/src/commands/phase4OperatorDiagnostics.js";
 import { Phase4CutoverCoordinator } from "../mac-helper/src/persistence/phase4CutoverCoordinator.js";
 import { createPhase4ProductionStoreFactories } from "../mac-helper/src/persistence/phase4ProductionStores.js";
-import { Phase4RollbackCoordinator } from "../mac-helper/src/persistence/phase4RollbackCoordinator.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
 import { SqlitePhase4AuthorityRepository } from "../mac-helper/src/persistence/sqlitePhase4AuthorityRepository.js";
 import { SwiftSimSqliteDatabase } from "../mac-helper/src/persistence/swiftSimSqliteDatabase.js";
@@ -134,37 +133,6 @@ function legacyCleanupJobCount(stateRoot) {
   return Object.keys(raw.artifactCleanupJobs || {}).length;
 }
 
-function activateAndRollback(stores, stateRoot) {
-  const coordinator = new Phase4CutoverCoordinator({
-    database: stores.database,
-    stateRoot,
-    spawnSync: fakeSpawnSync,
-  });
-  coordinator.prepare({
-    expectedRevision: 0,
-    preparationID: PREPARATION_ID,
-    maintenanceEvidence: evidence(),
-  });
-  const prepared = stores.authorityRepository.getState();
-  coordinator.activate({
-    expectedRevision: prepared.revision,
-    preparationID: prepared.preparationID,
-    evidenceHash: prepared.evidenceHash,
-    rollbackWindowMs: 60 * 60 * 1000,
-    maintenanceEvidence: evidence(),
-  });
-  const active = stores.authorityRepository.getState();
-  new Phase4RollbackCoordinator({
-    database: stores.database,
-    stateRoot,
-    spawnSync: fakeSpawnSync,
-  }).run({
-    expectedRevision: active.revision,
-    expectedCutoverEpoch: active.cutoverEpoch,
-    maintenanceEvidence: evidence(),
-  });
-}
-
 test("helper startup and reopen never drain artifact cleanup", () => {
   withCleanupRoot(({ stateRoot, assertPreserved }) => {
     const stores = createPhase4ProductionStoreFactories({ stateRoot });
@@ -206,25 +174,6 @@ test("doctor never drains artifact cleanup", () => {
   });
 });
 
-test("prepare, activate, and rollback never drain artifact cleanup", () => {
-  withCleanupRoot(({ stateRoot, assertPreserved }) => {
-    const stores = createPhase4ProductionStoreFactories({
-      stateRoot,
-      deviceMaintenance: false,
-    });
-    activateAndRollback(stores, stateRoot);
-    assert.equal(legacyCleanupJobCount(stateRoot), 1);
-    assertPreserved();
-
-    const reopened = new SwiftSimSqliteDatabase({
-      path: join(stateRoot, "state.sqlite"),
-      migrations: PHASE4_SQLITE_MIGRATIONS,
-    });
-    assert.equal(new SqlitePhase4AuthorityRepository(reopened).getState().mode, "legacy");
-    reopened.close();
-  });
-});
-
 test("SQLite-routed device-build store construction is cleanup-inert", () => {
   withCleanupRoot(({ stateRoot, assertPreserved }) => {
     const stores = createPhase4ProductionStoreFactories({
@@ -236,19 +185,7 @@ test("SQLite-routed device-build store construction is cleanup-inert", () => {
       stateRoot,
       spawnSync: fakeSpawnSync,
     });
-    coordinator.prepare({
-      expectedRevision: 0,
-      preparationID: PREPARATION_ID,
-      maintenanceEvidence: evidence(),
-    });
-    const prepared = stores.authorityRepository.getState();
-    coordinator.activate({
-      expectedRevision: prepared.revision,
-      preparationID: prepared.preparationID,
-      evidenceHash: prepared.evidenceHash,
-      rollbackWindowMs: 60 * 60 * 1000,
-      maintenanceEvidence: evidence(),
-    });
+    coordinator.migrateAutomatically({ rollbackWindowMs: 60 * 60 * 1000 });
     stores.createDeviceBuildStore();
     assert.equal(stores.router.current().mode, "sqlite-rollback");
     const cleanupBefore = stores.database.prepare("SELECT * FROM artifact_cleanup_jobs").all();

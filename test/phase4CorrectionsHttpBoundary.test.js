@@ -123,19 +123,7 @@ function activateSqliteRollback(stores, stateRoot) {
     stateRoot,
     spawnSync: fakeSpawnSync,
   });
-  coordinator.prepare({
-    expectedRevision: 0,
-    preparationID: PREPARATION_ID,
-    maintenanceEvidence: maintenanceEvidence(),
-  });
-  const prepared = stores.authorityRepository.getState();
-  return coordinator.activate({
-    expectedRevision: prepared.revision,
-    preparationID: prepared.preparationID,
-    evidenceHash: prepared.evidenceHash,
-    rollbackWindowMs: 60 * 60 * 1000,
-    maintenanceEvidence: maintenanceEvidence(),
-  });
+  return coordinator.migrateAutomatically({ rollbackWindowMs: 60 * 60 * 1000 });
 }
 
 function publishReadyBuild(buildStore, build) {

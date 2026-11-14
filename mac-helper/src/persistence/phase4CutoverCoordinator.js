@@ -37,7 +37,6 @@ import {
   SqlitePairingStateRepository,
 } from "./sqlitePairingStateRepository.js";
 import { SqlitePhase4AuthorityRepository } from "./sqlitePhase4AuthorityRepository.js";
-import { validatePhase4MaintenanceEvidence } from "./phase4CutoverPreflight.js";
 
 const LOCK_WAIT_MS = 5_000;
 const STALE_LOCK_MS = 30_000;
@@ -95,99 +94,6 @@ export class Phase4CutoverCoordinator {
     });
     this.#backupDirectory = join(stateRoot, "migration-backups", "phase4-cutover");
     this.#sources = phase4LegacySources(stateRoot);
-  }
-
-  status() {
-    const authority = this.#authority.getState();
-    return Object.freeze({
-      authority,
-      rollbackAvailable:
-        authority.mode === "sqlite-rollback" &&
-        Boolean(authority.rollbackExpiresAt) &&
-        Date.now() < Date.parse(authority.rollbackExpiresAt || ""),
-      rollbackExpiresAt: authority.rollbackExpiresAt,
-    });
-  }
-
-  /**
-   * @param {{ expectedRevision: number, maintenanceEvidence: unknown, preparationID?: string }} input
-   */
-  prepare(input) {
-    const maintenance = validatePhase4MaintenanceEvidence(input.maintenanceEvidence, "prepare");
-    const currentGlobal = this.#authority.getState();
-    if (!["legacy", "preparing"].includes(currentGlobal.mode)) {
-      throw new Error(`Phase-4 cannot prepare from ${currentGlobal.mode}.`);
-    }
-    const localPairing = this.#pairingAuthority.current();
-    const preparationID = resolvePreparationID(
-      input.preparationID,
-      currentGlobal.preparationID,
-      localPairing.mode === "legacy-preparing" ? localPairing.preparationID : null,
-    );
-    this.#preparePairingFence(preparationID);
-
-    const domains = this.#runPreparationImports();
-    const measured = /** @type {Record<string, unknown>} */ (maintenance).measured;
-    const sourcePresence =
-      measured && typeof measured === "object"
-        ? /** @type {Record<string, unknown>} */ (measured).sourceHashes
-        : undefined;
-    const evidence = Object.freeze({
-      version: 1,
-      candidateSHA: maintenance.candidateSHA,
-      verifyRunID: maintenance.verifyRunID,
-      domains,
-      ...(sourcePresence === undefined ? {} : { sourcePresence }),
-    });
-    const authority = this.#authority.beginPreparation({
-      expectedRevision: input.expectedRevision,
-      preparationID,
-      evidence,
-    });
-    return Object.freeze({ status: "prepared", authority, domains });
-  }
-
-  /**
-   * @param {{
-   *   expectedRevision: number,
-   *   preparationID: string,
-   *   evidenceHash: string,
-   *   rollbackWindowMs: number,
-   *   maintenanceEvidence: unknown,
-   * }} input
-   */
-  activate(input) {
-    const maintenance = validatePhase4MaintenanceEvidence(input.maintenanceEvidence, "activate");
-    const authority = this.#authority.getState();
-    if (authority.mode !== "preparing") {
-      throw new Error(`Phase-4 activation requires preparing state, found ${authority.mode}.`);
-    }
-    const expectedPreparationID = requireHash(input.preparationID, "Phase-4 preparationID");
-    const expectedEvidenceHash = requireHash(input.evidenceHash, "Phase-4 evidenceHash");
-    if (
-      authority.revision !== requireRevision(input.expectedRevision, "Phase-4 expected revision") ||
-      authority.preparationID !== expectedPreparationID ||
-      authority.evidenceHash !== expectedEvidenceHash
-    ) {
-      throw new Error("Phase-4 activation does not match the prepared revision/evidence epoch.");
-    }
-    const preparationID = requireHash(authority.preparationID, "Phase-4 prepared preparationID");
-    const evidenceHash = requireHash(authority.evidenceHash, "Phase-4 prepared evidenceHash");
-    const prepared = requirePreparedEvidence(authority.evidence);
-    if (
-      prepared.candidateSHA !== maintenance.candidateSHA ||
-      prepared.verifyRunID !== maintenance.verifyRunID
-    ) {
-      throw new Error("Phase-4 activation candidate/Verify evidence changed since preparation.");
-    }
-    const rollbackWindowMs = requirePositiveInteger(
-      input.rollbackWindowMs,
-      "Phase-4 rollback window",
-    );
-
-    return this.#withAllDomainLocks(() =>
-      this.#activateLocked({ authority, preparationID, evidenceHash, prepared, rollbackWindowMs }),
-    );
   }
 
   /**
@@ -289,7 +195,7 @@ export class Phase4CutoverCoordinator {
   #cancelCurrentPreparation() {
     const state = this.#authority.getState();
     if (state.mode === "preparing" && state.preparationID) {
-      this.cancelPreparation({
+      this.#cancelPreparation({
         expectedRevision: state.revision,
         preparationID: state.preparationID,
       });
@@ -305,7 +211,7 @@ export class Phase4CutoverCoordinator {
   }
 
   /** @param {{ expectedRevision: number, preparationID: string }} input */
-  cancelPreparation(input) {
+  #cancelPreparation(input) {
     const current = this.#authority.getState();
     if (current.mode === "legacy")
       return Object.freeze({ status: "already-legacy", authority: current });
@@ -639,17 +545,6 @@ function withLocksSync(lockManager, requests, operation, index = 0) {
   return lockManager.withLockSync(request, () =>
     withLocksSync(lockManager, requests, operation, index + 1),
   );
-}
-
-/** @param {unknown} requested @param {unknown} globalPrepared @param {unknown} pairingPrepared */
-function resolvePreparationID(requested, globalPrepared, pairingPrepared) {
-  const candidates = [requested, globalPrepared, pairingPrepared]
-    .filter(Boolean)
-    .map((value) => requireHash(value, "Phase-4 preparationID"));
-  if (new Set(candidates).size > 1) {
-    throw new Error("Phase-4 preparation identifiers disagree across resumable state.");
-  }
-  return candidates[0] || sha256(randomBytes(32).toString("hex"));
 }
 
 /** @param {unknown} value @param {string} label */
