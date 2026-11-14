@@ -71,16 +71,11 @@ func fastProofStillCompletesTheClockwiseSweepAndTheWaitingGapCannotBeBlurredClos
 
 @Test
 func theSweepKeepsOneSteadySpeedAndStageEventsCannotChangeIt() {
-    var choreography = SwiftSimReloadChoreography(estimatedDuration: 4)
+    let choreography = SwiftSimReloadChoreography(estimatedDuration: 4)
     let speed = 1 / (4 * SwiftSimReloadChoreography.lead)
     #expect(abs(choreography.frame(at: 1).reveal - speed) < 0.000001)
     #expect(abs(choreography.frame(at: 2).reveal - 2 * speed) < 0.000001)
     #expect(abs(choreography.frame(at: 2.5).reveal - 2.5 * speed) < 0.000001)
-    let before = choreography.frame(at: 1.2).reveal
-    choreography.retarget(at: 1.2, estimatedRemaining: 0.1)
-    choreography.retarget(at: 1.3, estimatedRemaining: 60)
-    #expect(choreography.frame(at: 1.2).reveal == before)
-    #expect(abs(choreography.frame(at: 2).reveal - 2 * speed) < 0.000001, "no brake or sprint at a stage event")
     var previous = 0.0
     for tick in 1...18000 {
         let frame = choreography.frame(at: Double(tick) / 30)
@@ -124,7 +119,6 @@ func learnedFastForecastsAndStageRetargetsKeepTheSweepReadable() throws {
         for confirmation in [0.02, 0.05, 0.5, 1.3, 2.0] {
             var choreography = SwiftSimReloadChoreography(startedAt: 100, estimatedDuration: estimate)
             #expect(choreography.frame(at: 100).reveal == 0)
-            choreography.retarget(at: 100.01, estimatedRemaining: 0.001)
             #expect(choreography.frame(at: 100.01).reveal < 0.02)
             choreography.confirm(at: 100 + confirmation)
             let contact = try #require(choreography.contactAt)

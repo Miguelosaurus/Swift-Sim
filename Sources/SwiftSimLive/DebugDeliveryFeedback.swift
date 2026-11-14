@@ -284,10 +284,6 @@ struct SwiftSimReloadChoreography {
         velocity = 1 / duration
     }
 
-    /// Stage events no longer change the speed; a steady bar reads better
-    /// than one that re-aims at every native step.
-    mutating func retarget(at now: TimeInterval, estimatedRemaining: Double) {}
-
     mutating func confirm(at now: TimeInterval) {
         guard completion == nil, now >= startedAt else { return }
         let elapsed = now - startedAt
@@ -362,11 +358,8 @@ struct SwiftSimReloadVisualTimeline {
                 next.elapsed += min(delta, 1.0 / 15)
             }
             if next.sequence != state.sequence {
-                if state.phase == .refreshed {
-                    next.choreography?.confirm(at: next.elapsed)
-                } else if state.phase.rank < 3 && next.phase != state.phase {
-                    next.choreography?.retarget(at: next.elapsed, estimatedRemaining: estimatedRemaining)
-                }
+                // Stage events never change the speed; only proof confirms.
+                if state.phase == .refreshed { next.choreography?.confirm(at: next.elapsed) }
                 next.sequence = state.sequence
                 next.phase = state.phase
             }
