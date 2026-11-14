@@ -130,6 +130,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     /// The pre-edit screen, shown until the ripple uncovers the new content.
     /// The edit itself applies immediately underneath.
     @Published private(set) var frozenFrame: UIView?
+    @Published private(set) var frozenImage: CGImage?
     /// Media time the ripple left the top, so the reveal stays in step with it
     /// even if the main thread delivers this late.
     @Published private(set) var frozenRevealAt: CFTimeInterval?
@@ -143,10 +144,20 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
               SwiftSimReloadWindowShape.motionSupported,
               let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
                 .filter({ $0.activationState == .foregroundActive })
-                .flatMap(\.windows).first(where: \.isKeyWindow),
-              let snapshot = window.snapshotView(afterScreenUpdates: false) else { return }
+                .flatMap(\.windows).first(where: \.isKeyWindow) else { return }
+        // One picture of the pre-edit screen: it is both the held frame and
+        // the image the ripple bends, so nothing is captured at ripple time.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = SwiftSimReloadRipple.snapshotScale(size: window.bounds.size, nativeScale: window.screen.scale)
+        format.preferredRange = .standard
+        var drawn = false
+        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
+            drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
+        guard drawn else { return }
         frozenRequestID = requestID
-        frozenFrame = snapshot
+        frozenFrame = UIImageView(image: image)
+        frozenImage = image.cgImage
         frozenRevealAt = nil
         // Never hold a stale screen if the ripple does not arrive.
         freezeWatchdog = Task { [weak self] in
@@ -162,7 +173,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
 
     func releaseFrozenFrame() {
         freezeWatchdog?.cancel()
-        frozenFrame = nil; frozenRequestID = nil; frozenRevealAt = nil
+        frozenFrame = nil; frozenImage = nil; frozenRequestID = nil; frozenRevealAt = nil
     }
     #endif
 
@@ -254,8 +265,8 @@ struct SwiftSimReloadTiming {
 /// only if the edit finishes well ahead of it. Only an admitted native receipt
 /// can schedule contact at 100%.
 struct SwiftSimReloadChoreography {
-    private static let forecastReveal = 0.85
-    static let waitingReveal = 0.97
+    private static let forecastReveal = 0.92
+    static let waitingReveal = 0.985
     static let minimumSweepDuration = 1.0
     static let maximumFinishDuration = 0.6
     static let waveDuration = 2.1
@@ -316,7 +327,7 @@ struct SwiftSimReloadChoreography {
             finished: progress >= 1, auraOpacity: max(0, 1 - progress * 2))
     }
 
-    /// Constant speed to 85%, then a soft approach to 97% only when the edit
+    /// Constant speed to 92%, then a soft approach to 98.5% only when the edit
     /// is running late. The slope is continuous at the boundary.
     private func pending(elapsed: Double) -> Double {
         let linear = velocity * elapsed
@@ -545,6 +556,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     let estimatedRemaining: Double
     var onFinished: () -> Void = {}
     var onWaveStart: (CFTimeInterval) -> Void = { _ in }
+    var frozenImage: CGImage? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var scenePhase
@@ -567,7 +579,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                 GeometryReader { _ in
                     SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
                         state: state, estimatedRemaining: estimatedRemaining, cornerRadius: cornerRadius,
-                        lightAppearance: colorScheme == .light, active: scenePhase == .active),
+                        lightAppearance: colorScheme == .light, active: scenePhase == .active, frozenImage: frozenImage),
                         onUnavailable: { proceduralAvailable = false }, onFinished: onFinished, onWaveStart: onWaveStart)
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 }

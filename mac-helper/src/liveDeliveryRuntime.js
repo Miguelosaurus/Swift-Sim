@@ -8,8 +8,6 @@ const INCOMPLETE = new Set(["queued", "compiling", "waiting-for-device", "waitin
 
 // The helper owns polling; one-shot callers only publish immutable intent and
 // optionally take one turn. There is no signed-build adapter in this service.
-const APPLY_ESTIMATE_MS = 600;
-
 export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), adapter, workerId = randomUUID(), now = () => Date.now() } = {}) {
   if (!adapter) throw new TypeError("A live delivery adapter is required.");
   let running;
@@ -17,8 +15,10 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   const cancellation = new AbortController();
   let lastCleanup = -Infinity;
   let work = { phase: "idle" };
-  // Running estimate of this Mac's compile time, for the app's progress glow.
-  let compileEstimateMs = 2_500;
+  // Running estimate of a whole edit (compile start to applied on the phone),
+  // so the app's progress glow arrives when the edit does.
+  let editEstimateMs = 3_000;
+  const editStartedAt = new Map();
 
   async function enqueue({ files, project = "", scheme = "", host = "", requestId, requiresCompleteCoverage = false, requiresAddedState = false } = {}) {
     const binding = await adapter.binding({ project, scheme, host });
@@ -198,14 +198,13 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           // This phase is bounded diagnostic metadata, never a lease extension.
           work = { phase: "compiling", activeRequestId: record.requestId, phaseDeadlineAt: now() + 180_000 };
           await queue.observeWorker?.({ workerId, ...work }).catch(() => {});
-          const compileStartedAt = now();
+          if (editStartedAt.size > 64) editStartedAt.clear();
+          editStartedAt.set(record.requestId, now());
           if (matched && observed.connected && observed.foreground && observed.rootReady && observed.revision === record.baselineRevision) {
-            adapter.signalPreparing?.(record, compileEstimateMs + APPLY_ESTIMATE_MS)?.catch?.(() => {});
+            adapter.signalPreparing?.(record, editEstimateMs)?.catch?.(() => {});
           }
           try {
             const preparedPatch = await adapter.prepare(queue.compilationRecord?.(record.requestId) || record, { cancellationSignal: cancellation.signal });
-            const compiled = now() - compileStartedAt;
-            if (compiled > 0 && compiled < 120_000) compileEstimateMs = Math.round(0.7 * compileEstimateMs + 0.3 * compiled);
             await queue.transition(record.requestId, { claimToken, state: matched && observed.connected && (!observed.foreground || !observed.rootReady) ? "waiting-for-foreground" : "waiting-for-device", preparedPatch });
           } catch (error) {
             if (stopping) {
@@ -249,6 +248,10 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
             await queue.transition(record.requestId, { claimToken, state: "uncertain", reasonCode: "QUEUE_APPLY_UNCONFIRMED" });
           } else {
             await queue.transition(record.requestId, { claimToken, state: proof.refreshed ? "refreshed" : "applied", proof });
+            const started = editStartedAt.get(record.requestId);
+            editStartedAt.delete(record.requestId);
+            const edit = started === undefined ? 0 : now() - started;
+            if (proof.refreshed && edit > 0 && edit < 120_000) editEstimateMs = Math.round(0.6 * editEstimateMs + 0.4 * edit);
           }
         } catch {
           await queue.transition(record.requestId, { claimToken, state: "uncertain", reasonCode: "QUEUE_APPLY_UNCONFIRMED" });

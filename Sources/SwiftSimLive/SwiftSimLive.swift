@@ -58,6 +58,14 @@ private struct SwiftSimLiveModifier: ViewModifier {
 
     init() { SwiftSimLiveObserver.shared.registerRoot() }
 
+    private var frozenImage: CGImage? {
+        #if canImport(UIKit) && os(iOS)
+        feedback.frozenImage
+        #else
+        nil
+        #endif
+    }
+
     private func revealFrozenFrame(at time: CFTimeInterval) {
         #if canImport(UIKit) && os(iOS)
         feedback.revealFrozenFrame(at: time)
@@ -81,7 +89,7 @@ private struct SwiftSimLiveModifier: ViewModifier {
                     if let state = feedback.presentation {
                         SwiftSimDeliveryFeedbackEffect(state: state, estimatedRemaining: feedback.estimatedRemaining,
                             onFinished: { feedback.dismissPresentation(requestID: state.requestID, sequence: state.sequence) },
-                            onWaveStart: { revealFrozenFrame(at: $0) })
+                            onWaveStart: { revealFrozenFrame(at: $0) }, frozenImage: frozenImage)
                             .id(state.requestID)
                     }
                 }

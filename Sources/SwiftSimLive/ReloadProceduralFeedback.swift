@@ -14,6 +14,8 @@ struct SwiftSimReloadRenderInput {
     let cornerRadius: CGFloat
     let lightAppearance: Bool
     let active: Bool
+    /// The held pre-edit screen (iOS), bent by the ripple as it is washed away.
+    var frozenImage: CGImage? = nil
 
     /// On iOS the held pre-edit frame and the ripple mask reveal the edit, so
     /// no main-thread window capture (and its dropped frames) is needed.
@@ -332,6 +334,8 @@ final class SwiftSimReloadBackgroundRenderer: NSObject, @unchecked Sendable {
     private var resources: SwiftSimReloadGPUResources?
     private var queue: MTLCommandQueue?
     private var emptyTexture: MTLTexture?
+    private var preEditTexture: MTLTexture?
+    private var preEditImage: CGImage?
     private var timeline = SwiftSimReloadVisualTimeline()
     private var ready = false, readyScheduled = false, waveSignaled = false, done = false, running = false
     private var uniforms = [SIMD4<Float>](repeating: .zero, count: 15)
@@ -374,11 +378,18 @@ final class SwiftSimReloadBackgroundRenderer: NSObject, @unchecked Sendable {
         lock.lock()
         guard running, !done, let input, input.active, size.width > 0, size.height > 0,
               let resources, let queue, let emptyTexture, inFlight.wait(timeout: .now()) == .success else { lock.unlock(); return }
+        if input.frozenImage !== preEditImage {
+            // Uploaded on this thread, well before the ripple needs it.
+            preEditImage = input.frozenImage
+            preEditTexture = input.frozenImage.flatMap { SwiftSimReloadRipple.texture(from: $0, device: resources.device) }
+        }
         let sample = timeline.sampled(at: ProcessInfo.processInfo.systemUptime, ready: ready,
             state: input.state, estimatedRemaining: input.estimatedRemaining)
         timeline = sample.timeline
         let frame = sample.frame
-        SwiftSimReloadShader.fill(&uniforms, size: size, input: input, frame: frame, elapsed: timeline.elapsed, hasCapture: false)
+        let texture = preEditTexture ?? emptyTexture
+        SwiftSimReloadShader.fill(&uniforms, size: size, input: input, frame: frame, elapsed: timeline.elapsed,
+            hasCapture: preEditTexture != nil, preEdit: true)
         let signalWave = frame.waveStarted && !waveSignaled
         if signalWave { waveSignaled = true }
         let firstFrame = !readyScheduled
@@ -396,7 +407,7 @@ final class SwiftSimReloadBackgroundRenderer: NSObject, @unchecked Sendable {
         guard let encoder = command.makeRenderCommandEncoder(descriptor: pass) else { inFlight.signal(); return }
         encoder.setRenderPipelineState(resources.pipeline)
         values.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
-        encoder.setFragmentTexture(emptyTexture, index: 0)
+        encoder.setFragmentTexture(texture, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
         let semaphore = inFlight
@@ -510,12 +521,12 @@ enum SwiftSimReloadShader {
 
     /// Per-frame uniforms, computed once per frame rather than per fragment.
     static func fill(_ uniforms: inout [SIMD4<Float>], size: CGSize, input: SwiftSimReloadRenderInput,
-                     frame: SwiftSimReloadChoreography.Frame, elapsed: Double, hasCapture: Bool) {
+                     frame: SwiftSimReloadChoreography.Frame, elapsed: Double, hasCapture: Bool, preEdit: Bool = false) {
         uniforms[0] = SIMD4(Float(size.width), Float(size.height), Float(input.cornerRadius), Float(elapsed))
         uniforms[1] = SIMD4(Float(frame.auraOpacity), frame.waveStarted ? Float(frame.waveProgress * SwiftSimReloadChoreography.waveDuration) : -1,
             Float(SwiftSimReloadChoreography.waveDuration), input.lightAppearance ? 1 : 0)
         uniforms[2] = SIMD4(Float(SwiftSimReloadRipple.amplitude), Float(SwiftSimReloadRipple.frequency),
-            Float(SwiftSimReloadRipple.decay), hasCapture ? 1 : 0)
+            Float(SwiftSimReloadRipple.decay), hasCapture ? (preEdit ? 2 : 1) : 0)
         uniforms[3] = SIMD4(revealProgress(for: frame), revealSoftness, 0, 0)
         let time = Float(elapsed)
         let burst = exp(-time * 1.6)
@@ -636,7 +647,9 @@ enum SwiftSimReloadShader {
                 float4 sample = snapshot.sample(linearSampler, sampleUV);
                 // Return sampled pixels to their original positions before
                 // fading them, so a displaced copy never ghosts over live text.
-                float waveAlpha = 1 - smoothstep(.85, 1.0, age);
+                // A pre-edit image bends at the front and washes away quickly,
+                // uncovering the new screen just behind the crest.
+                float waveAlpha = u.ripple.w > 1.5 ? 1 - smoothstep(.12, .42, age) : 1 - smoothstep(.85, 1.0, age);
                 float highlight = displacement / u.ripple.x;
                 float3 refracted = max(float3(0), sample.rgb + highlight * float3(.10, .15, .14));
                 waveAlpha *= sample.a;

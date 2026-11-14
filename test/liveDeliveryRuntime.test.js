@@ -947,7 +947,7 @@ test("the app's progress glow starts when compiling for the foreground app, with
     const next = await f.service.enqueue({ files: f.files(firstEdit, "struct Card { var title: String { \"third\" } }") });
     await f.service.runOnce();
     assert.deepEqual(signals.map((signal) => signal.requestId), [next.delivery.requestId]);
-    assert(signals[0].estimate >= 600);
+    assert(signals[0].estimate > 0);
     assert.equal(f.calls.prepare.length, 2, "a failed signal never blocks compilation");
   } finally { f.cleanup(); }
 });
