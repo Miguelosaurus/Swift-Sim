@@ -125,6 +125,10 @@ Run `swift-sim setup-status` and inspect `~/.swift-sim/helper.log`. For `native-
 
 Current Companions use **Live Keyboard**. If the old **Send Text** sheet appears, update the Companion and restart the helper.
 
+## Local State Did Not Move To SQLite
+
+The helper moves existing installs to SQLite when it starts. If that fails, Swift Sim keeps working from its JSON files and retries about once a day. The reason code is in `~/.swift-sim/storage-migration.json` and `~/.swift-sim/helper.log`. The original JSON files are never modified; after a successful move they are kept as backups for 30 days.
+
 ## Reset Local State
 
-Stop active delivery with `swift-sim device-delivery-stop`. State lives under `~/.swift-sim`. Remove only the affected records; delete the whole directory only if you intentionally want a clean reset.
+Stop active delivery with `swift-sim device-delivery-stop`. State lives under `~/.swift-sim`, mainly in `state.sqlite`. Do not edit that database by hand. For a clean reset, stop the helper and move the whole directory aside rather than deleting individual files.
