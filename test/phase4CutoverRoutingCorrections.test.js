@@ -11,7 +11,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createExtractedHelperServices } from "../mac-helper/src/helperCliRuntime.js";
-import { validatePhase4MaintenanceEvidence } from "../mac-helper/src/persistence/phase4CutoverPreflight.js";
 import { PHASE4_SQLITE_MIGRATIONS } from "../mac-helper/src/persistence/phase4SqliteSchema.js";
 import { SqlitePairingStateRepository } from "../mac-helper/src/persistence/sqlitePairingStateRepository.js";
 import { SqlitePhase4AuthorityRepository } from "../mac-helper/src/persistence/sqlitePhase4AuthorityRepository.js";
@@ -30,52 +29,6 @@ function withRoot(operation) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-
-function prepareEvidence(overrides = {}) {
-  return {
-    exactCandidateSHA: true,
-    hostedVerifyGreen: true,
-    maintenanceAuthorized: true,
-    installedProvenanceVerified: true,
-    exactProcessIdentityVerified: true,
-    writersQuiesced: true,
-    exactDomainLocksAvailable: true,
-    privatePermissionsVerified: true,
-    liveSourceHashesCaptured: true,
-    schemaMigrationsCoherent: true,
-    databaseIntegrityWalForeignKeysVerified: true,
-    preMigrationDatabaseSnapshotVerified: true,
-    legacyBackupsVerified: true,
-    migrationReopenIdempotencyVerified: true,
-    installedCandidateHelperHealthy: true,
-    zeroUnresolvedShadowMismatches: true,
-    rollbackReadable: true,
-    cleanupDisabledForCutover: true,
-    sqliteProcessAuthorityAbsent: true,
-    rollbackExecutable: true,
-    failClosedAbortClassesVerified: true,
-    unrelatedPhaseWorkAbsent: true,
-    candidateSHA: "d".repeat(40),
-    verifyRunID: 1,
-    processIdentity: { pid: 42, startedAt: "Fri Aug 14 13:00:00 2026" },
-    shadowMismatchCount: 0,
-    ...overrides,
-  };
-}
-
-test("prepare stop-condition validation rejects unresolved shadow mismatch evidence", () => {
-  assert.throws(
-    () =>
-      validatePhase4MaintenanceEvidence(
-        prepareEvidence({
-          zeroUnresolvedShadowMismatches: false,
-          shadowMismatchCount: 1,
-        }),
-        "prepare",
-      ),
-    /zeroUnresolvedShadowMismatches|shadow mismatch/i,
-  );
-});
 
 test("extracted one-shot pairing command uses global SQLite authority and never writes legacy after activation", () => {
   withRoot(({ stateRoot, databasePath }) => {

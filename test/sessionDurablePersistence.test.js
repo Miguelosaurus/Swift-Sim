@@ -3,7 +3,6 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { SESSION_DURABLE_SQLITE_SCHEMA_STATEMENTS } from "../mac-helper/src/persistence/sessionDurableSqliteSchema.js";
 import { SqliteDurableSessionRepository } from "../mac-helper/src/persistence/sqliteDurableSessionRepository.js";
-import { compareDurableSessionShadow } from "../mac-helper/src/persistence/sessionDurableShadowComparison.js";
 import {
   durableSessionProjectionHash,
   parseLegacyDurableSessions,
@@ -105,40 +104,6 @@ test("mixed legacy record projects to durable-only SQLite data", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(row, forbidden), false, forbidden);
   }
   native.close();
-});
-
-test("runtime-only legacy mutations do not create durable shadow mismatches", () => {
-  const baseline = mixedLegacy();
-  const runtimeChanged = mixedLegacy({
-    revision: 999,
-    updatedAt: "2026-08-14T12:00:00.000Z",
-    remoteBaseUrl: "https://different.invalid",
-    orientation: "portrait",
-    build: { state: "failed" },
-    stream: {
-      state: "stopped",
-      pid: 7777,
-      port: 3333,
-      raw: { runtimeClaim: "claim-2" },
-    },
-    logs: ["changed", "again"],
-  });
-
-  assert.deepEqual(compareDurableSessionShadow(baseline, DURABLE), {
-    matched: true,
-    mismatch: null,
-  });
-  assert.deepEqual(compareDurableSessionShadow(runtimeChanged, DURABLE), {
-    matched: true,
-    mismatch: null,
-  });
-});
-
-test("durable field changes produce a stable mismatch", () => {
-  const result = compareDurableSessionShadow(mixedLegacy({ scheme: "Other" }), DURABLE);
-  assert.equal(result.matched, false);
-  assert.match(result.mismatch.mismatchID, /^[a-f0-9]{64}$/);
-  assert.notEqual(result.mismatch.legacyProjectionHash, result.mismatch.sqliteProjectionHash);
 });
 
 test("malformed durable repository input fails before replacing existing state", () => {

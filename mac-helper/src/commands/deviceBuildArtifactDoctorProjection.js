@@ -12,8 +12,7 @@ export function deviceBuildArtifactDoctorSection(value) {
         ready: false,
         informational: true,
         cleanupEnabled: false,
-        detail:
-          "Read-only device-build artifact audit is unavailable; no cleanup was attempted.",
+        detail: "Read-only device-build artifact audit is unavailable; no cleanup was attempted.",
       }),
     });
   }
