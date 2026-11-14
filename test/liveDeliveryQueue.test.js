@@ -636,6 +636,28 @@ test("a baseline-only process observation does not strand later disconnected int
   } finally { f.cleanup(); }
 });
 
+test("a failed process rebase does not strand intent queued afterwards", async () => {
+  const f = fixture();
+  try {
+    await queued(f); await prepare(f); const token = await begin(f);
+    await f.queue.transition("request-1", { claimToken: token, state: "refreshed", proof: proof() });
+    await queued(f, "request-2", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: "second" }]);
+    const input = { scope: { ...scope, sessionIdentity: "relaunch" }, currentRevision: 0, verified: true, newRequestId: "replay" };
+    const first = await f.queue.rebaseForProcess(input);
+    const claim = await f.queue.claimNext({ scope: input.scope, currentRevision: 0, workerId: "compiler" });
+    await f.queue.transition(first.record.requestId, { claimToken: claim.claim.token, state: "failed", reasonCode: "QUEUED_EDIT_NOT_COMPATIBLE" });
+    // The next edit still targets the old process, as its last success did,
+    // and starts from that process's confirmed source.
+    await queued(f, "request-3", [{ ...sources[0], beforeSource: sources[0].afterSource, afterSource: "third" }]);
+    const second = await f.reopen().rebaseForProcess({ ...input, newRequestId: "replay-2" });
+    assert.equal(second.record.requestId, "replay-2");
+    assert.equal(second.record.scope.sessionIdentity, "relaunch");
+    assert.deepEqual(second.record.rebaseSourceRequestIds, ["request-3"]);
+    assert.equal(second.record.files[0].afterSource, "third");
+    assert.equal(f.queue.get("request-3").replacementRequestId, "replay-2");
+  } finally { f.cleanup(); }
+});
+
 test("new-process rebase refuses unverified, same-process and live-claim histories", async () => {
   const f = fixture();
   try {

@@ -297,7 +297,11 @@ export function createLiveDeliveryQueue({
         // at its original baseline. That earlier no-op is not an acknowledgement
         // of the newly accepted intent. Reconcile it once, without reapplying a
         // previous cohort or extending the new request's expiry.
-        const lateIntent = existing?.netNoChange && lane.some((record) => record.scope.sessionIdentity !== binding.sessionIdentity
+        // A rebase that failed before applying anything left this process
+        // unchanged too; newer intent from the old process must not wait on it.
+        const priorRecord = existing?.requestId ? find(journal, existing.requestId) : null;
+        const effectFree = existing?.netNoChange || (priorRecord?.state === "failed" && !priorRecord.proof && !priorRecord.claim);
+        const lateIntent = effectFree && lane.some((record) => record.scope.sessionIdentity !== binding.sessionIdentity
           && PRE_APPLY.has(record.state) && record.expiresAt > time && !existing.supersededRequestIds.includes(record.requestId));
         if (existing && !lateIntent) return { record: existing.requestId ? find(journal, existing.requestId) : null, supersededRequestIds: existing.supersededRequestIds, netNoChange: existing.netNoChange };
         if (!existing && journal.processRebases.length >= LIMITS.records) throw queueError("QUEUE_LIMIT_REACHED");
