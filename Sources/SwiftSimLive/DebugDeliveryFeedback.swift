@@ -145,8 +145,7 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
               let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
                 .filter({ $0.activationState == .foregroundActive })
                 .flatMap(\.windows).first(where: \.isKeyWindow) else { return }
-        // One picture of the pre-edit screen: it is both the held frame and
-        // the image the ripple bends, so nothing is captured at ripple time.
+        // One pre-edit picture: the held frame and what the ripple bends.
         let format = UIGraphicsImageRendererFormat()
         format.scale = SwiftSimReloadRipple.snapshotScale(size: window.bounds.size, nativeScale: window.screen.scale)
         format.preferredRange = .standard
@@ -274,8 +273,7 @@ struct SwiftSimReloadChoreography {
     private let velocity: Double
     private var completion: (at: Double, reveal: Double, duration: Double)?
 
-    /// The bar aims a little ahead of the expected edit; the soft approach
-    /// near the top absorbs an edit that runs to its full estimate.
+    /// Aim ahead of the expected edit; the soft approach absorbs a full-length one.
     static let lead = 0.85
 
     init(startedAt: TimeInterval = 0, estimatedDuration: Double = 4) {
@@ -297,8 +295,6 @@ struct SwiftSimReloadChoreography {
     var contactAt: TimeInterval? {
         completion.map { startedAt + $0.at + $0.duration }
     }
-
-    func elapsed(at now: TimeInterval) -> Double { max(0, now - startedAt) }
 
     struct Frame {
         let reveal: CGFloat

@@ -17,14 +17,8 @@ struct SwiftSimReloadRenderInput {
     /// The held pre-edit screen (iOS), bent by the ripple as it is washed away.
     var frozenImage: CGImage? = nil
 
-    /// iOS reveals the edit with its held pre-edit picture; no window capture.
-    var prepareSnapshot: Bool {
-        #if os(iOS)
-        false
-        #else
-        state.phase == .refreshed
-        #endif
-    }
+    /// macOS only; iOS bends its held pre-edit picture instead.
+    var prepareSnapshot: Bool { state.phase == .refreshed }
 }
 
 /// Distance-delayed, damped displacement, following Mehta's WWDC-based ripple.
@@ -503,7 +497,9 @@ enum SwiftSimReloadShader {
     static func fill(_ uniforms: inout [SIMD4<Float>], size: CGSize, input: SwiftSimReloadRenderInput,
                      frame: SwiftSimReloadChoreography.Frame, elapsed: Double, hasCapture: Bool, preEdit: Bool = false) {
         uniforms[0] = SIMD4(Float(size.width), Float(size.height), Float(input.cornerRadius), Float(elapsed))
-        uniforms[1] = SIMD4(Float(frame.auraOpacity), frame.waveStarted ? Float(frame.waveProgress * SwiftSimReloadChoreography.waveDuration) : -1,
+        // With a pre-edit picture the ripple front alone fades the glow.
+        let aura = preEdit && hasCapture && frame.waveStarted && !frame.finished ? 1 : frame.auraOpacity
+        uniforms[1] = SIMD4(Float(aura), frame.waveStarted ? Float(frame.waveProgress * SwiftSimReloadChoreography.waveDuration) : -1,
             Float(SwiftSimReloadChoreography.waveDuration), input.lightAppearance ? 1 : 0)
         uniforms[2] = SIMD4(Float(SwiftSimReloadRipple.amplitude), Float(SwiftSimReloadRipple.frequency),
             Float(SwiftSimReloadRipple.decay), hasCapture ? (preEdit ? 2 : 1) : 0)
@@ -580,7 +576,13 @@ enum SwiftSimReloadShader {
         if (edge < -150 && waveTime < 0) return float4(0);
         float4 result = float4(0);
         float3 teal = float3(.0, .48, .43);
-        if (u.animation.x > .001 && edge > -150) {
+        // During the ripple the glow washes away behind the front, with the reveal.
+        float aura = u.animation.x;
+        if (waveTime >= 0) {
+            float frontSpeed = length(float2(size.x * .5, size.y - 5)) / max(.2, u.animation.z - 1.0);
+            aura *= 1 - smoothstep(0.0, .18, waveTime - length(p - float2(size.x * .5, 5)) / frontSpeed);
+        }
+        if (aura > .001 && edge > -150) {
         float burst = exp(-time * 1.6);
         float bounce = 1 + .16 * burst * cos(time * 8.2);
         float2 domain = p / max(size.x, size.y) * 5;
@@ -591,7 +593,7 @@ enum SwiftSimReloadShader {
         float core = 1 - smoothstep(2.0, 6.0, distance);
         float mid = (1 - smoothstep(0.0, 16.0, distance)) * .55;
         float bloom = (1 - smoothstep(0.0, 34.0, distance)) * .30;
-        float alpha = saturate(core + mid + bloom) * u.animation.x
+        float alpha = saturate(core + mid + bloom) * aura
             * revealOpacity(p, size, u.geometry.z, u.reveal.x, u.reveal.y);
         for (int i = 0; i < 11; ++i) {
             float weight = saturate(1 - length(p - u.anchors[i].xy) / (max(size.x, size.y) * .56));
@@ -630,6 +632,8 @@ enum SwiftSimReloadShader {
                 // A pre-edit image bends at the front and washes away quickly,
                 // uncovering the new screen just behind the crest.
                 float waveAlpha = u.ripple.w > 1.5 ? 1 - smoothstep(.12, .42, age) : 1 - smoothstep(.85, 1.0, age);
+                // The pre-edit picture holds the glow as it was; never bend that copy.
+                if (u.ripple.w > 1.5) waveAlpha *= 1 - smoothstep(-48.0, -20.0, edge);
                 float highlight = displacement / u.ripple.x;
                 float3 refracted = max(float3(0), sample.rgb + highlight * float3(.10, .15, .14));
                 waveAlpha *= sample.a;
