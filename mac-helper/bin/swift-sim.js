@@ -690,7 +690,8 @@ function installClaudePlugin() {
     return agentAction("claude", "Claude Code", "needs-attention", compactError(plugin) || "Claude Code could not install the Swift Sim plugin");
   }
   const enable = runCapture(claude, ["plugin", "enable", `${pluginName}@${marketplaceName}`, "--scope", "user"], { allowFailure: true });
-  if (enable.status !== 0) {
+  // Re-running setup finds the plugin enabled already; that is success.
+  if (enable.status !== 0 && !/already enabled/i.test(compactError(enable) || "")) {
     return agentAction("claude", "Claude Code", "needs-attention", compactError(enable) || "Claude Code could not enable the Swift Sim plugin");
   }
   return agentAction("claude", "Claude Code", "configured", `Swift Sim plugin ${packageJSON.version} installed for Claude Code`);
