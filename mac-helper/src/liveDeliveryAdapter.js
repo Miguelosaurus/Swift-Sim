@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -142,6 +142,20 @@ export function createLiveDeliveryAdapter({ manifestPath = join(LIVE_ROOT, "comp
       const manifest = capture(); const scope = scopeFor(manifest);
       if ((project && canonicalProjectPath(project) !== scope.project) || (scheme && scheme !== scope.scheme)) throw deliveryError("LIVE_PROJECT_MISMATCH", "The live build belongs to a different project or scheme. Select the intended Debug integration; no rebuild was started.");
       return { scope, manifest };
+    },
+    // Presentation only: the app starts its progress glow while the Mac
+    // compiles. Never awaited by compilation; any failure just skips it.
+    async signalPreparing(record, estimateMs) {
+      const expected = normalizedLiveBinaryIdentity(capture(true).binaryIdentity);
+      const selector = { bundle_id: expected.bundle_id, executable_uuid: expected.executable_uuid, debug_dylib_uuid: expected.debug_dylib_uuid };
+      const context = await control({ action: "developer_context", ...selector, screenshot: false }, { timeoutMs: 2_000 });
+      const identity = context?.success === true ? context.data?.identity : null;
+      if (!identity || !liveBinaryMatches(expected, identity) || !context.data.capabilities?.includes("delivery-preparing-v1")
+        || identity.is_active !== true || identity.root_ready !== true || identity.process_nonce !== record.scope.sessionIdentity) return false;
+      const value = `${record.requestId}:${Math.min(600_000, Math.max(0, Math.round(estimateMs)))}:${record.baselineRevision}`;
+      const result = await control({ action: "developer_tool", ...selector, process_nonce: identity.process_nonce,
+        connection_nonce: identity.connection_nonce, operation_id: randomUUID(), tool: "delivery-preparing", value }, { timeoutMs: 2_000 });
+      return result?.success === true && result.data?.result?.success === true;
     },
     validatePrepared(record) {
       if (!record.preparedPatch?.replacementProof) throw deliveryError("LIVE_ENGINE_UPDATE_REQUIRED", "This queued patch requires the matching live engine and must be prepared again. No patch was sent.");

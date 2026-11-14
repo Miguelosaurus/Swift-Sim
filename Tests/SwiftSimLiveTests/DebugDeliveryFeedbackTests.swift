@@ -324,3 +324,21 @@ func feedbackAndPresentationDismissalDoNotAdvanceTheHostRevisionOrFabricateSucce
     #expect(after["root_ready"] as? Bool == before["root_ready"] as? Bool)
 }
 #endif
+
+@Test
+func preparingStartsTheGlowWithTheMacEstimateAndAdmissionContinuesIt() {
+    var reducer = SwiftSimDeliveryFeedbackReducer()
+    func consume(_ info: [AnyHashable: Any]) -> Bool { reducer.consume(info) }
+    let id = UUID().uuidString
+    var preparing = event(id, 1, "preparing", digest: String(repeating: "0", count: 64))
+    preparing["estimate_ms"] = 2_400
+    #expect(consume(preparing))
+    #expect(reducer.current?.phase == .preparing)
+    #expect(reducer.current?.estimate == 2.4)
+    #expect(!consume(event(id, 2, "preparing", digest: String(repeating: "0", count: 64))))
+    #expect(consume(event(id, 3, "receiving")))
+    #expect(reducer.current?.patchDigest == String(repeating: "a", count: 64))
+    #expect(reducer.current?.estimate == 2.4)
+    #expect(!consume(event(id, 4, "receiving")), "Only an early glow can be continued by admission")
+    #expect(consume(event(id, 5, "applying")))
+}

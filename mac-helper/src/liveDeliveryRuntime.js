@@ -8,6 +8,8 @@ const INCOMPLETE = new Set(["queued", "compiling", "waiting-for-device", "waitin
 
 // The helper owns polling; one-shot callers only publish immutable intent and
 // optionally take one turn. There is no signed-build adapter in this service.
+const APPLY_ESTIMATE_MS = 600;
+
 export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), adapter, workerId = randomUUID(), now = () => Date.now() } = {}) {
   if (!adapter) throw new TypeError("A live delivery adapter is required.");
   let running;
@@ -15,6 +17,8 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
   const cancellation = new AbortController();
   let lastCleanup = -Infinity;
   let work = { phase: "idle" };
+  // Running estimate of this Mac's compile time, for the app's progress glow.
+  let compileEstimateMs = 2_500;
 
   async function enqueue({ files, project = "", scheme = "", host = "", requestId, requiresCompleteCoverage = false, requiresAddedState = false } = {}) {
     const binding = await adapter.binding({ project, scheme, host });
@@ -194,8 +198,14 @@ export function createLiveDeliveryRuntime({ queue = createLiveDeliveryQueue(), a
           // This phase is bounded diagnostic metadata, never a lease extension.
           work = { phase: "compiling", activeRequestId: record.requestId, phaseDeadlineAt: now() + 180_000 };
           await queue.observeWorker?.({ workerId, ...work }).catch(() => {});
+          const compileStartedAt = now();
+          if (matched && observed.connected && observed.foreground && observed.rootReady && observed.revision === record.baselineRevision) {
+            adapter.signalPreparing?.(record, compileEstimateMs + APPLY_ESTIMATE_MS)?.catch?.(() => {});
+          }
           try {
             const preparedPatch = await adapter.prepare(queue.compilationRecord?.(record.requestId) || record, { cancellationSignal: cancellation.signal });
+            const compiled = now() - compileStartedAt;
+            if (compiled > 0 && compiled < 120_000) compileEstimateMs = Math.round(0.7 * compileEstimateMs + 0.3 * compiled);
             await queue.transition(record.requestId, { claimToken, state: matched && observed.connected && (!observed.foreground || !observed.rootReady) ? "waiting-for-foreground" : "waiting-for-device", preparedPatch });
           } catch (error) {
             if (stopping) {

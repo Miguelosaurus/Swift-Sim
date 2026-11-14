@@ -931,3 +931,23 @@ test("prepared state-slot edits wait for their exact capability and keep the sam
     assert.equal(f.queue.desiredStates()[0].requiresCohort,true);
   } finally {f.cleanup();}
 });
+
+test("the app's progress glow starts when compiling for the foreground app, without blocking compilation", async () => {
+  const f = fixture();
+  try {
+    const signals = [];
+    f.adapter.signalPreparing = async (record, estimate) => { signals.push({ requestId: record.requestId, estimate }); throw new Error("presentation only"); };
+    const hidden = await f.service.enqueue({ files: f.files() });
+    await f.service.runOnce();
+    assert.equal(signals.length, 0, "no glow for an app that is not on screen");
+    assert.equal(f.calls.prepare.length, 1);
+    f.state.connected = true; f.state.foreground = true;
+    await f.service.runOnce();
+    assert.equal(f.queue.get(hidden.delivery.requestId).state, "refreshed");
+    const next = await f.service.enqueue({ files: f.files(firstEdit, "struct Card { var title: String { \"third\" } }") });
+    await f.service.runOnce();
+    assert.deepEqual(signals.map((signal) => signal.requestId), [next.delivery.requestId]);
+    assert(signals[0].estimate >= 600);
+    assert.equal(f.calls.prepare.length, 2, "a failed signal never blocks compilation");
+  } finally { f.cleanup(); }
+});

@@ -98,6 +98,8 @@ final class SwiftSimReloadMetalView: MTKView {
     static let isAvailable = MTLCreateSystemDefaultDevice() != nil
     var unavailable: (() -> Void)?
     var finished: (() -> Void)?
+    var waveStarted: (() -> Void)?
+    private var waveSignaled = false
     private var rendererReady = false
     private var finishedEmitted = false
     private var visualTimeline = SwiftSimReloadVisualTimeline()
@@ -223,6 +225,10 @@ final class SwiftSimReloadMetalView: MTKView {
             ready: rendererReady, state: input.state, estimatedRemaining: input.estimatedRemaining)
         visualTimeline = sample.timeline
         let frame = sample.frame
+        if frame.waveStarted && !waveSignaled {
+            waveSignaled = true
+            DispatchQueue.main.async { [weak self] in self?.waveStarted?() }
+        }
         uniforms[0] = SIMD4(Float(bounds.width), Float(bounds.height), Float(input.cornerRadius), Float(visualTimeline.elapsed))
         uniforms[1] = SIMD4(Float(frame.auraOpacity), frame.waveStarted ? Float(frame.waveProgress * SwiftSimReloadChoreography.waveDuration) : -1,
             Float(SwiftSimReloadChoreography.waveDuration), input.lightAppearance ? 1 : 0)
@@ -293,7 +299,11 @@ final class SwiftSimReloadMetalView: MTKView {
         var complete = false
         let hidden = isHidden
         isHidden = true
-        defer { isHidden = hidden }
+        // The ripple refracts the new screen, never the held pre-edit frame.
+        let frozen = SwiftSimFrozenFrame.Host.current
+        let frozenHidden = frozen?.isHidden ?? false
+        frozen?.isHidden = true
+        defer { isHidden = hidden; frozen?.isHidden = frozenHidden }
         let image = UIGraphicsImageRenderer(size: bounds.size, format: format).image { _ in
             complete = window.drawHierarchy(in: CGRect(origin: CGPoint(x: -origin.x, y: -origin.y),
                 size: window.bounds.size), afterScreenUpdates: true)
@@ -325,14 +335,17 @@ struct SwiftSimReloadProceduralFeedback: UIViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
     var onFinished: () -> Void
+    var onWaveStart: () -> Void = {}
     func makeUIView(context: Context) -> SwiftSimReloadMetalView {
         let view = SwiftSimReloadMetalView()
         view.unavailable = onUnavailable
         view.finished = onFinished
+        view.waveStarted = onWaveStart
         return view
     }
     func updateUIView(_ view: SwiftSimReloadMetalView, context: Context) {
         view.finished = onFinished
+        view.waveStarted = onWaveStart
         view.update(input)
     }
     static func dismantleUIView(_ view: SwiftSimReloadMetalView, coordinator: ()) { view.stop() }
@@ -342,10 +355,12 @@ struct SwiftSimReloadProceduralFeedback: NSViewRepresentable {
     let input: SwiftSimReloadRenderInput
     var onUnavailable: () -> Void
     var onFinished: () -> Void
+    var onWaveStart: () -> Void = {}
     func makeNSView(context: Context) -> SwiftSimReloadMetalView {
         let view = SwiftSimReloadMetalView()
         view.unavailable = onUnavailable
         view.finished = onFinished
+        view.waveStarted = onWaveStart
         return view
     }
     func updateNSView(_ view: SwiftSimReloadMetalView, context: Context) {

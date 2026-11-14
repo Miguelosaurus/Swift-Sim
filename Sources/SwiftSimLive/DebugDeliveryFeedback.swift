@@ -10,13 +10,13 @@ import UIKit
 /// receipt, advances the host revision, or infers success from elapsed time.
 struct SwiftSimDeliveryFeedbackState: Equatable {
     enum Phase: String {
-        case receiving, applying
+        case preparing, receiving, applying
         case waitingForRefresh = "waiting-for-refresh"
         case refreshed, failed
 
         var rank: Int {
             switch self {
-            case .receiving: 0
+            case .preparing, .receiving: 0
             case .applying: 1
             case .waitingForRefresh: 2
             case .refreshed, .failed: 3
@@ -24,6 +24,7 @@ struct SwiftSimDeliveryFeedbackState: Equatable {
         }
         var title: String {
             switch self {
+            case .preparing: "Preparing update"
             case .receiving: "Receiving update"
             case .applying: "Applying update"
             case .waitingForRefresh: "Waiting for refresh"
@@ -33,7 +34,7 @@ struct SwiftSimDeliveryFeedbackState: Equatable {
         }
         var symbol: String {
             switch self {
-            case .receiving: "arrow.down.circle"
+            case .preparing, .receiving: "arrow.down.circle"
             case .applying, .waitingForRefresh: "arrow.triangle.2.circlepath"
             case .refreshed: "checkmark.circle.fill"
             case .failed: "exclamationmark.circle"
@@ -47,6 +48,8 @@ struct SwiftSimDeliveryFeedbackState: Equatable {
     let sequence: Int
     let phase: Phase
     let revision: Int?
+    /// The Mac's estimate for this edit, sent when it starts compiling.
+    var estimate: Double? = nil
 }
 
 struct SwiftSimDeliveryFeedbackReducer {
@@ -63,8 +66,11 @@ struct SwiftSimDeliveryFeedbackReducer {
               let sequence = info["sequence"] as? Int, sequence > highestSequence,
               let rawPhase = info["phase"] as? String,
               let phase = SwiftSimDeliveryFeedbackState.Phase(rawValue: rawPhase) else { return false }
-        if phase == .receiving {
+        if phase == .preparing {
             if current?.requestID == requestID { return false }
+        } else if phase == .receiving {
+            // Admission continues an early "preparing" glow for the same edit.
+            if current?.requestID == requestID && current?.phase != .preparing { return false }
         } else {
             guard let current, current.requestID == requestID,
                   current.patchDigest == digest, current.baselineRevision == baseline,
@@ -78,8 +84,10 @@ struct SwiftSimDeliveryFeedbackReducer {
                   let revision, revision > baseline else { return false }
         }
         highestSequence = sequence
+        let estimateMs = info["estimate_ms"] as? Int
         current = SwiftSimDeliveryFeedbackState(requestID: requestID, patchDigest: digest,
-            baselineRevision: baseline, sequence: sequence, phase: phase, revision: revision)
+            baselineRevision: baseline, sequence: sequence, phase: phase, revision: revision,
+            estimate: phase == .preparing ? estimateMs.map { Double(min(max($0, 0), 600_000)) / 1_000 } : current?.estimate)
         return true
     }
 }
@@ -95,7 +103,9 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
     private var timing = SwiftSimReloadTiming()
 
     var estimatedRemaining: Double {
-        timing.remaining(for: presentation?.phase ?? .receiving)
+        let phase = presentation?.phase ?? .receiving
+        if phase == .preparing, let estimate = presentation?.estimate { return max(estimate, timing.remaining(for: .receiving)) }
+        return timing.remaining(for: phase)
     }
 
     init(center: NotificationCenter = .default,
@@ -104,7 +114,55 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
         subscription = center.publisher(for: Notification.Name("SWIFT_SIM_LIVE_DELIVERY_FEEDBACK"))
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in self?.receive(notification.userInfo ?? [:]) }
+        #if canImport(UIKit) && os(iOS)
+        // Synchronous on the posting (main) thread: the engine posts "applying"
+        // before it queues the refresh, so this captures the pre-edit screen.
+        freezeObserver = center.addObserver(forName: Notification.Name("SWIFT_SIM_LIVE_DELIVERY_FEEDBACK"),
+                                            object: nil, queue: nil) { [weak self] notification in
+            guard Thread.isMainThread, notification.userInfo?["phase"] as? String == "applying",
+                  let requestID = notification.userInfo?["request_id"] as? String else { return }
+            if #available(iOS 17, *) { MainActor.assumeIsolated { self?.freeze(requestID: requestID) } }
+        }
+        #endif
     }
+
+    #if canImport(UIKit) && os(iOS)
+    /// The pre-edit screen, shown until the ripple uncovers the new content.
+    /// The edit itself applies immediately underneath.
+    @Published private(set) var frozenFrame: UIView?
+    @Published private(set) var revealingFrozenFrame = false
+    private var freezeObserver: NSObjectProtocol?
+    private var frozenRequestID: String?
+    private var freezeWatchdog: Task<Void, Never>?
+
+    private func freeze(requestID: String) {
+        guard frozenFrame == nil, presentation?.requestID == requestID,
+              !UIAccessibility.isReduceMotionEnabled, !UIAccessibility.isReduceTransparencyEnabled,
+              SwiftSimReloadWindowShape.motionSupported,
+              let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+                .filter({ $0.activationState == .foregroundActive })
+                .flatMap(\.windows).first(where: \.isKeyWindow),
+              let snapshot = window.snapshotView(afterScreenUpdates: false) else { return }
+        frozenRequestID = requestID
+        frozenFrame = snapshot
+        revealingFrozenFrame = false
+        // Never hold a stale screen if the ripple does not arrive.
+        freezeWatchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.releaseFrozenFrame()
+        }
+    }
+
+    func revealFrozenFrame() {
+        if frozenFrame != nil { revealingFrozenFrame = true }
+    }
+
+    func releaseFrozenFrame() {
+        freezeWatchdog?.cancel()
+        frozenFrame = nil; frozenRequestID = nil; revealingFrozenFrame = false
+    }
+    #endif
 
     func receive(_ info: [AnyHashable: Any]) {
         guard reducer.consume(info), let current = reducer.current else { return }
@@ -112,6 +170,18 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
         let now = clock()
         timing.consume(current.phase, at: now)
         presentation = current
+        #if canImport(UIKit) && os(iOS)
+        if current.phase == .failed || (frozenRequestID != nil && frozenRequestID != current.requestID) { releaseFrozenFrame() }
+        #endif
+        if current.phase == .preparing {
+            // A compile that never reaches the phone must not leave a glow.
+            let limit = min(60, max(10, 3 * (current.estimate ?? 3)))
+            dismissal = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(limit))
+                guard !Task.isCancelled else { return }
+                self?.dismissPresentation(requestID: current.requestID, sequence: current.sequence)
+            }
+        }
         if current.phase.rank == 3 {
             // The view normally dismisses on its final displayed frame. This
             // watchdog must also allow cold renderer/capture preparation.
@@ -132,6 +202,9 @@ final class SwiftSimDeliveryFeedbackObserver: ObservableObject {
 
     func dismissPresentation(requestID: String, sequence: Int) {
         guard presentation?.requestID == requestID, presentation?.sequence == sequence else { return }
+        #if canImport(UIKit) && os(iOS)
+        releaseFrozenFrame()
+        #endif
         withAnimation(.easeOut(duration: 0.2)) { presentation = nil }
     }
 }
@@ -150,8 +223,8 @@ struct SwiftSimReloadTiming {
 
     @discardableResult
     mutating func consume(_ next: SwiftSimDeliveryFeedbackState.Phase, at now: TimeInterval) -> Bool {
-        guard next != phase || next == .receiving else { return false }
-        if next == .receiving {
+        guard next != phase || next.rank == 0 else { return false }
+        if next.rank == 0 {
             samples = [nil, nil, nil]
         } else if let phase, phase.rank < 3, next.rank == phase.rank + 1 {
             let duration = now - phaseStartedAt
@@ -500,6 +573,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
     let state: SwiftSimDeliveryFeedbackState
     let estimatedRemaining: Double
     var onFinished: () -> Void = {}
+    var onWaveStart: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var scenePhase
@@ -523,7 +597,7 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                     SwiftSimReloadProceduralFeedback(input: SwiftSimReloadRenderInput(
                         state: state, estimatedRemaining: estimatedRemaining, cornerRadius: cornerRadius,
                         lightAppearance: colorScheme == .light, active: scenePhase == .active),
-                        onUnavailable: { proceduralAvailable = false }, onFinished: onFinished)
+                        onUnavailable: { proceduralAvailable = false }, onFinished: onFinished, onWaveStart: onWaveStart)
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 }
                 .ignoresSafeArea()
@@ -577,6 +651,9 @@ struct SwiftSimDeliveryFeedbackEffect: View {
                 .onChange(of: frame.finished) { finished in
                     if finished { animationFinished = true; onFinished() }
                 }
+                .onChange(of: frame.waveStarted) { started in
+                    if started { onWaveStart() }
+                }
             }
             .ignoresSafeArea()
         }
@@ -602,6 +679,15 @@ struct SwiftSimReloadWindowShape: UIViewRepresentable {
     @Binding var cornerRadius: CGFloat?
 
     static var fallbackRadius: CGFloat { UIDevice.current.userInterfaceIdiom == .phone ? 55 : 18 }
+
+    /// The procedural ripple is what uncovers a frozen frame.
+    static var motionSupported: Bool {
+        #if canImport(MetalKit)
+        SwiftSimReloadMetalView.isAvailable
+        #else
+        false
+        #endif
+    }
 
     @MainActor static func cornerRadius(for window: UIWindow) -> CGFloat {
         guard let screen = window.windowScene?.screen else { return fallbackRadius }
@@ -629,6 +715,68 @@ struct SwiftSimReloadWindowShape: UIViewRepresentable {
             guard let window else { return }
             let radius = SwiftSimReloadWindowShape.cornerRadius(for: window)
             DispatchQueue.main.async { [weak self] in self?.report?(radius) }
+        }
+    }
+}
+
+/// Holds the pre-edit screen above the already-updated app, then uncovers the
+/// new content inside the ripple's front (same origin and speed as the shader).
+struct SwiftSimFrozenFrame: UIViewRepresentable {
+    let snapshot: UIView
+    let revealing: Bool
+    let onRevealed: () -> Void
+
+    func makeUIView(context: Context) -> Host { Host(snapshot: snapshot) }
+    func updateUIView(_ host: Host, context: Context) {
+        if revealing { host.reveal(completion: onRevealed) }
+    }
+
+    final class Host: UIView {
+        /// Hidden while the ripple captures the refreshed screen it refracts.
+        static weak var current: Host?
+        private let snapshot: UIView
+        private var revealing = false
+
+        init(snapshot: UIView) {
+            self.snapshot = snapshot
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            accessibilityElementsHidden = true
+            addSubview(snapshot)
+            Host.current = self
+        }
+        required init?(coder: NSCoder) { nil }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            snapshot.frame = window.map { convert($0.bounds, from: $0) } ?? bounds
+        }
+
+        func reveal(completion: @escaping () -> Void) {
+            guard !revealing else { return }
+            revealing = true
+            let frame = snapshot.frame
+            let origin = CGPoint(x: frame.midX, y: frame.minY + 5)
+            let travel = hypot(frame.width / 2, frame.height - 5)
+            let duration = SwiftSimReloadChoreography.waveDuration - SwiftSimReloadRipple.trailingDuration
+            func path(_ radius: CGFloat) -> CGPath {
+                let path = UIBezierPath(rect: frame.insetBy(dx: -1, dy: -1))
+                path.append(UIBezierPath(arcCenter: origin, radius: max(0.1, radius), startAngle: 0, endAngle: .pi * 2, clockwise: true))
+                return path.cgPath
+            }
+            let mask = CAShapeLayer()
+            mask.fillRule = .evenOdd
+            mask.path = path(travel + 2)
+            layer.mask = mask
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { completion() }
+            let animation = CABasicAnimation(keyPath: "path")
+            animation.fromValue = path(0)
+            animation.toValue = path(travel + 2)
+            animation.duration = duration
+            animation.timingFunction = CAMediaTimingFunction(name: .linear)
+            mask.add(animation, forKey: "reveal")
+            CATransaction.commit()
         }
     }
 }
