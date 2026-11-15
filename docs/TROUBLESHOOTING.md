@@ -4,7 +4,11 @@ For setup problems, run `swift-sim doctor` and address the item marked `needs-at
 
 ## `swift-sim` Is Not Found
 
-Run `brew install miguelosaurus/tap/swift-sim` and `swift-sim setup`. If the command is still missing, open a new terminal.
+Run `brew trust --formula miguelosaurus/tap/swift-sim`, `brew install miguelosaurus/tap/swift-sim` and `swift-sim setup`. If the command is still missing, open a new terminal.
+
+## Update Refuses An Untrusted Tap
+
+Homebrew 7 refuses formulae from taps you have not trusted. Run `brew trust --formula miguelosaurus/tap/swift-sim` once, then `swift-sim update` again. Your installed version keeps working meanwhile.
 
 ## The Coding Agent Does Not Know Swift Sim
 

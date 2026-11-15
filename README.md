@@ -11,6 +11,7 @@ Swift Sim is a public beta. Check [Companion availability](docs/TESTFLIGHT.md#av
 1. Install the Mac tools:
 
    ```sh
+   brew trust --formula miguelosaurus/tap/swift-sim
    brew install miguelosaurus/tap/swift-sim
    swift-sim setup
    swift-sim doctor

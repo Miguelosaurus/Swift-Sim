@@ -13,12 +13,13 @@ Keep the Mac awake and online. A remote session must run its agent on that Mac; 
 ## Install the Mac package
 
 ```sh
+brew trust --formula miguelosaurus/tap/swift-sim
 brew install miguelosaurus/tap/swift-sim
 swift-sim setup
 swift-sim doctor
 ```
 
-Setup starts the helper using Homebrew services, installs or refreshes detected agent integrations, and checks Xcode and signing. You do not need to clone this repository or copy a skill. The build workflow is ready when Xcode, the helper and at least one agent integration are ready.
+Homebrew 7 loads formulae from third-party taps only after you trust them; the first line trusts only this formula. Setup starts the helper using Homebrew services, installs or refreshes detected agent integrations, and checks Xcode and signing. You do not need to clone this repository or copy a skill. The build workflow is ready when Xcode, the helper and at least one agent integration are ready.
 
 ## Install the iPhone companion
 
