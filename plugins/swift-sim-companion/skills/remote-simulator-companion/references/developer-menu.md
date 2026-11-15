@@ -66,11 +66,13 @@ phone setup, only a current Debug build with engine capability
 
 1. `swift-sim app-context --elements` and pick the element ID.
 2. `swift-sim app-tools --tap e7`, or `--tap x,y` in app-window points.
-3. Read the screen again before the next element action.
+3. Use the returned screen for the next element action; if it is unavailable, read the screen again.
 
-Each action clears the saved element IDs, and an ID is accepted only from the
-latest read of the same process and screen revision within 60 seconds; otherwise
+An ID is accepted only from the latest returned screen or read of the same process and screen revision within 60 seconds; otherwise
 `APP_CONTEXT_ELEMENTS_STALE` asks for a fresh read and nothing is tapped.
+`--tap-label "Save"` inspects and taps a unique exact label, falling back to a
+case-insensitive match only if there is no exact match. Ambiguous labels are not
+tapped. `--long-press e7` or `--long-press x,y` holds the target.
 `--scroll down|up|left|right` swipes across the middle of the window (`down`
 reveals content below). `--swipe x1,y1,x2,y2` sends an exact gesture. `--type
 <text>` inserts up to 512 characters into the focused field; tap the field

@@ -323,6 +323,8 @@ test("app-tools parses environment flags and rejects invalid or combined values"
       [["--layout-direction", "rtl", "--refresh-screen"], "APP_CONTEXT_TOOL_INVALID"],
       [["--tap", "e1"], "APP_CONTEXT_UNAVAILABLE"],
       [["--tap-label", "Save"], "APP_CONTEXT_UNAVAILABLE"],
+      [["--long-press", "e1"], "APP_CONTEXT_UNAVAILABLE"],
+      [["--long-press", "e1", "--tap", "e1"], "APP_CONTEXT_TOOL_INVALID"],
       [["--tap-label", "Save", "--tap", "e1"], "APP_CONTEXT_TOOL_INVALID"],
       [["--scroll", "down"], "APP_CONTEXT_UNAVAILABLE"],
       [["--tap", "e1", "--type", "hello"], "APP_CONTEXT_TOOL_INVALID"],

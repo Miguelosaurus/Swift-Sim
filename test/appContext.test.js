@@ -395,6 +395,13 @@ test("input returns a fresh screen using the action revision and falls back on i
     const second = await performAppTool({ ...f.options, tap: "e1", control });
     assert.equal(second.outcome, "tool-completed");
     assert.equal(requests[4].value, "70,62");
+    const typedControl = async request => request.action === "developer_context"
+      ? response({ identity: { ...identity, root_revision: revision }, capabilities: [...capabilities, "developer-input-v1", "developer-inspection-v1"] })
+      : response({ identity: { ...identity, root_revision: revision }, operation_id: request.operation_id, result: { success: true,
+        ...(request.tool === "inspect" ? { inspection: inspection({ revision, elements: [{ ...inspection().elements[0], label: "private" }] }) } : {}) } });
+    const typed = await performAppTool({ ...f.options, type: "private", control: typedControl });
+    assert.equal(JSON.stringify(typed).includes("private"), false);
+    assert.equal(typed.screen.elements[0].id, "e1");
     failInspect = true;
     const fallback = await performAppTool({ ...f.options, type: "private", control });
     assert.equal(fallback.outcome, "tool-completed");
@@ -430,5 +437,24 @@ test("tap-label selects exact then case-insensitive matches and refuses ambiguit
     assert.equal((await run("")).code, "APP_CONTEXT_TOOL_INVALID");
     assert.equal((await run("x".repeat(201))).code, "APP_CONTEXT_TOOL_INVALID");
     assert.equal((await performAppTool({ ...f.options, tapLabel: "Save", control: async () => response({ capabilities: [...capabilities, "developer-input-v1"] }) })).code, "APP_CONTEXT_UPDATE_REQUIRED");
+  } finally { f.cleanup(); }
+});
+
+test("long press resolves points and fresh IDs like tap", async () => {
+  const f = fixture();
+  try {
+    await readAppContext({ ...f.options, elements: true, control: inspectionControl(inspection()) });
+    const sent = [];
+    const control = async request => {
+      if (request.action === "developer_context") return response({ capabilities: [...capabilities, "developer-input-v1"] });
+      sent.push(request); return response({ operation_id: request.operation_id, result: { success: true } });
+    };
+    assert.equal((await performAppTool({ ...f.options, longPress: "e1", control })).outcome, "tool-completed");
+    assert.deepEqual([sent[0].tool, sent[0].value], ["longpress", "70,62"]);
+    assert.equal((await performAppTool({ ...f.options, longPress: "e1", control })).code, "APP_CONTEXT_ELEMENTS_STALE");
+    assert.equal((await performAppTool({ ...f.options, longPress: "10,20", control })).outcome, "tool-completed");
+    assert.equal(sent[1].value, "10,20");
+    assert.equal((await performAppTool({ ...f.options, longPress: "bad", control })).code, "APP_CONTEXT_TOOL_INVALID");
+    assert.equal((await performAppTool({ ...f.options, longPress: "e1", tap: "e1", control })).code, "APP_CONTEXT_TOOL_INVALID");
   } finally { f.cleanup(); }
 });

@@ -131,13 +131,13 @@ async function main() {
     const { values } = parseArgs({ args, options: {
       project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" },
       appearance: { type: "string" }, "text-size": { type: "string" }, "layout-direction": { type: "string" }, "refresh-screen": { type: "boolean" },
-      tap: { type: "string" }, "tap-label": { type: "string" }, swipe: { type: "string" }, scroll: { type: "string" }, type: { type: "string" },
+      tap: { type: "string" }, "tap-label": { type: "string" }, "long-press": { type: "string" }, swipe: { type: "string" }, scroll: { type: "string" }, type: { type: "string" },
     } });
     const { performAppTool } = await import("../src/appContext.js");
     const result = await performAppTool({ project: values.project, workspace: values.workspace,
       scheme: values.scheme, appearance: values.appearance, textSize: values["text-size"],
       layoutDirection: values["layout-direction"], refresh: values["refresh-screen"],
-      tap: values.tap, tapLabel: values["tap-label"], swipe: values.swipe, scroll: values.scroll, type: values.type });
+      tap: values.tap, tapLabel: values["tap-label"], longPress: values["long-press"], swipe: values.swipe, scroll: values.scroll, type: values.type });
     console.log(JSON.stringify(result, null, 2));
     if (result.outcome !== "tool-completed") process.exitCode = 1;
     return;
@@ -990,7 +990,7 @@ Usage:
   swift-sim app-context ...       Read Debug context; --elements, --screenshot or --report latest on demand
   swift-sim app-control ...       Optional, on-demand testing through a separately installed phone runner
   swift-sim request-install ...   Ask a matching Debug app to show iOS installation confirmation; --build-id, --status, --cancel
-  swift-sim app-tools ...         Set a Debug app override, --refresh-screen, or --tap/--tap-label/--swipe/--scroll/--type
+  swift-sim app-tools ...         Set a Debug app override, --refresh-screen, or --tap/--tap-label/--long-press/--swipe/--scroll/--type
   swift-sim live-start ...        Launch the debug-only live patch engine
   swift-sim classify-change ...   Decide whether a Swift edit can hot reload
   swift-sim deliver-change ...    Deliver edits: --after <file> (repeatable), optional --before <snapshot>; --install auto|link

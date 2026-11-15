@@ -44,13 +44,15 @@ The agent can also operate the app directly, for example to reach a screen or re
 ```sh
 swift-sim app-context --elements      # find the control, e.g. e7
 swift-sim app-tools --tap e7
+swift-sim app-tools --tap-label "Save" # unique label
+swift-sim app-tools --long-press e7
 swift-sim app-tools --tap 120,340     # app-window points
 swift-sim app-tools --scroll down     # also up, left, right
 swift-sim app-tools --swipe 200,600,200,200
 swift-sim app-tools --type "hello"    # into the focused field
 ```
 
-An element ID works only from the latest element read of the same app session, within 60 seconds, and each action clears it, so the agent reads the screen again before the next one. Typed text is limited to 512 characters and is not repeated in the result. The touches are synthesized inside your Debug app: they cannot reach system alerts, other apps or the Home Screen, and the app must be in the foreground. This needs a Debug build with engine 0.5.10 or later. For repeatable UI tests across launches, see [app control](APP_CONTROL.md).
+An element ID works only from the latest element read of the same app session, within 60 seconds, and a successful action returns a fresh screen when inspection is available. If it does not, read the screen again before the next element action. `--tap-label` inspects and taps a unique exact label, or a unique case-insensitive match if there is no exact match. Typed text is limited to 512 characters and is not repeated in the result. The touches are synthesized inside your Debug app: they cannot reach system alerts, other apps or the Home Screen, and the app must be in the foreground. This needs a Debug build with engine 0.5.10 or later. For repeatable UI tests across launches, see [app control](APP_CONTROL.md).
 
 Pass `--project <App.xcodeproj>` or `--workspace <App.xcworkspace>` and optionally `--scheme <scheme>` from another directory. The current Debug build must match. These commands do not build, launch or update the app. During hot reload, capture waits for delivery. Ordinary edits do not automatically collect screenshots or reports.
 
