@@ -369,3 +369,38 @@ test("agent input refuses malformed values, old engines and another process's el
     assert.equal(sent.length, 1);
   } finally { f.cleanup(); }
 });
+
+test("input returns a fresh screen using the action revision and falls back on inspection failure", async () => {
+  const f = fixture();
+  try {
+    let revision = 2, failInspect = false;
+    const requests = [];
+    const control = async request => {
+      requests.push(request);
+      if (request.action === "developer_context") return response({ identity: { ...identity, root_revision: revision },
+        capabilities: [...capabilities, "developer-input-v1", "developer-inspection-v1"] });
+      if (request.tool === "inspect") {
+        if (failInspect) throw new Error("offline");
+        return response({ identity: { ...identity, root_revision: revision }, operation_id: request.operation_id,
+          result: { success: true, inspection: inspection({ revision }) } });
+      }
+      revision = 3;
+      return response({ identity: { ...identity, root_revision: revision }, operation_id: request.operation_id, result: { success: true } });
+    };
+    const first = await performAppTool({ ...f.options, tap: "10,20", control });
+    assert.equal(first.screen.revision, 3);
+    assert.equal(requests[2].tool, "inspect");
+    assert.equal(requests[2].process_nonce, identity.process_nonce);
+    assert.equal(requests[2].connection_nonce, identity.connection_nonce);
+    const second = await performAppTool({ ...f.options, tap: "e1", control });
+    assert.equal(second.outcome, "tool-completed");
+    assert.equal(requests[4].value, "70,62");
+    failInspect = true;
+    const fallback = await performAppTool({ ...f.options, type: "private", control });
+    assert.equal(fallback.outcome, "tool-completed");
+    assert.equal(fallback.screen, undefined);
+    assert.match(fallback.next, /Read the screen again/);
+    assert.equal(JSON.stringify(fallback).includes("private"), false);
+    assert.equal((await performAppTool({ ...f.options, tap: "e1", control })).code, "APP_CONTEXT_ELEMENTS_STALE");
+  } finally { f.cleanup(); }
+});

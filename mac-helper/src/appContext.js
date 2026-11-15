@@ -64,11 +64,15 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
     if (data.result?.success === false && String(data.result.error || "").includes("DEVELOPER_INPUT")) throw failure("APP_CONTEXT_INPUT_REJECTED");
     if (data.result?.success !== true) throw failure("APP_CONTEXT_TOOL_UNCONFIRMED");
     if (input) {
-      // The screen has probably changed; element IDs must be read again.
       forgetElementIDs(elementsPath);
+      let screen;
+      if (current.capabilities.includes("developer-inspection-v1")) {
+        try { screen = await inspectScreen({ request, selector, expected, identity: data.identity, now, elementsPath }); } catch { /* Action already succeeded. */ }
+      }
       return { schemaVersion: 1, outcome: "tool-completed", app: { bundleId: expected.bundle_id, build: expected.build_number },
         tool: input[0], ...(input[0] === "type" ? {} : { target: input[1] }), nativeCodeUpdate: false,
-        next: "Read the screen again with app-context --elements before the next element action." };
+        ...(screen ? { screen, next: "Use the returned screen for the next element action." }
+          : { next: "Read the screen again with app-context --elements before the next element action." }) };
     }
     return { schemaVersion: 1, outcome: "tool-completed", app: { bundleId: expected.bundle_id, build: expected.build_number },
       tool, ...(refresh ? { state: "refresh-requested" } : tool === "appearance" ? { appearance: value } : { value }),
@@ -143,19 +147,7 @@ export async function readAppContext({ project, workspace, scheme, screenshot = 
     if (elements) {
       if (!data.capabilities.includes("developer-inspection-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
       if (!identity.is_active || !identity.root_ready) throw failure("APP_CONTEXT_FOREGROUND_REQUIRED");
-      const operation = randomUUID();
-      const inspected = validateResponse(await request({ action: "developer_tool", ...selector,
-        process_nonce: identity.process_nonce, connection_nonce: identity.connection_nonce,
-        operation_id: operation, tool: "inspect",
-      }, { timeoutMs: 10_000 }), expected);
-      if (inspected.operation_id !== operation || inspected.identity.process_nonce !== identity.process_nonce
-        || inspected.identity.connection_nonce !== identity.connection_nonce
-        || inspected.identity.root_revision !== identity.root_revision
-        || inspected.result?.success !== true) throw failure("APP_CONTEXT_INSPECTION_UNAVAILABLE");
-      result.screen = validateInspection(inspected.result.inspection, identity.root_revision, now());
-      saveElements(elementsPath, { version: 1, processNonce: identity.process_nonce, revision: identity.root_revision,
-        savedAt: now(), width: result.screen.width, height: result.screen.height,
-        elements: result.screen.elements.map(({ id, frame }) => ({ id, frame })) });
+      result.screen = await inspectScreen({ request, selector, expected, identity, now, elementsPath });
       // A screenshot and element list are separate timestamped observations,
       // not an atomic capture of business/UI state.
     }
@@ -164,6 +156,23 @@ export async function readAppContext({ project, workspace, scheme, screenshot = 
     const code = error?.code && Object.hasOwn(GUIDANCE, error.code) ? error.code : "APP_CONTEXT_UNAVAILABLE";
     return { schemaVersion: 1, outcome: "needs-user-action", code, guidance: GUIDANCE[code] };
   }
+}
+
+async function inspectScreen({ request, selector, expected, identity, now, elementsPath }) {
+  const operation = randomUUID();
+  const inspected = validateResponse(await request({ action: "developer_tool", ...selector,
+    process_nonce: identity.process_nonce, connection_nonce: identity.connection_nonce,
+    operation_id: operation, tool: "inspect",
+  }, { timeoutMs: 10_000 }), expected);
+  if (inspected.operation_id !== operation || inspected.identity.process_nonce !== identity.process_nonce
+    || inspected.identity.connection_nonce !== identity.connection_nonce
+    || inspected.identity.root_revision !== identity.root_revision
+    || inspected.result?.success !== true) throw failure("APP_CONTEXT_INSPECTION_UNAVAILABLE");
+  const screen = validateInspection(inspected.result.inspection, identity.root_revision, now());
+  saveElements(elementsPath, { version: 1, processNonce: identity.process_nonce, revision: identity.root_revision,
+    savedAt: now(), width: screen.width, height: screen.height,
+    elements: screen.elements.map(({ id, frame }) => ({ id, frame })) });
+  return screen;
 }
 
 function validateInspection(value, revision, now) {
@@ -399,7 +408,7 @@ function forgetElementIDs(path) {
 
 const GUIDANCE = {
   APP_CONTEXT_TOOL_INVALID: "Choose exactly one valid tool: --appearance, --text-size, --layout-direction, --refresh-screen, --tap, --swipe, --scroll, or --type.",
-  APP_CONTEXT_ELEMENTS_STALE: "Element IDs come from the latest screen read and are cleared by each action. Run app-context --elements again, then use an ID from it.",
+  APP_CONTEXT_ELEMENTS_STALE: "Element IDs come from the latest screen read or returned screen. Run app-context --elements again, then use an ID from it.",
   APP_CONTEXT_INPUT_REJECTED: "The app rejected the input: the point is outside its window, or no text field is focused for --type. Nothing was tapped or typed.",
   APP_CONTEXT_TOOL_UNCONFIRMED: "The app did not confirm this developer tool operation. Its effect is unconfirmed; do not blindly repeat it.",
   APP_CONTEXT_FOREGROUND_REQUIRED: "The matching Debug app must be in the foreground for this tool. No action was performed.",
