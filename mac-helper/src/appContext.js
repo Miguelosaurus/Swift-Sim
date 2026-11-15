@@ -80,9 +80,6 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
       if (current.capabilities.includes("developer-inspection-v1")) {
         try { screen = await inspectScreen({ request, selector, expected, identity: data.identity, now, elementsPath }); } catch { /* Action already succeeded. */ }
       }
-      if (screen && input[0] === "type") for (const element of screen.elements) {
-        for (const key of ["label", "identifier", "value"]) if (element[key]?.includes(input[1])) delete element[key];
-      }
       return { schemaVersion: 1, outcome: "tool-completed", app: { bundleId: expected.bundle_id, build: expected.build_number },
         tool: input[0], ...(matchedElement ? { target: matchedElement.id, label: matchedElement.label }
           : input[0] === "type" ? {} : { target: input[1] }), nativeCodeUpdate: false,
@@ -190,6 +187,7 @@ async function inspectScreen({ request, selector, expected, identity, now, eleme
     elements: screen.elements.map(({ id, frame }) => ({ id, frame })) });
   return screen;
 }
+
 function validateInspection(value, revision, now) {
   if (!value || value.schemaVersion !== 1 || Buffer.byteLength(JSON.stringify(value)) > 32 * 1024
     || value.revision !== revision || !Number.isFinite(value.capturedAt)
@@ -226,6 +224,7 @@ function validateInspection(value, revision, now) {
     ...(value.selectedElement != null ? { selectedElement: value.selectedElement } : {}),
     coverage: "Public accessibility and UIKit candidates; custom drawing and some SwiftUI elements may be absent. Geometry does not prove hittability. IDs are snapshot-local; no source-file mapping." };
 }
+
 function validateResponse(response, expected) {
   if (!response) throw failure("APP_CONTEXT_UNAVAILABLE");
   if (response.success !== true) {
@@ -239,6 +238,7 @@ function validateResponse(response, expected) {
   if (response.data?.schema_version !== 1 || !liveBinaryMatches(expected, response.data.identity)) throw failure("APP_CONTEXT_WRONG_APP");
   return response.data;
 }
+
 function readCapture(path) {
   assertPrivateParents(dirname(path));
   let stat;
@@ -251,10 +251,12 @@ function readCapture(path) {
   if (!capture?.binding?.projectPath || !capture.binding.projectRoot || !capture.binding.scheme) throw failure("APP_CONTEXT_NOT_BOUND");
   return capture;
 }
+
 function privateFile(stat) {
   return stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && (stat.mode & 0o077) === 0
     && (!process.getuid || stat.uid === process.getuid());
 }
+
 function assertPrivateParents(path) {
   // Reject redirection through any ancestor without requiring system ancestors to
   // be private. The capture/cache's direct parent must be owner-only.
@@ -269,10 +271,12 @@ function assertPrivateParents(path) {
     current = parent;
   }
 }
+
 function contained(root, path) {
   const child = relative(root, path);
   return child === "" || (!isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
 }
+
 function cwdMatchesProject(binding, cwd) {
   if (contained(resolve(binding.projectRoot), resolve(cwd))) return true;
   // A native project is often nested under apps/mobile. Infer its already
@@ -282,6 +286,7 @@ function cwdMatchesProject(binding, cwd) {
   return workspace !== null && workspace === gitWorkspace(binding.projectRoot)
     && contained(workspace, canonicalProjectPath(binding.projectPath));
 }
+
 function gitWorkspace(path) {
   let current = resolve(path);
   for (;;) {
@@ -294,6 +299,7 @@ function gitWorkspace(path) {
     current = parent;
   }
 }
+
 function projectMetadata(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > 16 * 1024) throw failure("APP_CONTEXT_INVALID");
   const output = {};
@@ -361,11 +367,12 @@ export function validateContextJPEG(value) {
   }
   throw failure("APP_CONTEXT_IMAGE_INVALID");
 }
+
 function failure(code) { return Object.assign(new Error(GUIDANCE[code] || "App context unavailable."), { code }); }
-/** Engine value for one input action, in app-window points. */
 function elementCenter([x, y, width, height]) {
   return `${Math.round((x + width / 2) * 2) / 2},${Math.round((y + height / 2) * 2) / 2}`;
 }
+/** Engine value for one input action, in app-window points. */
 function inputValue([kind, raw], snapshot, identity, nowMs) {
   const sameProcess = snapshot && snapshot.processNonce === identity.process_nonce;
   const point = (x, y) => `${Math.round(x * 2) / 2},${Math.round(y * 2) / 2}`;
@@ -397,6 +404,7 @@ function inputValue([kind, raw], snapshot, identity, nowMs) {
   if (parts.length !== 2 || !parts.every(part => POINT.test(part))) throw failure("APP_CONTEXT_TOOL_INVALID");
   return parts.join(",");
 }
+
 function readElements(path) {
   try {
     const stat = lstatSync(path);
@@ -405,10 +413,12 @@ function readElements(path) {
     return value?.version === 1 && Array.isArray(value.elements) ? value : null;
   } catch { return null; }
 }
+
 function saveElements(path, value) {
   try { new NodeAtomicFileStore().writeJSONSync(path, value, { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: false }); }
   catch { /* Element actions then ask for a fresh read; the observation itself still succeeded. */ }
 }
+
 function forgetElementIDs(path) {
   const value = readElements(path);
   if (value) saveElements(path, { ...value, elements: [] });

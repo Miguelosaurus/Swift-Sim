@@ -399,8 +399,9 @@ test("input returns a fresh screen using the action revision and falls back on i
       ? response({ identity: { ...identity, root_revision: revision }, capabilities: [...capabilities, "developer-input-v1", "developer-inspection-v1"] })
       : response({ identity: { ...identity, root_revision: revision }, operation_id: request.operation_id, result: { success: true,
         ...(request.tool === "inspect" ? { inspection: inspection({ revision, elements: [{ ...inspection().elements[0], label: "private" }] }) } : {}) } });
+    // The command never repeats the typed text; the app's own labels are ordinary screen data.
     const typed = await performAppTool({ ...f.options, type: "private", control: typedControl });
-    assert.equal(JSON.stringify(typed).includes("private"), false);
+    assert.equal(typed.tool, "type"); assert.equal(typed.target, undefined);
     assert.equal(typed.screen.elements[0].id, "e1");
     failInspect = true;
     const fallback = await performAppTool({ ...f.options, type: "private", control });
