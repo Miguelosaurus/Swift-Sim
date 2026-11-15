@@ -404,3 +404,31 @@ test("input returns a fresh screen using the action revision and falls back on i
     assert.equal((await performAppTool({ ...f.options, tap: "e1", control })).code, "APP_CONTEXT_ELEMENTS_STALE");
   } finally { f.cleanup(); }
 });
+
+test("tap-label selects exact then case-insensitive matches and refuses ambiguity", async () => {
+  const f = fixture();
+  try {
+    let elements = inspection().elements, sent = [];
+    const control = async request => {
+      sent.push(request);
+      if (request.action === "developer_context") return response({ capabilities: [...capabilities, "developer-input-v1", "developer-inspection-v1"] });
+      return response({ operation_id: request.operation_id, result: { success: true,
+        ...(request.tool === "inspect" ? { inspection: inspection({ elements }) } : {}) } });
+    };
+    const run = tapLabel => performAppTool({ ...f.options, tapLabel, control });
+    const other = { ...elements[0], id: "e2", label: "save", frame: [100, 100, 20, 20] };
+    elements = [...elements, other];
+    let result = await run("Save");
+    assert.equal(result.target, "e1"); assert.equal(result.label, "Save"); assert.equal(result.screen.revision, 2);
+    assert.equal(sent.find(r => r.tool === "tap").value, "70,62");
+    sent = []; result = await run("SAVE");
+    assert.equal(result.code, "APP_CONTEXT_ELEMENT_AMBIGUOUS"); assert.deepEqual(result.matchingIds, ["e1", "e2"]);
+    assert.equal(sent.some(r => r.tool === "tap"), false);
+    sent = []; result = await run("missing");
+    assert.equal(result.code, "APP_CONTEXT_ELEMENT_NOT_FOUND"); assert.equal(sent.some(r => r.tool === "tap"), false);
+    elements = [other]; result = await run("SAVE"); assert.equal(result.target, "e2");
+    assert.equal((await run("")).code, "APP_CONTEXT_TOOL_INVALID");
+    assert.equal((await run("x".repeat(201))).code, "APP_CONTEXT_TOOL_INVALID");
+    assert.equal((await performAppTool({ ...f.options, tapLabel: "Save", control: async () => response({ capabilities: [...capabilities, "developer-input-v1"] }) })).code, "APP_CONTEXT_UPDATE_REQUIRED");
+  } finally { f.cleanup(); }
+});

@@ -14,7 +14,7 @@ const MAX_AGE = 24 * 60 * 60 * 1000;
 const ELEMENT_REF_AGE = 60 * 1000;
 const POINT = /^\d{1,5}(\.\d+)?$/;
 
-export async function performAppTool({ appearance, textSize, layoutDirection, refresh = false, tap, swipe, scroll, type,
+export async function performAppTool({ appearance, textSize, layoutDirection, refresh = false, tap, tapLabel, swipe, scroll, type,
   project, workspace, scheme, cwd = process.cwd(), capturePath = join(homedir(), ".swift-sim/live/compilations.json"), control,
   artifactRoot = join(homedir(), ".swift-sim"), elementsPath = join(artifactRoot, "app-context-elements.json"), now = () => Date.now(),
 } = {}) {
@@ -24,10 +24,10 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
       ["text-size", textSize, ["app-default", "xs", "s", "m", "l", "xl", "xxl", "xxxl", "ax1", "ax2", "ax3", "ax4", "ax5"]],
       ["layout-direction", layoutDirection, ["app-default", "ltr", "rtl"]],
     ].filter(([, value]) => value !== undefined);
-    const inputs = [["tap", tap], ["swipe", swipe], ["scroll", scroll], ["type", type]].filter(([, value]) => value !== undefined);
+    const inputs = [["tap", tap], ["tap-label", tapLabel], ["swipe", swipe], ["scroll", scroll], ["type", type]].filter(([, value]) => value !== undefined);
     if (choices.length + inputs.length + Number(refresh) !== 1 || choices.some(([, value, allowed]) => !allowed.includes(value))) throw failure("APP_CONTEXT_TOOL_INVALID");
     const input = inputs[0];
-    let [tool, value] = refresh ? ["refresh", undefined] : input ? [input[0] === "scroll" ? "swipe" : input[0], undefined] : choices[0];
+    let [tool, value] = refresh ? ["refresh", undefined] : input ? [input[0] === "scroll" ? "swipe" : input[0] === "tap-label" ? "tap" : input[0], undefined] : choices[0];
     if (project && workspace) throw failure("APP_CONTEXT_SCOPE_REQUIRED");
     const capture = readCapture(capturePath), binding = capture.binding;
     const selected = workspace || project;
@@ -43,9 +43,20 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
     if ((tool === "text-size" || tool === "layout-direction") && !current.capabilities?.includes("developer-environment-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
     if (!current.identity.is_active || !current.identity.root_ready) throw failure("APP_CONTEXT_FOREGROUND_REQUIRED");
     if (!UUID.test(current.identity.process_nonce) || !UUID.test(current.identity.connection_nonce)) throw failure("APP_CONTEXT_INVALID");
+    let matchedElement;
     if (input) {
       if (!current.capabilities?.includes("developer-input-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
-      value = inputValue(input, readElements(elementsPath), current.identity, now());
+      if (input[0] === "tap-label") {
+        if (typeof tapLabel !== "string" || !tapLabel.length || [...tapLabel].length > 200) throw failure("APP_CONTEXT_TOOL_INVALID");
+        if (!current.capabilities.includes("developer-inspection-v1")) throw failure("APP_CONTEXT_UPDATE_REQUIRED");
+        const screen = await inspectScreen({ request, selector, expected, identity: current.identity, now, elementsPath });
+        let matches = screen.elements.filter(element => element.label === tapLabel);
+        if (!matches.length) matches = screen.elements.filter(element => element.label?.toLowerCase() === tapLabel.toLowerCase());
+        if (!matches.length) throw failure("APP_CONTEXT_ELEMENT_NOT_FOUND");
+        if (matches.length > 1) { const error = failure("APP_CONTEXT_ELEMENT_AMBIGUOUS"); error.matchingIds = matches.map(item => item.id); throw error; }
+        matchedElement = matches[0];
+      }
+      value = matchedElement ? elementCenter(matchedElement.frame) : inputValue(input, readElements(elementsPath), current.identity, now());
     }
     const operation = randomUUID();
     let actionResponse;
@@ -70,7 +81,8 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
         try { screen = await inspectScreen({ request, selector, expected, identity: data.identity, now, elementsPath }); } catch { /* Action already succeeded. */ }
       }
       return { schemaVersion: 1, outcome: "tool-completed", app: { bundleId: expected.bundle_id, build: expected.build_number },
-        tool: input[0], ...(input[0] === "type" ? {} : { target: input[1] }), nativeCodeUpdate: false,
+        tool: input[0], ...(matchedElement ? { target: matchedElement.id, label: matchedElement.label }
+          : input[0] === "type" ? {} : { target: input[1] }), nativeCodeUpdate: false,
         ...(screen ? { screen, next: "Use the returned screen for the next element action." }
           : { next: "Read the screen again with app-context --elements before the next element action." }) };
     }
@@ -79,7 +91,8 @@ export async function performAppTool({ appearance, textSize, layoutDirection, re
       nativeCodeUpdate: false };
   } catch (error) {
     const code = error?.code && Object.hasOwn(GUIDANCE, error.code) ? error.code : "APP_CONTEXT_UNAVAILABLE";
-    return { schemaVersion: 1, outcome: "needs-user-action", code, guidance: GUIDANCE[code] };
+    return { schemaVersion: 1, outcome: "needs-user-action", code, guidance: GUIDANCE[code],
+      ...(error.matchingIds ? { matchingIds: error.matchingIds } : {}) };
   }
 }
 
@@ -354,6 +367,10 @@ export function validateContextJPEG(value) {
 
 function failure(code) { return Object.assign(new Error(GUIDANCE[code] || "App context unavailable."), { code }); }
 /** Engine value for one input action, in app-window points. */
+function elementCenter([x, y, width, height]) {
+  return `${Math.round((x + width / 2) * 2) / 2},${Math.round((y + height / 2) * 2) / 2}`;
+}
+
 function inputValue([kind, raw], snapshot, identity, nowMs) {
   const sameProcess = snapshot && snapshot.processNonce === identity.process_nonce;
   const point = (x, y) => `${Math.round(x * 2) / 2},${Math.round(y * 2) / 2}`;
@@ -379,8 +396,7 @@ function inputValue([kind, raw], snapshot, identity, nowMs) {
     const element = sameProcess && snapshot.revision === identity.root_revision && nowMs - snapshot.savedAt <= ELEMENT_REF_AGE
       ? snapshot.elements.find(item => item.id === raw) : null;
     if (!element) throw failure("APP_CONTEXT_ELEMENTS_STALE");
-    const [x, y, width, height] = element.frame;
-    return point(x + width / 2, y + height / 2);
+    return elementCenter(element.frame);
   }
   const parts = String(raw).split(",");
   if (parts.length !== 2 || !parts.every(part => POINT.test(part))) throw failure("APP_CONTEXT_TOOL_INVALID");
@@ -407,7 +423,9 @@ function forgetElementIDs(path) {
 }
 
 const GUIDANCE = {
-  APP_CONTEXT_TOOL_INVALID: "Choose exactly one valid tool: --appearance, --text-size, --layout-direction, --refresh-screen, --tap, --swipe, --scroll, or --type.",
+  APP_CONTEXT_TOOL_INVALID: "Choose exactly one valid tool: --appearance, --text-size, --layout-direction, --refresh-screen, --tap, --tap-label, --swipe, --scroll, or --type.",
+  APP_CONTEXT_ELEMENT_NOT_FOUND: "No element has that label. Inspect the screen and choose a target.",
+  APP_CONTEXT_ELEMENT_AMBIGUOUS: "More than one element has that label. Choose one of the matching IDs.",
   APP_CONTEXT_ELEMENTS_STALE: "Element IDs come from the latest screen read or returned screen. Run app-context --elements again, then use an ID from it.",
   APP_CONTEXT_INPUT_REJECTED: "The app rejected the input: the point is outside its window, or no text field is focused for --type. Nothing was tapped or typed.",
   APP_CONTEXT_TOOL_UNCONFIRMED: "The app did not confirm this developer tool operation. Its effect is unconfirmed; do not blindly repeat it.",
