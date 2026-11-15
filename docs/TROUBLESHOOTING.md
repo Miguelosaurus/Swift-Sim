@@ -9,6 +9,7 @@ Run `brew trust --formula miguelosaurus/tap/swift-sim`, `brew install miguelosau
 ## Update Refuses An Untrusted Tap
 
 Homebrew 7 refuses formulae from taps you have not trusted. Run `brew trust --formula miguelosaurus/tap/swift-sim` once, then `swift-sim update` again. Your installed version keeps working meanwhile.
+`swift-sim update` prints this command when it happens.
 
 ## The Coding Agent Does Not Know Swift Sim
 

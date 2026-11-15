@@ -127,7 +127,67 @@ test("activity reconciliation failure is bounded and later turns remain schedule
   harness.intervals.find(({ intervalMs }) => intervalMs === 5_000).callback();
   await tick();
   assert.equal(calls, 2);
-  assert.deepEqual(harness.errors, Array(2).fill("Activity reconciliation failed; saved updates are preserved."));
+  assert.deepEqual(harness.errors, ["Activity reconciliation failed (unexpected error); saved updates are preserved."]);
+});
+
+test("repeated reconciliation failures log a safe cause, sparse reminders and the recovery", async () => {
+  let failing = true;
+  const busy = Object.assign(new Error("locked at /Users/someone/.swift-sim/state.sqlite"), {
+    code: "ERR_SQLITE_ERROR",
+    errstr: "database is locked",
+  });
+  const harness = createHarness({
+    reconcileActivity: async () => {
+      if (failing) throw busy;
+    },
+  });
+  const lifecycle = harness.lifecycle();
+  await lifecycle.prepare();
+  await lifecycle.start(() => {});
+  const timer = harness.intervals.find(({ intervalMs }) => intervalMs === 5_000);
+  for (let turn = 1; turn < 100; turn += 1) {
+    timer.callback();
+    await tick();
+  }
+  failing = false;
+  timer.callback();
+  await tick();
+  timer.callback();
+  await tick();
+  assert.deepEqual(harness.errors, [
+    "Activity reconciliation failed (SQLite: database is locked); saved updates are preserved.",
+    "Activity reconciliation failed (SQLite: database is locked, 10 failed attempts so far); saved updates are preserved.",
+    "Activity reconciliation failed (SQLite: database is locked, 100 failed attempts so far); saved updates are preserved.",
+    "Activity reconciliation recovered after 100 failed attempts.",
+  ]);
+  assert.ok(harness.errors.every((line) => !line.includes("/Users/")));
+});
+
+test("live delivery failures report a changed cause and stay quiet during shutdown", async () => {
+  const causes = [
+    Object.assign(new Error("x"), { code: "EBUSY" }),
+    Object.assign(new Error("x"), { code: "EBUSY" }),
+    new TypeError("private detail"),
+  ];
+  const harness = createHarness({
+    reconcileLiveDeliveries: async () => { throw causes.shift() || new Error("late"); },
+  });
+  const lifecycle = harness.lifecycle();
+  await lifecycle.prepare();
+  await lifecycle.start(() => {});
+  const timer = harness.intervals.find(({ intervalMs }) => intervalMs === 1_000);
+  await tick();
+  for (let turn = 0; turn < 2; turn += 1) {
+    timer.callback();
+    await tick();
+  }
+  lifecycle.shutdown();
+  timer.callback();
+  await tick();
+  assert.deepEqual(harness.errors, [
+    "Live delivery reconciliation failed (EBUSY); queued intent is preserved.",
+    "Live delivery reconciliation failed (TypeError, 3 failed attempts so far); queued intent is preserved.",
+  ]);
 });
 
 test("reconciliation failures are reported without rejecting service startup", async () => {

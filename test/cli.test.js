@@ -63,6 +63,50 @@ test("Homebrew packages every agent marketplace", () => {
   assert.match(formula, /"\.agents", "\.claude-plugin", "\.cursor-plugin"/);
 });
 
+test("update explains Homebrew failures and refreshes integrations after success", () => {
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-update-"));
+  try {
+    writeFileSync(join(directory, "brew"), `#!/bin/sh
+if [ "$1" = list ]; then exit "$LIST_STATUS"; fi
+if [ "$1" = upgrade ]; then
+  printf '%s' "$UPGRADE_OUTPUT" >&2
+  exit "$UPGRADE_STATUS"
+fi
+exit 1
+`, { mode: 0o755 });
+    writeFileSync(join(directory, "swift-sim"), '#!/bin/sh\nprintf \'{"actions":[{"state":"configured","label":"Agent","detail":"refreshed"}]}\'\n', { mode: 0o755 });
+    const run = (listStatus, upgradeStatus, output = "") => spawnSync(process.execPath, [cli.pathname, "update"], {
+      encoding: "utf8", timeout: 20_000,
+      env: { ...isolatedCliEnvironment(directory), PATH: `${directory}:/usr/bin:/bin`, LIST_STATUS: String(listStatus),
+        UPGRADE_STATUS: String(upgradeStatus), UPGRADE_OUTPUT: output },
+    });
+
+    const untrusted = run(0, 1, "Error: Refusing to load formula miguelosaurus/tap/swift-sim from untrusted tap miguelosaurus/tap.");
+    assert.equal(untrusted.status, 1);
+    assert.match(untrusted.stderr, /Run brew trust --formula miguelosaurus\/tap\/swift-sim once, then run swift-sim update again\. Your existing version is still installed\./);
+
+    const missing = run(1, 0);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /wasn't installed with Homebrew.*brew install miguelosaurus\/tap\/swift-sim.*trust the formula first.*same way you installed it/);
+
+    for (const output of ["Error: miguelosaurus/tap/swift-sim not installed", "Error: swift-sim not installed", "Error: No such keg"]) {
+      const result = run(0, 1, output);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /wasn't installed with Homebrew/);
+    }
+    const other = run(0, 1, "Error: another Homebrew failure");
+    assert.equal(other.status, 1);
+    assert.match(other.stderr, /Error: another Homebrew failure/);
+
+    const success = run(0, 0);
+    assert.equal(success.status, 0, success.stderr);
+    assert.match(success.stdout, /\[configured\] Agent: refreshed/);
+    assert.match(success.stdout, /Swift Sim and detected agent integrations are up to date/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("release versions and public plugin metadata stay synchronized", () => {
   const project = readFileSync(new URL("../Companion/SwiftSimCompanion.xcodeproj/project.pbxproj", import.meta.url), "utf8");
   const codex = readJSON("../plugins/swift-sim-companion/.codex-plugin/plugin.json");

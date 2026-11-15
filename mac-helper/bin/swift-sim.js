@@ -453,8 +453,16 @@ async function update() {
   if (!brew) {
     throw new Error("Homebrew is required to update Swift Sim. Install Homebrew, then try again.");
   }
+  const notInstalled = "This copy of Swift Sim wasn't installed with Homebrew, so swift-sim update can't update it. Reinstall with brew install miguelosaurus/tap/swift-sim (trust the formula first if Homebrew asks), or update it the same way you installed it.";
+  const installed = runCapture(brew, ["list", "--formula", "swift-sim"], { allowFailure: true });
+  if (installed.status !== 0) throw new Error(notInstalled);
   const upgrade = runCapture(brew, ["upgrade", "swift-sim"], { allowFailure: true });
   if (upgrade.status !== 0) {
+    const output = `${upgrade.stderr}\n${upgrade.stdout}`;
+    if (/refusing to load formula .* from untrusted tap/i.test(output)) {
+      throw new Error("Run brew trust --formula miguelosaurus/tap/swift-sim once, then run swift-sim update again. Your existing version is still installed.");
+    }
+    if (/(?:miguelosaurus\/tap\/)?swift-sim not installed|no such keg/i.test(output)) throw new Error(notInstalled);
     throw new Error(compactError(upgrade) || "Homebrew could not update Swift Sim. Your existing version is still installed.");
   }
   const updatedCommand = findCommand("swift-sim");

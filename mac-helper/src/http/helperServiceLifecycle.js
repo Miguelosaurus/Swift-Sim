@@ -92,6 +92,16 @@ export function createHelperServiceLifecycle(dependencies) {
   let livePending = false;
   let liveScheduled = false;
   let liveDeferred = false;
+  const activityFailures = createFailureReporter(
+    "Activity reconciliation",
+    "saved updates are preserved",
+    (message) => !shuttingDown && resolved.reportError(message),
+  );
+  const liveFailures = createFailureReporter(
+    "Live delivery reconciliation",
+    "queued intent is preserved",
+    (message) => !shuttingDown && resolved.reportError(message),
+  );
 
   return Object.freeze({
     async prepare() {
@@ -149,11 +159,7 @@ export function createHelperServiceLifecycle(dependencies) {
           const reconcileActivity = () => {
             void resolved
               .reconcileActivity?.()
-              .catch(() =>
-                resolved.reportError(
-                  "Activity reconciliation failed; saved updates are preserved.",
-                ),
-              );
+              .then(activityFailures.succeeded, activityFailures.failed);
           };
           reconcileActivity();
           activityTimer = resolved.runtime.scheduleInterval(reconcileActivity, 5_000);
@@ -212,6 +218,7 @@ export function createHelperServiceLifecycle(dependencies) {
     void Promise.resolve()
       .then(() => resolved.reconcileLiveDeliveries?.())
       .then((result) => {
+        liveFailures.succeeded();
         // An authenticated no-admission race keeps the old polling cadence.
         // Its own queue publication must not create an immediate retry loop.
         liveDeferred = Boolean(
@@ -221,9 +228,7 @@ export function createHelperServiceLifecycle(dependencies) {
           result.retryDeferred === true,
         );
       })
-      .catch(() =>
-        resolved.reportError("Live delivery reconciliation failed; queued intent is preserved."),
-      )
+      .catch(liveFailures.failed)
       .finally(() => {
         liveRunning = false;
         if (liveDeferred) livePending = false;
@@ -296,6 +301,56 @@ export function createHelperServiceLifecycle(dependencies) {
     );
     forceTimer.unref?.();
   }
+}
+
+/**
+ * Background loops retry every few seconds, so a persistent fault would repeat
+ * one line thousands of times. Report the first failure, a changed cause, a
+ * logarithmic reminder (10, 100, 1000 attempts) and the recovery. Messages carry
+ * only an error code or class name: these errors can embed tokens and paths.
+ *
+ * @param {string} subject @param {string} preserved @param {(message: string) => unknown} report
+ */
+function createFailureReporter(subject, preserved, report) {
+  let failures = 0;
+  let lastCause = "";
+  return Object.freeze({
+    succeeded() {
+      if (failures > 0) report(`${subject} recovered after ${attempts(failures)}.`);
+      failures = 0;
+      lastCause = "";
+    },
+    /** @param {unknown} error */
+    failed(error) {
+      const cause = failureCause(error);
+      failures += 1;
+      const changed = cause !== lastCause;
+      lastCause = cause;
+      if (!changed && !/^10*$/.test(String(failures))) return;
+      const count = failures > 1 ? `, ${attempts(failures)} so far` : "";
+      report(`${subject} failed (${cause}${count}); ${preserved}.`);
+    },
+  });
+}
+
+/** @param {number} count */
+function attempts(count) {
+  return count === 1 ? "1 failed attempt" : `${count} failed attempts`;
+}
+
+/** @param {unknown} error */
+function failureCause(error) {
+  const fields = /** @type {{ code?: unknown, errstr?: unknown }} */ (
+    error && typeof error === "object" ? error : {}
+  );
+  const { code, errstr } = fields;
+  if (code === "ERR_SQLITE_ERROR" && typeof errstr === "string" && /^[a-z ]{1,60}$/.test(errstr)) {
+    return `SQLite: ${errstr}`;
+  }
+  if (typeof code === "string" && /^[A-Z][A-Z0-9_]{1,63}$/.test(code)) return code;
+  const name = error instanceof Error ? error.name : "";
+  if (name !== "Error" && /^[A-Za-z]{1,40}Error$/.test(name)) return name;
+  return "unexpected error";
 }
 
 /** @param {HelperServerLike} server @param {string} host @param {number} port */
