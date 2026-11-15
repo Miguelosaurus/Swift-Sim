@@ -4,7 +4,7 @@ Hot reload lets you see compatible code changes in a running Debug app without r
 
 The phone can be locked, offline, in another app, or have the Debug app closed when you request an edit. The Mac queues compatible work. Return to the matching Debug app when ready; no particular screen needs to be open. iOS must allow the app to run in the foreground. The Mac must be awake and the helper running. A queued edit is not yet a completed reload.
 
-The glow starts when the Mac begins compiling and acts as a progress bar. The updated screen appears behind a ripple. Swift Sim 0.6.6 uses engine and SDK 0.5.9, which reconnect faster after unlock or network changes. An older engine or Debug app may need an update. Check [Companion availability](TESTFLIGHT.md#availability).
+The glow starts when the Mac begins compiling and acts as a progress bar. The updated screen appears behind a ripple. Swift Sim 0.6.7 uses engine and SDK 0.5.10, which reconnect quickly after unlock or network changes. An older engine or Debug app may need an update. Check [Companion availability](TESTFLIGHT.md#availability).
 
 ## What can reload
 

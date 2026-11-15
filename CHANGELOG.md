@@ -2,6 +2,20 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
+## 0.6.7 - 2026-11-14
+
+- Agents can operate the Debug app they are building: `swift-sim app-tools`
+  gains `--tap <eN|x,y>`, `--tap-label`, `--long-press`, `--swipe`, `--scroll`
+  and `--type`. Touches are synthesized inside the app, need no test runner or
+  phone setup, and work with SwiftUI and UIKit controls.
+- Each action waits on the phone for the screen to settle and returns the new
+  element list, so the next step needs no separate screen read. Element IDs are
+  accepted only from the latest read of the same app process, within 60 seconds.
+- Engine 0.5.10 adds the input tools (capability `developer-input-v1`).
+- The manual storage cutover, rollback commands and Phase 4 diagnostics are
+  removed; automatic SQLite migration from 0.6.6 stays.
+- Setup treats an already-enabled Claude Code plugin as configured.
+
 ## 0.6.6 - 2026-11-14
 
 - Hot reload decides with a SwiftSyntax classifier shared with the patch
