@@ -37,7 +37,8 @@ try {
     },
     async loadCompatibility() {
       const { runCompatibilityHelper } = await import("./swift-sim-helper.js");
-      await runCompatibilityHelper(process.argv.slice(2));
+      const { announceReadyBuild } = await import("../src/cliRuntimeBoundary.js");
+      await runCompatibilityHelper(process.argv.slice(2), { announceReadyBuild });
     },
   });
 } catch (error) {

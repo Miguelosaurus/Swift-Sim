@@ -569,6 +569,7 @@ export function publicDeviceBuild(build) {
     expiresAt: build.expiresAt,
     state: build.state,
     configuration: build.configuration || "Release",
+    ...(build.notification ? { notification: build.notification } : {}),
     ...(build.origin === "xcode" ? { origin: "xcode" } : {}),
     liveReload: {
       eligible: liveReloadEligible,

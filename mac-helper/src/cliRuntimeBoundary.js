@@ -14,6 +14,43 @@ const rawFetch = globalThis.fetch;
 const compatibleHealthURLs = new Set();
 let fetchBoundaryInstalled = false;
 
+// One completion handoff. The existing helper owns the inbox and APNs retries;
+// no engine, install, pairing, route change or second worker is needed.
+export async function announceReadyBuild(buildID, {
+  listBuilds,
+  loadPairing,
+  health = currentHelperRuntimeHealth,
+  repair = repairHelperRuntime,
+  publish,
+}) {
+  const status = await health();
+  if (!status.ok) {
+    if (status.failureCode !== "HELPER_CONNECTION_REFUSED") throw new Error("Helper unavailable");
+    await repair({ guard: () => {
+      // Startup recovers interrupted builds. Do not start it over another CLI's
+      // unfinished build; report uncertainty instead.
+      if (listBuilds().some(build => !["ready", "failed"].includes(build.state)))
+        throw new Error("Build active");
+    } });
+    if (!(await health()).ok) throw new Error("Helper unavailable");
+  }
+  const pairing = await loadPairing();
+  if (!pairing?.token || !pairing.installationID) throw new Error("Pairing unavailable");
+  publish ||= (await import("./deliveryStatus.js")).fetchActivityFeed;
+  const feed = await publish(pairing, { reconcile: true });
+  if (feed?.installationId !== pairing.installationID || !feed.events?.some(event => event.buildId === buildID))
+    throw new Error("Announcement unavailable");
+}
+
+// Recovery and ready-build publication share the same bounded lifecycle repair.
+export async function repairHelperRuntime({ restart = false, guard, reconcile = reconcileHelperRuntime } = {}) {
+  const { withLiveEngineLifecycleLock } = await import("./liveEngineLifecycleLock.js");
+  await withLiveEngineLifecycleLock(async () => {
+    guard();
+    await reconcile({ startIfStopped: true, restart });
+  }, { waitMs: 1500 });
+}
+
 export async function rememberHelperStateForUpdate() {
   const health = await currentHelperRuntimeHealth();
   const ownedListener = health.reachable ? false : ownedHelperListener(helperPort());

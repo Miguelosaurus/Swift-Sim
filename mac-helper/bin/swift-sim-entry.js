@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import {
   installCompatibleHelperHealthFetchBoundary,
   reconcileHelperRuntime,
+  repairHelperRuntime,
   rememberHelperStateForUpdate,
 } from "../src/cliRuntimeBoundary.js";
 import { installArtifactCleanupBoundary } from "../src/artifactCleanupBoundaryPreload.js";
@@ -70,7 +71,7 @@ if (command === "recover-delivery") {
   const { values } = parseArgs({ args: args.slice(1), options: { request: { type: "string" }, project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" } } });
   const { recoverDelivery } = await import("../src/deliveryRecovery.js");
   const { createDeliveryRecoveryPorts } = await import("../src/deliveryRecoveryRuntime.js");
-  const ports = createDeliveryRecoveryPorts({ reconcileHelper: reconcileHelperRuntime });
+  const ports = createDeliveryRecoveryPorts({ repairHelper: repairHelperRuntime });
   console.log(JSON.stringify(await recoverDelivery({ requestId: values.request, project: values.project, workspace: values.workspace, scheme: values.scheme }, ports)));
 } else {
   installCompatibleHelperHealthFetchBoundary();

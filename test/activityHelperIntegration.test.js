@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -58,3 +58,52 @@ for (const gateway of [false, true]) {
     }
   });
 }
+
+test("ready-build handoff starts a stopped isolated helper through recovery and publishes the build", { timeout: 25000 }, async () => {
+  const home = mkdtempSync(join(tmpdir(), "swift-sim-ready-helper-"));
+  const reservation = createServer();
+  reservation.listen(0, "127.0.0.1"); await once(reservation, "listening");
+  const port = reservation.address().port;
+  await new Promise(resolve => reservation.close(resolve));
+  const env = { ...process.env, HOME: home, SWIFT_SIM_PORT: String(port), SWIFT_SIM_MAC_NAME: "Fixture Mac" };
+  delete env.SWIFT_SIM_MARKETPLACE_ROOT;
+  delete env.SWIFT_SIM_HELPER_WAS_RUNNING;
+  try {
+    const script = `
+      import assert from 'node:assert/strict';
+      import { DeviceBuildStore } from ${JSON.stringify(new URL("../mac-helper/src/deviceBuildStore.js", import.meta.url).href)};
+      import { PairingStore } from ${JSON.stringify(new URL("../mac-helper/src/pairingStore.js", import.meta.url).href)};
+      import { announceReadyBuild } from ${JSON.stringify(new URL("../mac-helper/src/cliRuntimeBoundary.js", import.meta.url).href)};
+      import { fetchActivityFeed } from ${JSON.stringify(new URL("../mac-helper/src/deliveryStatus.js", import.meta.url).href)};
+      const pairing = new PairingStore().current();
+      const store = new DeviceBuildStore({ maintenance: false });
+      const build = store.create({ scheme: 'Fixture' });
+      build.state = 'ready';
+      build.remoteBaseUrl = 'https://fixture.invalid';
+      build.artifacts.ipaPath = '/fixture/app.ipa';
+      build.expiresAt = new Date(Date.now() + 60000).toISOString();
+      store.save(build);
+      await announceReadyBuild(build.id, { listBuilds: () => store.list(), loadPairing: () => pairing });
+      const feed = await fetchActivityFeed(pairing);
+      assert.equal(feed.events.find(event => event.buildId === build.id)?.kind, 'build-ready');
+      console.log('published');
+    `;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+      env, encoding: "utf8", timeout: 20000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "published");
+  } finally {
+    const listener = spawnSync("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
+    const pid = Number(listener.stdout.trim());
+    if (pid > 1) {
+      try { process.kill(-pid, "SIGTERM"); } catch {}
+      for (let turn = 0; turn < 80; turn++) {
+        try { process.kill(pid, 0); } catch { break; }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      try { process.kill(-pid, "SIGKILL"); } catch {}
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
+});

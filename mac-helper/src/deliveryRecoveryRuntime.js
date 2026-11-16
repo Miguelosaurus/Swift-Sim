@@ -17,8 +17,8 @@ import { engineMatchesContract } from "./componentCompatibility.js";
 import { readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
 
 // Loaded only by recover-delivery, never imported by the normal helper loop.
-export function createDeliveryRecoveryPorts({ reconcileHelper } = {}) {
-  if (typeof reconcileHelper !== "function")
+export function createDeliveryRecoveryPorts({ repairHelper } = {}) {
+  if (typeof repairHelper !== "function")
     throw new TypeError("Recovery requires the CLI lifecycle adapter.");
   const queue = createLiveDeliveryQueue({ lockManager: liveRuntimeLockManager });
   const service = createLiveDeliveryRuntime({ queue, adapter: createLiveDeliveryAdapter() });
@@ -58,15 +58,7 @@ export function createDeliveryRecoveryPorts({ reconcileHelper } = {}) {
       inspectRuntimeHealth(
         `http://127.0.0.1:${Number(process.env.SWIFT_SIM_PORT || 47217)}/health`,
       ),
-    async repairHelper({ restart, guard }) {
-      await withLiveEngineLifecycleLock(
-        async () => {
-          guard();
-          await reconcileHelper({ startIfStopped: true, restart });
-        },
-        { waitMs: 1500 },
-      );
-    },
+    repairHelper,
     async restoreStoppedEngine(record, guard) {
       const options = { project: record.scope.project, scheme: record.scope.scheme };
       const check = async () => {

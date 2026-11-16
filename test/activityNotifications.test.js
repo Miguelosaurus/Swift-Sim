@@ -408,3 +408,24 @@ test("failed live updates explain the reason in plain language", () => {
   assert.match(message("SOMETHING_NEW"), /Ask your agent/);
   assert.doesNotMatch(message("QUEUED_EDIT_NOT_COMPATIBLE"), /for details/);
 });
+
+test("completion reconciliation publishes a new ready build after an older in-flight tick", async () => {
+  const f = fixture();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    f.setBuilds([f.build("older-build")]);
+    f.sendWith(async () => { await gate; return { state: "accepted" }; });
+    const running = f.service.runOnce();
+    while (!f.sent.length) await new Promise(resolve => setImmediate(resolve));
+    f.advance(); f.setBuilds([f.build("new-ready-build")]);
+    const completion = f.service.reconcile();
+    release(); await running; await completion;
+    assert.ok(f.service.feed().events.some(event => event.buildId === "new-ready-build"));
+    assert.equal(f.sent.length, 2);
+    assert.equal(f.sent[1].payload.buildId, "new-ready-build");
+    await f.service.reconcile();
+    assert.equal(f.sent.length, 2, "completed alerts must not be replayed");
+  } finally { release?.(); f.cleanup(); }
+});

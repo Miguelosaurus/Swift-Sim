@@ -1,5 +1,9 @@
 // @ts-check
 
+import { getSystemErrorMap } from "node:util";
+
+const SYSTEM_ERROR_CODES = new Set([...getSystemErrorMap().values()].map(([code]) => code));
+
 const RECONCILIATION_INTERVAL_MS = 15_000;
 const DELIVERY_CLEANUP_INTERVAL_MS = 30_000;
 const KEEP_ALIVE_INTERVAL_MS = 60 * 60 * 1_000;
@@ -316,7 +320,8 @@ function createFailureReporter(subject, preserved, report) {
   let lastCause = "";
   return Object.freeze({
     succeeded() {
-      if (failures > 0) report(`${subject} recovered after ${attempts(failures)}.`);
+      if (failures > 0)
+        report(`${new Date().toISOString()} ${subject} recovered after ${attempts(failures)}.`);
       failures = 0;
       lastCause = "";
     },
@@ -328,7 +333,7 @@ function createFailureReporter(subject, preserved, report) {
       lastCause = cause;
       if (!changed && !/^10*$/.test(String(failures))) return;
       const count = failures > 1 ? `, ${attempts(failures)} so far` : "";
-      report(`${subject} failed (${cause}${count}); ${preserved}.`);
+      report(`${new Date().toISOString()} ${subject} failed (${cause}${count}); ${preserved}.`);
     },
   });
 }
@@ -344,12 +349,22 @@ function failureCause(error) {
     error && typeof error === "object" ? error : {}
   );
   const { code, errstr } = fields;
-  if (code === "ERR_SQLITE_ERROR" && typeof errstr === "string" && /^[a-z ]{1,60}$/.test(errstr)) {
+  if (
+    code === "ERR_SQLITE_ERROR" &&
+    /^(?:database is locked|database is busy|database or disk is full|disk I\/O error|attempt to write a readonly database|database disk image is malformed|unable to open database file)$/.test(
+      String(errstr),
+    )
+  ) {
     return `SQLite: ${errstr}`;
   }
-  if (typeof code === "string" && /^[A-Z][A-Z0-9_]{1,63}$/.test(code)) return code;
+  if (
+    typeof code === "string" &&
+    (SYSTEM_ERROR_CODES.has(code) ||
+      /^(?:ERR_|SWIFT_SIM_|ACTIVITY_|QUEUE_|LIVE_)[A-Z_]{1,60}$/.test(code))
+  )
+    return code;
   const name = error instanceof Error ? error.name : "";
-  if (name !== "Error" && /^[A-Za-z]{1,40}Error$/.test(name)) return name;
+  if (/^(?:Type|Range|Syntax|Reference|URI|Eval|Aggregate|Assertion)Error$/.test(name)) return name;
   return "unexpected error";
 }
 

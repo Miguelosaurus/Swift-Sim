@@ -39,6 +39,7 @@ export function deliveryEnvelope({
   timing = undefined,
   error = undefined,
   warning = undefined,
+  notification = undefined,
   diagnostics = undefined,
 } = {}) {
   const envelope = {
@@ -53,6 +54,7 @@ export function deliveryEnvelope({
   if (timing !== undefined) envelope.timing = timing;
   if (error !== undefined) envelope.error = error;
   if (warning !== undefined) envelope.warning = warning;
+  if (notification !== undefined) envelope.notification = notification;
   if (diagnostics !== undefined) envelope.diagnostics = diagnostics;
   return envelope;
 }
@@ -120,6 +122,7 @@ export function validateDeliveryEnvelope(value) {
     errors.push("needs-user-action requires a typed error code.");
   }
   if (value.error !== undefined && !isMessage(value.error)) errors.push("error requires a typed code and message.");
+  if (value.notification !== undefined && (!isMessage(value.notification) || value.notification.code !== "NOTIFICATION_UNAVAILABLE" || value.notification.nextAction !== "check-mac")) errors.push("Invalid notification notice.");
   if (value.warning !== undefined && (
     !isMessage(value.warning)
   )) {

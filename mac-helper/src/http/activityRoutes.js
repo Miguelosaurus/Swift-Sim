@@ -2,6 +2,7 @@ import { badRequest, json, notFound, readJson, unauthorized } from "../http.js";
 
 export const activityAuthorizationMatrix = Object.freeze([
   { route: "GET /api/activity", exposure: "private-helper", authorization: "paired-mac" },
+  { route: "POST /api/activity", exposure: "private-helper", authorization: "paired-mac" },
   { route: "POST /api/activity/device", exposure: "private-helper", authorization: "paired-mac" },
   {
     route: "DELETE /api/activity/device/:id",
@@ -19,10 +20,11 @@ export async function handleActivityRoutes({
   privateHelper = false,
 } = {}) {
   const isFeed = req.method === "GET" && url.pathname === "/api/activity";
+  const isReconcile = req.method === "POST" && url.pathname === "/api/activity";
   const isRegister = req.method === "POST" && url.pathname === "/api/activity/device";
   const remove =
     req.method === "DELETE" && url.pathname.match(/^\/api\/activity\/device\/([^/]+)$/);
-  if (!isFeed && !isRegister && !remove) return false;
+  if (!isFeed && !isReconcile && !isRegister && !remove) return false;
   if (!privateHelper) {
     notFound(res);
     return true;
@@ -39,10 +41,11 @@ export async function handleActivityRoutes({
     return true;
   }
   try {
-    if (isFeed) {
+    if (isFeed || isReconcile) {
       const raw = url.searchParams.get("after") || "0";
       if (!/^\d{1,16}$/.test(raw)) throw new Error("Invalid activity cursor.");
-      await service.refresh?.();
+      if (isReconcile) await service.reconcile();
+      else await service.refresh?.();
       if (!(await authorized())) {
         unauthorized(res);
         return true;

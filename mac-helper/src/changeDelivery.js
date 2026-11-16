@@ -153,7 +153,7 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
         : state === "waiting" ? "Update queued. Unlock your iPhone and return to the app to install."
         : state === "prompt-requested" ? "Confirm installation on your iPhone, then reopen the app."
         : "Installation may have started. Check delivery status before trying again.",
-        reasonCode, rebuildReason, delivery: { kind: "device-install", requestId: built.id, state,
+        reasonCode, rebuildReason, notification: built.notification, delivery: { kind: "device-install", requestId: built.id, state,
           requiresIOSConfirmation: installed.requiresIOSConfirmation === true,
           ...(installed.expiresAt ? { expiresAt: installed.expiresAt } : {}) }, timing: { totalMs: elapsed(now, startedAt) } });
     }
@@ -161,7 +161,7 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
   const link = installDelivery(built);
   if (!link) return deliveryEnvelope({ outcome: "failed", message: "The signed build finished without a usable Swift Sim install link.", reasonCode: "INSTALL_LINK_MISSING", error: { code: "INSTALL_LINK_MISSING", message: "The signed build did not return a universal install link." }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
   const warnings = Array.isArray(built?.signing?.warnings) ? built.signing.warnings.filter(Boolean).slice(0, 3) : [];
-  return deliveryEnvelope({ outcome: "install-link-ready", message: "This change needs a new signed build.", reasonCode, rebuildReason, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
+  return deliveryEnvelope({ outcome: "install-link-ready", message: "This change needs a new signed build.", reasonCode, rebuildReason, notification: built.notification, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
 }
 
 function installDelivery(build) {

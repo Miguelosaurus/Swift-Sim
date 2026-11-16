@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDeviceBuildRuntimeController } from "../mac-helper/src/deviceBuildRuntimeController.js";
 
+import { announceReadyBuild } from "../mac-helper/src/cliRuntimeBoundary.js";
+import { NOTIFICATION_UNAVAILABLE } from "../mac-helper/src/deviceBuildRuntimeController.js";
+import { publicDeviceBuild } from "../mac-helper/src/deviceBuilder.js";
+
 const FIXED_NOW = "2026-08-10T22:00:00.000Z";
 
 function build(id = "build-1") {
@@ -69,6 +73,7 @@ function harness(overrides = {}) {
     async runBuild(value) {
       value.state = "exporting";
     },
+    async announceReadyBuild() {},
     requestCancellation(value, reason) {
       cancelled.push([value.id, reason]);
       return true;
@@ -460,4 +465,56 @@ test("a progress save ENOSPC is persisted terminal before retention rather than 
   assert.equal(value.state, "failed");
   assert.equal(durable.state, "failed");
   assert.equal(runtime.activeTasks().length, 0);
+});
+
+for (const startFails of [false, true]) test(`ready build with stopped helper ${startFails ? "returns a typed notice" : "starts it and publishes"}`, async () => {
+  let online = false;
+  const calls = [];
+  const h = harness({
+    announceReadyBuild: id => announceReadyBuild(id, {
+      listBuilds: () => h.builds,
+      loadPairing: () => ({ token: "fixture", installationID: "fixture-mac" }),
+      health: async () => ({ ok: online, failureCode: "HELPER_CONNECTION_REFUSED" }),
+      repair: async ({ guard }) => {
+        guard();
+        assert.ok(h.saved.some(entry => entry.id === id && entry.state === "ready"));
+        calls.push("start");
+        if (startFails) throw new Error("private diagnostic must not escape");
+        online = true;
+      },
+      publish: async (_pairing, options) => {
+        assert.equal(options.reconcile, true);
+        calls.push("publish");
+        return { installationId: "fixture-mac", events: [{ buildId: id }] };
+      },
+    }),
+  });
+  const runtime = createDeviceBuildRuntimeController(h.deps);
+  const value = await runtime.createBuild({ scheme: "App" });
+  await runtime.runCliBuild(value);
+  assert.equal(value.state, "ready");
+  assert.deepEqual(calls, startFails ? ["start"] : ["start", "publish"]);
+  assert.deepEqual(value.notification, startFails ? NOTIFICATION_UNAVAILABLE : undefined);
+  value.signing = {};
+  assert.deepEqual(publicDeviceBuild(value).notification, value.notification);
+});
+
+test("announcement refuses an incompatible helper, another active build or an unconfirmed publication", async () => {
+  const input = {
+    listBuilds: () => [],
+    loadPairing: () => ({ token: "fixture", installationID: "fixture-mac" }),
+    health: async () => ({ ok: false, failureCode: "HELPER_CONNECTION_REFUSED" }),
+    repair: async ({ guard }) => { guard(); },
+    publish: async () => ({ installationId: "other-mac", events: [] }),
+  };
+  await assert.rejects(announceReadyBuild("build", { ...input,
+    health: async () => ({ ok: false, failureCode: "HELPER_VERSION_MISMATCH" }),
+    repair: () => assert.fail("must not replace a listener"),
+  }), /Helper unavailable/);
+  await assert.rejects(announceReadyBuild("build", { ...input,
+    listBuilds: () => [{ state: "building" }],
+  }), /Build active/);
+  await assert.rejects(announceReadyBuild("build", { ...input,
+    health: async () => ({ ok: true }),
+  }), /Announcement unavailable/);
 });

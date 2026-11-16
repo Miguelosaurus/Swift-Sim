@@ -127,11 +127,12 @@ export function publicDeliveryPresentation(v) {
     ...(v.revision ? { revision: v.revision } : {}),
   };
 }
-async function fetchActivityFeed(pairing) {
+export async function fetchActivityFeed(pairing, { reconcile = false } = {}) {
   const port = Number(process.env.SWIFT_SIM_PORT || 47217);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw fail("DELIVERY_STATUS_UNAVAILABLE");
   const response = await fetch(`http://127.0.0.1:${port}/api/activity`, {
+    method: reconcile ? "POST" : "GET",
     headers: { Authorization: `Bearer ${pairing.token}` },
     redirect: "error",
     signal: AbortSignal.timeout(5000),

@@ -77,6 +77,11 @@ export function createActivityService({ store, provider = createApnsProvider(), 
       if (running) return running;
       running = tick().finally(() => { running = null; }); return running;
     },
+    async reconcile() {
+      // A ready build may be newer than an in-flight tick's snapshot.
+      if (running) await running;
+      return this.runOnce();
+    },
     feed({ after = 0, deviceId } = {}) {
       const pairing = authority();
       return { ...store.feed({ after, deviceId, epoch: pairing.epoch }), installationId: pairing.installationId, notificationStatus: publicProviderState(), deliveryStatus: { schemaVersion: 1, apps: statusEpoch === pairing.epoch && now() - statusAt <= 30000 ? structuredClone(deliveryStatuses) : {} } };
