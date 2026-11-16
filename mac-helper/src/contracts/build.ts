@@ -122,6 +122,16 @@ export interface DeviceBuildPendingRenewal {
 }
 
 export interface DeviceBuildRecord {
+  ipaTransfer?: {
+    state: "streaming" | "completed" | "aborted" | "superseded";
+    id?: string;
+    pid?: number;
+    startToken?: string;
+    startedAt?: number;
+    deadline?: number;
+    completedAt?: number;
+    supersededBy?: string;
+  };
   origin?: "xcode";
   externalBuild?: {
     schema: 1;

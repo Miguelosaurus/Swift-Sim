@@ -56,6 +56,16 @@ class DeliveryTests(unittest.TestCase):
     def run_delivery(self):
         return module.deliver(self.options, self.command)
 
+    def test_foreground_observation_is_read_only_and_accepts_same_or_newer_inventory(self):
+        self.options.observe = True
+        for build, expected in [("1", "not-found"), ("2", "installed-version-observed"), ("3", "installed-version-observed")]:
+            self.inventory[0]["bundleVersion"] = build
+            self.assertEqual(self.run_delivery()["state"], expected)
+        self.inventory[0]["teamIdentifier"] = "different-fixture"
+        self.assertEqual(self.run_delivery()["state"], "not-found")
+        self.assertEqual(self.installs, 0)
+        self.assertFalse(Path(self.options.root).exists())
+
     def test_complete_inventory_duplicate_and_temp_cleanup(self):
         self.assertEqual(self.run_delivery()["state"], "installed")
         self.assertEqual(self.run_delivery()["state"], "installed")

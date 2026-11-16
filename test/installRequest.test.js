@@ -218,10 +218,10 @@ test("documented cancellation works with a stopped engine, prunes old history, a
   assert.equal(new NodeAtomicFileStore().readTextSync(path), "{", "corrupt evidence is preserved");
 });
 
-test("legacy engine status cannot keep an expired possible handoff actionable forever", async () => {
+test("legacy handoff status does not invent completion from tombstone retention", async () => {
   const f = fixture();
   f.options.operation = "status"; f.options.now = () => (2000 + 86400) * 1000;
   f.options.control = async () => f.answer("prompt-requested");
   const result = await requestAppInstall(f.options);
-  assert.equal(result.state, "expired"); assert.equal(result.nextAction, "none");
+  assert.equal(result.state, "prompt-requested"); assert.equal(result.nextAction, "confirm-install");
 });

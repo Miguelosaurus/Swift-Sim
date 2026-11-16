@@ -2,6 +2,7 @@ import test from "node:test";
 import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import assert from "node:assert/strict";
 import { deliverSavedBuild, holdChangedBuild, noForegroundJournal, foregroundInstallFence, maintainForegroundJournal } from "../mac-helper/src/buildDelivery.js";
+const emptyStore = { list: () => [] };
 const buildID = "11111111-1111-1111-1111-111111111111";
 function fixture() {
   const calls = [];
@@ -74,7 +75,7 @@ test("a mixed-source automatic build is failed and its install capability expire
 });
 
 
-test("the actual root foreground journal fences every alternate installation route", async t => {
+test("old or corrupt foreground journals cannot fence a native install without gateway evidence", async t => {
   const { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -84,11 +85,11 @@ test("the actual root foreground journal fences every alternate installation rou
   mkdirSync(join(root, "live"), { mode: 0o700 });
   writeFileSync(join(root, "live", "install-requests.json"), "[]", { mode: 0o600 });
   writeFileSync(join(root, "install-requests.json"), JSON.stringify([{selector:{bundle_id:"app"},state:"unconfirmed"}]), { mode: 0o600 });
-  assert.equal(noForegroundJournal(build, root), false);
+  assert.equal(await noForegroundJournal(build, root, undefined, { store: emptyStore }), true);
   writeFileSync(join(root, "install-requests.json"), "{");
-  assert.equal(noForegroundJournal(build, root), false);
+  assert.equal(await noForegroundJournal(build, root, undefined, { store: emptyStore }), true);
   writeFileSync(join(root, "install-requests.json"), "[]");
-  assert.equal(noForegroundJournal(build, root), true);
+  assert.equal(await noForegroundJournal(build, root, undefined, { store: emptyStore }), true);
 });
 
 async function journalFixture(t, entries) {
@@ -111,25 +112,27 @@ test("expired older handoffs are pruned and cannot block a new native build whil
   const j = await journalFixture(t, [oldRequest("prompt-requested", 1000000 - 86401)]);
   const f = fixture(); f.build.app = { bundleIdentifier: "fixture.app" };
   f.input.prompt = async () => ({ code: "INSTALL_REQUEST_UNAVAILABLE" });
-  f.input.foregroundFence = b => foregroundInstallFence(b, j.directory, 1000000);
+  f.input.foregroundFence = b => foregroundInstallFence(b, j.directory, 1000000, { store: emptyStore });
   f.input.maintain = () => maintainForegroundJournal(j.maintenance);
   f.input.direct = async () => { f.calls.push(["native"]); return { state: "installed" }; };
   assert.equal((await deliverSavedBuild(f.input)).state, "installed");
   assert.deepEqual(f.calls, [["native"]]); assert.deepEqual(j.read(), []);
 });
 
-for (const state of ["waiting", "opening", "prompt-requested", "unconfirmed"]) test(`${state} fences another build until its bounded deadline`, async t => {
+for (const state of ["waiting", "opening", "prompt-requested", "unconfirmed"]) test(`${state} without an admitted IPA is superseded before the new native install`, async t => {
   const entry = oldRequest(state, 1000060), j = await journalFixture(t, [entry]);
   const f = fixture(); f.build.app = { bundleIdentifier: "fixture.app" };
+  f.build.createdAt = new Date(1000000 * 1000).toISOString();
+  const old = { id: entry.id, app: f.build.app, createdAt: new Date(0).toISOString() };
+  const store = { list: () => [old], withTransaction: fn => fn({ builds: new Map([[old.id, old]]) }) };
   f.input.prompt = async () => ({ code: "INSTALL_REQUEST_NOT_FOUND" });
-  f.input.foregroundFence = b => foregroundInstallFence(b, j.directory, 1000000);
-  assert.equal((await deliverSavedBuild(f.input)).state, "unconfirmed");
-  assert.deepEqual(f.calls, [], "engine absence of this build is not absence of an older handoff");
-  const fence = foregroundInstallFence(f.build, j.directory, 1000000);
-  assert.equal(fence.code, "INSTALL_HANDOFF_PENDING"); assert.equal(fence.requestId, entry.id);
-  const deadline = 1000060 + (state === "waiting" ? 0 : 86400);
-  assert.equal(Date.parse(fence.resolvesAt) / 1000, deadline);
-  assert.equal(noForegroundJournal(f.build, j.directory, deadline), true);
+  f.input.foregroundFence = b => foregroundInstallFence(b, j.directory, 1000000, { store });
+  f.input.direct = async () => {
+    assert.equal(old.ipaTransfer.state, "superseded"); assert.ok(old.tokenExpiredAt);
+    return { state: "installed" };
+  };
+  assert.equal((await deliverSavedBuild(f.input)).state, "installed");
+  assert.equal(j.read().length, 1, "the replay tombstone remains engine-owned");
 });
 
 test("cancellation preserves bounded tombstones, prunes old history, and never writes over a running engine", async t => {
@@ -140,7 +143,7 @@ test("cancellation preserves bounded tombstones, prunes old history, and never w
   assert.deepEqual(j.read(), entries);
   const cancelled = await maintainForegroundJournal({ ...j.maintenance, cancelID: entries[0].id });
   assert.equal(cancelled.state, "cancelled"); assert.equal(j.read().length, 1);
-  assert.equal(noForegroundJournal({ app: { bundleIdentifier: "fixture.app" } }, j.directory, 1000000), true);
+  assert.equal(await noForegroundJournal({ app: { bundleIdentifier: "fixture.app" } }, j.directory, 1000000, { store: emptyStore }), true);
   await maintainForegroundJournal({ ...j.maintenance, now: 1000060 + 86400 });
   assert.deepEqual(j.read(), []);
 });

@@ -174,9 +174,8 @@ export function createInstallPresentationReader({
         if (b)
           result.set(b.id, {
             state:
-              (r.state === "waiting" && r.expiresAt <= now()) ||
-              (["opening", "prompt-requested", "unconfirmed"].includes(r.state) &&
-                r.expiresAt + 86400000 <= now())
+              b.ipaTransfer?.state === "superseded" ? "cancelled" :
+              r.state === "waiting" && r.expiresAt <= now()
                 ? "expired"
                 : r.state,
           });

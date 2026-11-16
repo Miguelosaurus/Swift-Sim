@@ -56,4 +56,4 @@ qualification is cellular delivery with native confirmation; do not promise
 silent Xcode-like cellular installation. Apple's managed-app distribution offers
 silent paths, but device management is outside this optional Debug workflow.
 
-Possible handoffs keep their fence until request expiry plus the existing one-day retention window; follow `code`, `nextAction`, and `resolvesAt` when blocked. Offline cancellation/pruning requires a provably stopped engine; native uncertainty requires same-or-newer inventory proof, never expiry alone.
+A newer build revokes unstarted older handoffs; active IPA streams fence until they end or expire, completed downloads for three minutes or until same-or-newer inventory proof. Follow `code`, `nextAction`, and `resolvesAt`; the one-day tombstone retention is not an install fence. Offline cancellation/pruning requires a provably stopped engine; native uncertainty requires same-or-newer inventory proof, never expiry alone.

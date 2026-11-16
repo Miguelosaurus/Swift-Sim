@@ -38,6 +38,7 @@ import { readBuildIcon } from "../deviceBuildIcon.js";
  *   renderInstallPage(build: BuildRecord): string,
  *   now(): number,
  *   readIcon?(build: BuildRecord): Buffer | null,
+ *   admitIPA(id: string, token: string): { status: number, deadline?: number, finish?: (completed: boolean) => unknown },
  * }} DeviceBuildCapabilityDependencies
  */
 
@@ -152,7 +153,10 @@ export function createDeviceBuildCapabilityApplicationService(dependencies) {
             "application/octet-stream",
             `${stringValue(build.app?.name) || stringValue(build.scheme) || "App"}.ipa`,
           );
-          return response;
+          return {
+            ...response,
+            admit: () => dependencies.admitIPA(build.id, String(capability?.token || "")),
+          };
         }
         throw new TypeError(`Unknown device build artifact: ${input.artifact}`);
       }
@@ -240,6 +244,7 @@ function validateDependencies(dependencies) {
     throw new TypeError("Device build capability application service requires pairedMacEnabled.");
   }
   const required = [
+    ["admitIPA", dependencies?.admitIPA],
     ["pairingTokenMatches", dependencies?.pairingTokenMatches],
     ["getBuild", dependencies?.getBuild],
     ["saveBuild", dependencies?.saveBuild],

@@ -70,12 +70,17 @@ prompt already handed off. Normal installed-build/launch verification remains
 separate. This prototype does not automatically open the replacement app.
 
 The private journal retains at most 32 requests and tombstones for one day after
-link expiry. Waiting work stops fencing at request expiry; possible OS handoffs
-retain the fence through that one-day window. The existing cleanup tick prunes
-old entries only while the engine is provably stopped; an active engine owns its
-cached journal. The documented cancellation command also works offline under
-that ownership check. Typed blocked results identify the earlier request, next
-action and fence deadline.
+link expiry; retention does not fence installation. Delivering a newer build
+atomically revokes older unstarted handoffs and marks their build records
+`superseded`. Gateway IPA admission and revocation share the build transaction.
+One active stream per build fences until completion, disconnect or capability
+expiry; its process identity prevents a crashed gateway leaving a live fence.
+Completed downloads fence for three minutes, matching the native install budget,
+or until same-or-newer inventory proves completion. This settling budget is not
+an iOS completion guarantee. Typed results give `code`, `nextAction`, `resolvesAt`.
+The cleanup tick prunes journal tombstones only while the engine is provably
+stopped; an active engine owns its cached journal. Offline cancellation uses
+that same ownership check.
 
 Native installation uses its existing per-app lock and bounded journal. A lost
 reply resolves when dated inventory shows that version or a newer version for

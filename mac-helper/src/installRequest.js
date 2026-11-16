@@ -31,7 +31,8 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
     if (!build || build.id !== id || build.state !== "ready" || build.signing?.deviceInstallable !== true
       || build.preserveData === false || !build.app?.teamID || !build.app?.bundleIdentifier
       || !build.app?.version || !build.app?.build || !build.artifacts?.ipaPath
-      || build.tokenExpiredAt || !Number.isFinite(Date.parse(build.expiresAt)) || Date.parse(build.expiresAt) <= now()) throw failure("INSTALL_BUILD_UNAVAILABLE");
+      || build.tokenExpiredAt || build.ipaTransfer?.state === "superseded"
+      || !Number.isFinite(Date.parse(build.expiresAt)) || Date.parse(build.expiresAt) <= now()) throw failure("INSTALL_BUILD_UNAVAILABLE");
     const selected = workspace || project;
     const buildPath = canonicalProjectPath(build.workspace || build.project);
     const rel = relative(projectRootForDescriptor(buildPath), resolve(cwd));
@@ -88,16 +89,14 @@ function projectResult(response, id, operation = "", timestamp = Date.now() / 10
     || value.installed !== false || value.requires_ios_confirmation !== true || !Number.isFinite(value.expires_at)) {
     throw failure(Object.hasOwn(GUIDANCE, response?.error) ? response.error : "INSTALL_REQUEST_UNAVAILABLE");
   }
-  const wasHanded = ["opening", "prompt-requested", "unconfirmed"].includes(value.state);
-  if ((wasHanded || value.state === "waiting") && value.expires_at + (wasHanded ? 86400 : 0) <= timestamp) value = { ...value, state: "expired" };
+  if (value.state === "waiting" && value.expires_at <= timestamp) value = { ...value, state: "expired" };
   const handed = ["opening", "prompt-requested", "unconfirmed"].includes(value.state);
   return { outcome: "install-request", buildID: id, state: value.state,
-    ...(operation === "cancel" && handed ? { code: "INSTALL_HANDOFF_PENDING",
-      resolvesAt: new Date((value.expires_at + 86400) * 1000).toISOString() } : {}),
+    ...(operation === "cancel" && handed ? { code: "INSTALL_HANDOFF_PENDING" } : {}),
     nextAction: operation === "cancel" && handed ? "check-status" : value.state === "waiting" ? "open-app" : ["opening", "unconfirmed"].includes(value.state) ? "check-status"
       : value.state === "prompt-requested" ? "confirm-install" : "none",
     expiresAt: new Date(value.expires_at * 1000).toISOString(), installed: false, requiresIOSConfirmation: true,
-    guidance: operation === "cancel" && handed ? "An iOS handoff already occurred and cannot be withdrawn. Check its status; the fence expires at resolvesAt."
+    guidance: operation === "cancel" && handed ? "Check build delivery status. Download evidence determines whether another installation must wait."
       : value.state === "waiting" ? "Queued. Unlock your iPhone and return to the matching Debug app to see the iOS install prompt. Confirm Install when prompted."
       : value.state === "prompt-requested" ? "The app handed the request to iOS. Confirm Install, and Download if iOS asks about cellular data. Installation is not yet verified."
       : value.state === "unconfirmed" || value.state === "opening" ? "The handoff may have occurred. Check the phone; this request will not be sent again automatically."

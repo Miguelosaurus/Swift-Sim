@@ -13,6 +13,7 @@ import {
   publicDeviceBuild,
 } from "../src/deviceBuilder.js";
 import { serveFile } from "../src/fileServer.js";
+import { admitIPA } from "../src/deviceBuildHandoff.js";
 import { badRequest, json, notFound, text, unauthorized } from "../src/http.js";
 import {
   createBoundaryProductionStoreFactory,
@@ -139,6 +140,7 @@ const server = createServer(async (req, res) => {
         contentType: "application/octet-stream",
         filename: `${resolved.build.app.name || resolved.build.scheme || "App"}.ipa`,
         notFound,
+        admit: () => admitIPA(buildStore(), buildID, resolved.capability.token),
       });
     }
 
@@ -199,6 +201,7 @@ function secretsMatch(expectedValue, actualValue) {
 }
 
 function deviceBuildExpired(build) {
+  if (build.ipaTransfer?.state === "superseded") return true;
   const expiresAt = Date.parse(build.expiresAt || "");
   return !Number.isFinite(expiresAt) || expiresAt <= Date.now();
 }

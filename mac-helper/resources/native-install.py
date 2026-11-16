@@ -225,7 +225,23 @@ def inventory(device, bundle, command):
     return command(["device", "info", "apps", "--device", device, "--bundle-id", bundle]).get("apps", [])
 
 
+def connected_devices(options, devices):
+    return [d for d in devices if d.get("hardwareProperties", {}).get("platform") == "iOS"
+            and d.get("hardwareProperties", {}).get("reality") == "physical"
+            and d.get("deviceProperties", {}).get("pairingState") == "paired"
+            and d.get("connectionProperties", {}).get("tunnelState") == "connected"
+            and (not options.device or options.device in [d.get("identifier"), d.get("hardwareProperties", {}).get("udid")])]
+
+
 def deliver(options, command=run):
+    # Read-only foreground reconciliation reuses the native inventory comparator;
+    # it neither prepares an IPA nor creates a native install journal.
+    if getattr(options, "observe", False):
+        devices = connected_devices(options, command(["list", "devices"]).get("devices", []))
+        wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
+        if len(devices) == 1 and at_or_after(inventory(devices[0]["identifier"], options.bundle, command), wanted, options.team):
+            return {"state": "installed-version-observed", "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        return {"state": "not-found"}
     root = Path(options.root)
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     private(root, True)
@@ -307,14 +323,8 @@ def deliver(options, command=run):
                 devices = command(["list", "devices"]).get("devices", [])
             except Exception:
                 return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
-            eligible = [d for d in devices
-                        if d.get("hardwareProperties", {}).get("platform") == "iOS"
-                        and d.get("hardwareProperties", {}).get("reality") == "physical"
-                        and d.get("hardwareProperties", {}).get("udid") in manifest["devices"]
-                        and d.get("deviceProperties", {}).get("pairingState") == "paired"
-                        and d.get("connectionProperties", {}).get("tunnelState") == "connected"
-                        and (not options.device or options.device in
-                             [d.get("identifier"), d.get("hardwareProperties", {}).get("udid")])]
+            eligible = [d for d in connected_devices(options, devices)
+                        if d.get("hardwareProperties", {}).get("udid") in manifest["devices"]]
             if len(eligible) != 1:
                 return {"state": "unavailable", "code": "NO_UNIQUE_REACHABLE_PHONE"}
             device = eligible[0]["identifier"]
@@ -368,6 +378,7 @@ if __name__ == "__main__":
     parser.add_argument("--expires-at", type=float, required=True)
     parser.add_argument("--device", default="")
     parser.add_argument("--status", action="store_true")
+    parser.add_argument("--observe", action="store_true")
     try:
         result = deliver(parser.parse_args())
     except Exception:

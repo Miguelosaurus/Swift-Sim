@@ -5,20 +5,20 @@ import { fileURLToPath } from "node:url";
 import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 
 const FOREGROUND_RETENTION_SECONDS = 86400;
-const HANDOFF_STATES = new Set(["opening", "prompt-requested", "unconfirmed"]);
 
 // Saved-build delivery/status and bounded journal maintenance; the native adapter stays lazy.
 export async function deliverSavedBuild({ buildID, project, workspace, scheme, device = "", status = false,
-  readBuild, saveVerification, direct = nativeInstall, prompt, foregroundFence = foregroundInstallFence, maintain = maintainForegroundJournal,
+  readBuild, saveVerification, direct = nativeInstall, prompt, foregroundFence, maintain = maintainForegroundJournal, store,
 } = {}) {
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(buildID || "")) return { state: "blocked", code: "INSTALL_REQUEST_INVALID" };
   if (!readBuild) {
     const { createPhase4ProductionStoreFactories } = await import("./persistence/phase4ProductionStores.js");
-    const store = createPhase4ProductionStoreFactories({ deviceMaintenance: false }).createDeviceBuildStore();
+    store = createPhase4ProductionStoreFactories({ deviceMaintenance: false }).createDeviceBuildStore();
     readBuild = id => store.get(id);
     saveVerification = (id, proof) => store.saveVerification(id, proof);
   }
   const build = await readBuild(buildID);
+  if (build?.ipaTransfer?.state === "superseded") return { state: "superseded", code: "INSTALL_SUPERSEDED", buildID, nextAction: "none" };
   if (!build || build.state !== "ready" || !build.signing?.deviceInstallable || build.preserveData === false
     || (!status && (build.tokenExpiredAt || Date.parse(build.expiresAt) <= Date.now()
     || !Number.isFinite(Date.parse(build.expiresAt))))) return { state: "blocked", code: "INSTALL_BUILD_UNAVAILABLE" };
@@ -36,7 +36,8 @@ export async function deliverSavedBuild({ buildID, project, workspace, scheme, d
     return { state: "unconfirmed", buildID, code: previous.code, nextAction: "check-status" };
   // A different build's live handoff also fences native installation. Terminal
   // tombstones and expired capabilities do not become permanent app-wide locks.
-  const fence = foregroundFence(build);
+  const fence = await (foregroundFence ? foregroundFence(build) : foregroundInstallFence(build, undefined, undefined,
+    { store, supersede: !status, observe: old => direct(old, { device, status: true, observe: true }) }));
   if (fence) return { state: "unconfirmed", buildID, ...fence };
   const native = await direct(build, { device, status });
   if (["installed", "installed-version-observed", "already-matching-version", "unconfirmed"].includes(native?.state)) {
@@ -69,7 +70,7 @@ function foreground(result) {
       ...(["opening", "unconfirmed"].includes(result.state) ? { code: "INSTALL_HANDOFF_PENDING" } : {}) }
     : { state: "blocked", code: result.code };
 }
-async function nativeInstall(build, { device, status }) {
+async function nativeInstall(build, { device, status, observe }) {
   const { runCommandWithDeadline } = await import("./deviceInventory.js");
   const args = [fileURLToPath(new URL("../resources/native-install.py", import.meta.url)),
     "--root", join(homedir(), ".swift-sim", "native-build-delivery"), "--build-id", build.id,
@@ -77,6 +78,7 @@ async function nativeInstall(build, { device, status }) {
     "--build", build.app.build, "--ipa", build.artifacts.ipaPath, "--expires-at", String(Date.parse(build.expiresAt) / 1000)];
   if (device) args.push("--device", device);
   if (status) args.push("--status");
+  if (observe) args.push("--observe");
   const result = await runCommandWithDeadline("python3", args, { timeoutMs: 240_000 });
   try {
     const value = JSON.parse(result.stdout);
@@ -84,22 +86,19 @@ async function nativeInstall(build, { device, status }) {
   } catch { return { state: "unconfirmed" }; }
 }
 
-// Read-only fence policy. Keep possible OS handoffs through the engine's
-// existing one-day tombstone window; never clear one merely for a newer build.
-export function foregroundInstallFence(build, directory = join(homedir(), ".swift-sim"), now = Date.now() / 1000) {
+// Gateway evidence, not the journal's tombstone lifetime, owns the install fence.
+export async function foregroundInstallFence(build, directory = join(homedir(), ".swift-sim"), now, { store, observe, identity, supersede } = {}) {
   try {
-    const entry = readForegroundJournal(directory).find(entry => entry.selector.bundle_id === build.app?.bundleIdentifier
-      && !["cancelled", "rejected", "expired"].includes(entry.state)
-      && foregroundDeadline(entry) > now);
-    return entry ? { code: "INSTALL_HANDOFF_PENDING", nextAction: entry.state === "waiting" ? "cancel-request" : "check-status",
-      message: entry.state === "waiting" ? "An older update is queued. Cancel its request or let it expire before another install."
-        : "An earlier iOS handoff may still finish. Check its status; the fence expires at resolvesAt.",
-      requestId: entry.id, resolvesAt: new Date(foregroundDeadline(entry) * 1000).toISOString() } : null;
+    if (!store) {
+      const { createPhase4ProductionStoreFactories } = await import("./persistence/phase4ProductionStores.js");
+      store = createPhase4ProductionStoreFactories({ stateRoot: directory, deviceMaintenance: false }).createDeviceBuildStore();
+    }
+    const { reconcileHandoffs } = await import("./deviceBuildHandoff.js");
+    return await reconcileHandoffs(store, build, { now: now === undefined ? Date.now : () => now * 1000, observe, identity, supersede });
   } catch { return { code: "INSTALL_QUEUE_UNAVAILABLE", nextAction: "check-mac",
-    message: "The private install journal could not be read. Check the Mac before another install." }; }
+    message: "Saved installation evidence could not be read. Check the Mac before another install." }; }
 }
-export function noForegroundJournal(build, directory, now) { return !foregroundInstallFence(build, directory, now); }
-function foregroundDeadline(entry) { return entry.expiresAt + (HANDOFF_STATES.has(entry.state) ? FOREGROUND_RETENTION_SECONDS : 0); }
+export async function noForegroundJournal(build, directory, now, options) { return !await foregroundInstallFence(build, directory, now, options); }
 function journalUnavailable() { return Object.assign(new Error("The private install journal is unavailable."), { code: "INSTALL_QUEUE_UNAVAILABLE" }); }
 function readForegroundJournal(directory) {
   try {
@@ -127,7 +126,7 @@ export async function maintainForegroundJournal({ directory = join(homedir(), ".
   return lock(async () => {
     assertStopped();
     const current = readForegroundJournal(directory), selected = current.find(e => e.id === cancelID);
-    const result = selected ? { ...selected, state: foregroundDeadline(selected) <= now ? "expired"
+    const result = selected ? { ...selected, state: selected.state === "waiting" && selected.expiresAt <= now ? "expired"
       : selected.state === "waiting" ? "cancelled" : selected.state } : null;
     const retained = current.filter(e => e.expiresAt + FOREGROUND_RETENTION_SECONDS > now)
       .map(e => e.id === cancelID ? result : e);
@@ -141,7 +140,7 @@ export async function offlineInstallRequest(id, operation) {
   const entry = operation === "cancel" ? await maintainForegroundJournal({ cancelID: id })
     : readForegroundJournal(directory).find(e => e.id === id);
   if (!entry) return { success: false, error: "INSTALL_REQUEST_NOT_FOUND" };
-  return { success: true, data: { build_id: entry.id, state: foregroundDeadline(entry) <= Date.now() / 1000 ? "expired" : entry.state,
+  return { success: true, data: { build_id: entry.id, state: entry.state === "waiting" && entry.expiresAt <= Date.now() / 1000 ? "expired" : entry.state,
     expires_at: entry.expiresAt, installed: false, requires_ios_confirmation: true } };
 }
 

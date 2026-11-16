@@ -25,6 +25,7 @@ export function capabilityForTokens(build, tokens = []) {
 }
 
 export function effectiveCapabilityExpiry(build, capability = build) {
+  if (build?.ipaTransfer?.state === "superseded") return 0;
   const explicitValue = String(capability?.expiresAt || "").trim();
   const explicit = explicitValue ? Date.parse(explicitValue) : Number.NaN;
   if (explicitValue && !Number.isFinite(explicit)) return Number.NaN;
