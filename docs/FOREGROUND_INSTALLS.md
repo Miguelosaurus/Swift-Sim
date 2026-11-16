@@ -69,9 +69,29 @@ resubmit that request. Cancel affects waiting work; it cannot withdraw an iOS
 prompt already handed off. Normal installed-build/launch verification remains
 separate. This prototype does not automatically open the replacement app.
 
-The private journal retains at most 32 requests and bounded tombstones beyond
-link expiry. It contains the temporary install capability and stays local with
-owner-only permissions. There is no new timer, socket, watcher or helper process.
+The private journal retains at most 32 requests and tombstones for one day after
+link expiry; retention does not fence installation. Delivering a newer build
+atomically revokes older unstarted handoffs and marks their build records
+`superseded`. Gateway IPA admission and revocation share the build transaction.
+One active stream per build fences until completion, disconnect or capability
+expiry; its process identity prevents a crashed gateway leaving a live fence.
+Completed downloads fence for three minutes, matching the native install budget,
+or until same-or-newer inventory proves completion. This settling budget is not
+an iOS completion guarantee. Typed results give `code`, `nextAction`, `resolvesAt`.
+The cleanup tick prunes journal tombstones only while the engine is provably
+stopped; an active engine owns its cached journal. Offline cancellation uses
+that same ownership check.
+
+Native installation uses its existing per-app lock and bounded journal. A lost
+reply resolves when dated inventory shows that version or a newer version for
+the same app. Resolved staging is then removed, so a newer build can proceed.
+Expiry alone never proves an admitted native installer stopped. Reconnect the
+original phone and check status to resolve that case; an active installer keeps
+its lock and returns an explicit wait action. Terminal native receipts expire one day after link expiry,
+during the next native/status transaction.
+
+The foreground journal contains the temporary install capability and stays local
+with owner-only permissions. There is no new timer, socket, watcher or helper process.
 The phone reuses its developer-tool ledger; Release SDK objects exclude this
 runtime. This is an OTA handoff through the existing Debug connection, not a new
 native cellular InstallationProxy transport or a system-wide install facility.

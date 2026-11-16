@@ -2,19 +2,23 @@ import { lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 
-// Imported only after a signed fallback build, or an explicit status request.
+const FOREGROUND_RETENTION_SECONDS = 86400;
+
+// Saved-build delivery/status and bounded journal maintenance; the native adapter stays lazy.
 export async function deliverSavedBuild({ buildID, project, workspace, scheme, device = "", status = false,
-  readBuild, saveVerification, direct = nativeInstall, prompt, foregroundClear = noForegroundJournal,
+  readBuild, saveVerification, direct = nativeInstall, prompt, foregroundFence, maintain = maintainForegroundJournal, store,
 } = {}) {
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(buildID || "")) return { state: "blocked", code: "INSTALL_REQUEST_INVALID" };
   if (!readBuild) {
     const { createPhase4ProductionStoreFactories } = await import("./persistence/phase4ProductionStores.js");
-    const store = createPhase4ProductionStoreFactories({ deviceMaintenance: false }).createDeviceBuildStore();
+    store = createPhase4ProductionStoreFactories({ deviceMaintenance: false }).createDeviceBuildStore();
     readBuild = id => store.get(id);
     saveVerification = (id, proof) => store.saveVerification(id, proof);
   }
   const build = await readBuild(buildID);
+  if (build?.ipaTransfer?.state === "superseded") return { state: "superseded", code: "INSTALL_SUPERSEDED", buildID, nextAction: "none" };
   if (!build || build.state !== "ready" || !build.signing?.deviceInstallable || build.preserveData === false
     || (!status && (build.tokenExpiredAt || Date.parse(build.expiresAt) <= Date.now()
     || !Number.isFinite(Date.parse(build.expiresAt))))) return { state: "blocked", code: "INSTALL_BUILD_UNAVAILABLE" };
@@ -30,16 +34,18 @@ async function installSavedBuild(build, { buildID, project, workspace, scheme, d
   readBuild, saveVerification, direct, prompt, foregroundClear }) {
   if (status && !device && ["launch-confirmed", "verified"].includes(build.installation?.state)
     && /^[a-f0-9]{64}$/.test(build.installation?.launchFingerprint || "")) return { state: "installed-version-observed", buildID };
+  if (!status) await maintain().catch(() => {});
   // Existing prompt receipts fence the alternative route, including lost replies.
   const ask = prompt || (await import("./installRequest.js")).requestAppInstall;
   const previous = await ask({ buildID, operation: "status" });
   if (previous.outcome === "install-request") return foreground(previous);
-  // Any status ambiguity must not switch transports and install again.
-  if (previous.code !== "INSTALL_REQUEST_NOT_FOUND") {
-    // A fresh installation need not start the live engine. Only absence of its
-    // private journal can establish that no older OTA request needs inspection.
-    if (previous.code !== "INSTALL_REQUEST_UNAVAILABLE" || !foregroundClear(build)) return { state: "unconfirmed", buildID, code: previous.code };
-  }
+  if (previous.code !== "INSTALL_REQUEST_NOT_FOUND" && previous.code !== "INSTALL_REQUEST_UNAVAILABLE")
+    return { state: "unconfirmed", buildID, code: previous.code, nextAction: "check-status" };
+  // A different build's live handoff also fences native installation. Terminal
+  // tombstones and expired capabilities do not become permanent app-wide locks.
+  const fence = await (foregroundFence ? foregroundFence(build) : foregroundInstallFence(build, undefined, undefined,
+    { store, supersede: !status, observe: old => direct(old, { device, status: true, observe: true }) }));
+  if (fence) return { state: "unconfirmed", buildID, ...fence };
   const native = await direct(build, { device, status });
   if (["installed", "installed-version-observed", "already-matching-version", "unconfirmed"].includes(native?.state)) {
     const observed = Number.isFinite(Date.parse(native.observedAt)) ? native.observedAt : undefined;
@@ -52,20 +58,26 @@ async function installSavedBuild(build, { buildID, project, workspace, scheme, d
       && Date.parse(current.installation.updatedAt) > Date.parse(observed)) return {
       state: current.installation.state, buildID, code: "INSTALL_RECEIPT_SUPERSEDED",
     };
-    return { state: native.state, buildID, ...(observed ? { observedAt: observed } : {}),
+    return { state: native.state, buildID,
+      ...(native.state === "unconfirmed" ? { code: native.code || "INSTALL_RESULT_UNCONFIRMED",
+        nextAction: native.nextAction || "check-status", message: native.message || "Check the earlier native install before trying again." } : {}),
+      ...(observed ? { observedAt: observed } : {}),
       ...(typeof native.launchRequested === "boolean" ? { launchRequested: native.launchRequested } : {}) };
   }
-  if (native?.state !== "unavailable" && native?.state !== "not-found") return { state: "unconfirmed", buildID, code: "INSTALL_RESULT_UNCONFIRMED" };
+  if (native?.state !== "unavailable" && native?.state !== "not-found") return { state: "unconfirmed", buildID, code: native?.code || "INSTALL_RESULT_UNCONFIRMED",
+    nextAction: native?.nextAction || "check-status", message: native?.message || "Check the existing native installation before trying again." };
   if (status) return { state: "not-found", buildID };
   if (device) return { state: "blocked", code: "INSTALL_SELECTED_DEVICE_UNAVAILABLE" };
   return foreground(await ask({ buildID, project, workspace, scheme }));
 }
 function foreground(result) {
   return result.outcome === "install-request"
-    ? { state: result.state, buildID: result.buildID, requiresIOSConfirmation: true, expiresAt: result.expiresAt }
+    ? { state: result.state, buildID: result.buildID, requiresIOSConfirmation: true, expiresAt: result.expiresAt,
+      nextAction: result.nextAction || (result.state === "waiting" ? "open-app" : result.state === "prompt-requested" ? "confirm-install" : "check-status"),
+      ...(["opening", "unconfirmed"].includes(result.state) ? { code: "INSTALL_HANDOFF_PENDING" } : {}) }
     : { state: "blocked", code: result.code };
 }
-async function nativeInstall(build, { device, status }) {
+async function nativeInstall(build, { device, status, observe }) {
   const { runCommandWithDeadline } = await import("./deviceInventory.js");
   const args = [fileURLToPath(new URL("../resources/native-install.py", import.meta.url)),
     "--root", join(homedir(), ".swift-sim", "native-build-delivery"), "--build-id", build.id,
@@ -73,6 +85,7 @@ async function nativeInstall(build, { device, status }) {
     "--build", build.app.build, "--ipa", build.artifacts.ipaPath, "--expires-at", String(Date.parse(build.expiresAt) / 1000)];
   if (device) args.push("--device", device);
   if (status) args.push("--status");
+  if (observe) args.push("--observe");
   const result = await runCommandWithDeadline("python3", args, { timeoutMs: 240_000 });
   try {
     const value = JSON.parse(result.stdout);
@@ -80,18 +93,62 @@ async function nativeInstall(build, { device, status }) {
   } catch { return { state: "unconfirmed" }; }
 }
 
-export function noForegroundJournal(build, directory = join(homedir(), ".swift-sim")) {
+// Gateway evidence, not the journal's tombstone lifetime, owns the install fence.
+export async function foregroundInstallFence(build, directory = join(homedir(), ".swift-sim"), now, { store, observe, identity, supersede } = {}) {
   try {
-    const parent = lstatSync(directory);
-    if (!parent.isDirectory() || parent.isSymbolicLink() || parent.mode & 0o077 || parent.uid !== process.getuid()) return false;
-    const file = join(directory, "install-requests.json");
+    if (!store) {
+      const { createPhase4ProductionStoreFactories } = await import("./persistence/phase4ProductionStores.js");
+      store = createPhase4ProductionStoreFactories({ stateRoot: directory, deviceMaintenance: false }).createDeviceBuildStore();
+    }
+    const { reconcileHandoffs } = await import("./deviceBuildHandoff.js");
+    return await reconcileHandoffs(store, build, { now: now === undefined ? Date.now : () => now * 1000, observe, identity, supersede });
+  } catch { return { code: "INSTALL_QUEUE_UNAVAILABLE", nextAction: "check-mac",
+    message: "Saved installation evidence could not be read. Check the Mac before another install." }; }
+}
+export async function noForegroundJournal(build, directory, now, options) { return !await foregroundInstallFence(build, directory, now, options); }
+function journalUnavailable() { return Object.assign(new Error("The private install journal is unavailable."), { code: "INSTALL_QUEUE_UNAVAILABLE" }); }
+function readForegroundJournal(directory) {
+  try {
+    const parent = lstatSync(directory), file = join(directory, "install-requests.json");
+    if (!parent.isDirectory() || parent.isSymbolicLink() || parent.mode & 0o077 || parent.uid !== process.getuid()) throw journalUnavailable();
     const stat = lstatSync(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.mode & 0o077 || stat.uid !== process.getuid() || stat.size > 1024 * 1024) return false;
-    // Do not interpret, rewrite or discard another route's uncertainty.
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.mode & 0o077 || stat.uid !== process.getuid() || stat.size > 196608) throw journalUnavailable();
     const entries = JSON.parse(readFileSync(file, "utf8"));
-    return Array.isArray(entries) && entries.length <= 32 && entries.every(entry =>
-      typeof entry?.selector?.bundle_id === "string" && entry.selector.bundle_id !== build.app.bundleIdentifier);
-  } catch (error) { return error?.code === "ENOENT"; }
+    if (!Array.isArray(entries) || entries.length > 32 || new Set(entries.map(e => e.id)).size !== entries.length
+      || entries.some(e => !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(e.id || "")
+        || typeof e.selector?.bundle_id !== "string" || !e.selector.bundle_id
+        || !["waiting", "opening", "prompt-requested", "unconfirmed", "rejected", "cancelled", "expired"].includes(e.state)
+        || !Number.isFinite(e.expiresAt) || e.expiresAt <= 0 || !Number.isFinite(Date.parse(new Date(e.expiresAt * 1000).toISOString())))) throw journalUnavailable();
+    return entries;
+  } catch (error) { if (error.code === "ENOENT") return []; throw journalUnavailable(); }
+}
+// The Swift engine caches this journal. Only mutate while its existing lifecycle
+// lock proves it is stopped; an unreachable live engine is never treated as dead.
+export async function maintainForegroundJournal({ directory = join(homedir(), ".swift-sim"), cancelID,
+  now = Date.now() / 1000, lock, assertStopped } = {}) {
+  const entries = readForegroundJournal(directory);
+  if (!cancelID && !entries.some(e => e.expiresAt + FOREGROUND_RETENTION_SECONDS <= now)) return;
+  lock ||= (await import("./liveEngineLifecycleLock.js")).withLiveEngineLifecycleLock;
+  assertStopped ||= (await import("./liveReload.js")).assertStoppedLiveEngineForRecovery;
+  return lock(async () => {
+    assertStopped();
+    const current = readForegroundJournal(directory), selected = current.find(e => e.id === cancelID);
+    const result = selected ? { ...selected, state: selected.state === "waiting" && selected.expiresAt <= now ? "expired"
+      : selected.state === "waiting" ? "cancelled" : selected.state } : null;
+    const retained = current.filter(e => e.expiresAt + FOREGROUND_RETENTION_SECONDS > now)
+      .map(e => e.id === cancelID ? result : e);
+    if (JSON.stringify(retained) !== JSON.stringify(current)) await new NodeAtomicFileStore().writeJSON(join(directory, "install-requests.json"), retained,
+      { mode: 0o600, createParentMode: 0o700, replace: true, syncDirectory: true });
+    return result;
+  }, { waitMs: 0 });
+}
+export async function offlineInstallRequest(id, operation) {
+  const directory = join(homedir(), ".swift-sim");
+  const entry = operation === "cancel" ? await maintainForegroundJournal({ cancelID: id })
+    : readForegroundJournal(directory).find(e => e.id === id);
+  if (!entry) return { success: false, error: "INSTALL_REQUEST_NOT_FOUND" };
+  return { success: true, data: { build_id: entry.id, state: entry.state === "waiting" && entry.expiresAt <= Date.now() / 1000 ? "expired" : entry.state,
+    expires_at: entry.expiresAt, installed: false, requires_ios_confirmation: true } };
 }
 
 export async function holdChangedBuild(buildID, store) {

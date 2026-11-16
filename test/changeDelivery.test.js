@@ -293,10 +293,10 @@ test("parallel build-input drift stops before any automatic install", async () =
   assert.equal(result.outcome, "needs-user-action"); assert.equal(result.reasonCode, "BUILD_INPUTS_CHANGED"); assert.equal(installs, 0);
 });
 
-test("an old native install receipt superseded by newer inventory cannot produce Installed or another link", async () => {
+for (const state of ["different-version", "superseded"]) test(`${state} cannot produce Installed or another link`, async () => {
   const result = await deliverChange({ files: STRUCTURAL,
     buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111" }),
-    installBuild: async () => ({ state: "different-version", code: "INSTALL_RECEIPT_SUPERSEDED" }) });
+    installBuild: async () => ({ state, code: "INSTALL_RECEIPT_SUPERSEDED" }) });
   assert.equal(result.outcome, "needs-user-action");
   assert.equal(result.reasonCode, "INSTALL_RECEIPT_SUPERSEDED"); assert.equal(result.delivery, undefined);
 });
@@ -323,4 +323,15 @@ for (const automatic of [false, true]) test(`notification uncertainty survives $
   assert.equal(result.outcome, automatic ? "install-unconfirmed" : "install-link-ready");
   assert.deepEqual(result.notification, notification);
   assert.equal(validateDeliveryEnvelope(result).valid, true);
+});
+
+test("automatic delivery preserves the install fence reason and resolution deadline", async () => {
+  const blocked = { state: "unconfirmed", code: "INSTALL_HANDOFF_PENDING", nextAction: "check-status",
+    message: "An earlier handoff may still complete. ".repeat(100), resolvesAt: "2026-12-01T00:00:00Z" };
+  const result = await deliverChange({ files: STRUCTURAL,
+    buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111" }), installBuild: async () => blocked });
+  assert.equal(result.outcome, "install-unconfirmed");
+  assert.equal(result.delivery.code, blocked.code); assert.equal(result.delivery.nextAction, blocked.nextAction);
+  assert.equal(result.delivery.resolvesAt, blocked.resolvesAt);
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 1024);
 });

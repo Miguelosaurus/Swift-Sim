@@ -37,6 +37,7 @@ import { handleDeviceAppRoutes } from "../src/http/deviceAppRoutes.js";
 import { createDeviceBuildCommandApplicationService } from "../src/http/deviceBuildCommandApplicationService.js";
 import { handleDeviceBuildCommandRoutes } from "../src/http/deviceBuildCommandRoutes.js";
 import { createDeviceBuildCapabilityApplicationService } from "../src/http/deviceBuildCapabilityApplicationService.js";
+import { admitIPA } from "../src/deviceBuildHandoff.js";
 import { handleDeviceBuildCapabilityRoutes } from "../src/http/deviceBuildCapabilityRoutes.js";
 import { createHelperControlApplicationService } from "../src/http/helperControlApplicationService.js";
 import { handleHelperControlRoutes } from "../src/http/helperControlRoutes.js";
@@ -297,7 +298,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     port,
     deviceBuildsOnly,
     recoverInterruptedBuilds: () => deviceBuildRuntime.recoverInterruptedBuilds(),
-    scheduleDeliveryCleanup: () => deviceBuildRuntime.scheduleDeliveryCleanup(),
+    scheduleDeliveryCleanup: async () => {
+      await deviceBuildRuntime.scheduleDeliveryCleanup();
+      const { maintainForegroundJournal } = await import("../src/buildDelivery.js");
+      await maintainForegroundJournal().catch(() => {});
+    },
     reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
     reconcileLiveDeliveries: () => liveDeliveryService().runOnce(),
     watchLiveDeliveries: (onChange) => createNodeLiveDeliveryWakeup({ rootPath: liveDeliveryService().queue.rootPath, onChange }),
@@ -351,6 +356,7 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     projectBuild: projectDeviceBuild,
   });
   const deviceBuildCapabilityService = createDeviceBuildCapabilityApplicationService({
+    admitIPA: (id, token) => admitIPA(deviceBuildStore, id, token),
     pairedMacEnabled: !deviceBuildsOnly,
     pairingTokenMatches,
     getBuild: (buildID) => deviceBuildStore.get(buildID),

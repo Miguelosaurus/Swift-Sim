@@ -44,7 +44,7 @@ export const deviceBuildCapabilityAuthorizationMatrix = Object.freeze([
  *   req: import("node:http").IncomingMessage,
  *   res: import("node:http").ServerResponse,
  *   url: URL,
- *   service: { execute(input: { operation: string, buildID: string, request: unknown, url: URL, artifact?: string }): Promise<{ kind: string, status?: number, body?: unknown, message?: string, contentType?: string, headers?: Record<string, string>, path?: string, filename?: string }> },
+ *   service: { execute(input: { operation: string, buildID: string, request: unknown, url: URL, artifact?: string }): Promise<{ kind: string, status?: number, body?: unknown, message?: string, contentType?: string, headers?: Record<string, string>, path?: string, filename?: string, admit?: () => unknown }> },
  * }} input
  */
 export async function handleDeviceBuildCapabilityRoutes({ req, res, url, service }) {
@@ -78,6 +78,7 @@ export async function handleDeviceBuildCapabilityRoutes({ req, res, url, service
       contentType: outcome.contentType || "application/octet-stream",
       filename: outcome.filename || "download",
       notFound,
+      admit: outcome.admit,
     });
   } else {
     throw new TypeError(`Unknown device build capability outcome: ${outcome.kind}`);

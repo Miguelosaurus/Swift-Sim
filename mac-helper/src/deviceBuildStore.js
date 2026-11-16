@@ -82,9 +82,9 @@ export class DeviceBuildStore extends DeviceBuildStoreCore {
         error.code = "SWIFT_SIM_BUILD_CANCELLED";
         throw error;
       }
-
       const incoming = normalizeIncomingBuild(structuredClone(build));
       preserveCompilerCacheRetirement(incoming, existing);
+      incoming.ipaTransfer = existing.ipaTransfer; // Gateway/delivery transactions own this field.
       incoming.installation = newerInstallation(existing.installation, incoming.installation);
       incoming.logs = mergeLogs(existing.logs, incoming.logs);
       incoming.capabilities = mergeCapabilities(existing.capabilities, incoming.capabilities);
@@ -775,7 +775,7 @@ function requiredProcessStartedAt(pid) {
   );
 }
 
-function processStartedAt(pid) {
+export function processStartedAt(pid) {
   const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
   return result.status === 0 ? String(result.stdout || "").trim() : "";
 }

@@ -33,9 +33,10 @@ class DeliveryTests(unittest.TestCase):
         self.scratch.cleanup()
 
     def prepare(self, ipa, out):
-        out.mkdir()
+        out.mkdir(mode=0o700)
         (out / "manifest.json").write_text(json.dumps({"identity": {"bundle": "example.Test", "version": "1", "build": self.options.build},
                                                        "team": "TEAM", "sha256": "a" * 64, "devices": ["UDID"]}))
+        (out / "manifest.json").chmod(0o400)
 
     def command(self, args, timeout=12):
         if args == ["list", "devices"]:
@@ -54,6 +55,16 @@ class DeliveryTests(unittest.TestCase):
 
     def run_delivery(self):
         return module.deliver(self.options, self.command)
+
+    def test_foreground_observation_is_read_only_and_accepts_same_or_newer_inventory(self):
+        self.options.observe = True
+        for build, expected in [("1", "not-found"), ("2", "installed-version-observed"), ("3", "installed-version-observed")]:
+            self.inventory[0]["bundleVersion"] = build
+            self.assertEqual(self.run_delivery()["state"], expected)
+        self.inventory[0]["teamIdentifier"] = "different-fixture"
+        self.assertEqual(self.run_delivery()["state"], "not-found")
+        self.assertEqual(self.installs, 0)
+        self.assertFalse(Path(self.options.root).exists())
 
     def test_complete_inventory_duplicate_and_temp_cleanup(self):
         self.assertEqual(self.run_delivery()["state"], "installed")
@@ -81,7 +92,76 @@ class DeliveryTests(unittest.TestCase):
         self.options.status = False
         self.options.build_id = "build-2"
         self.options.build = "3"
+        self.fail = False
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        self.assertEqual(self.installs, 2)
+        self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
+
+    def test_newer_inventory_resolves_old_uncertainty_and_releases_staging(self):
+        self.fail = True
+        self.run_delivery()
+        self.inventory[0]["bundleVersion"] = "3"
+        self.options.build_id = "build-2"
+        self.options.build = "4"
+        self.fail = False
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        self.assertEqual(self.installs, 2)
+        self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
+        journal = next(Path(self.options.root).glob("*.json"))
+        old = json.loads(journal.read_text())["entries"]["build-1"]
+        self.assertEqual(old["state"], "superseded")
+        self.assertFalse(old["cleanupPending"])
+        self.options.build_id = "build-1"
+        self.options.build = "2"
+        self.assertEqual(self.run_delivery()["state"], "superseded")
+        self.assertEqual(self.installs, 2)
+
+    def test_expiry_does_not_replay_an_unresolved_native_handoff(self):
+        self.fail = True
+        self.run_delivery()
+        self.options.expires_at = 1
+        self.options.build_id = "build-2"
+        result = self.run_delivery()
+        self.assertEqual(result["code"], "INSTALL_RECONCILE_REQUIRED")
+        self.assertEqual(result["nextAction"], "check-status")
+        self.assertEqual(self.installs, 1)
+
+    def test_terminal_history_prunes_on_status_reads(self):
+        self.run_delivery()
+        journal = next(Path(self.options.root).glob("*.json"))
+        value = json.loads(journal.read_text())
+        value["entries"]["build-1"]["expires"] = 1
+        journal.write_text(json.dumps(value))
+        self.options.status = True
+        self.assertEqual(self.run_delivery()["state"], "not-found")
+        self.assertEqual(json.loads(journal.read_text())["entries"], {})
+        self.assertEqual(self.installs, 1)
+
+    def test_terminal_pruning_does_not_wait_for_an_unresolved_native_handoff(self):
+        self.fail = True
+        self.run_delivery()
+        journal = next(Path(self.options.root).glob("*.json"))
+        value = json.loads(journal.read_text())
+        value["entries"]["old-terminal"] = {**value["entries"]["build-1"], "buildID": "old-terminal",
+                                              "state": "installed", "cleanupPending": False, "expires": 1}
+        journal.write_text(json.dumps(value))
+        self.options.status = True
         self.assertEqual(self.run_delivery()["state"], "unconfirmed")
+        self.assertEqual(set(json.loads(journal.read_text())["entries"]), {"build-1"})
+        self.assertEqual(self.installs, 1)
+
+    def test_unproven_staging_path_is_never_removed(self):
+        self.fail = True
+        self.run_delivery()
+        journal = next(Path(self.options.root).glob("*.json"))
+        value = json.loads(journal.read_text())
+        victim = self.root / "preserve"
+        victim.mkdir()
+        value["entries"]["build-1"]["staging"] = str(victim)
+        journal.write_text(json.dumps(value))
+        self.inventory[0]["bundleVersion"] = "2"
+        self.assertEqual(self.run_delivery()["state"], "unconfirmed")
+        self.assertTrue(victim.exists())
         self.assertEqual(self.installs, 1)
 
     def test_retains_old_receipt_after_a_later_build(self):

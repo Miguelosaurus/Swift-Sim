@@ -245,7 +245,9 @@ test("artifacts and install pages stay capability-only even for a paired Mac", a
 
 test("capability manifest, IPA, and install page preserve scoped origin and security headers", async () => {
   const build = readyBuild({ remoteBaseUrl: "" });
+  let admissions = 0;
   const service = createDeviceBuildCapabilityApplicationService(dependencies({
+    admitIPA: (id, token) => { admissions++; assert.equal(id, build.id); assert.equal(token, build.token); return { status: 200 }; },
     getBuild: () => structuredClone(build),
     buildManifest: (scoped, base) => `manifest:${scoped.token}:${base}`,
     renderInstallPage: (scoped) => `page:${scoped.token}:${scoped.remoteBaseUrl}`,
@@ -266,8 +268,12 @@ test("capability manifest, IPA, and install page preserve scoped origin and secu
       headers: {},
     },
   );
+  const { admit, ...ipa } = await execute(service, "artifact", { token: "cap-token" }, undefined, "ipa");
+  assert.equal(admissions, 0, "authorization alone does not admit a stream");
+  assert.equal(admit().status, 200);
+  assert.equal(admissions, 1);
   assert.deepEqual(
-    await execute(service, "artifact", { token: "cap-token" }, undefined, "ipa"),
+    ipa,
     {
       kind: "file",
       path: "/tmp/App.ipa",
@@ -291,6 +297,7 @@ test("capability manifest, IPA, and install page preserve scoped origin and secu
 function dependencies(overrides = {}) {
   return {
     pairedMacEnabled: true,
+    admitIPA: () => ({ status: 200 }),
     pairingTokenMatches: () => false,
     getBuild: () => readyBuild(),
     saveBuild: () => {},

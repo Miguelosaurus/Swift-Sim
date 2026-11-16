@@ -141,7 +141,7 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
     try { installed = await installBuild({ buildID: built.id, project, workspace, scheme }); }
     catch { installed = { state: "unconfirmed", buildID: built.id }; }
     const state = installed?.state;
-    if (["different-version", "not-installed"].includes(state)) return deliveryEnvelope({
+    if (["different-version", "not-installed", "superseded"].includes(state)) return deliveryEnvelope({
       outcome: "needs-user-action", reasonCode: "INSTALL_RECEIPT_SUPERSEDED",
       message: "A newer device check superseded this install receipt. No installation was repeated.",
       error: { code: "INSTALL_RECEIPT_SUPERSEDED", message: "Check the currently installed build before requesting another update." },
@@ -155,6 +155,8 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
         : "Installation may have started. Check delivery status before trying again.",
         reasonCode, rebuildReason, notification: built.notification, delivery: { kind: "device-install", requestId: built.id, state,
           requiresIOSConfirmation: installed.requiresIOSConfirmation === true,
+          ...(installed.code ? { code: installed.code } : {}), ...(installed.nextAction ? { nextAction: installed.nextAction } : {}),
+          ...(installed.resolvesAt ? { resolvesAt: installed.resolvesAt } : {}),
           ...(installed.expiresAt ? { expiresAt: installed.expiresAt } : {}) }, timing: { totalMs: elapsed(now, startedAt) } });
     }
   }
