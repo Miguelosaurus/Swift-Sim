@@ -115,7 +115,9 @@ export function createInstallPresentationReader({
       if (
         !UUID.test(key) ||
         r.buildID !== key ||
-        !["submitting", "installed", "installed-version-observed"].includes(r.state) ||
+        !["submitting", "installed", "installed-version-observed", "superseded"].includes(
+          r.state,
+        ) ||
         !r.identity ||
         !["bundle", "version", "build"].every(
           (k) =>
@@ -127,7 +129,12 @@ export function createInstallPresentationReader({
         throw new Error();
       return {
         id: key.toLowerCase(),
-        state: r.state === "submitting" ? "unconfirmed" : "confirming",
+        state:
+          r.state === "submitting"
+            ? "unconfirmed"
+            : r.state === "superseded"
+              ? "cancelled"
+              : "confirming",
         bundle: r.identity.bundle,
         version: r.identity.version,
         build: r.identity.build,
@@ -166,7 +173,12 @@ export function createInstallPresentationReader({
         );
         if (b)
           result.set(b.id, {
-            state: r.state === "waiting" && r.expiresAt <= now() ? "expired" : r.state,
+            state:
+              (r.state === "waiting" && r.expiresAt <= now()) ||
+              (["opening", "prompt-requested", "unconfirmed"].includes(r.state) &&
+                r.expiresAt + 86400000 <= now())
+                ? "expired"
+                : r.state,
           });
       }
     } catch {

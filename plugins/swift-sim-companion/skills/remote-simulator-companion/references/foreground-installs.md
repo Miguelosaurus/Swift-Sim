@@ -55,3 +55,5 @@ events. No new phone runtime, watcher or notification polling is needed. Current
 qualification is cellular delivery with native confirmation; do not promise
 silent Xcode-like cellular installation. Apple's managed-app distribution offers
 silent paths, but device management is outside this optional Debug workflow.
+
+Possible handoffs keep their fence until request expiry plus the existing one-day retention window; follow `code`, `nextAction`, and `resolvesAt` when blocked. Offline cancellation/pruning requires a provably stopped engine; native uncertainty requires same-or-newer inventory proof, never expiry alone.

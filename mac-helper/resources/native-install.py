@@ -180,6 +180,47 @@ def matching(apps, identity):
                and a.get("bundleVersion") == identity["build"] for a in apps)
 
 
+def at_or_after(apps, wanted, team):
+    def number(value):
+        parts = value.split(".")
+        if not parts or any(not p.isdecimal() for p in parts):
+            raise ValueError("unordered_version")
+        result = tuple(map(int, parts))
+        while result and result[-1] == 0:
+            result = result[:-1]
+        return result
+    for app in apps:
+        if (app.get("bundleIdentifier") != wanted["bundle"]
+                or app.get("teamIdentifier", team) != team):
+            continue
+        candidate = {"bundle": wanted["bundle"], "version": app.get("version", ""), "build": app.get("bundleVersion", "")}
+        if candidate == wanted:
+            return True
+        try:
+            if (number(candidate["version"]), number(candidate["build"])) > (number(wanted["version"]), number(wanted["build"])):
+                return True
+        except (ValueError, AttributeError):
+            pass
+    return False
+
+
+def release_staging(root, record, team):
+    staging = Path(record["staging"])
+    if staging.parent != root or not staging.name.startswith("prepare-"):
+        raise ValueError("invalid_staging")
+    if staging.exists() or staging.is_symlink():
+        private(staging, True)
+        private(staging / "frozen", True)
+        manifest_path = staging / "frozen" / "manifest.json"
+        private(manifest_path)
+        manifest = json.loads(manifest_path.read_text())
+        if (manifest.get("identity") != record["identity"] or manifest.get("team") != team
+                or manifest.get("sha256") != record["sha256"]):
+            raise ValueError("unproven_staging")
+        shutil.rmtree(staging)
+    record["cleanupPending"] = False
+
+
 def inventory(device, bundle, command):
     return command(["device", "info", "apps", "--device", device, "--bundle-id", bundle]).get("apps", [])
 
@@ -195,7 +236,8 @@ def deliver(options, command=run):
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            return {"state": "unconfirmed", "code": "INSTALL_BUSY"}
+            return {"state": "unconfirmed", "code": "INSTALL_BUSY", "nextAction": "wait",
+                    "message": "Another native installer holds this app lock. Wait for it to finish, then check status."}
         records = {}
         if journal.exists():
             private(journal)
@@ -205,34 +247,55 @@ def deliver(options, command=run):
             records = envelope.get("entries")
             if (not isinstance(records, dict) or len(records) > 128
                     or any(not isinstance(v, dict) or v.get("state") not in
-                           ["submitting", "installed", "installed-version-observed"] for v in records.values())):
+                           ["submitting", "installed", "installed-version-observed", "superseded"] for v in records.values())):
                 raise ValueError("invalid_journal")
+            original = json.dumps(records, sort_keys=True)
+            # Terminal receipts expire even on status/duplicate reads. Unknown
+            # submissions remain fenced until inventory can resolve them.
+            records = {k: v for k, v in records.items() if v.get("state") == "submitting" or v.get("cleanupPending")
+                       or v.get("expires", v.get("at", 0)) + 86400 > time.time()}
+            if json.dumps(records, sort_keys=True) != original:
+                save(journal, records)
+                original = json.dumps(records, sort_keys=True)
             pending = [v for v in records.values() if v.get("state") == "submitting" or v.get("cleanupPending")]
             if len(pending) > 1:
                 raise ValueError("invalid_journal")
             old = pending[0] if pending else None
             if old:
-                # Even another build cannot bypass an unresolved submission.
+                # Holding the per-app flock excludes a still-running installer.
+                # A dated same/newer inventory observation resolves a lost reply;
+                # capability expiry alone cannot cancel an admitted native install.
                 try:
                     apps = inventory(old["device"], old["identity"]["bundle"], command)
-                    if not matching(apps, old["identity"]):
-                        return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED"}
-                    old["state"] = "installed-version-observed"
-                    old["observedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                    save(journal, records)
-                    if old["buildID"] != options.build_id:
-                        return {"state": "unconfirmed", "code": "INSTALL_STAGING_RETAINED"}
                 except Exception:
-                    return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED"}
+                    return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED", "nextAction": "check-status",
+                            "message": "Reconnect the original iPhone and check status to resolve its earlier native installation."}
+                if not at_or_after(apps, old["identity"], options.team):
+                    return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED", "nextAction": "check-status",
+                            "message": "The original iPhone must confirm the pending version or a newer version before another install. Reconnect it and check status."}
+                exact = matching([app for app in apps if app.get("teamIdentifier", options.team) == options.team], old["identity"])
+                try:
+                    release_staging(root, old, options.team)
+                except Exception:
+                    return {"state": "unconfirmed", "code": "INSTALL_STAGING_RETAINED", "nextAction": "check-mac",
+                            "message": "Inventory resolved the earlier install, but its owned staging could not be verified or removed. Check the Mac before another install."}
+                old["state"] = "installed-version-observed" if exact else "superseded"
+                old["observedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            if json.dumps(records, sort_keys=True) != original:
+                save(journal, records)
             if options.build_id in records:
+                if records[options.build_id]["state"] == "superseded":
+                    return {"state": "superseded", "code": "INSTALL_SUPERSEDED", "nextAction": "none",
+                            "message": "Inventory confirmed a newer version. This older install request will not be replayed."}
                 return {"state": records[options.build_id]["state"], "buildID": options.build_id,
                         "observedAt": records[options.build_id].get("observedAt")}
         if options.status:
             return {"state": "not-found"}
-        records = {k: v for k, v in records.items() if v.get("state") == "submitting" or v.get("cleanupPending")
-                   or v.get("expires", float("inf")) + 86400 > time.time()}
+        if options.expires_at <= time.time():
+            return {"state": "unavailable", "code": "INSTALL_BUILD_EXPIRED", "nextAction": "check-status"}
         if len(records) >= 128:
-            return {"state": "unconfirmed", "code": "INSTALL_HISTORY_FULL"}
+            return {"state": "unconfirmed", "code": "INSTALL_HISTORY_FULL", "nextAction": "check-status",
+                    "message": "The bounded native journal is full. Check status to reconcile earlier installs; terminal receipts expire after one day."}
         with Preparation(root) as scratch:
             prepared = Path(scratch) / "frozen"
             prepare(Path(options.ipa), prepared)
@@ -310,5 +373,6 @@ if __name__ == "__main__":
     except Exception:
         # Pre-submission failure may use the normal foreground/link handoff.
         # A saved submitting fence is rechecked on every subsequent invocation.
-        result = {"state": "unconfirmed", "code": "DIRECT_INSTALL_UNAVAILABLE"}
+        result = {"state": "unconfirmed", "code": "DIRECT_INSTALL_UNAVAILABLE", "nextAction": "check-mac",
+                  "message": "The private native install journal or signed artifact could not be verified. Check the Mac before another install."}
     print(json.dumps(result))

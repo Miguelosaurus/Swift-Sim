@@ -1,13 +1,14 @@
 import test from "node:test";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import assert from "node:assert/strict";
-import { deliverSavedBuild, holdChangedBuild, noForegroundJournal } from "../mac-helper/src/buildDelivery.js";
+import { deliverSavedBuild, holdChangedBuild, noForegroundJournal, foregroundInstallFence, maintainForegroundJournal } from "../mac-helper/src/buildDelivery.js";
 const buildID = "11111111-1111-1111-1111-111111111111";
 function fixture() {
   const calls = [];
   const build = { id: buildID, state: "ready", signing: { deviceInstallable: true }, preserveData: true,
     expiresAt: new Date(Date.now() + 100000).toISOString(), project: "/tmp/App.xcodeproj", scheme: "App" };
   return { calls, build, input: { buildID, project: build.project, scheme: build.scheme,
-    readBuild: () => build,
+    readBuild: () => build, maintain: async () => {}, foregroundFence: () => null,
     direct: async (_, options) => { calls.push(["direct", options]); return { state: "unavailable" }; },
     prompt: async request => { calls.push(["prompt", request.operation]); return request.operation === "status"
       ? { code: "INSTALL_REQUEST_NOT_FOUND" }
@@ -30,7 +31,7 @@ test("existing OTA request fences native route; status never enqueues", async ()
   assert.equal(other.calls.filter(c => c[0] === "prompt").length, 1);
 });
 test("ambiguous OTA status never switches to native installation", async () => {
-  const f = fixture(); f.input.prompt = async () => ({ code: "INSTALL_REQUEST_UNAVAILABLE" }); f.input.foregroundClear = () => false;
+  const f = fixture(); f.input.prompt = async () => ({ code: "INSTALL_REQUEST_UNAVAILABLE" }); f.input.foregroundFence = () => ({ code: "INSTALL_HANDOFF_PENDING", nextAction: "check-status" });
   assert.equal((await deliverSavedBuild(f.input)).state, "unconfirmed"); assert.equal(f.calls.length, 0);
 });
 for (const mutate of [f => f.input.project = "/other/App.xcodeproj", f => f.build.preserveData = false,
@@ -40,7 +41,7 @@ for (const mutate of [f => f.input.project = "/other/App.xcodeproj", f => f.buil
 
 test("a fresh native-only install does not require a running hot reload engine", async () => {
   const f = fixture(); f.input.prompt = async () => ({ code: "INSTALL_REQUEST_UNAVAILABLE" });
-  f.input.foregroundClear = () => true;
+  f.input.foregroundFence = () => null;
   f.input.direct = async () => ({ state: "installed" });
   assert.equal((await deliverSavedBuild(f.input)).state, "installed");
 });
@@ -88,4 +89,65 @@ test("the actual root foreground journal fences every alternate installation rou
   assert.equal(noForegroundJournal(build, root), false);
   writeFileSync(join(root, "install-requests.json"), "[]");
   assert.equal(noForegroundJournal(build, root), true);
+});
+
+async function journalFixture(t, entries) {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = mkdtempSync(join(tmpdir(), "swift-sim-install-history-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "install-requests.json");
+  writeFileSync(path, JSON.stringify(entries), { mode: 0o600 });
+  return { directory, read: () => new NodeAtomicFileStore().readJSONSync(path),
+    maintenance: { directory, now: 1000000, lock: async fn => fn(), assertStopped() {} } };
+}
+const oldRequest = (state, expiresAt, number = 2) => ({
+  id: `11111111-1111-1111-1111-${String(number).padStart(12, "0")}`,
+  selector: { bundle_id: "fixture.app" }, state, expiresAt,
+});
+
+test("expired older handoffs are pruned and cannot block a new native build while the engine is down", async t => {
+  const j = await journalFixture(t, [oldRequest("prompt-requested", 1000000 - 86401)]);
+  const f = fixture(); f.build.app = { bundleIdentifier: "fixture.app" };
+  f.input.prompt = async () => ({ code: "INSTALL_REQUEST_UNAVAILABLE" });
+  f.input.foregroundFence = b => foregroundInstallFence(b, j.directory, 1000000);
+  f.input.maintain = () => maintainForegroundJournal(j.maintenance);
+  f.input.direct = async () => { f.calls.push(["native"]); return { state: "installed" }; };
+  assert.equal((await deliverSavedBuild(f.input)).state, "installed");
+  assert.deepEqual(f.calls, [["native"]]); assert.deepEqual(j.read(), []);
+});
+
+for (const state of ["waiting", "opening", "prompt-requested", "unconfirmed"]) test(`${state} fences another build until its bounded deadline`, async t => {
+  const entry = oldRequest(state, 1000060), j = await journalFixture(t, [entry]);
+  const f = fixture(); f.build.app = { bundleIdentifier: "fixture.app" };
+  f.input.prompt = async () => ({ code: "INSTALL_REQUEST_NOT_FOUND" });
+  f.input.foregroundFence = b => foregroundInstallFence(b, j.directory, 1000000);
+  assert.equal((await deliverSavedBuild(f.input)).state, "unconfirmed");
+  assert.deepEqual(f.calls, [], "engine absence of this build is not absence of an older handoff");
+  const fence = foregroundInstallFence(f.build, j.directory, 1000000);
+  assert.equal(fence.code, "INSTALL_HANDOFF_PENDING"); assert.equal(fence.requestId, entry.id);
+  const deadline = 1000060 + (state === "waiting" ? 0 : 86400);
+  assert.equal(Date.parse(fence.resolvesAt) / 1000, deadline);
+  assert.equal(noForegroundJournal(f.build, j.directory, deadline), true);
+});
+
+test("cancellation preserves bounded tombstones, prunes old history, and never writes over a running engine", async t => {
+  const entries = Array.from({ length: 32 }, (_, i) => oldRequest("cancelled", 1000000 - 86401, i + 2));
+  entries[0] = oldRequest("waiting", 1000060);
+  const j = await journalFixture(t, entries);
+  await assert.rejects(maintainForegroundJournal({ ...j.maintenance, assertStopped() { throw Error("engine active"); } }), /engine active/);
+  assert.deepEqual(j.read(), entries);
+  const cancelled = await maintainForegroundJournal({ ...j.maintenance, cancelID: entries[0].id });
+  assert.equal(cancelled.state, "cancelled"); assert.equal(j.read().length, 1);
+  assert.equal(noForegroundJournal({ app: { bundleIdentifier: "fixture.app" } }, j.directory, 1000000), true);
+  await maintainForegroundJournal({ ...j.maintenance, now: 1000060 + 86400 });
+  assert.deepEqual(j.read(), []);
+});
+
+test("native uncertainty keeps its actionable reason in the delivery result", async () => {
+  const f = fixture(); f.input.direct = async () => ({ state: "unconfirmed", code: "INSTALL_RECONCILE_REQUIRED",
+    nextAction: "check-status", message: "Reconnect the original phone and check inventory." });
+  const result = await deliverSavedBuild(f.input);
+  assert.equal(result.code, "INSTALL_RECONCILE_REQUIRED"); assert.equal(result.nextAction, "check-status");
 });

@@ -69,9 +69,24 @@ resubmit that request. Cancel affects waiting work; it cannot withdraw an iOS
 prompt already handed off. Normal installed-build/launch verification remains
 separate. This prototype does not automatically open the replacement app.
 
-The private journal retains at most 32 requests and bounded tombstones beyond
-link expiry. It contains the temporary install capability and stays local with
-owner-only permissions. There is no new timer, socket, watcher or helper process.
+The private journal retains at most 32 requests and tombstones for one day after
+link expiry. Waiting work stops fencing at request expiry; possible OS handoffs
+retain the fence through that one-day window. The existing cleanup tick prunes
+old entries only while the engine is provably stopped; an active engine owns its
+cached journal. The documented cancellation command also works offline under
+that ownership check. Typed blocked results identify the earlier request, next
+action and fence deadline.
+
+Native installation uses its existing per-app lock and bounded journal. A lost
+reply resolves when dated inventory shows that version or a newer version for
+the same app. Resolved staging is then removed, so a newer build can proceed.
+Expiry alone never proves an admitted native installer stopped. Reconnect the
+original phone and check status to resolve that case; an active installer keeps
+its lock and returns an explicit wait action. Terminal native receipts expire one day after link expiry,
+during the next native/status transaction.
+
+The foreground journal contains the temporary install capability and stays local
+with owner-only permissions. There is no new timer, socket, watcher or helper process.
 The phone reuses its developer-tool ledger; Release SDK objects exclude this
 runtime. This is an OTA handoff through the existing Debug connection, not a new
 native cellular InstallationProxy transport or a system-wide install facility.

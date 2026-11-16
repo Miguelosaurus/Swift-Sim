@@ -10,13 +10,17 @@ const STATES = new Set(["waiting", "opening", "prompt-requested", "unconfirmed",
 // startup never imports this module or reads/hashes a signed build for it.
 export async function requestAppInstall({ buildID, operation = "enqueue", project, workspace, scheme,
   cwd = process.cwd(), now = () => Date.now(), readBuild, control, digest = hashArtifact,
-  listBuilds,
+  listBuilds, offline = async (id, operation) => (await import("./buildDelivery.js")).offlineInstallRequest(id, operation),
 } = {}) {
   try {
     if (!UUID.test(buildID || "") || !["enqueue", "status", "cancel"].includes(operation)) throw failure("INSTALL_REQUEST_INVALID");
     const id = buildID.toLowerCase();
     const request = control || (await import("./liveReload.js")).queuedLiveEngineControl;
-    if (operation !== "enqueue") return projectResult(await request({ action: "install_request", operation, build_id: id }), id);
+    if (operation !== "enqueue") {
+      let response = await request({ action: "install_request", operation, build_id: id });
+      if (!response) response = await offline(id, operation);
+      return projectResult(response, id, operation, now() / 1000);
+    }
     if (!readBuild) {
       const { createPhase4ProductionStoreFactories } = await import("./persistence/phase4ProductionStores.js");
       const store = createPhase4ProductionStoreFactories({ deviceMaintenance: false }).createDeviceBuildStore();
@@ -37,7 +41,7 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
     if (engine?.success !== true || engine.data?.foreground_install_requests !== true) throw failure("INSTALL_ENGINE_UPDATE_REQUIRED");
     // A repeated command reads the original receipt; it cannot renew or resend it.
     const previous = await request({ action: "install_request", operation: "status", build_id: id });
-    if (previous?.success === true) return projectResult(previous, id);
+    if (previous?.success === true) return projectResult(previous, id, "status", now() / 1000);
     if (previous?.error !== "INSTALL_REQUEST_NOT_FOUND") throw failure("INSTALL_QUEUE_UNAVAILABLE");
     const observed = engine.data.client_identity;
     const selector = observed?.bundle_id === build.app.bundleIdentifier
@@ -62,10 +66,13 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
     const value = JSON.stringify({ buildID: id, bundleID: build.app.bundleIdentifier, version: build.app.version,
       build: build.app.build, sha256, manifestURL: manifest.href,
       expiresAt: Math.min(Date.parse(build.expiresAt), now() + 2 * 60 * 60 * 1000) / 1000 });
-    return projectResult(await request({ action: "install_request", operation: "enqueue", build_id: id, selector, value }), id);
+    return projectResult(await request({ action: "install_request", operation: "enqueue", build_id: id, selector, value }), id, "enqueue", now() / 1000);
   } catch (error) {
-    const code = Object.hasOwn(GUIDANCE, error?.code) ? error.code : "INSTALL_REQUEST_UNAVAILABLE";
-    return { outcome: "needs-user-action", code, guidance: GUIDANCE[code], installed: false };
+    const code = error?.code === "RECOVERY_ENGINE_ACTIVE" ? "INSTALL_ENGINE_RECONCILE_REQUIRED"
+      : ["SWIFT_SIM_LIVE_ENGINE_BUSY", "SWIFT_SIM_LOCK_BUSY"].includes(error?.code) ? "INSTALL_QUEUE_BUSY"
+      : Object.hasOwn(GUIDANCE, error?.code) ? error.code : "INSTALL_REQUEST_UNAVAILABLE";
+    return { outcome: "needs-user-action", code, guidance: GUIDANCE[code], installed: false,
+      nextAction: code === "INSTALL_REQUEST_NOT_FOUND" ? "none" : code === "INSTALL_QUEUE_BUSY" ? "wait" : "check-mac" };
   }
 }
 
@@ -75,15 +82,23 @@ function binding(build) {
     expired: build.tokenExpiredAt, expiresAt: build.expiresAt, base: build.remoteBaseUrl,
     ipa: build.artifacts?.ipaPath, project: build.project, workspace: build.workspace, scheme: build.scheme, preserveData: build.preserveData };
 }
-function projectResult(response, id) {
-  const value = response?.data;
+function projectResult(response, id, operation = "", timestamp = Date.now() / 1000) {
+  let value = response?.data;
   if (response?.success !== true || value?.build_id !== id || !STATES.has(value.state)
     || value.installed !== false || value.requires_ios_confirmation !== true || !Number.isFinite(value.expires_at)) {
     throw failure(Object.hasOwn(GUIDANCE, response?.error) ? response.error : "INSTALL_REQUEST_UNAVAILABLE");
   }
+  const wasHanded = ["opening", "prompt-requested", "unconfirmed"].includes(value.state);
+  if ((wasHanded || value.state === "waiting") && value.expires_at + (wasHanded ? 86400 : 0) <= timestamp) value = { ...value, state: "expired" };
+  const handed = ["opening", "prompt-requested", "unconfirmed"].includes(value.state);
   return { outcome: "install-request", buildID: id, state: value.state,
+    ...(operation === "cancel" && handed ? { code: "INSTALL_HANDOFF_PENDING",
+      resolvesAt: new Date((value.expires_at + 86400) * 1000).toISOString() } : {}),
+    nextAction: operation === "cancel" && handed ? "check-status" : value.state === "waiting" ? "open-app" : ["opening", "unconfirmed"].includes(value.state) ? "check-status"
+      : value.state === "prompt-requested" ? "confirm-install" : "none",
     expiresAt: new Date(value.expires_at * 1000).toISOString(), installed: false, requiresIOSConfirmation: true,
-    guidance: value.state === "waiting" ? "Queued. Unlock your iPhone and return to the matching Debug app to see the iOS install prompt. Confirm Install when prompted."
+    guidance: operation === "cancel" && handed ? "An iOS handoff already occurred and cannot be withdrawn. Check its status; the fence expires at resolvesAt."
+      : value.state === "waiting" ? "Queued. Unlock your iPhone and return to the matching Debug app to see the iOS install prompt. Confirm Install when prompted."
       : value.state === "prompt-requested" ? "The app handed the request to iOS. Confirm Install, and Download if iOS asks about cellular data. Installation is not yet verified."
       : value.state === "unconfirmed" || value.state === "opening" ? "The handoff may have occurred. Check the phone; this request will not be sent again automatically."
       : `The install request is ${value.state}. No installation success is inferred.` };
@@ -142,6 +157,8 @@ const GUIDANCE = {
   INSTALL_REQUEST_CONFLICT: "Another request for this app is pending or uncertain. Inspect or cancel it before requesting another build.",
   INSTALL_REQUEST_NOT_FOUND: "No install request is saved for that build.",
   INSTALL_QUEUE_CAPACITY: "The bounded install request history is full. Existing requests were preserved.",
+  INSTALL_ENGINE_RECONCILE_REQUIRED: "The running engine owns this journal but could not confirm the request. Recover the existing delivery on the Mac before cancelling again; its records were preserved.",
+  INSTALL_QUEUE_BUSY: "Another engine lifecycle operation is active. Wait for it to finish, then check the existing request.",
   INSTALL_QUEUE_UNAVAILABLE: "The private install queue is unavailable. No request will be replayed automatically.",
   INSTALL_REQUEST_UNAVAILABLE: "The request could not be confirmed. Read its status before trying again; no installation success is inferred.",
 };

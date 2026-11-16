@@ -10,6 +10,9 @@ const moduleURL = pathToFileURL(fileURLToPath(
 )).href;
 
 test("setup-status derives the exact custom helper health endpoint", () => {
+  const previousPort = process.env.SWIFT_SIM_PORT;
+  process.env.SWIFT_SIM_PORT = "47217";
+  try {
   assert.deepEqual(
     helperHealthURLsFromProcess([
       process.execPath,
@@ -23,6 +26,10 @@ test("setup-status derives the exact custom helper health endpoint", () => {
       "http://localhost:48123/health",
     ],
   );
+  } finally {
+    if (previousPort === undefined) delete process.env.SWIFT_SIM_PORT;
+    else process.env.SWIFT_SIM_PORT = previousPort;
+  }
 });
 
 test("CLI health checks reject reachable incompatible helpers", () => {

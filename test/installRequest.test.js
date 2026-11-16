@@ -1,4 +1,5 @@
 import test from "node:test";
+import { NodeAtomicFileStore } from "../mac-helper/src/infrastructure/nodeAtomicFileStore.js";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,6 +19,7 @@ function fixture(overrides = {}) {
   const options = { buildID: id, cwd: "/tmp/install-fixture", now: () => 1000000,
     readBuild: async () => structuredClone(build), digest: async () => "a".repeat(64),
     listBuilds: async () => [launchedBuild()],
+    offline: async () => ({ success: false, error: "INSTALL_REQUEST_UNAVAILABLE" }),
     control: async request => {
       calls.push(request);
       if (request.action === "status") return { success: true, data: {
@@ -185,4 +187,41 @@ test("connected app and status/cancel/duplicate do not scan launch history", asy
     f.options.operation = operation; f.options.control = () => f.answer("cancelled");
     assert.equal((await requestAppInstall(f.options)).state, "cancelled");
   }
+});
+
+test("documented cancellation works with a stopped engine, prunes old history, and never retracts an admitted handoff", async t => {
+  const { spawnSync } = await import("node:child_process");
+  const home = mkdtempSync(join(tmpdir(), "swift-sim-offline-install-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  mkdirSync(join(home, ".swift-sim"), { mode: 0o700 });
+  const path = join(home, ".swift-sim", "install-requests.json");
+  const now = Date.now() / 1000;
+  const older = "22222222-2222-2222-2222-222222222222";
+  const entries = [{ id: older, selector: identity, value: "fixture", state: "prompt-requested", expiresAt: now - 86401 },
+    { id, selector: identity, value: "fixture", state: "unconfirmed", expiresAt: now + 60 }];
+  writeFileSync(path, JSON.stringify(entries), { mode: 0o600 });
+  const cli = new URL("../mac-helper/bin/swift-sim-entry.js", import.meta.url).pathname;
+  const run = (buildID, operation) => spawnSync(process.execPath, [cli, "request-install", "--build-id", buildID, operation], {
+    env: { ...process.env, HOME: home }, encoding: "utf8", timeout: 15000,
+  });
+  const active = run(id, "--cancel");
+  assert.equal(active.status, 0, active.stderr);
+  const pending = JSON.parse(active.stdout);
+  assert.equal(pending.code, "INSTALL_HANDOFF_PENDING"); assert.equal(pending.nextAction, "check-status");
+  assert.equal(new NodeAtomicFileStore().readJSONSync(path).length, 1, "expired tombstone was removed without clearing active uncertainty");
+  const expired = run(older, "--status");
+  assert.equal(JSON.parse(expired.stdout).code, "INSTALL_REQUEST_NOT_FOUND");
+  assert.equal(new NodeAtomicFileStore().readJSONSync(path)[0].state, "unconfirmed");
+  writeFileSync(path, "{");
+  const malformed = JSON.parse(run(id, "--cancel").stdout);
+  assert.equal(malformed.code, "INSTALL_QUEUE_UNAVAILABLE"); assert.equal(malformed.nextAction, "check-mac");
+  assert.equal(new NodeAtomicFileStore().readTextSync(path), "{", "corrupt evidence is preserved");
+});
+
+test("legacy engine status cannot keep an expired possible handoff actionable forever", async () => {
+  const f = fixture();
+  f.options.operation = "status"; f.options.now = () => (2000 + 86400) * 1000;
+  f.options.control = async () => f.answer("prompt-requested");
+  const result = await requestAppInstall(f.options);
+  assert.equal(result.state, "expired"); assert.equal(result.nextAction, "none");
 });

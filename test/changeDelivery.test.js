@@ -313,3 +313,23 @@ test("the next delivery reports a queued update that failed after the agent's la
   assert.equal((await deliver(() => ({ requestId: "earlier-request", state: "refreshed", proof: { revision: 3 }, createdAt: 1, updatedAt: 2 }))).previousFailure, undefined);
   assert.equal((await deliver(() => null)).previousFailure, undefined);
 });
+
+test("automatic delivery preserves the install fence reason and resolution deadline", async () => {
+  const blocked = { state: "unconfirmed", code: "INSTALL_HANDOFF_PENDING", nextAction: "check-status",
+    message: "An earlier handoff may still complete.", resolvesAt: "2026-12-01T00:00:00Z" };
+  const result = await deliverChange({ files: STRUCTURAL,
+    buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111" }), installBuild: async () => blocked });
+  assert.equal(result.outcome, "install-unconfirmed");
+  assert.equal(result.delivery.code, blocked.code); assert.equal(result.delivery.nextAction, blocked.nextAction);
+  assert.equal(result.delivery.resolvesAt, blocked.resolvesAt);
+});
+
+test("bounded signed-build diagnostics do not hide an uncertain installation behind an oversized-envelope error", async () => {
+  const result = await deliverChange({ files: STRUCTURAL,
+    buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111" }),
+    installBuild: async () => ({ state: "unconfirmed", code: "INSTALL_RECONCILE_REQUIRED", nextAction: "check-status",
+      message: "Reconnect the original iPhone and check status. ".repeat(10) }),
+  });
+  assert.equal(result.outcome, "install-unconfirmed"); assert.equal(result.delivery.code, "INSTALL_RECONCILE_REQUIRED");
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 2048);
+});

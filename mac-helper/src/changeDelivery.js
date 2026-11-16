@@ -155,6 +155,8 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
         : "Installation may have started. Check delivery status before trying again.",
         reasonCode, rebuildReason, delivery: { kind: "device-install", requestId: built.id, state,
           requiresIOSConfirmation: installed.requiresIOSConfirmation === true,
+          ...(installed.code ? { code: installed.code } : {}), ...(installed.nextAction ? { nextAction: installed.nextAction } : {}),
+          ...(installed.message ? { message: installed.message } : {}), ...(installed.resolvesAt ? { resolvesAt: installed.resolvesAt } : {}),
           ...(installed.expiresAt ? { expiresAt: installed.expiresAt } : {}) }, timing: { totalMs: elapsed(now, startedAt) } });
     }
   }
@@ -179,7 +181,7 @@ function finish(value, compact) {
   const check = validateDeliveryEnvelope(value);
   if (!check.valid) return failedEnvelope("INVALID_DELIVERY_ENVELOPE", check.errors.join(" "));
   if (!compact) return value;
-  const max = value.outcome === "install-link-ready" ? 2048 : 1024;
+  const max = ["install-link-ready", "installed", "install-queued", "install-prompt-requested", "install-unconfirmed"].includes(value.outcome) ? 2048 : 1024;
   return Buffer.byteLength(JSON.stringify(value)) <= max ? value : failedEnvelope("DELIVERY_ENVELOPE_TOO_LARGE", "Swift Sim returned an oversized delivery result.");
 }
 function diagnostics(verbose, value) { return verbose && value ? { diagnostics: value } : {}; }

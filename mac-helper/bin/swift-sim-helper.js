@@ -291,7 +291,11 @@ async function serve({ host, port, deviceBuildsOnly = false }) {
     port,
     deviceBuildsOnly,
     recoverInterruptedBuilds: () => deviceBuildRuntime.recoverInterruptedBuilds(),
-    scheduleDeliveryCleanup: () => deviceBuildRuntime.scheduleDeliveryCleanup(),
+    scheduleDeliveryCleanup: async () => {
+      await deviceBuildRuntime.scheduleDeliveryCleanup();
+      const { maintainForegroundJournal } = await import("../src/buildDelivery.js");
+      await maintainForegroundJournal().catch(() => {});
+    },
     reconcileRequestedBuilds: () => deviceInstallationReconciler.runOnce(),
     reconcileLiveDeliveries: () => liveDeliveryService().runOnce(),
     watchLiveDeliveries: (onChange) => createNodeLiveDeliveryWakeup({ rootPath: liveDeliveryService().queue.rootPath, onChange }),
