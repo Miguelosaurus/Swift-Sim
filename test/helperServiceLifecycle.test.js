@@ -127,7 +127,7 @@ test("activity reconciliation failure is bounded and later turns remain schedule
   harness.intervals.find(({ intervalMs }) => intervalMs === 5_000).callback();
   await tick();
   assert.equal(calls, 2);
-  assert.deepEqual(harness.errors, ["Activity reconciliation failed (unexpected error); saved updates are preserved."]);
+  assert.deepEqual(withoutTimestamps(harness.errors), ["Activity reconciliation failed (unexpected error); saved updates are preserved."]);
 });
 
 test("repeated reconciliation failures log a safe cause, sparse reminders and the recovery", async () => {
@@ -154,7 +154,7 @@ test("repeated reconciliation failures log a safe cause, sparse reminders and th
   await tick();
   timer.callback();
   await tick();
-  assert.deepEqual(harness.errors, [
+  assert.deepEqual(withoutTimestamps(harness.errors), [
     "Activity reconciliation failed (SQLite: database is locked); saved updates are preserved.",
     "Activity reconciliation failed (SQLite: database is locked, 10 failed attempts so far); saved updates are preserved.",
     "Activity reconciliation failed (SQLite: database is locked, 100 failed attempts so far); saved updates are preserved.",
@@ -184,7 +184,7 @@ test("live delivery failures report a changed cause and stay quiet during shutdo
   lifecycle.shutdown();
   timer.callback();
   await tick();
-  assert.deepEqual(harness.errors, [
+  assert.deepEqual(withoutTimestamps(harness.errors), [
     "Live delivery reconciliation failed (EBUSY); queued intent is preserved.",
     "Live delivery reconciliation failed (TypeError, 3 failed attempts so far); queued intent is preserved.",
   ]);
@@ -642,3 +642,30 @@ function deferred() {
 function tick() {
   return new Promise((resolve) => setImmediate(resolve));
 }
+
+function withoutTimestamps(lines) {
+  return lines.map(line => {
+    assert.match(line, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
+    assert.ok(Number.isFinite(Date.parse(line.slice(0, 24))));
+    return line.slice(25);
+  });
+}
+
+for (const lane of ["activity", "live"]) test(`${lane} logs timestamped redacted causes once per change`, async () => {
+  let failure = Object.assign(new Error("Bearer fixture-secret on fixture.invalid:12345 /Users/fixture"), {
+    code: "ERR_SQLITE_ERROR", errstr: "fixture secret hostname",
+  });
+  const reconcile = async () => { throw failure; };
+  const harness = createHarness(lane === "activity" ? { reconcileActivity: reconcile } : { reconcileLiveDeliveries: reconcile });
+  const lifecycle = harness.lifecycle();
+  await lifecycle.prepare(); await lifecycle.start(() => {}); await tick();
+  const timer = harness.intervals.find(({ intervalMs }) => intervalMs === (lane === "activity" ? 5000 : 1000));
+  timer.callback(); await tick();
+  assert.equal(harness.errors.length, 1);
+  assert.match(withoutTimestamps(harness.errors)[0], /failed \(ERR_SQLITE_ERROR\)/);
+  failure = Object.assign(new Error("fixture-secret"), { code: "ENOSPC" });
+  timer.callback(); await tick();
+  assert.equal(harness.errors.length, 2);
+  assert.match(withoutTimestamps(harness.errors)[1], /failed \(ENOSPC, 3 failed attempts/);
+  assert.doesNotMatch(harness.errors.join("\n"), /fixture|Bearer|12345|Users/);
+});

@@ -65,3 +65,5 @@ This reads the existing paired feed once and never retries, builds, opens an
 installer or starts App Testing. Missing/stale status is uncertainty, not an
 empty queue. Use only after delivery or for explicit progress/recovery, never
 before every warm edit.
+
+If `notification.code` is `NOTIFICATION_UNAVAILABLE`, report it and follow `notification.nextAction`; preserve the returned installation state and do not repeat delivery.

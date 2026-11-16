@@ -59,3 +59,18 @@ test("authority read failures reject before consuming input without private diag
   assert.equal(denied.res.status, 401); assert.equal(read, false); assert.deepEqual(f.calls, []);
   assert.doesNotMatch(JSON.stringify(denied.res.body), /private|Users|secret/);
 });
+
+test("only a paired private completion request reconciles activity and APNs", async () => {
+  const f = fixture();
+  f.service.reconcile = async () => { f.calls.push(["reconcile"]); };
+  for (const options of [{ privateHelper: false }, { authorize: () => false }]) {
+    assert.notEqual((await f.run(request("POST", "/api/activity"), options)).res.status, 200);
+    assert.deepEqual(f.calls, []);
+  }
+  assert.equal((await f.run(request("POST", "/api/activity"))).res.status, 200);
+  assert.deepEqual(f.calls.map(([name]) => name), ["reconcile", "feed"]);
+  f.service.reconcile = async () => { throw new Error("private path and token"); };
+  const failed = await f.run(request("POST", "/api/activity"));
+  assert.equal(failed.res.status, 400);
+  assert.doesNotMatch(JSON.stringify(failed.res.body), /private path|token/);
+});

@@ -21,6 +21,13 @@ export async function deliverSavedBuild({ buildID, project, workspace, scheme, d
   const { canonicalProjectPath } = await import("./liveSessionDescriptor.js");
   if ((project && workspace) || canonicalProjectPath(workspace || project) !== canonicalProjectPath(build.workspace || build.project)
     || (scheme && scheme !== build.scheme)) return { state: "blocked", code: "INSTALL_SCOPE_REQUIRED" };
+  const result = await installSavedBuild(build, { buildID, project, workspace, scheme, device, status,
+    readBuild, saveVerification, direct, prompt, foregroundClear });
+  return { ...result, ...(build.notification ? { notification: build.notification } : {}) };
+}
+
+async function installSavedBuild(build, { buildID, project, workspace, scheme, device, status,
+  readBuild, saveVerification, direct, prompt, foregroundClear }) {
   if (status && !device && ["launch-confirmed", "verified"].includes(build.installation?.state)
     && /^[a-f0-9]{64}$/.test(build.installation?.launchFingerprint || "")) return { state: "installed-version-observed", buildID };
   // Existing prompt receipts fence the alternative route, including lost replies.

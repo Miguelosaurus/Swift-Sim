@@ -89,3 +89,15 @@ test("the actual root foreground journal fences every alternate installation rou
   writeFileSync(join(root, "install-requests.json"), "[]");
   assert.equal(noForegroundJournal(build, root), true);
 });
+
+test("notification failure remains visible without bypassing the installation fence", async () => {
+  const f = fixture();
+  f.build.notification = { code: "NOTIFICATION_UNAVAILABLE", message: "Check the Mac.", nextAction: "check-mac" };
+  f.input.prompt = async () => ({ code: "INSTALL_REQUEST_UNAVAILABLE" });
+  f.input.foregroundClear = () => false;
+  const result = await deliverSavedBuild(f.input);
+  assert.equal(result.state, "unconfirmed");
+  assert.equal(result.code, "INSTALL_REQUEST_UNAVAILABLE");
+  assert.deepEqual(result.notification, f.build.notification);
+  assert.deepEqual(f.calls, []);
+});

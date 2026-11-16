@@ -96,7 +96,7 @@ let clock;
 let compatibilityRuntimeInitialized = false;
 let deviceBuildArtifactRetention;
 
-export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
+export async function runCompatibilityHelper(argv = process.argv.slice(2), lifecycle = {}) {
   if (await runExtractedHelperCommand(argv)) return;
   if (deviceBuildArtifactAuditCommandIsSupported(argv[0])) {
     const commandRunner = new NodeCommandRunner({ spawn, spawnSync });
@@ -111,7 +111,7 @@ export async function runCompatibilityHelper(argv = process.argv.slice(2)) {
     });
     return;
   }
-  initializeCompatibilityRuntime();
+  initializeCompatibilityRuntime(lifecycle);
   await main(argv);
 }
 
@@ -122,7 +122,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-function initializeCompatibilityRuntime() {
+function initializeCompatibilityRuntime({ announceReadyBuild } = {}) {
   if (compatibilityRuntimeInitialized) return;
   const runtime = createCompatibilityHelperRuntime();
   store = runtime.store;
@@ -151,6 +151,12 @@ function initializeCompatibilityRuntime() {
   deviceBuildRuntime = createDeviceBuildRuntimeController({
     store: deviceBuildStore,
     artifactRetention: deviceBuildArtifactRetention,
+    announceReadyBuild: async (buildID) => {
+      await announceReadyBuild(buildID, {
+        listBuilds: () => deviceBuildStore.list(),
+        loadPairing: () => pairingStore.current(),
+      });
+    },
     reportRetentionError: (message) => console.error(message),
     delivery: deviceDelivery,
     pathExists: existsSync,

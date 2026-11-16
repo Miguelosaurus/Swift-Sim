@@ -313,3 +313,14 @@ test("the next delivery reports a queued update that failed after the agent's la
   assert.equal((await deliver(() => ({ requestId: "earlier-request", state: "refreshed", proof: { revision: 3 }, createdAt: 1, updatedAt: 2 }))).previousFailure, undefined);
   assert.equal((await deliver(() => null)).previousFailure, undefined);
 });
+
+for (const automatic of [false, true]) test(`notification uncertainty survives ${automatic ? "automatic installation" : "link handoff"}`, async () => {
+  const notification = { code: "NOTIFICATION_UNAVAILABLE", message: "Share the link and check the Mac.", nextAction: "check-mac" };
+  const result = await deliverChange({ files: STRUCTURAL,
+    buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111", notification }),
+    ...(automatic ? { installBuild: async () => ({ state: "unconfirmed", code: "INSTALL_REQUEST_UNAVAILABLE" }) } : {}),
+  });
+  assert.equal(result.outcome, automatic ? "install-unconfirmed" : "install-link-ready");
+  assert.deepEqual(result.notification, notification);
+  assert.equal(validateDeliveryEnvelope(result).valid, true);
+});

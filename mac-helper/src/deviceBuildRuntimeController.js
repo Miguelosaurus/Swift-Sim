@@ -4,6 +4,12 @@ import { normalizeDeviceBuildTTLMinutes } from "./deviceBuildDefaults.js";
 import { runDeliveryCleanupSafely } from "./deliveryCleanupScheduler.js";
 import { trackDeviceBuildTask as trackRegisteredDeviceBuildTask } from "./deviceBuildTaskTracker.js";
 import { recordDeviceBuildFailure } from "./buildFailure.js";
+export const NOTIFICATION_UNAVAILABLE = Object.freeze({
+  code: "NOTIFICATION_UNAVAILABLE",
+  message:
+    "The build is ready, but its Companion announcement could not be confirmed. Check the Mac; installation status is unchanged.",
+  nextAction: "check-mac",
+});
 
 /** @typedef {import("./infrastructure/ports.js").Clock} Clock */
 /** @typedef {{ mode?: string, provider?: string | undefined, expiresAt?: string | undefined, generation?: string, referenceID?: string }} BuildDelivery */
@@ -30,6 +36,7 @@ import { recordDeviceBuildFailure } from "./buildFailure.js";
  *   logs?: string[],
  *   app?: unknown,
  *   artifacts?: unknown,
+ *   notification?: typeof NOTIFICATION_UNAVAILABLE,
  * }} BuildRecord */
 /** @typedef {{ afterTerminalBuild(build: BuildRecord): unknown }} ArtifactRetentionLike */
 /** @typedef {{ id: string, generation: string, referenceID: string, nextAttemptAt?: string, createdAt?: string }} DeliveryCleanupJob */
@@ -67,6 +74,7 @@ import { recordDeviceBuildFailure } from "./buildFailure.js";
  *   terminateRecordedWorker(build: BuildRecord): Promise<boolean>,
  *   signals: SignalRuntime,
  *   artifactRetention?: ArtifactRetentionLike,
+ *   announceReadyBuild(buildID: string): Promise<unknown>,
  *   reportRetentionError?(message: string): unknown,
  * }} DeviceBuildRuntimeDependencies */
 
@@ -362,6 +370,16 @@ export function createDeviceBuildRuntimeController(dependencies) {
       buildLogs(readyBuild).push("Install link is ready.");
       dependencies.store.save(readyBuild);
       await retainTerminalBuild(readyBuild);
+      try {
+        await dependencies.announceReadyBuild(readyBuild.id);
+        delete readyBuild.notification;
+      } catch {
+        readyBuild.notification = NOTIFICATION_UNAVAILABLE;
+      }
+      // A warning cannot fail a usable build, even when persistence is unavailable.
+      try {
+        dependencies.store.save(readyBuild);
+      } catch {}
       return readyBuild;
     } catch (error) {
       if (
@@ -495,6 +513,7 @@ function validateDependencies(dependencies) {
     ["clock.sleep", dependencies?.clock?.sleep],
     ["capabilityExpiresAt", dependencies?.capabilityExpiresAt],
     ["runBuild", dependencies?.runBuild],
+    ["announceReadyBuild", dependencies?.announceReadyBuild],
     ["requestCancellation", dependencies?.requestCancellation],
     ["terminateRecordedWorker", dependencies?.terminateRecordedWorker],
     ["signals.once", dependencies?.signals?.once],
