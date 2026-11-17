@@ -139,7 +139,7 @@ export async function fetchActivityFeed(pairing, { reconcile = false } = {}) {
   });
   if (!response.ok || !response.body) {
     await response.body?.cancel();
-    throw fail("DELIVERY_STATUS_UNAVAILABLE");
+    throw Object.assign(fail("DELIVERY_STATUS_UNAVAILABLE"), { httpStatus: response.status });
   }
   const parts = [];
   let size = 0;

@@ -25,21 +25,43 @@ export async function announceReadyBuild(buildID, {
 }) {
   const status = await health();
   if (!status.ok) {
-    if (status.failureCode !== "HELPER_CONNECTION_REFUSED") throw new Error("Helper unavailable");
-    await repair({ guard: () => {
-      // Startup recovers interrupted builds. Do not start it over another CLI's
-      // unfinished build; report uncertainty instead.
-      if (listBuilds().some(build => !["ready", "failed"].includes(build.state)))
-        throw new Error("Build active");
-    } });
-    if (!(await health()).ok) throw new Error("Helper unavailable");
+    if (status.failureCode !== "HELPER_CONNECTION_REFUSED")
+      throw announcementFailure("ANNOUNCE_HELPER_UNAVAILABLE", "Helper unavailable");
+    try {
+      await repair({ guard: () => {
+        // Startup recovers interrupted builds. Leave another CLI's work alone.
+        if (listBuilds().some(build => !["ready", "failed"].includes(build.state)))
+          throw announcementFailure("ANNOUNCE_BUILD_ACTIVE", "Build active");
+      } });
+    } catch (error) {
+      if (error?.code === "ANNOUNCE_BUILD_ACTIVE") throw error;
+      throw announcementFailure("ANNOUNCE_HELPER_START_FAILED");
+    }
+    if (!(await health()).ok)
+      throw announcementFailure("ANNOUNCE_HELPER_UNAVAILABLE", "Helper unavailable");
   }
-  const pairing = await loadPairing();
-  if (!pairing?.token || !pairing.installationID) throw new Error("Pairing unavailable");
+  let pairing;
+  try { pairing = await loadPairing(); }
+  catch { throw announcementFailure("ANNOUNCE_PAIRING_UNAVAILABLE"); }
+  if (!pairing?.token || !pairing.installationID)
+    throw announcementFailure("ANNOUNCE_PAIRING_UNAVAILABLE");
   publish ||= (await import("./deliveryStatus.js")).fetchActivityFeed;
-  const feed = await publish(pairing, { reconcile: true });
-  if (feed?.installationId !== pairing.installationID || !feed.events?.some(event => event.buildId === buildID))
-    throw new Error("Announcement unavailable");
+  let feed;
+  try { feed = await publish(pairing, { reconcile: true }); }
+  catch (error) {
+    const code = error?.name === "TimeoutError" ? "ANNOUNCE_ACTIVITY_TIMEOUT"
+      : [401, 403].includes(error?.httpStatus) ? "ANNOUNCE_ACTIVITY_UNAUTHORIZED"
+      : "ANNOUNCE_ACTIVITY_UNAVAILABLE";
+    throw announcementFailure(code);
+  }
+  if (feed?.installationId !== pairing.installationID)
+    throw announcementFailure("ANNOUNCE_PAIRING_CHANGED", "Announcement unavailable");
+  if (!Array.isArray(feed.events) || !feed.events.some(event => event?.buildId === buildID))
+    throw announcementFailure("ANNOUNCE_EVENT_MISSING", "Announcement unavailable");
+}
+
+function announcementFailure(code, message = code) {
+  return Object.assign(new Error(message), { code });
 }
 
 // Recovery and ready-build publication share the same bounded lifecycle repair.

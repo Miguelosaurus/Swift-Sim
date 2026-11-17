@@ -499,6 +499,19 @@ for (const startFails of [false, true]) test(`ready build with stopped helper ${
   assert.deepEqual(publicDeviceBuild(value).notification, value.notification);
 });
 
+test("build logs retain only a safe reason for a failed announcement", async () => {
+  const h = harness({ announceReadyBuild: async () => {
+    throw Object.assign(new Error("private path and token"), { code: "ANNOUNCE_ACTIVITY_TIMEOUT" });
+  } });
+  const runtime = createDeviceBuildRuntimeController(h.deps);
+  const build = await runtime.createBuild({ scheme: "App" });
+  const finished = await runtime.runCliBuild(build);
+  assert.equal(finished.state, "ready");
+  assert.deepEqual(finished.notification, NOTIFICATION_UNAVAILABLE);
+  assert.match(finished.logs.join("\n"), /ANNOUNCE_ACTIVITY_TIMEOUT/);
+  assert.doesNotMatch(finished.logs.join("\n"), /private path and token/);
+});
+
 test("announcement refuses an incompatible helper, another active build or an unconfirmed publication", async () => {
   const input = {
     listBuilds: () => [],

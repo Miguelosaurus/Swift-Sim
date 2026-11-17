@@ -930,7 +930,9 @@ function runHelperJSON(args) {
 }
 
 function runHelper(args, { inherit = false } = {}) {
-  const result = spawnSync(process.execPath, [helperPath, ...args], {
+  // Use the same entrypoint as deliver-change for build completion and recovery.
+  const entry = ["build-device", "resume-device-build"].includes(args[0]) ? helperEntryPath : helperPath;
+  const result = spawnSync(process.execPath, [entry, ...args], {
     encoding: "utf8",
     stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"],
     env: process.env,

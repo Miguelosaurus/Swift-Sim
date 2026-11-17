@@ -18,7 +18,7 @@ function fixture(overrides = {}) {
   const answer = state => ({ success: true, data: { build_id: id, state, expires_at: 2000, installed: false, requires_ios_confirmation: true } });
   const options = { buildID: id, cwd: "/tmp/install-fixture", now: () => 1000000,
     readBuild: async () => structuredClone(build), digest: async () => "a".repeat(64),
-    listBuilds: async () => [launchedBuild()],
+    listBuilds: async () => [launchedBuild()], restoreEngine: async () => false,
     offline: async () => ({ success: false, error: "INSTALL_REQUEST_UNAVAILABLE" }),
     control: async request => {
       calls.push(request);
@@ -90,6 +90,34 @@ test("missing or unsuccessful engine status never claims an engine update is nee
     assert.match(result.guidance, /Mac live engine is not responding/);
     assert.ok(!f.calls.some(x => x.operation === "enqueue"));
   }
+});
+
+test("install request restores a stopped prepared Debug engine before a single enqueue", async () => {
+  const f = fixture(); const control = f.options.control; let restores = 0;
+  f.options.control = async action => action.action === "status" && !restores ? null : control(action);
+  f.options.restoreEngine = async (scope, guard) => {
+    assert.deepEqual(scope, { project: f.build.project, scheme: f.build.scheme });
+    await guard();
+    restores++;
+    return true;
+  };
+  assert.equal((await requestAppInstall(f.options)).state, "waiting");
+  assert.equal(restores, 1);
+  assert.equal(f.calls.filter(call => call.operation === "enqueue").length, 1);
+});
+
+for (const running of [false, true]) test(`latest installed Release app blocks stale Debug evidence with engine ${running ? "running" : "stopped"}`, async () => {
+  const f = fixture();
+  const previousRelease = { ...fixtureBuild(), configuration: "Release",
+    installation: { state: "verified", verifiedAt: new Date(3000).toISOString() } };
+  f.options.listBuilds = () => [launchedBuild(), previousRelease];
+  f.options.restoreEngine = () => assert.fail("must not restore a stale Debug session");
+  if (running) offline(f);
+  else f.options.control = async () => null;
+  const result = await requestAppInstall(f.options);
+  assert.equal(result.code, "INSTALL_DEBUG_BASELINE_REQUIRED");
+  assert.equal(result.nextAction, "open-swift-sim");
+  assert.ok(!f.calls.some(call => call.operation === "enqueue"));
 });
 
 test("offline request binds verified launch history, never the new compiler capture", async () => {

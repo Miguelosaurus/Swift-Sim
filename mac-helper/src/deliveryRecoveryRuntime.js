@@ -4,17 +4,10 @@ import { homedir } from "node:os";
 import { createLiveDeliveryQueue } from "./liveDeliveryQueue.js";
 import { createLiveDeliveryRuntime } from "./liveDeliveryRuntime.js";
 import { createLiveDeliveryAdapter } from "./liveDeliveryAdapter.js";
-import { liveRuntimeLockManager, withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
+import { liveRuntimeLockManager } from "./liveEngineLifecycleLock.js";
 import { inspectRuntimeHealth } from "./runtimeHealth.js";
 import { createPhase4ProductionStoreFactories } from "./persistence/phase4ProductionStores.js";
-import {
-  inspectInstalledEngineForSetup,
-  withLiveBuildSession,
-  inspectLiveReload,
-  assertStoppedLiveEngineForRecovery,
-} from "./liveReload.js";
-import { engineMatchesContract } from "./componentCompatibility.js";
-import { readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
+import { restoreStoppedLiveEngine } from "./liveReload.js";
 
 // Loaded only by recover-delivery, never imported by the normal helper loop.
 export function createDeliveryRecoveryPorts({ repairHelper } = {}) {
@@ -59,37 +52,8 @@ export function createDeliveryRecoveryPorts({ repairHelper } = {}) {
         `http://127.0.0.1:${Number(process.env.SWIFT_SIM_PORT || 47217)}/health`,
       ),
     repairHelper,
-    async restoreStoppedEngine(record, guard) {
-      const options = { project: record.scope.project, scheme: record.scope.scheme };
-      const check = async () => {
-        guard();
-        const descriptor = readLiveSessionDescriptor({
-          projectPath: options.project,
-          scheme: options.scheme,
-        });
-        if (!descriptor.valid) throw fail("RECOVERY_BUILD_CONTEXT_REQUIRED");
-        if (!engineMatchesContract(inspectInstalledEngineForSetup()))
-          throw fail("RECOVERY_COMPONENT_REQUIRED");
-        assertStoppedLiveEngineForRecovery();
-      };
-      await check();
-      const before = await inspectLiveReload(options);
-      if (!before.tailnet.detected || !before.tailnet.privateForwardConfigured)
-        throw fail("RECOVERY_NETWORK_REQUIRED");
-      if (before.engine.running) throw fail("RECOVERY_ENGINE_ACTIVE");
-      await withLiveBuildSession(
-        options,
-        async ({ liveSession }) => {
-          if (!liveSession.started) throw fail("RECOVERY_ENGINE_UNCONFIRMED");
-        },
-        {
-          beforeStart: check,
-          lock: (operation) => withLiveEngineLifecycleLock(operation, { waitMs: 1500 }),
-        },
-      );
-    },
+    restoreStoppedEngine: (record, guard) => restoreStoppedLiveEngine(
+      { project: record.scope.project, scheme: record.scope.scheme }, guard,
+    ),
   };
-}
-function fail(code) {
-  return Object.assign(new Error(code), { code });
 }

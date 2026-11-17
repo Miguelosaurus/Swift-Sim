@@ -2,6 +2,15 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
+## Unreleased
+
+- Route `build-device` and `resume-device-build` through the helper entrypoint
+  that confirms Companion announcements. Failed confirmations preserve a
+  redacted reason in the build log.
+- Restore a stopped engine for a previously prepared Debug install session
+  when the exact scope and private route still match. A verified Release
+  install gets link guidance instead of retrying a stale Debug session.
+
 ## 0.6.9 - 2026-11-17
 
 - Confirm ready-build announcements after saving the inbox and queued alerts,

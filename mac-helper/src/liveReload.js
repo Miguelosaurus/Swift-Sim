@@ -1211,13 +1211,34 @@ export function assertStoppedLiveEngineForRecovery({ readRecord = readPublishedL
   } catch (error) { if (error.code !== "ENOENT") throw error; }
 }
 
+export async function restoreStoppedLiveEngine(options, guard = () => {}) {
+  return withLiveEngineLifecycleLock(async () => {
+    await guard();
+    const prepared = readLiveSessionDescriptor({ projectPath: options.project, scheme: options.scheme });
+    if (!prepared.valid)
+      throw registrationError("RECOVERY_BUILD_CONTEXT_REQUIRED", "No matching prepared Debug session.");
+    if (!engineMatchesContract(inspectInstalledEngineForSetup()))
+      throw registrationError("RECOVERY_COMPONENT_REQUIRED", "The installed live engine does not match this release.");
+    const status = await inspectLiveReloadUnlocked(options);
+    if (!status.tailnet.detected || !status.tailnet.privateForwardConfigured || status.host !== prepared.descriptor.liveHost)
+      throw registrationError("RECOVERY_NETWORK_REQUIRED", "The existing private live route is unavailable.");
+    assertStoppedLiveEngineForRecovery();
+    if (status.engine.running || (!existsSync(ENGINE_PID) && existsSync(ENGINE_SOCKET)))
+      throw registrationError("RECOVERY_ENGINE_ACTIVE", "An existing engine listener must be preserved.");
+    const restored = await startLiveReloadUnlocked({ ...options, recovery: true }, status);
+    if (!restored.started)
+      throw registrationError("RECOVERY_ENGINE_UNCONFIRMED", "The matching engine did not start.");
+    return true;
+  }, { waitMs: 1500 });
+}
+
 export async function startLiveReload(options = {}) {
   return withLiveEngineLifecycleLock(() => startLiveReloadUnlocked(options));
 }
 
-async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", forceRestart = false, buildSettings = [] } = {}) {
-  await ensureLiveEngineInstalledUnlocked();
-  let status = await inspectLiveReloadUnlocked({ project, host, scheme });
+async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", forceRestart = false, buildSettings = [], recovery = false } = {}, inspected) {
+  if (!recovery) await ensureLiveEngineInstalledUnlocked();
+  let status = inspected || await inspectLiveReloadUnlocked({ project, host, scheme });
   if (!status.project.readable) {
     return {
       ...status,
@@ -1240,7 +1261,9 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
   }
 
   const tailnet = discoverTailnet();
-  if (tailnet.socket) ensurePrivateTailnetForward(tailnet);
+  if (recovery && (tailnet.host !== status.host || (tailnet.socket && !isPrivateForwardConfigured(tailnet))))
+    return { ...status, started: false, error: "The existing private live route is unavailable." };
+  if (!recovery && tailnet.socket) ensurePrivateTailnetForward(tailnet);
   let signingIdentities;
   try {
     signingIdentities = resolveSigningIdentities(status.project.path, status.project.scheme, buildSettings);
@@ -1291,6 +1314,11 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
       scheme: status.project.scheme,
     })
     && session?.signingIdentity === signingIdentity;
+  if (recovery && !alreadyWatching) {
+    assertStoppedLiveEngineForRecovery();
+    if (running?.success || (!existsSync(ENGINE_PID) && existsSync(ENGINE_SOCKET)))
+      throw registrationError("RECOVERY_ENGINE_ACTIVE", "An existing engine listener must be preserved.");
+  }
   if (!alreadyWatching) {
     await stopLiveEngine();
     mkdirSync(LIVE_ROOT, { recursive: true });

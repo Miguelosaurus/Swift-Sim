@@ -11,6 +11,18 @@ export const NOTIFICATION_UNAVAILABLE = Object.freeze({
   nextAction: "check-mac",
 });
 
+const ANNOUNCEMENT_FAILURE_CODES = new Set([
+  "ANNOUNCE_HELPER_UNAVAILABLE",
+  "ANNOUNCE_HELPER_START_FAILED",
+  "ANNOUNCE_BUILD_ACTIVE",
+  "ANNOUNCE_PAIRING_UNAVAILABLE",
+  "ANNOUNCE_PAIRING_CHANGED",
+  "ANNOUNCE_ACTIVITY_TIMEOUT",
+  "ANNOUNCE_ACTIVITY_UNAUTHORIZED",
+  "ANNOUNCE_ACTIVITY_UNAVAILABLE",
+  "ANNOUNCE_EVENT_MISSING",
+]);
+
 /** @typedef {import("./infrastructure/ports.js").Clock} Clock */
 /** @typedef {{ mode?: string, provider?: string | undefined, expiresAt?: string | undefined, generation?: string, referenceID?: string }} BuildDelivery */
 /** @typedef {{ cancelPath?: string }} BuildControl */
@@ -373,7 +385,10 @@ export function createDeviceBuildRuntimeController(dependencies) {
       try {
         await dependencies.announceReadyBuild(readyBuild.id);
         delete readyBuild.notification;
-      } catch {
+      } catch (error) {
+        const code = /** @type {{ code?: string }} */ (error)?.code || "";
+        const reason = ANNOUNCEMENT_FAILURE_CODES.has(code) ? code : "ANNOUNCE_FAILED";
+        buildLogs(readyBuild).push(`Companion announcement could not be confirmed (${reason}).`);
         readyBuild.notification = NOTIFICATION_UNAVAILABLE;
       }
       // A warning cannot fail a usable build, even when persistence is unavailable.
