@@ -39,7 +39,9 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
     if ((project && workspace) || (selected ? canonicalProjectPath(selected) !== buildPath
       : isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) || (scheme && scheme !== build.scheme)) throw failure("INSTALL_SCOPE_REQUIRED");
     const engine = await request({ action: "status" });
-    if (engine?.success !== true || engine.data?.foreground_install_requests !== true) throw failure("INSTALL_ENGINE_UPDATE_REQUIRED");
+    if (engine?.success !== true || !engine.data || typeof engine.data !== "object" || Array.isArray(engine.data))
+      throw failure("INSTALL_ENGINE_UNAVAILABLE");
+    if (engine.data.foreground_install_requests !== true) throw failure("INSTALL_ENGINE_UPDATE_REQUIRED");
     // A repeated command reads the original receipt; it cannot renew or resend it.
     const previous = await request({ action: "install_request", operation: "status", build_id: id });
     if (previous?.success === true) return projectResult(previous, id, "status", now() / 1000);
@@ -151,6 +153,7 @@ const GUIDANCE = {
   INSTALL_SCOPE_REQUIRED: "Run from the matching app project or provide its --project/--workspace and --scheme.",
   INSTALL_RUNNING_APP_REQUIRED: "Open the matching Debug app once to establish its exact installed binary.",
   INSTALL_ALREADY_RUNNING: "The matching connected app already reports this build. No prompt was requested.",
+  INSTALL_ENGINE_UNAVAILABLE: "The Mac live engine is not responding. Check Swift Sim on the Mac or use the saved build's install link. No new install request was queued.",
   INSTALL_ENGINE_UPDATE_REQUIRED: "Update the Swift Sim engine before requesting installs through the Debug connection.",
   INSTALL_SDK_UPDATE_REQUIRED: "This Debug app needs the one-time SDK update for foreground installation requests.",
   INSTALL_REQUEST_CONFLICT: "Another request for this app is pending or uncertain. Inspect or cancel it before requesting another build.",

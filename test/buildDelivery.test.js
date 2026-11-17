@@ -167,3 +167,14 @@ test("notification failure remains visible without bypassing the installation fe
   assert.deepEqual(result.notification, f.build.notification);
   assert.deepEqual(f.calls, []);
 });
+
+test("a blocked foreground fallback preserves engine-unavailable guidance", async () => {
+  const f = fixture();
+  const guidance = "The Mac live engine is not responding. No new install request was queued.";
+  f.input.prompt = async request => request.operation === "status"
+    ? { code: "INSTALL_REQUEST_NOT_FOUND" }
+    : { outcome: "needs-user-action", code: "INSTALL_ENGINE_UNAVAILABLE", nextAction: "check-mac", guidance };
+  const result = await deliverSavedBuild(f.input);
+  assert.equal(result.state, "blocked"); assert.equal(result.code, "INSTALL_ENGINE_UNAVAILABLE");
+  assert.equal(result.nextAction, "check-mac"); assert.equal(result.message, guidance);
+});

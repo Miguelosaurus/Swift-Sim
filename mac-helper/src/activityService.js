@@ -78,9 +78,10 @@ export function createActivityService({ store, provider = createApnsProvider(), 
       running = tick().finally(() => { running = null; }); return running;
     },
     async reconcile() {
-      // A ready build may be newer than an in-flight tick's snapshot.
-      if (running) await running;
-      return this.runOnce();
+      // Re-read a ready build after an older snapshot finishes saving. Acknowledge
+      // durable inbox/alert storage, never an APNs round trip; the helper sends.
+      if (refreshing) await refreshing;
+      return refreshSnapshots();
     },
     feed({ after = 0, deviceId } = {}) {
       const pairing = authority();

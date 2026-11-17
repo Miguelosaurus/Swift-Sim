@@ -80,6 +80,18 @@ test("old engine and SDK are gated without automatic updates", async () => {
     assert.ok(!f.calls.some(x => x.operation === "enqueue"));
   }
 });
+test("missing or unsuccessful engine status never claims an engine update is needed", async () => {
+  for (const response of [null, { success: false, error: "UNAVAILABLE" }, { success: true }, { success: true, data: [] }]) {
+    const f = fixture(); const original = f.options.control;
+    f.options.control = request => request.action === "status" ? response : original(request);
+    const result = await requestAppInstall(f.options);
+    assert.equal(result.code, "INSTALL_ENGINE_UNAVAILABLE");
+    assert.equal(result.nextAction, "check-mac");
+    assert.match(result.guidance, /Mac live engine is not responding/);
+    assert.ok(!f.calls.some(x => x.operation === "enqueue"));
+  }
+});
+
 test("offline request binds verified launch history, never the new compiler capture", async () => {
   const f = fixture(); const original = f.options.control;
   f.options.control = async req => { const response = await original(req); if (req.action === "status") delete response.data.client_identity; return response; };
