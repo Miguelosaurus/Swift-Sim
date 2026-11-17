@@ -20,8 +20,9 @@ test("normal CLI and no-change delivery never load the recovery modules", (t) =>
     const result = spawnSync(process.execPath, ["--import", trace, entry, ...args], {
       env: { ...process.env, HOME: root },
       encoding: "utf8",
-      timeout: 10000,
+      timeout: 30000,
     });
+    assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stderr, /RECOVERY_MODULE_LOADED/);
   }

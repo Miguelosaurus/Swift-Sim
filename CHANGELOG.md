@@ -2,7 +2,7 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
-## 0.6.10 - 2026-11-17
+## 0.6.11 - 2026-11-17
 
 - Route `build-device` and `resume-device-build` through the helper entrypoint
   that confirms Companion announcements. Failed confirmations preserve a

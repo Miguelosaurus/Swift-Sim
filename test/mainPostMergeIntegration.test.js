@@ -125,7 +125,10 @@ test("live engine inspection is serialized with replacement", () => {
     source,
     /export async function inspectLiveReload\(options = \{\}\) \{\n  return withLiveEngineLifecycleLock/,
   );
-  assert.match(source, /let status = await inspectLiveReloadUnlocked/);
+  assert.match(
+    source,
+    /export async function restoreStoppedLiveEngine\([^\n]+\) \{\n  return withLiveEngineLifecycleLock\(async \(\) => \{\n[\s\S]*?const status = await inspectLiveReloadUnlocked\(options\);[\s\S]*?await startLiveReloadUnlocked\(\{ \.\.\.options, recovery: true \}, status\)/,
+  );
 });
 
 test("deeply nested attribute arguments require a rebuild", () => {

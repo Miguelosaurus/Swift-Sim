@@ -1,6 +1,6 @@
 {
   "name": "swift-sim",
-  "version": "0.6.10",
+  "version": "0.6.11",
   "private": true,
   "type": "module",
   "description": "Build and test iPhone apps from your Mac-hosted coding agent, over a private remote connection.",
