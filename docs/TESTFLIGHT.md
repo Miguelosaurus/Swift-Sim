@@ -2,13 +2,13 @@
 
 ## Availability
 
-Checked November 14, 2026 through the authenticated App Store Connect API:
-Swift Sim **0.6.6 (16)** is uploaded, processed successfully, nonexpired and
+Checked November 16, 2026 through the authenticated App Store Connect API:
+Swift Sim **0.6.8 (18)** is uploaded, processed successfully, nonexpired and
 ready for internal testing. It is assigned to the existing **Public Beta** group
 and its external beta submission is **Waiting for Review**. Swift Sim
-**0.6.5 (15)** remains approved and in external beta testing until then.
+**0.6.6 (16)** remains approved and in external beta testing until then.
 
-Do not describe 0.6.6 as publicly available until Apple approves it and its
+Do not describe 0.6.8 as publicly available until Apple approves it and its
 Public Beta assignment is verified again. A successful upload or private OTA
 install is not external beta availability. Apple's review is an external
 dependency; a planned launch date is not an approval receipt.
