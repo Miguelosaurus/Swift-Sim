@@ -10,6 +10,9 @@ settings. Older activity stays collapsed until you choose to expand it.
 
 A ready build can therefore appear without transferring its install link through
 chat. The phone fetches its install information through the authenticated helper.
+Announcement confirmation means the Mac saved the inbox event and queued any
+eligible alert. It does not wait for APNs; the helper's existing sender handles
+transmission and retries. Confirmation does not prove phone display.
 Build and hot reload notifications include a safe app display name when available.
 New builds read the compiled app's display name, with its bundle name and known
 build name as fallbacks; the IPA filename is no longer preferred. This read

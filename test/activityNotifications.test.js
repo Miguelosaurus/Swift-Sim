@@ -429,3 +429,54 @@ test("completion reconciliation publishes a new ready build after an older in-fl
     assert.equal(f.sent.length, 2, "completed alerts must not be replayed");
   } finally { release?.(); f.cleanup(); }
 });
+
+for (const inFlight of [false, true]) test(`completion publishes durably without waiting for ${inFlight ? "an in-flight" : "a new"} APNs request`, async () => {
+  const f = fixture(); let release; let running;
+  const gate = new Promise(resolve => { release = resolve; });
+  try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    f.sendWith(async () => { await gate; return { state: "accepted" }; });
+    if (inFlight) {
+      f.setBuilds([f.build("older-alert")]); running = f.service.runOnce();
+      while (!f.sent.length) await new Promise(resolve => setImmediate(resolve));
+      f.advance();
+    }
+    const ready = f.build("ready-build"); f.setBuilds([ready]);
+    let timer;
+    try {
+      await Promise.race([f.service.reconcile(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Completion waited for APNs")), 1000);
+      })]);
+    } finally { clearTimeout(timer); }
+    assert.ok(f.service.feed().events.some(event => event.buildId === ready.id));
+    assert.ok(f.store.snapshot().jobs.some(job => job.eventId === f.service.feed().events.find(event => event.buildId === ready.id).id));
+    release(); await running; await f.service.runOnce();
+    assert.equal(f.sent.filter(input => input.payload.buildId === ready.id).length, 1);
+    await f.service.reconcile(); await f.service.runOnce();
+    assert.equal(f.sent.filter(input => input.payload.buildId === ready.id).length, 1, "confirmation must not replay an alert");
+  } finally { release(); await running; await f.service.stop(); f.cleanup(); }
+});
+
+test("completion refreshes a ready build after an older snapshot finishes saving", async () => {
+  const f = fixture(); let release; let entered; let blocked = true; let builds;
+  const gate = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const service = createActivityService({
+    store: { ...f.store, async sync(input) {
+      if (blocked) { blocked = false; entered(); await gate; }
+      return f.store.sync(input);
+    } },
+    provider: f.provider, now: f.now,
+    getPairing: () => ({ epoch: sha("pairing-one"), installationId: "test-mac" }),
+    listBuilds: () => builds,
+  });
+  let older; let completion;
+  try {
+    await f.service.runOnce(); await f.register(); f.advance();
+    builds = [f.build("ready-build", "building")]; older = service.refresh(); await started;
+    f.advance(); builds = [f.build("ready-build")]; completion = service.reconcile();
+    release(); await older; await completion;
+    assert.equal(service.feed().events.find(event => event.buildId === "ready-build").kind, "build-ready");
+    assert.equal(f.store.snapshot().jobs.length, 1);
+  } finally { release(); await older; await completion; await service.stop(); f.cleanup(); }
+});

@@ -15,6 +15,12 @@ launch receipt. The owner confirmed data/settings survived the earlier install.
 This is a
 foreground handoff with manual iOS confirmation, not unattended installation.
 
+An unavailable Mac live engine does not prove an old engine or phone SDK.
+`INSTALL_ENGINE_UNAVAILABLE` means its status could not be read; check the Mac
+or use the existing saved build's install link. `INSTALL_ENGINE_UPDATE_REQUIRED`
+requires a responding Mac engine that lacks foreground-install support.
+`INSTALL_SDK_UPDATE_REQUIRED` refers to the target Debug app, not the Companion.
+
 ## Agent workflow
 
 Build normally, then use that ready build's ID from the matching project:

@@ -2,6 +2,15 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
+## Unreleased
+
+- Confirm ready-build announcements after saving the inbox and queued alerts,
+  without waiting for APNs. A slow provider no longer causes a false
+  notification-unavailable warning; the helper keeps sending queued alerts.
+- Report an unavailable Mac live engine separately from an engine that lacks
+  foreground-install support, and preserve the reason and next action when
+  saved-build delivery is blocked.
+
 ## 0.6.8 - 2026-11-16
 
 - Ready device builds start a stopped Mac helper through the shared delivery

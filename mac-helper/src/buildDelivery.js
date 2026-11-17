@@ -75,7 +75,9 @@ function foreground(result) {
     ? { state: result.state, buildID: result.buildID, requiresIOSConfirmation: true, expiresAt: result.expiresAt,
       nextAction: result.nextAction || (result.state === "waiting" ? "open-app" : result.state === "prompt-requested" ? "confirm-install" : "check-status"),
       ...(["opening", "unconfirmed"].includes(result.state) ? { code: "INSTALL_HANDOFF_PENDING" } : {}) }
-    : { state: "blocked", code: result.code };
+    : { state: "blocked", code: result.code,
+      ...(result.nextAction ? { nextAction: result.nextAction } : {}),
+      ...(result.guidance ? { message: result.guidance } : {}) };
 }
 async function nativeInstall(build, { device, status, observe }) {
   const { runCommandWithDeadline } = await import("./deviceInventory.js");
