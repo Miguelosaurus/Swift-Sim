@@ -2,7 +2,7 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
-## Unreleased
+## 0.6.9 - 2026-11-17
 
 - Confirm ready-build announcements after saving the inbox and queued alerts,
   without waiting for APNs. A slow provider no longer causes a false
