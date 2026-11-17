@@ -159,10 +159,11 @@ test("notification failure remains visible without bypassing the installation fe
   const f = fixture();
   f.build.notification = { code: "NOTIFICATION_UNAVAILABLE", message: "Check the Mac.", nextAction: "check-mac" };
   f.input.prompt = async () => ({ code: "INSTALL_REQUEST_UNAVAILABLE" });
-  f.input.foregroundClear = () => false;
+  f.input.foregroundFence = () => ({ code: "INSTALL_HANDOFF_PENDING", nextAction: "check-status" });
   const result = await deliverSavedBuild(f.input);
   assert.equal(result.state, "unconfirmed");
-  assert.equal(result.code, "INSTALL_REQUEST_UNAVAILABLE");
+  assert.equal(result.code, "INSTALL_HANDOFF_PENDING");
+  assert.equal(result.nextAction, "check-status");
   assert.deepEqual(result.notification, f.build.notification);
   assert.deepEqual(f.calls, []);
 });

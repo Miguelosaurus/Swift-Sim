@@ -2,6 +2,21 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
+## 0.6.8 - 2026-11-16
+
+- Ready device builds start a stopped Mac helper through the shared delivery
+  recovery path and publish Companion activity and configured push alerts.
+  If publication is unavailable, delivery keeps an explicit check-Mac action.
+- Expired, superseded and inventory-proven install records no longer block
+  later installs indefinitely. Active IPA transfers stay fenced; completed
+  transfers wait at most 180 seconds or until matching or newer inventory proof.
+  Blocked results include a reason, next action and resolution deadline when known.
+- `swift-sim update` explains non-Homebrew installations and Homebrew tap trust
+  failures with the command to run next.
+- Background reconciliation logs timestamped, redacted causes with bounded
+  repetition and a recovery message.
+- Engine and SDK engine dependency remain pinned to 0.5.10.
+
 ## 0.6.7 - 2026-11-14
 
 - Agents can operate the Debug app they are building: `swift-sim app-tools`
