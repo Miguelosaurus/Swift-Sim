@@ -61,15 +61,9 @@ Check the existing request with `swift-sim live-delivery-status --request "<requ
 
 ## Live-Enabled Debug Build Has a Linker Compatibility Failure
 
-Some Apple linkers can produce an unresolved self-import with the managed `-interposable` setting. If `build-device` finds these imports in a live-enabled Debug build, it retries once as a signed Debug archive using the original project and build settings. It checks the archived app before export. A successful retry keeps the Debug configuration and existing app-data policy and reports that hot reload is unavailable for that build. If the retry also has unsafe imports or the inspection cannot complete, Swift Sim stops before packaging. See [InjectionIII issue 569](https://github.com/johnno1962/InjectionIII/issues/569).
+Some Apple linkers can emit unresolved self-imports for private aliases in native libraries when global `-interposable` is enabled. During a managed Debug build, Swift Sim reads the app target's LinkFileList just before linking and scopes interposability to external definitions in its compiled objects. Linked static archives are outside that list. Swift Sim checks the final Debug image, then registers the app target's Swift compiler commands before packaging. Those commands retain the inputs needed to import linked dependencies. See [InjectionIII issue 569](https://github.com/johnno1962/InjectionIII/issues/569).
 
-If your Xcode toolchain supports `ld-classic`, review this **Debug-only** application-target linker flag, preserving existing flags:
-
-```text
-$(inherited) -fuse-ld=$(TOOLCHAIN_DIR)/usr/bin/ld-classic
-```
-
-If unsuitable, use a signed build without managed live integration. Rebuild and cold-launch before another live edit. Do not uninstall or reset app data.
+If Swift Sim reports `LIVE_LINKER_SCOPE_FAILED`, check the app target's Debug link diagnostics and remove any custom `-interposable_list` override. If it reports `LIVE_LINKER_INCOMPATIBLE`, inspect the Debug target and its libraries for private aliases and interposition overrides. Both errors stop the build before packaging. Once the Debug build succeeds, cold-launch it before another live edit.
 
 ## The Temporary Delivery Link Fails
 

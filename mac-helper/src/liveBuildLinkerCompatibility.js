@@ -1,7 +1,8 @@
 // A successful link is not necessarily a launchable image. Some Apple linker
 // versions combine -interposable with hidden native definitions into strong
 // imports from <this-image>; dyld cannot resolve those private definitions.
-// Inspect managed Debug images and any replacement archive before packaging.
+// Inspect only the managed Debug lane, without choosing another linker or
+// changing the application's project or shipping configuration.
 const MAX_INSPECTION_BYTES = 128 * 1024 * 1024;
 const MAX_INSPECTION_LINE_BYTES = 16 * 1024;
 const INSPECTION_TIMEOUT_MS = 30_000;
@@ -56,7 +57,7 @@ export async function verifyLiveBuildLinkerCompatibility(imagePaths, { runComman
       if (!definition) return;
       const [, attributes, symbol] = definition;
       if (!importedSymbols.has(symbol)) return;
-      const destination = /\bnon-external\b/.test(attributes)
+      const destination = /\b(?:non-external|private external)\b/.test(attributes)
         ? privateDefinitions
         : /\bexternal\b/.test(attributes) ? externalDefinitions : null;
       if (!destination) return;
@@ -81,10 +82,9 @@ export async function verifyLiveBuildLinkerCompatibility(imagePaths, { runComman
   if (unsafeImportCount) {
     const error = new LiveBuildLinkerCompatibilityError(
       "LIVE_LINKER_INCOMPATIBLE",
-      "The Debug app contains private self-imports that dyld cannot resolve. "
-        + "Swift Sim stopped before packaging an install. Use a verified compatible linker "
-        + "for the application target's Debug configuration, or build without live instrumentation. "
-        + "Keep Release settings unchanged. See docs/TROUBLESHOOTING.md (Debug linker compatibility).",
+      "The live-enabled Debug app contains private self-imports that dyld cannot resolve. "
+        + "Swift Sim stopped before packaging an install. Check the linker flags and native aliases "
+        + "used by the application target's Debug configuration. See docs/TROUBLESHOOTING.md (Debug linker compatibility).",
     );
     error.unsafeImportCount = unsafeImportCount;
     throw error;

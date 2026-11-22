@@ -101,6 +101,22 @@ test("a large dependency map registers once and publishes only after its current
   } finally { f.cleanup(); }
 });
 
+test("a scoped build registers only the selected app module and retains its compiler context", async () => {
+  const f = fixture({ commands: 3, sources: 2 });
+  try {
+    f.options.runtime.compilationModule = "Fixture1";
+    const capture = inspectLiveBuildResult(f.options);
+    assert.equal(capture.commands.length, 1);
+    assert.deepEqual(capture.compilations.map(({ moduleName }) => moduleName), ["Fixture1"]);
+    const result = await registerLiveBuildResult({ ...f.options, expectedProvenance: capture.provenance });
+    assert.equal(result.registered, 2);
+    assert.deepEqual(f.engine.state.capturedCommands, capture.commands);
+    assert.deepEqual(f.manifest().compilations, capture.compilations);
+    f.options.runtime.compilationModule = "Missing";
+    assert.throws(() => inspectLiveBuildResult(f.options), { code: "LIVE_CAPTURE_COMMANDS_INVALID" });
+  } finally { f.cleanup(); }
+});
+
 test("lost registration reply reconciles the same operation and pending resume never schedules a second map", async () => {
   const f = fixture();
   try {

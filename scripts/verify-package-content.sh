@@ -53,6 +53,7 @@ const required = [
   "dist/mac-helper/src/installRequest.js",
   "dist/mac-helper/src/buildDelivery.js",
   "dist/mac-helper/resources/native-install.py",
+  "dist/mac-helper/resources/ManagedLiveLinker.py",
   "plugins/swift-sim-companion/skills/remote-simulator-companion/references/automatic-delivery.md",
   "plugins/swift-sim-companion/skills/remote-simulator-companion/references/foreground-installs.md",
   "dist/mac-helper/bin/swift-sim-entry.js.map",
