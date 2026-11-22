@@ -339,6 +339,7 @@ export async function runDeviceBuild(build, {
     build.state = "archiving";
     saveBuild();
     let liveBuildEntered = false;
+    let linkerFallback = false;
     if (liveEligible && target.type === "project") {
       try {
         const liveResult = await withLiveBuildSession({
@@ -452,14 +453,29 @@ export async function runDeviceBuild(build, {
         };
         log("Live patch preparation was unavailable; the signed install will still continue.");
       } catch (error) {
-        if (liveBuildEntered) throw error;
-        build.liveReload = {
-          eligible: true,
-          engineReady: false,
-          compilerReady: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-        log("Live patch preparation was unavailable; the signed install will still continue.");
+        if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
+        if (liveBuildEntered) {
+          if (error?.code !== "LIVE_LINKER_INCOMPATIBLE") throw error;
+          throwIfBuildCancelled(build);
+          linkerFallback = true;
+          build.liveReload = {
+            eligible: false,
+            engineReady: false,
+            compilerReady: false,
+            error: "Hot reload is unavailable for this Debug build because the linker produced unsafe private self-imports.",
+          };
+          build.state = "archiving";
+          saveBuild();
+          log(`${build.liveReload.error} Retrying as a signed Debug archive.`);
+        } else {
+          build.liveReload = {
+            eligible: true,
+            engineReady: false,
+            compilerReady: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+          log("Live patch preparation was unavailable; the signed install will still continue.");
+        }
       }
     }
 
@@ -470,10 +486,33 @@ export async function runDeviceBuild(build, {
       "-configuration", build.configuration || "Release",
       ...buildSettingArgs,
       "-destination", "generic/platform=iOS",
+      // Xcode archives in separate intermediates. Reuse the task's package
+      // checkouts without taking an app from the rejected build's products.
+      ...(linkerFallback ? ["-derivedDataPath", join(root, "DerivedData")] : []),
       "-archivePath", archivePath,
       ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
       "archive",
     ], log, { build });
+
+    const product = settings.FULL_PRODUCT_NAME || settings.WRAPPER_NAME;
+    const archivedApp = typeof product === "string" && basename(product) === product && product.endsWith(".app")
+      ? join(archivePath, "Products", "Applications", product)
+      : "";
+    if (linkerFallback) {
+      const info = archivedApp && readBuiltAppInfo(join(archivedApp, "Info.plist"));
+      if (!info || info.CFBundleIdentifier !== build.app.bundleIdentifier) {
+        throw new DeviceBuildError("The Debug archive does not contain the expected app. No install was exported.");
+      }
+      const executable = info.CFBundleExecutable;
+      if (typeof executable !== "string" || !executable || basename(executable) !== executable || executable === "." || executable === "..") {
+        throw new DeviceBuildError("The Debug archive does not identify the app executable. No install was exported.");
+      }
+      await verifyLiveBuildLinkerCompatibility(
+        [executable, ...readdirSync(archivedApp).filter((name) => name.endsWith(".debug.dylib"))].map((name) => join(archivedApp, name)),
+        { runCommand: runBuffered, cancelPath: build.control?.cancelPath || "" },
+      );
+      log("The signed Debug archive passed the linker compatibility check.");
+    }
 
     build.state = "exporting";
     saveBuild();
@@ -492,8 +531,7 @@ export async function runDeviceBuild(build, {
     if (!ipaPath) throw new DeviceBuildError("Xcode export finished, but no IPA was produced.");
     build.artifacts.ipaPath = ipaPath;
     build.app.name = archivedAppDisplayName(archivePath, settings, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
-    const product = settings.FULL_PRODUCT_NAME || settings.WRAPPER_NAME;
-    if (typeof product === "string" && basename(product) === product) await captureAppIcon(build, join(archivePath, "Products", "Applications", product));
+    if (archivedApp) await captureAppIcon(build, archivedApp);
 
     build.state = "ready";
     saveBuild();
@@ -561,7 +599,7 @@ export function deviceBuildLinks(build, remoteBaseUrl = "") {
 export function publicDeviceBuild(build) {
   const liveReloadEligible = String(build.configuration || "").toLowerCase() === "debug"
     && Boolean(build.origin === "xcode" ? build.liveReload?.compilerReady === true : (build.liveReload?.eligible
-      || (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"))));
+      ?? (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"))));
   return {
     id: build.id,
     createdAt: build.createdAt,

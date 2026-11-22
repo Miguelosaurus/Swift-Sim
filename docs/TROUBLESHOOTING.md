@@ -61,7 +61,7 @@ Check the existing request with `swift-sim live-delivery-status --request "<requ
 
 ## Live-Enabled Debug Build Has a Linker Compatibility Failure
 
-Some Apple linkers can produce an unresolved self-import with the managed `-interposable` setting. Swift Sim checks for the known shape before packaging; an inspection failure is not a successful launch check. See [InjectionIII issue 569](https://github.com/johnno1962/InjectionIII/issues/569). Do not install a rejected build.
+Some Apple linkers can produce an unresolved self-import with the managed `-interposable` setting. If `build-device` finds these imports in a live-enabled Debug build, it retries once as a signed Debug archive using the original project and build settings. It checks the archived app before export. A successful retry keeps the Debug configuration and existing app-data policy and reports that hot reload is unavailable for that build. If the retry also has unsafe imports or the inspection cannot complete, Swift Sim stops before packaging. See [InjectionIII issue 569](https://github.com/johnno1962/InjectionIII/issues/569).
 
 If your Xcode toolchain supports `ld-classic`, review this **Debug-only** application-target linker flag, preserving existing flags:
 

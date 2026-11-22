@@ -39,7 +39,7 @@ export function buildFailureNotice(value) {
     BUILD_STORAGE_UNAVAILABLE: "Swift Sim could not check storage for this signed build. Check the build artifact volume before retrying.",
     SIGNING_FAILED: "Xcode could not sign the app. Inspect the CodeSign, keychain, certificate or provisioning failure before retrying.",
     BUILD_INPUT_INVALID: "The signed build input is missing or invalid. Check the selected project or workspace and scheme.",
-    LIVE_LINKER_INCOMPATIBLE: "The live-enabled Debug app has incompatible private self-imports. Use a verified Debug linker workaround or build without live instrumentation; keep Release unchanged.",
+    LIVE_LINKER_INCOMPATIBLE: "The Debug app has incompatible private self-imports. Check the app target's Debug linker flags before rebuilding.",
     LIVE_LINKER_INSPECTION_FAILED: "The Debug linker compatibility check did not complete. Check the selected Xcode command-line tools before rebuilding.",
     PROTOCOL_MISMATCH: "The Swift Sim runtime versions are incompatible. Align the CLI and helper before retrying.",
     HELPER_UNAVAILABLE: "The Mac helper is unavailable. Diagnose its health before retrying.",

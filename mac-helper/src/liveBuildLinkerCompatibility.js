@@ -1,8 +1,7 @@
 // A successful link is not necessarily a launchable image. Some Apple linker
 // versions combine -interposable with hidden native definitions into strong
 // imports from <this-image>; dyld cannot resolve those private definitions.
-// Inspect only the managed Debug lane, without choosing another linker or
-// changing the application's project or shipping configuration.
+// Inspect managed Debug images and any replacement archive before packaging.
 const MAX_INSPECTION_BYTES = 128 * 1024 * 1024;
 const MAX_INSPECTION_LINE_BYTES = 16 * 1024;
 const INSPECTION_TIMEOUT_MS = 30_000;
@@ -82,7 +81,7 @@ export async function verifyLiveBuildLinkerCompatibility(imagePaths, { runComman
   if (unsafeImportCount) {
     const error = new LiveBuildLinkerCompatibilityError(
       "LIVE_LINKER_INCOMPATIBLE",
-      "The live-enabled Debug app contains private self-imports that dyld cannot resolve. "
+      "The Debug app contains private self-imports that dyld cannot resolve. "
         + "Swift Sim stopped before packaging an install. Use a verified compatible linker "
         + "for the application target's Debug configuration, or build without live instrumentation. "
         + "Keep Release settings unchanged. See docs/TROUBLESHOOTING.md (Debug linker compatibility).",
