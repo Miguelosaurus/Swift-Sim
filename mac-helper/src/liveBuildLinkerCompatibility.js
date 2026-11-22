@@ -57,7 +57,7 @@ export async function verifyLiveBuildLinkerCompatibility(imagePaths, { runComman
       if (!definition) return;
       const [, attributes, symbol] = definition;
       if (!importedSymbols.has(symbol)) return;
-      const destination = /\bnon-external\b/.test(attributes)
+      const destination = /\b(?:non-external|private external)\b/.test(attributes)
         ? privateDefinitions
         : /\bexternal\b/.test(attributes) ? externalDefinitions : null;
       if (!destination) return;
@@ -83,9 +83,8 @@ export async function verifyLiveBuildLinkerCompatibility(imagePaths, { runComman
     const error = new LiveBuildLinkerCompatibilityError(
       "LIVE_LINKER_INCOMPATIBLE",
       "The live-enabled Debug app contains private self-imports that dyld cannot resolve. "
-        + "Swift Sim stopped before packaging an install. Use a verified compatible linker "
-        + "for the application target's Debug configuration, or build without live instrumentation. "
-        + "Keep Release settings unchanged. See docs/TROUBLESHOOTING.md (Debug linker compatibility).",
+        + "Swift Sim stopped before packaging an install. Check the linker flags and native aliases "
+        + "used by the application target's Debug configuration. See docs/TROUBLESHOOTING.md (Debug linker compatibility).",
     );
     error.unsafeImportCount = unsafeImportCount;
     throw error;

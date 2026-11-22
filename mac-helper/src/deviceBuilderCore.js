@@ -4,6 +4,7 @@ import { StringDecoder } from "node:string_decoder";
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { deviceAppIdentity, MAX_DEVICE_BUILD_LOG_LINES } from "./deviceBuildStore.js";
 import { completeOwnedWorkerProcessRecord, ownedWorkerProcessState, prepareOwnedWorkerProcessIdentity, requiredOwnedWorkerProcessRecord } from "./ownedWorkerIdentity.js";
 import * as liveBuildCapture from "./liveReload.js";
@@ -56,10 +57,10 @@ export async function resumeDeviceBuild(build, { save, logger = () => {}, readCu
       assertCurrent(true);
       if (!liveSession?.started) throw resumeError("LIVE_BUILD_RESUME_ENGINE_UNAVAILABLE", "The matching live engine is unavailable. The signed app and result bundle were retained; no rebuild was started.");
       log("Resuming live compiler registration from the preserved signed Debug app.");
-      const capture = await register({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, expectedProvenance: checkpoint.provenance, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+      const capture = await register({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, expectedProvenance: checkpoint.provenance, runtime: managedCaptureRuntime(build) });
       if (!Number.isSafeInteger(capture?.registered) || capture.registered < 1) throw resumeError("LIVE_BUILD_RESUME_REGISTRATION_INCOMPLETE", "Compiler registration did not acknowledge a complete nonempty map. The signed app was retained.");
       assertCurrent(true);
-      const current = inspect({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+      const current = inspect({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: managedCaptureRuntime(build) });
       assertResumeProvenance(checkpoint.provenance, current.provenance);
       build.liveReload = { ...build.liveReload, engineReady: true, compilerReady: true, host: liveSession.host, capturedCompilations: capture.registered, presentation: capture.presentation, recovery: { ...checkpoint, phase: "registered", attemptId } };
       build.state = "exporting";
@@ -67,7 +68,7 @@ export async function resumeDeviceBuild(build, { save, logger = () => {}, readCu
       log("Packaging the preserved signed Debug app; no compilation or installation is performed.");
       const ipaPath = await (runtime.packageApp || packageResumedDebugApp)(checkpoint.appPath, build.artifacts.exportPath, build.scheme, { runCommand, build, expectedProvenance: checkpoint.provenance });
       assertCurrent(true);
-      const finalCapture = inspect({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+      const finalCapture = inspect({ resultBundle: checkpoint.resultBundlePath, appPath: checkpoint.appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: managedCaptureRuntime(build) });
       assertResumeProvenance(checkpoint.provenance, finalCapture.provenance);
       assertContainedArtifact(build.artifacts.root, ipaPath, "file");
       build.artifacts.ipaPath = ipaPath;
@@ -172,7 +173,7 @@ async function inspectSignedDebugResume(build, { appPath, resultBundlePath, runt
   const completedAt = Number(summary.endTime) * 1000;
   if (summary.status !== "succeeded" || summary.errorCount !== 0 || summary.actionTitle !== `Build "${build.scheme}"` || summary.destination?.platform !== "iOS"
     || !Number.isFinite(completedAt) || !Number.isFinite(Number(summary.startTime)) || Number(summary.startTime) <= 0 || summary.endTime < summary.startTime) throw resumeError("LIVE_BUILD_RESUME_RESULT_INVALID", "The result bundle does not prove a successful matching iOS build.");
-  const capture = (runtime.inspectLiveBuildResult || liveBuildCapture.inspectLiveBuildResult)({ resultBundle: resultBundlePath, appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
+  const capture = (runtime.inspectLiveBuildResult || liveBuildCapture.inspectLiveBuildResult)({ resultBundle: resultBundlePath, appPath, projectPath: join(resolveTarget(build).path, "project.pbxproj"), scheme: build.scheme, runtime: managedCaptureRuntime(build) });
   const identity = capture.provenance?.binaryIdentity;
   if (!identity || identity.bundle_id !== build.app?.bundleIdentifier || identity.bundle_version !== build.app?.version || identity.build_number !== build.app?.build
     || !identity.executable_uuid || !identity.debug_dylib_uuid) throw resumeError("LIVE_BUILD_RESUME_IDENTITY_MISMATCH", "The preserved app does not match the exact recorded bundle, version, build and binary identity.");
@@ -184,9 +185,14 @@ async function inspectSignedDebugResume(build, { appPath, resultBundlePath, runt
   await verifyLiveBuildLinkerCompatibility([join(appPath, debugImage)], { runCommand, cancelPath: options.cancelPath });
   return { version: 1, phase: "registration", appPath, resultBundlePath, completedAt, provenance: capture.provenance };
 }
-function resumeCaptureInputPaths(build) {
-  return [join(resolveTarget(build).path, "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved"),
+function managedCaptureRuntime(build) {
+  const inputPaths = [join(resolveTarget(build).path, "project.xcworkspace", "xcshareddata", "swiftpm", "Package.resolved"),
     join(build.artifacts.root, "DerivedData", "SourcePackages", "workspace-state.json")].filter((path) => existsSync(path));
+  const target = join(build.artifacts.root, "live-linker", "target.json");
+  if (!existsSync(target)) return { inputPaths };
+  assertContainedArtifact(build.artifacts.root, target, "file");
+  const compilationModule = JSON.parse(readFileSync(target, "utf8")).moduleName;
+  return { inputPaths: [...inputPaths, target], compilationModule: required(compilationModule, "app Swift module") };
 }
 function assertResumeProvenance(expected, actual) {
   if (!expected || JSON.stringify(expected) !== JSON.stringify(actual)) throw resumeError("LIVE_BUILD_RESUME_SOURCE_CHANGED", "The preserved binary or compiler inputs changed during recovery. Nothing was published as ready.");
@@ -322,7 +328,7 @@ export async function runDeviceBuild(build, {
       log(`Using build number ${automaticBuildNumber} so every Swift Sim build is distinct.`);
     }
     const liveBuildSettingArgs = liveEligible
-      ? [...buildSettingArgs, ...managedLiveBuildSettings(buildSettingArgs)]
+      ? [...buildSettingArgs, ...managedLiveBuildSettings()]
       : buildSettingArgs;
     build.app.bundleIdentifier = resolvedIdentity.bundleIdentifier;
     build.app.name = appDisplayNameFromSettings(settings, build.app.name || build.scheme);
@@ -336,133 +342,117 @@ export async function runDeviceBuild(build, {
     build.signing.warnings = updateSafetyWarnings(build);
     saveBuild();
 
-    build.state = "archiving";
-    saveBuild();
-    let liveBuildEntered = false;
     if (liveEligible && target.type === "project") {
-      try {
-        const liveResult = await withLiveBuildSession({
-          project: join(target.path, "project.pbxproj"),
-          scheme: build.scheme,
-          buildSettings: build.buildSettings,
-        }, async ({ liveSession, registerLiveBuildResult: registerBuildResult }) => {
-          if (!liveSession.started) return { completed: false, liveSession };
-          liveBuildEntered = true;
+      await withLiveBuildSession({
+        project: join(target.path, "project.pbxproj"),
+        scheme: build.scheme,
+        buildSettings: build.buildSettings,
+      }, async ({ liveSession, registerLiveBuildResult: registerBuildResult }) => {
+        if (!liveSession.started) {
+          throw Object.assign(new DeviceBuildError(liveSession.error || "The live engine could not start."), { code: "LIVE_BUILD_ENGINE_UNAVAILABLE" });
+        }
+        build.liveReload = {
+          eligible: true,
+          engineReady: true,
+          compilerReady: false,
+          host: liveSession.host,
+        };
+        log("Preparing Swift Sim's private live patch lane.");
+
+        build.state = "building";
+        saveBuild();
+        const derivedDataPath = join(root, "DerivedData");
+        const destination = signedDebugBuildDestination();
+        const scopedLinker = prepareManagedLiveLinker(root, settings);
+        let statefulBuild = null;
+        if (!process.env.SWIFT_EXEC && !liveBuildSettingArgs.some(value => String(value).startsWith("SWIFT_EXEC=") || /-driver-use-frontend-path|-resource-dir/.test(String(value)))) {
+          try {
+            const compilerPath = spawnSync("/usr/bin/xcrun", ["--find", "swiftc"], { encoding: "utf8", timeout: 5_000 }).stdout?.trim();
+            if (!settings.SWIFT_EXEC || settings.SWIFT_EXEC === compilerPath) {
+              statefulBuild = prepareStatefulBuild({ projectPath: target.path, root, moduleName: settings.PRODUCT_MODULE_NAME,
+                compilerPath, runner: new NodeCommandRunner({ spawn, spawnSync }) });
+            }
+          } catch { log("State-preserving view preparation was unavailable; standard hot reload remains enabled."); }
+        }
+        const statefulArgs = statefulBuild ? [...liveBuildSettingArgs.filter(value => !value.startsWith("OTHER_SWIFT_FLAGS=")),
+          `${liveBuildSettingArgs.findLast(value => value.startsWith("OTHER_SWIFT_FLAGS="))} -driver-use-frontend-path ${JSON.stringify(statefulBuild.wrapperPath)} -resource-dir ${JSON.stringify(statefulBuild.resourceDirectory)}`] : liveBuildSettingArgs;
+        log("Building the signed live-enabled Debug app.");
+        await runLogged("xcodebuild", [
+          ...targetArgs(target),
+          "-scheme", required(build.scheme, "scheme"),
+          "-configuration", build.configuration || "Debug",
+          ...statefulArgs,
+          ...scopedLinker.buildSettings,
+          "-destination", destination,
+          "-derivedDataPath", derivedDataPath,
+          "-resultBundlePath", resultBundlePath,
+          ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
+          "build",
+        ], log, {
+          env: {
+            ...process.env,
+            INJECTION_HOST: liveSession.host,
+          },
+          build,
+        });
+
+        const appPath = findBuiltApp(join(derivedDataPath, "Build", "Products"), build.scheme);
+        if (!appPath) {
+          throw new DeviceBuildError("Xcode finished, but the signed Debug app could not be found.");
+        }
+        const scopedImage = join(appPath, scopedLinker.image);
+        if (!existsSync(scopedLinker.receipt) || !existsSync(scopedImage)
+          || readFileSync(scopedLinker.receipt, "utf8") !== realpathSync(scopedImage)) {
+          throw Object.assign(new DeviceBuildError("Xcode did not confirm the scoped link for the app Debug dylib."), { code: "LIVE_LINKER_SCOPE_FAILED" });
+        }
+        log("Checking the live-enabled Debug app for incompatible linker self-imports.");
+        await verifyLiveBuildLinkerCompatibility(
+          readdirSync(appPath).filter((name) => name.endsWith(".debug.dylib")).map((name) => join(appPath, name)),
+          { runCommand: runBuffered, cancelPath: build.control?.cancelPath || "" },
+        );
+        log("The scoped Debug link passed with zero unsafe self-imports.");
+        try {
+          const checkpoint = await inspectSignedDebugResume(build, { appPath, resultBundlePath, runtime: {} });
+          build.liveReload.recovery = checkpoint;
+          saveBuild();
+          const capture = await registerBuildResult({ resultBundle: resultBundlePath, appPath, expectedProvenance: checkpoint.provenance, runtime: managedCaptureRuntime(build) });
           build.liveReload = {
             eligible: true,
             engineReady: true,
-            compilerReady: false,
+            compilerReady: true,
             host: liveSession.host,
+            capturedCompilations: capture.registered,
+            presentation: capture.presentation,
+            recovery: { ...checkpoint, phase: "registered" },
+            ...(statefulBuild ? { statePreserving: statefulOverlayActive(statefulBuild.wrapperPath) } : {}),
           };
-          log("Preparing Swift Sim's private live patch lane.");
+          log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
+          if (build.liveReload.statePreserving === false) {
+            log("State-preserving reload is off for this build: its Debug configuration must define the DEBUG compilation condition. Edits still hot reload, but view state resets.");
+          }
+        } catch (error) {
+          const failure = new DeviceBuildError(`The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`);
+          if (typeof error?.code === "string") failure.code = error.code;
+          throw failure;
+        }
 
-          build.state = "building";
-          saveBuild();
-          const derivedDataPath = join(root, "DerivedData");
-          const destination = signedDebugBuildDestination();
-          let statefulBuild = null;
-          if (!process.env.SWIFT_EXEC && !liveBuildSettingArgs.some(value => String(value).startsWith("SWIFT_EXEC=") || /-driver-use-frontend-path|-resource-dir/.test(String(value)))) {
-            try {
-              const compilerPath = spawnSync("/usr/bin/xcrun", ["--find", "swiftc"], { encoding: "utf8", timeout: 5_000 }).stdout?.trim();
-              if (!settings.SWIFT_EXEC || settings.SWIFT_EXEC === compilerPath) {
-                statefulBuild = prepareStatefulBuild({ projectPath: target.path, root, moduleName: settings.PRODUCT_MODULE_NAME,
-                  compilerPath, runner: new NodeCommandRunner({ spawn, spawnSync }) });
-              }
-            } catch { log("State-preserving view preparation was unavailable; standard hot reload remains enabled."); }
-          }
-          const statefulArgs = statefulBuild ? [...liveBuildSettingArgs.filter(value => !value.startsWith("OTHER_SWIFT_FLAGS=")),
-            `${liveBuildSettingArgs.findLast(value => value.startsWith("OTHER_SWIFT_FLAGS="))} -driver-use-frontend-path ${JSON.stringify(statefulBuild.wrapperPath)} -resource-dir ${JSON.stringify(statefulBuild.resourceDirectory)}`] : liveBuildSettingArgs;
-          log("Building the signed live-enabled Debug app.");
-          await runLogged("xcodebuild", [
-            ...targetArgs(target),
-            "-scheme", required(build.scheme, "scheme"),
-            "-configuration", build.configuration || "Debug",
-            ...statefulArgs,
-            "-destination", destination,
-            "-derivedDataPath", derivedDataPath,
-            "-resultBundlePath", resultBundlePath,
-            ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
-            "build",
-          ], log, {
-            env: {
-              ...process.env,
-              INJECTION_HOST: liveSession.host,
-            },
-            build,
-          });
-
-          const appPath = findBuiltApp(join(derivedDataPath, "Build", "Products"), build.scheme);
-          if (!appPath) {
-            throw new DeviceBuildError("Xcode finished, but the signed Debug app could not be found.");
-          }
-          if (!containsDebugDylib(appPath)) {
-            throw new DeviceBuildError(
-              "Xcode did not produce the required Debug dylib. Swift Sim cannot safely enable hot reload for this build."
-            );
-          }
-          log("Checking the live-enabled Debug app for incompatible linker self-imports.");
-          await verifyLiveBuildLinkerCompatibility(
-            readdirSync(appPath).filter((name) => name.endsWith(".debug.dylib")).map((name) => join(appPath, name)),
-            { runCommand: runBuffered, cancelPath: build.control?.cancelPath || "" },
-          );
-          try {
-            const checkpoint = await inspectSignedDebugResume(build, { appPath, resultBundlePath, runtime: {} });
-            build.liveReload.recovery = checkpoint;
-            saveBuild();
-            const capture = await registerBuildResult({ resultBundle: resultBundlePath, appPath, expectedProvenance: checkpoint.provenance, runtime: { inputPaths: resumeCaptureInputPaths(build) } });
-            build.liveReload = {
-              eligible: true,
-              engineReady: true,
-              compilerReady: true,
-              host: liveSession.host,
-              capturedCompilations: capture.registered,
-              presentation: capture.presentation,
-              recovery: { ...checkpoint, phase: "registered" },
-              ...(statefulBuild ? { statePreserving: statefulOverlayActive(statefulBuild.wrapperPath) } : {}),
-            };
-            log(`Captured ${capture.registered} live Swift compilation ${capture.registered === 1 ? "command" : "commands"}.`);
-            if (build.liveReload.statePreserving === false) {
-              log("State-preserving reload is off for this build: its Debug configuration must define the DEBUG compilation condition. Edits still hot reload, but view state resets.");
-            }
-          } catch (error) {
-            const failure = new DeviceBuildError(`The app built, but its live compilation map was incomplete: ${error instanceof Error ? error.message : String(error)}`);
-            if (typeof error?.code === "string") failure.code = error.code;
-            throw failure;
-          }
-
-          build.state = "exporting";
-          saveBuild();
-          log("Packaging the signed Debug app as an installable IPA.");
-          const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
-          build.artifacts.ipaPath = ipaPath;
-          build.liveReload.recovery.phase = "packaged";
-          build.app.name = builtAppDisplayName(appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
-          await captureAppIcon(build, appPath);
-          build.state = "ready";
-          saveBuild();
-          log("Build is ready to install and hot reload.");
-          return { completed: true, liveSession };
-        });
-        if (liveResult.completed) return build;
-        build.liveReload = {
-          eligible: true,
-          engineReady: false,
-          compilerReady: false,
-          error: liveResult.liveSession?.error || "The live engine was not ready.",
-        };
-        log("Live patch preparation was unavailable; the signed install will still continue.");
-      } catch (error) {
-        if (liveBuildEntered) throw error;
-        build.liveReload = {
-          eligible: true,
-          engineReady: false,
-          compilerReady: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-        log("Live patch preparation was unavailable; the signed install will still continue.");
-      }
+        build.state = "exporting";
+        saveBuild();
+        log("Packaging the signed Debug app as an installable IPA.");
+        const ipaPath = packageBuiltApp(appPath, exportPath, build.scheme);
+        build.artifacts.ipaPath = ipaPath;
+        build.liveReload.recovery.phase = "packaged";
+        build.app.name = builtAppDisplayName(appPath, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
+        await captureAppIcon(build, appPath);
+        build.state = "ready";
+        saveBuild();
+        log("Build is ready to install and hot reload.");
+      });
+      return build;
     }
 
+    build.state = "archiving";
+    saveBuild();
     log("Archiving for generic iOS device.");
     await runLogged("xcodebuild", [
       ...targetArgs(target),
@@ -1083,11 +1073,24 @@ function findIpa(exportPath) {
 }
 
 
-function managedLiveBuildSettings(buildSettingArgs = []) {
-  // A user-selected linker may be required for native dependencies. The managed
-  // flag must augment that selection rather than replace its command-line value.
-  const linkerSetting = buildSettingArgs.findLast((setting) => setting.startsWith("OTHER_LDFLAGS="));
-  const linkerFlags = linkerSetting ? linkerSetting.slice("OTHER_LDFLAGS=".length) : "$(inherited)";
+function prepareManagedLiveLinker(root, settings) {
+  const directory = join(root, "live-linker");
+  const driver = fileURLToPath(new URL("../resources/ManagedLiveLinker.py", import.meta.url));
+  const image = `${required(settings.EXECUTABLE_NAME, "app executable name")}.debug.dylib`;
+  const wrapper = required(settings.WRAPPER_NAME, "app wrapper name");
+  const drivers = { clang: settings.LD, "clang++": settings.LDPLUSPLUS };
+  for (const name of Object.keys(drivers)) {
+    drivers[name] ||= settings.TOOLCHAIN_DIR ? join(settings.TOOLCHAIN_DIR, "usr", "bin", name) : name;
+  }
+  mkdirSync(directory, { mode: 0o700 });
+  const moduleName = required(settings.PRODUCT_MODULE_NAME, "app Swift module");
+  writeFileSync(join(directory, "target.json"), JSON.stringify({ image, wrapper, drivers, moduleName }), { mode: 0o600 });
+  const source = readFileSync(driver);
+  for (const name of Object.keys(drivers)) writeFileSync(join(directory, name), source, { mode: 0o700 });
+  return { image, receipt: join(directory, "scoped-output"), buildSettings: [`LD=${join(directory, "clang")}`, `LDPLUSPLUS=${join(directory, "clang++")}`] };
+}
+
+function managedLiveBuildSettings() {
   return [
     "ENABLE_DEBUG_DYLIB=YES",
     "ENABLE_PREVIEWS=NO",
@@ -1096,7 +1099,6 @@ function managedLiveBuildSettings(buildSettingArgs = []) {
     "EMIT_FRONTEND_COMMAND_LINES=YES",
     "COMPILATION_CACHE_ENABLE_CACHING=NO",
     "OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -enable-implicit-dynamic -enable-private-imports",
-    `OTHER_LDFLAGS=${linkerFlags} -Xlinker -interposable`,
   ];
 }
 
@@ -1131,10 +1133,6 @@ function findBuiltApp(directory, scheme) {
   return apps.find((path) => basename(path) === preferred)
     || apps.find((path) => !path.includes("PackageFrameworks"))
     || "";
-}
-
-function containsDebugDylib(appPath) {
-  return readdirSync(appPath).some((name) => name.endsWith(".debug.dylib"));
 }
 
 function packageBuiltApp(appPath, exportPath, scheme) {
