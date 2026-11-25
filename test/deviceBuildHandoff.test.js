@@ -72,7 +72,8 @@ test("SQLite authority retains stream evidence and supersession across stale sav
   const f = fixture(t, true), lease = f.admit();
   assert.equal((await f.fence()).code, "INSTALL_DOWNLOAD_IN_PROGRESS");
   lease.finish(true);
-  assert.equal(await f.fence(async () => ({ state: "installed-version-observed", observedAt: new Date(f.options.now()).toISOString() })), null);
+  assert.equal(await f.fence(async () => ({ state: "installed-version-observed", boundDeviceVerified: true,
+    observedAt: new Date(f.options.now()).toISOString() })), null);
   f.store.save(f.old); lease.finish(false);
   assert.equal(f.store.get(f.old.id).ipaTransfer.state, "superseded");
   assert.equal(f.admit().status, 410);
@@ -103,12 +104,16 @@ test("completed download fences only for the post-download budget, independently
   assert.equal(f.store.get(f.old.id).ipaTransfer.state, "superseded");
 });
 
-test("fresh inventory proof resolves a completed foreground handoff before its settling budget", async t => {
+test("only fresh bound-phone inventory resolves a completed foreground handoff before its settling budget", async t => {
   const f = fixture(t); f.admit().finish(true);
   let observed = 0;
-  assert.equal((await f.fence(async () => ({ state: "installed-version-observed", observedAt: new Date(0).toISOString() }))).code, "INSTALL_HANDOFF_PENDING");
+  assert.equal((await f.fence(async () => ({ state: "installed-version-observed",
+    observedAt: new Date(f.options.now()).toISOString() }))).code, "INSTALL_HANDOFF_PENDING");
+  assert.equal((await f.fence(async () => ({ state: "installed-version-observed", boundDeviceVerified: true,
+    observedAt: new Date(0).toISOString() }))).code, "INSTALL_HANDOFF_PENDING");
   assert.equal(await f.fence(async old => {
-    observed++; assert.equal(old.id, f.old.id); return { state: "installed-version-observed", observedAt: new Date(f.options.now()).toISOString() };
+    observed++; assert.equal(old.id, f.old.id); return { state: "installed-version-observed", boundDeviceVerified: true,
+      observedAt: new Date(f.options.now()).toISOString() };
   }), null);
   assert.equal(observed, 1); assert.equal(f.store.get(f.old.id).ipaTransfer.state, "superseded");
 });

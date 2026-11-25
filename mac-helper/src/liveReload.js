@@ -1219,16 +1219,13 @@ export async function restoreStoppedLiveEngine(options, guard = () => {}) {
     await guard();
     const projectPath = canonicalProjectPath(options.project);
     const session = readJSONFile(ENGINE_SESSION);
-    const prepared = readLiveSessionDescriptor({ projectPath, scheme: options.scheme }).descriptor;
-    // A directory and scheme can be shared by sibling Xcode projects.
-    const savedHost = options.forInstall && session?.projectPath === projectPath && session.liveHost
-      ? session.liveHost : prepared?.liveHost;
-    if (!projectPath || !options.scheme || !session?.nonce
+    const savedHost = session?.liveHost;
+    // A legacy descriptor could have been written for a sibling project.
+    if (!projectPath || !options.scheme || !session?.nonce || session.projectPath !== projectPath
       || !liveEngineSessionMatches(session, { projectRoot: projectRootFor(projectPath), scheme: options.scheme })
-      || (session.projectPath && session.projectPath !== projectPath)
-      || (session.liveHost && session.liveHost !== savedHost)
-      || !savedHost || validTailnetIPv4(savedHost) !== savedHost)
-      throw registrationError("RECOVERY_BUILD_CONTEXT_REQUIRED", "No matching prepared Debug session.");
+      || !savedHost || validTailnetIPv4(savedHost) !== savedHost
+      || (!options.forInstall && !readLiveSessionDescriptor({ projectPath, scheme: options.scheme, host: savedHost }).valid))
+      throw registrationError("RECOVERY_BUILD_CONTEXT_REQUIRED", "Run swift-sim live-start --project <project> --scheme <scheme> on the Mac.");
     if (!engineMatchesContract(inspectInstalledEngineForSetup()))
       throw registrationError("RECOVERY_COMPONENT_REQUIRED", "The installed live engine does not match this release.");
     const status = await inspectLiveReloadUnlocked(options);

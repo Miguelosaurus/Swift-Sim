@@ -44,7 +44,7 @@ async function installSavedBuild(build, { buildID, project, workspace, scheme, d
   // A different build's live handoff also fences native installation. Terminal
   // tombstones and expired capabilities do not become permanent app-wide locks.
   const fence = await (foregroundFence ? foregroundFence(build) : foregroundInstallFence(build, undefined, undefined,
-    { store, supersede: !status, observe: old => direct(old, { device, status: true, observe: true }) }));
+    { store, supersede: !status, observe: old => direct(old, { status: true, observe: true }) }));
   if (fence) return { state: "unconfirmed", buildID, ...fence };
   const native = await direct(build, { device, status });
   if (["blocked", "superseded"].includes(native?.state))
@@ -91,7 +91,7 @@ async function nativeInstall(build, { device, status, observe }) {
   if (device) args.push("--device", device);
   if (status) args.push("--status");
   if (observe) args.push("--observe");
-  const result = await runCommandWithDeadline("python3", args, { timeoutMs: 240_000 });
+  const result = await runCommandWithDeadline("python3", args, observe ? { timeoutMs: 30_000, forceKillDelayMs: 0 } : { timeoutMs: 240_000 });
   try {
     const value = JSON.parse(result.stdout);
     return result.code === 0 ? value : { state: "unconfirmed" };

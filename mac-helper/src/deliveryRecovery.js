@@ -231,7 +231,9 @@ export async function recoverDelivery(input = {}, ports) {
         ? "Another build or delivery is active. Let it finish; the existing request is preserved."
         : code === "RECOVERY_NETWORK_REQUIRED"
           ? "Connect this Mac to its existing private Tailscale network, then check this request."
-          : "Recovery could not safely change the Mac session. Inspect the existing request; its data and receipts were preserved.",
+          : code === "RECOVERY_BUILD_CONTEXT_REQUIRED"
+            ? "Run swift-sim live-start --project <project> --scheme <scheme> on the Mac, then check this request."
+            : "Recovery could not safely change the Mac session. Inspect the existing request; its data and receipts were preserved.",
       code === "RECOVERY_BUSY" ? "wait" : "check-mac",
     );
   }

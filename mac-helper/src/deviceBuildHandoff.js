@@ -49,7 +49,7 @@ export async function reconcileHandoffs(store, target, { now = Date.now, identit
       && !streaming(old.ipaTransfer, now(), identity)) {
       try {
         const proof = await observe(old), at = Date.parse(proof?.observedAt);
-        if (proof?.state === "installed-version-observed" && at <= now() + 5000) provenAt = at || 0;
+        if (proof?.state === "installed-version-observed" && proof.boundDeviceVerified === true && at <= now() + 5000) provenAt = at || 0;
       } catch { /* The bounded settling window still applies. */ }
     }
     const fence = store.withTransaction(state => {
@@ -58,7 +58,7 @@ export async function reconcileHandoffs(store, target, { now = Date.now, identit
         || transfer?.state === "superseded") return null;
       const active = streaming(transfer, now(), identity);
       const deadline = active ? transfer.deadline : (transfer?.completedAt || 0) + POST_DOWNLOAD_MS;
-      if (active || (provenAt < transfer?.completedAt && deadline > now())) return {
+      if (active || (deadline > now() && (provenAt < transfer?.completedAt || old.ipaTransfer?.id !== transfer?.id))) return {
         code: active ? "INSTALL_DOWNLOAD_IN_PROGRESS" : "INSTALL_HANDOFF_PENDING", nextAction: active ? "wait" : "check-status",
         requestId: build.id, resolvesAt: new Date(deadline).toISOString(),
         message: active ? "An earlier IPA is downloading. Wait for it to finish or disconnect."

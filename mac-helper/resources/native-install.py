@@ -146,10 +146,10 @@ def private(path, directory=False):
         raise ValueError("private_state_required")
 
 
-def save(path, record):
+def save(path, record, bound_device=""):
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as f:
         temporary = Path(f.name)
-        f.write(json.dumps({"schema": 1, "entries": record}).encode())
+        f.write(json.dumps({"schema": 1, "entries": record, "boundDevice": bound_device}).encode())
         f.flush()
         os.fsync(f.fileno())
     try:
@@ -163,11 +163,14 @@ def save(path, record):
         temporary.unlink(missing_ok=True)
 
 
-def run(args, timeout=12):
+def run(args, timeout=12, deadline=None):
     with tempfile.TemporaryDirectory(prefix="swift-sim-xcode-") as scratch:
         output = Path(scratch) / "result.json"
+        wall_timeout = timeout + 3
+        if deadline is not None and deadline - time.monotonic() < wall_timeout:
+            raise TimeoutError("insufficient_probe_budget")
         p = subprocess.run(["/usr/bin/xcrun", "devicectl", *args, "--timeout", str(timeout),
-                            "--json-output", str(output)], capture_output=True, timeout=timeout + 3)
+                            "--json-output", str(output)], capture_output=True, timeout=wall_timeout)
         payload = json.loads(output.read_text()) if output.exists() else {}
         if p.returncode or payload.get("info", {}).get("outcome") != "success":
             raise ValueError("developer_connection_unavailable")
@@ -221,12 +224,25 @@ def release_staging(root, record, team):
     record["cleanupPending"] = False
 
 
-def inventory(device, bundle, command, timeout=12):
-    return command(["device", "info", "apps", "--device", device, "--bundle-id", bundle],
-                   timeout=timeout).get("apps", [])
+def probe(args, command, deadline):
+    if deadline - time.monotonic() < 15:
+        raise TimeoutError("insufficient_probe_budget")
+    result = command(args, deadline=deadline)
+    if time.monotonic() >= deadline:
+        raise TimeoutError("probe_deadline_exceeded")
+    return result
 
 
-def connected_devices(options, devices):
+def inventory(device, bundle, command, deadline=None):
+    args = ["device", "info", "apps", "--device", device, "--bundle-id", bundle]
+    result = command(args) if deadline is None else probe(args, command, deadline)
+    apps = result.get("apps")
+    if not isinstance(apps, list):
+        raise ValueError("invalid_device_inventory")
+    return apps
+
+
+def paired_devices(devices, profile):
     candidates = []
     for device in devices:
         hardware = device.get("hardwareProperties", {})
@@ -234,49 +250,22 @@ def connected_devices(options, devices):
         pairing = connection.get("pairingState", device.get("deviceProperties", {}).get("pairingState"))
         if (hardware.get("platform") == "iOS" and hardware.get("reality") == "physical"
                 and device.get("identifier") and hardware.get("udid") and pairing == "paired"
-                and connection.get("tunnelState") in ("connected", "disconnected")
-                and (not options.device or options.device in (device["identifier"], hardware["udid"]))):
+                and hardware["udid"] in profile):
             candidates.append(device)
     # A disconnected tunnel is opened by the inventory command if reachable.
     # Inventory must succeed before the caller can admit an install.
     return candidates
 
 
-def reachable_inventory(candidates, bundle, command):
-    # Leave time for native submission. An unprobed candidate still counts
-    # against uniqueness, so exhausting the budget cannot select a device.
-    deadline = time.monotonic() + 30
-    reachable = []
-    for candidate in candidates:
-        remaining = int(deadline - time.monotonic())
-        if remaining < 1:
-            return []
-        device = candidate["identifier"]
-        try:
-            apps = inventory(device, bundle, command, timeout=min(12, remaining))
-        except Exception:
-            continue
-        reachable.append((device, apps))
-        if len(reachable) == 2:
-            break
-    return reachable
-
-
 def deliver(options, command=run):
-    # Read-only foreground reconciliation reuses the native inventory comparator;
-    # it neither prepares an IPA nor creates a native install journal.
-    if getattr(options, "observe", False):
-        devices = connected_devices(options, command(["list", "devices"]).get("devices", []))
-        wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
-        reachable = reachable_inventory(devices, options.bundle, command)
-        if len(reachable) == 1 and at_or_after(reachable[0][1], wanted, options.team):
-            return {"state": "installed-version-observed", "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-        return {"state": "not-found"}
+    observe = getattr(options, "observe", False)
     root = Path(options.root)
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    private(root, True)
     key = hashlib.sha256((options.team + ":" + options.bundle).encode()).hexdigest()
     journal = root / (key + ".json")
+    if observe and not journal.exists():
+        return {"state": "not-found"}
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    private(root, True)
     lock = os.open(root / (key + ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         try:
@@ -285,23 +274,42 @@ def deliver(options, command=run):
             return {"state": "unconfirmed", "code": "INSTALL_BUSY", "nextAction": "wait",
                     "message": "Another native installer holds this app lock. Wait for it to finish, then check status."}
         records = {}
+        bound_device = ""
         if journal.exists():
             private(journal)
             envelope = json.loads(journal.read_text())
             if not isinstance(envelope, dict) or envelope.get("schema") != 1:
                 raise ValueError("invalid_journal")
             records = envelope.get("entries")
+            bound_device = envelope.get("boundDevice", "")
+            if not isinstance(bound_device, str) or len(bound_device) > 255:
+                raise ValueError("invalid_device_binding")
             if (not isinstance(records, dict) or len(records) > 128
                     or any(not isinstance(v, dict) or v.get("state") not in
                            ["submitting", "installed", "installed-version-observed", "superseded"] for v in records.values())):
                 raise ValueError("invalid_journal")
+        # Foreground reconciliation only trusts the saved device. The current
+        # command's explicit target may be a different phone.
+        if observe:
+            if not bound_device:
+                return {"state": "not-found"}
+            try:
+                apps = inventory(bound_device, options.bundle, command, time.monotonic() + 30)
+            except Exception:
+                return {"state": "unconfirmed"}
+            wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
+            if at_or_after(apps, wanted, options.team):
+                return {"state": "installed-version-observed", "boundDeviceVerified": True,
+                        "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            return {"state": "not-found"}
+        if journal.exists():
             original = json.dumps(records, sort_keys=True)
             # Terminal receipts expire even on status/duplicate reads. Unknown
             # submissions remain fenced until inventory can resolve them.
             records = {k: v for k, v in records.items() if v.get("state") == "submitting" or v.get("cleanupPending")
                        or v.get("expires", v.get("at", 0)) + 86400 > time.time()}
             if json.dumps(records, sort_keys=True) != original:
-                save(journal, records)
+                save(journal, records, bound_device)
                 original = json.dumps(records, sort_keys=True)
             pending = [v for v in records.values() if v.get("state") == "submitting" or v.get("cleanupPending")]
             if len(pending) > 1:
@@ -328,8 +336,13 @@ def deliver(options, command=run):
                 old["state"] = "installed-version-observed" if exact else "superseded"
                 old["observedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
             if json.dumps(records, sort_keys=True) != original:
-                save(journal, records)
+                save(journal, records, bound_device)
             if options.build_id in records:
+                receipt = records[options.build_id]
+                selected = options.device or bound_device
+                if selected and selected not in (receipt.get("device"), receipt.get("deviceUDID")):
+                    return {"state": "blocked", "code": "INSTALL_RECEIPT_DEVICE_MISMATCH", "nextAction": "check-status",
+                            "message": "This saved build has a receipt for a different iPhone. Use a new build for the selected iPhone."}
                 if records[options.build_id]["state"] == "superseded":
                     return {"state": "superseded", "code": "INSTALL_SUPERSEDED", "nextAction": "none",
                             "message": "Inventory confirmed a newer version. This older install request will not be replayed."}
@@ -349,18 +362,32 @@ def deliver(options, command=run):
             identity = {"bundle": options.bundle, "version": options.version, "build": options.build}
             if manifest["identity"] != identity or manifest["team"] != options.team:
                 raise ValueError("build_identity_mismatch")
+            profile = set(manifest["devices"])
+            selected = options.device or bound_device
+            if not selected and len(profile) > 1:
+                return {"state": "blocked", "code": "INSTALL_DEVICE_SELECTION_REQUIRED", "nextAction": "check-mac",
+                        "message": "This build allows more than one device. Run swift-sim deliver-build with --device <device-id> to choose an iPhone. A successful install saves that choice for this app."}
+            unavailable = {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
+            if bound_device and not options.device and (len(profile) > 1 or bound_device not in profile):
+                unavailable = {"state": "blocked", "code": "INSTALL_BOUND_DEVICE_UNAVAILABLE", "nextAction": "check-mac",
+                               "message": "Xcode could not verify the saved iPhone. Reconnect it, or use --device to choose another iPhone."}
+            deadline = time.monotonic() + 30
             try:
-                devices = command(["list", "devices"]).get("devices", [])
+                devices = probe(["list", "devices"], command, deadline).get("devices", [])
             except Exception:
-                return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
-            eligible = [d for d in connected_devices(options, devices)
-                        if d.get("hardwareProperties", {}).get("udid") in manifest["devices"]]
-            reachable = reachable_inventory(eligible, options.bundle, command)
-            if not eligible or len(reachable) > 1:
-                return {"state": "unavailable", "code": "NO_UNIQUE_REACHABLE_PHONE"}
-            if not reachable:
-                return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
-            (device, before), = reachable
+                return unavailable
+            eligible = paired_devices(devices, profile)
+            if selected:
+                eligible = [d for d in eligible if selected == d["hardwareProperties"]["udid"]
+                            or (options.device and selected == d["identifier"])]
+            if len(eligible) != 1 or eligible[0].get("connectionProperties", {}).get("tunnelState") not in ("connected", "disconnected"):
+                return unavailable
+            device = eligible[0]["identifier"]
+            udid = eligible[0]["hardwareProperties"]["udid"]
+            try:
+                before = inventory(device, options.bundle, command, deadline)
+            except Exception:
+                return unavailable
             # Never replace a different team's existing application identity.
             existing = [a for a in before if a.get("bundleIdentifier") == options.bundle]
             if existing and any(a.get("teamIdentifier") and a.get("teamIdentifier") != options.team for a in existing):
@@ -370,12 +397,12 @@ def deliver(options, command=run):
                 return {"state": "already-matching-version", "buildID": options.build_id,
                         "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
             app = extract(prepared / "signed.ipa", Path(scratch))
-            record = {"buildID": options.build_id, "identity": identity, "device": device,
+            record = {"buildID": options.build_id, "identity": identity, "device": device, "deviceUDID": udid,
                       "sha256": manifest["sha256"], "state": "submitting", "at": time.time(),
                       "expires": options.expires_at, "staging": str(Path(scratch)), "cleanupPending": True}
             # Once this is durable, ANY failure stays uncertain. No prompt fallback.
             records[options.build_id] = record
-            save(journal, records)
+            save(journal, records, bound_device)
             scratch.keep = True
             try:
                 command(["device", "install", "app", "--device", device, str(app)], timeout=180)
@@ -384,7 +411,7 @@ def deliver(options, command=run):
                 record["state"] = "installed"
                 record["cleanupPending"] = False
                 record["observedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                save(journal, records)
+                save(journal, records, udid if options.device or len(profile) == 1 else bound_device)
                 scratch.keep = False
             except Exception:
                 return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED"}

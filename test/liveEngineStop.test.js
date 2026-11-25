@@ -35,7 +35,7 @@ test("engine ownership refusal propagates rather than allowing installation to a
   assert.equal(attempts, 1);
 });
 
-test("install recovery requires an exact project and host or a bound legacy descriptor", t => {
+test("recovery refuses legacy sessions even when a sibling could publish a matching descriptor", t => {
   const home = mkdtempSync(join(tmpdir(), "swift-sim-install-recovery-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const root = join(home, ".swift-sim");
@@ -55,8 +55,8 @@ test("install recovery requires an exact project and host or a bound legacy desc
     const liveHost = "100.88.1.2";
     const legacy = { projectRoot: home, scheme: "Shared", engineVersion: COMPONENTS.engine.version, nonce: "fixture" };
     const write = session => writeFileSync(sessionFile, JSON.stringify(session), { mode: 0o600 });
-    const recover = async () => {
-      try { await restoreStoppedLiveEngine({ project: target, scheme: "Shared", forInstall: true }); }
+    const recover = async (forInstall = true) => {
+      try { await restoreStoppedLiveEngine({ project: target, scheme: "Shared", forInstall }); }
       catch (error) { return error.code; }
       return "started";
     };
@@ -72,6 +72,7 @@ test("install recovery requires an exact project and host or a bound legacy desc
       projectPath: target, scheme: "Shared", host: liveHost, engineSession: legacy,
     }));
     codes.push(await recover());
+    codes.push(await recover(false));
     write({ ...legacy, projectPath: sibling, liveHost });
     codes.push(await recover());
     console.log(JSON.stringify(codes));
@@ -81,8 +82,8 @@ test("install recovery requires an exact project and host or a bound legacy desc
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout), [
     "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED",
-    "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_COMPONENT_REQUIRED", "RECOVERY_COMPONENT_REQUIRED",
-    "RECOVERY_BUILD_CONTEXT_REQUIRED",
+    "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_COMPONENT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED",
+    "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED",
   ]);
 });
 
