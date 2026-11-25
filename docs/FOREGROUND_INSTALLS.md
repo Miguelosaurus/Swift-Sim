@@ -21,12 +21,14 @@ or use the existing saved build's install link. `INSTALL_ENGINE_UPDATE_REQUIRED`
 requires a responding Mac engine that lacks foreground-install support.
 `INSTALL_SDK_UPDATE_REQUIRED` refers to the target Debug app, not the Companion.
 
-The native developer connection can install a signed build without the live
-engine. For the foreground fallback, Swift Sim can restore a stopped engine
-once if this project has a verified Debug launch and a matching prepared
-session on the existing private route. If the latest verified install was a
-Release build, use the saved install link. A Release app cannot show the Debug
-install prompt.
+The native developer connection can install a signed build with the target app
+closed, in the background, or running an archive or older SDK. Xcode must be
+able to query one eligible paired iPhone, and the build must preserve the app's
+signing identity. For the foreground fallback, Swift Sim can restore the
+project's saved engine session on the existing private route after a Mac
+restart or engine crash. The prompt still requires a compatible Debug app and
+an exact binary identity. When neither route is available, use the saved install
+link.
 
 ## Agent workflow
 

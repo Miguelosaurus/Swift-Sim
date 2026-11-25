@@ -155,6 +155,15 @@ test("native uncertainty keeps its actionable reason in the delivery result", as
   assert.equal(result.code, "INSTALL_RECONCILE_REQUIRED"); assert.equal(result.nextAction, "check-status");
 });
 
+test("a different native signing team fences the foreground route even without a submission", async () => {
+  const f = fixture();
+  f.input.direct = async () => ({ state: "blocked", code: "EXISTING_APP_TEAM_UNCONFIRMED", nextAction: "check-mac" });
+  const result = await deliverSavedBuild(f.input);
+  assert.equal(result.state, "blocked");
+  assert.equal(result.code, "EXISTING_APP_TEAM_UNCONFIRMED");
+  assert.deepEqual(f.calls, [["prompt", "status"]]);
+});
+
 test("notification failure remains visible without bypassing the installation fence", async () => {
   const f = fixture();
   f.build.notification = { code: "NOTIFICATION_UNAVAILABLE", message: "Check the Mac.", nextAction: "check-mac" };

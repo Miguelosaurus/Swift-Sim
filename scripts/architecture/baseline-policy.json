@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "lineBudget": 55550,
+  "lineBudget": 55620,
   "baselineCommit": "4dfa15ff76b5bd046f7ad02ee9f8d963d02d62cb",
   "baseline": {
     "preloadRuntimePatchModules": [

@@ -1217,12 +1217,19 @@ export async function restoreStoppedLiveEngine(options, guard = () => {}) {
   return withLiveEngineLifecycleLock(async () => {
     await guard();
     const prepared = readLiveSessionDescriptor({ projectPath: options.project, scheme: options.scheme });
-    if (!prepared.valid)
+    // Install handoff requires an exact binary selector, but no compiler map.
+    // Managed builds save an engine session before any phone has connected.
+    const session = options.forInstall ? readJSONFile(ENGINE_SESSION) : null;
+    const matchingSession = session?.nonce && liveEngineSessionMatches(session, {
+      projectRoot: projectRootFor(options.project), scheme: options.scheme,
+    }) && (!session.projectPath || session.projectPath === options.project);
+    if (!prepared.valid && !matchingSession)
       throw registrationError("RECOVERY_BUILD_CONTEXT_REQUIRED", "No matching prepared Debug session.");
     if (!engineMatchesContract(inspectInstalledEngineForSetup()))
       throw registrationError("RECOVERY_COMPONENT_REQUIRED", "The installed live engine does not match this release.");
     const status = await inspectLiveReloadUnlocked(options);
-    if (!status.tailnet.detected || !status.tailnet.privateForwardConfigured || status.host !== prepared.descriptor.liveHost)
+    const savedHost = prepared.descriptor?.liveHost || session?.liveHost;
+    if (!status.tailnet.detected || !status.tailnet.privateForwardConfigured || (savedHost && status.host !== savedHost))
       throw registrationError("RECOVERY_NETWORK_REQUIRED", "The existing private live route is unavailable.");
     assertStoppedLiveEngineForRecovery();
     if (status.engine.running || (!existsSync(ENGINE_PID) && existsSync(ENGINE_SOCKET)))
@@ -1372,7 +1379,9 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
     try {
       writeFileSync(ENGINE_SESSION, `${JSON.stringify({
         projectRoot: status.project.root,
+        projectPath: status.project.path,
         scheme: status.project.scheme,
+        liveHost: status.host,
         signingIdentity,
         engineVersion: ENGINE_VERSION,
         nonce: sessionNonce,

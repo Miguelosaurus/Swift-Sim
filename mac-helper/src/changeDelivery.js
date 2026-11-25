@@ -136,6 +136,8 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
     const { message, code } = buildFailureNotice(error);
     return deliveryEnvelope({ outcome: code === "PROTOCOL_MISMATCH" || code === "HELPER_UNAVAILABLE" ? "needs-user-action" : "failed", message, reasonCode: code, fallbackReasonCode: reasonCode, error: { code, message }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
   }
+  const liveNotice = built?.liveReload?.archiveFallback ? " Hot reload is off for this build." : "";
+  let installGuidance = "";
   if (typeof installBuild === "function" && built?.id && built?.state === "ready") {
     let installed;
     try { installed = await installBuild({ buildID: built.id, project, workspace, scheme }); }
@@ -149,21 +151,22 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
     if (["installed", "installed-version-observed", "already-matching-version", "waiting", "opening", "prompt-requested", "unconfirmed"].includes(state)) {
       const complete = ["installed", "installed-version-observed", "already-matching-version"].includes(state);
       const outcome = complete ? "installed" : state === "waiting" ? "install-queued" : state === "prompt-requested" ? "install-prompt-requested" : "install-unconfirmed";
-      return deliveryEnvelope({ outcome, message: complete ? "The requested app version is installed on your iPhone."
+      return deliveryEnvelope({ outcome, message: (complete ? "The requested app version is installed on your iPhone."
         : state === "waiting" ? "Update queued. Unlock your iPhone and return to the app to install."
         : state === "prompt-requested" ? "Confirm installation on your iPhone, then reopen the app."
-        : "Installation may have started. Check delivery status before trying again.",
+        : "Installation may have started. Check delivery status before trying again.") + liveNotice,
         reasonCode, rebuildReason, notification: built.notification, delivery: { kind: "device-install", requestId: built.id, state,
           requiresIOSConfirmation: installed.requiresIOSConfirmation === true,
           ...(installed.code ? { code: installed.code } : {}), ...(installed.nextAction ? { nextAction: installed.nextAction } : {}),
           ...(installed.resolvesAt ? { resolvesAt: installed.resolvesAt } : {}),
           ...(installed.expiresAt ? { expiresAt: installed.expiresAt } : {}) }, timing: { totalMs: elapsed(now, startedAt) } });
     }
+    if (state === "blocked" && typeof installed.message === "string") installGuidance = installed.message;
   }
   const link = installDelivery(built);
   if (!link) return deliveryEnvelope({ outcome: "failed", message: "The signed build finished without a usable Swift Sim install link.", reasonCode: "INSTALL_LINK_MISSING", error: { code: "INSTALL_LINK_MISSING", message: "The signed build did not return a universal install link." }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
   const warnings = Array.isArray(built?.signing?.warnings) ? built.signing.warnings.filter(Boolean).slice(0, 3) : [];
-  return deliveryEnvelope({ outcome: "install-link-ready", message: "This change needs a new signed build.", reasonCode, rebuildReason, notification: built.notification, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
+  return deliveryEnvelope({ outcome: "install-link-ready", message: (installGuidance || "This change needs a new signed build.") + liveNotice, reasonCode, rebuildReason, notification: built.notification, delivery: link, warning: warnings.length ? { code: "SIGNING_WARNING", message: warnings.join(" ").slice(0, 600) } : undefined, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });
 }
 
 function installDelivery(build) {

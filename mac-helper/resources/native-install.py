@@ -226,11 +226,19 @@ def inventory(device, bundle, command):
 
 
 def connected_devices(options, devices):
-    return [d for d in devices if d.get("hardwareProperties", {}).get("platform") == "iOS"
-            and d.get("hardwareProperties", {}).get("reality") == "physical"
-            and d.get("deviceProperties", {}).get("pairingState") == "paired"
-            and d.get("connectionProperties", {}).get("tunnelState") == "connected"
-            and (not options.device or options.device in [d.get("identifier"), d.get("hardwareProperties", {}).get("udid")])]
+    candidates = []
+    for device in devices:
+        hardware = device.get("hardwareProperties", {})
+        connection = device.get("connectionProperties", {})
+        pairing = connection.get("pairingState", device.get("deviceProperties", {}).get("pairingState"))
+        if (hardware.get("platform") == "iOS" and hardware.get("reality") == "physical"
+                and device.get("identifier") and hardware.get("udid") and pairing == "paired"
+                and connection.get("tunnelState") in ("connected", "disconnected")
+                and (not options.device or options.device in (device["identifier"], hardware["udid"]))):
+            candidates.append(device)
+    # A disconnected tunnel is opened by the inventory command if reachable.
+    # Inventory must succeed before the caller can admit an install.
+    return candidates
 
 
 def deliver(options, command=run):
@@ -332,13 +340,14 @@ def deliver(options, command=run):
                 before = inventory(device, options.bundle, command)
             except Exception:
                 return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
-            if matching(before, identity):
-                return {"state": "already-matching-version", "buildID": options.build_id,
-                        "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
             # Never replace a different team's existing application identity.
             existing = [a for a in before if a.get("bundleIdentifier") == options.bundle]
             if existing and any(a.get("teamIdentifier") and a.get("teamIdentifier") != options.team for a in existing):
-                return {"state": "unavailable", "code": "EXISTING_APP_TEAM_UNCONFIRMED"}
+                return {"state": "blocked", "code": "EXISTING_APP_TEAM_UNCONFIRMED", "nextAction": "check-mac",
+                        "message": "The existing app reports a different signing team. Check the build's signing before updating it."}
+            if matching(existing, identity):
+                return {"state": "already-matching-version", "buildID": options.build_id,
+                        "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
             app = extract(prepared / "signed.ipa", Path(scratch))
             record = {"buildID": options.build_id, "identity": identity, "device": device,
                       "sha256": manifest["sha256"], "state": "submitting", "at": time.time(),

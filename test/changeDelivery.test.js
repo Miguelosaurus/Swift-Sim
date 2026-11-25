@@ -279,6 +279,17 @@ test("automatic install failure after possible submission never becomes a retry 
     installBuild: async () => { throw Error("lost receipt"); } });
   assert.equal(result.outcome, "install-unconfirmed"); assert.equal(result.delivery.state, "unconfirmed");
 });
+test("a Debug archive fallback reports that hot reload is off after native installation or link handoff", async () => {
+  for (const state of ["installed", "blocked"]) {
+    const result = await deliverChange({ files: STRUCTURAL,
+      buildDevice: async () => ({ ...build(), id: "11111111-1111-1111-1111-111111111111", liveReload: { archiveFallback: true } }),
+      installBuild: async () => ({ state, message: "Swift Sim could not restore the saved private connection." }),
+    });
+    assert.equal(result.outcome, state === "installed" ? "installed" : "install-link-ready");
+    assert.match(result.message, /Hot reload is off for this build/);
+    if (state === "blocked") assert.match(result.message, /saved private connection/);
+  }
+});
 test("compatible live delivery never imports or probes install routes", async () => {
   const result = await deliverChange({ files: HOT, queueLive: async () => deliveryEnvelope({ outcome: "hot-reloaded", message: "Applied", delivery: { kind: "live", revision: 1 } }),
     installBuild: async () => { throw Error("unexpected install"); } });

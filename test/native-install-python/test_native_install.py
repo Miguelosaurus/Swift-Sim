@@ -72,6 +72,26 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 1)
         self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
 
+    def test_paired_disconnected_coredevice_can_install_an_archive_without_a_running_app(self):
+        self.device["deviceProperties"] = {"developerModeStatus": "enabled"}
+        self.device["connectionProperties"] = {
+            "pairingState": "paired", "tunnelState": "disconnected", "transportType": "localNetwork"}
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        self.assertEqual(self.installs, 1)
+
+    def test_disconnected_coredevice_that_cannot_answer_inventory_never_installs(self):
+        self.device["deviceProperties"] = {"developerModeStatus": "enabled"}
+        self.device["connectionProperties"] = {
+            "pairingState": "paired", "tunnelState": "disconnected", "transportType": "localNetwork"}
+
+        def unreachable(args, timeout=12):
+            if args[:3] == ["device", "info", "apps"]:
+                raise ValueError("developer_connection_unavailable")
+            return self.command(args, timeout)
+
+        self.assertEqual(module.deliver(self.options, unreachable)["code"], "DEVELOPER_CONNECTION_UNAVAILABLE")
+        self.assertEqual(self.installs, 0)
+
     def test_lost_receipt_restart_and_different_build_cannot_resubmit(self):
         self.fail = True
         self.assertEqual(self.run_delivery()["state"], "unconfirmed")
@@ -175,7 +195,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 2)
 
     def test_unavailable_and_ambiguous_devices_do_not_submit(self):
-        self.device["connectionProperties"]["tunnelState"] = "disconnected"
+        self.device["connectionProperties"]["tunnelState"] = "unavailable"
         self.assertEqual(self.run_delivery()["state"], "unavailable")
         self.device["connectionProperties"]["tunnelState"] = "connected"
         def ambiguous(args, timeout=12):
@@ -185,7 +205,8 @@ class DeliveryTests(unittest.TestCase):
 
     def test_team_mismatch_and_explicit_device_selection(self):
         self.inventory[0]["teamIdentifier"] = "OTHER"
-        self.assertEqual(self.run_delivery()["state"], "unavailable")
+        self.inventory[0]["bundleVersion"] = self.options.build
+        self.assertEqual(self.run_delivery()["code"], "EXISTING_APP_TEAM_UNCONFIRMED")
         self.options.device = "NOT-THIS-PHONE"
         self.assertEqual(self.run_delivery()["state"], "unavailable")
         self.assertEqual(self.installs, 0)

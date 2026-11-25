@@ -190,6 +190,7 @@ export interface DeviceBuildRecord {
     compilerReady?: boolean;
     capturedCompilations?: number;
     statePreserving?: boolean;
+    archiveFallback?: boolean;
     error?: string;
     host?: string;
   };
@@ -218,6 +219,7 @@ export interface PublicDeviceBuildProjection {
     compilerReady: boolean;
     capturedCompilations: number;
     error: string;
+    archiveFallback?: boolean;
   };
   app: DeviceBuildApp;
   signing: Pick<DeviceBuildSigning, "method" | "deviceInstallable" | "updateSafe" | "warnings">;

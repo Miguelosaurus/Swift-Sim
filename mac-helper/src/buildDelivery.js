@@ -47,6 +47,8 @@ async function installSavedBuild(build, { buildID, project, workspace, scheme, d
     { store, supersede: !status, observe: old => direct(old, { device, status: true, observe: true }) }));
   if (fence) return { state: "unconfirmed", buildID, ...fence };
   const native = await direct(build, { device, status });
+  if (["blocked", "superseded"].includes(native?.state))
+    return { state: native.state, buildID, code: native.code, nextAction: native.nextAction, message: native.message };
   if (["installed", "installed-version-observed", "already-matching-version", "unconfirmed"].includes(native?.state)) {
     const observed = Number.isFinite(Date.parse(native.observedAt)) ? native.observedAt : undefined;
     if (native.state !== "unconfirmed" && observed && saveVerification) await saveVerification(buildID, {
@@ -67,7 +69,8 @@ async function installSavedBuild(build, { buildID, project, workspace, scheme, d
   if (native?.state !== "unavailable" && native?.state !== "not-found") return { state: "unconfirmed", buildID, code: native?.code || "INSTALL_RESULT_UNCONFIRMED",
     nextAction: native?.nextAction || "check-status", message: native?.message || "Check the existing native installation before trying again." };
   if (status) return { state: "not-found", buildID };
-  if (device) return { state: "blocked", code: "INSTALL_SELECTED_DEVICE_UNAVAILABLE" };
+  if (device) return { state: "blocked", code: "INSTALL_SELECTED_DEVICE_UNAVAILABLE", nextAction: "check-mac",
+    message: "Xcode could not reach the selected iPhone. Connect it to this Mac with Xcode and try again." };
   return foreground(await ask({ buildID, project, workspace, scheme }));
 }
 function foreground(result) {
