@@ -130,6 +130,8 @@ export interface DeviceBuildRecord {
     startedAt?: number;
     deadline?: number;
     completedAt?: number;
+    deviceUDID?: string | null;
+    completedDeviceUDID?: string | null;
     supersededBy?: string;
   };
   origin?: "xcode";

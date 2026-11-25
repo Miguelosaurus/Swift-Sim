@@ -7,7 +7,7 @@ import { NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 const FOREGROUND_RETENTION_SECONDS = 86400;
 
 // Saved-build delivery/status and bounded journal maintenance; the native adapter stays lazy.
-export async function deliverSavedBuild({ buildID, project, workspace, scheme, device = "", status = false,
+export async function deliverSavedBuild({ buildID, project, workspace, scheme, device = "", status = false, showDevices = false,
   readBuild, saveVerification, direct = nativeInstall, prompt, foregroundFence, maintain = maintainForegroundJournal, store,
 } = {}) {
   if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(buildID || "")) return { state: "blocked", code: "INSTALL_REQUEST_INVALID" };
@@ -25,12 +25,12 @@ export async function deliverSavedBuild({ buildID, project, workspace, scheme, d
   const { canonicalProjectPath } = await import("./liveSessionDescriptor.js");
   if ((project && workspace) || canonicalProjectPath(workspace || project) !== canonicalProjectPath(build.workspace || build.project)
     || (scheme && scheme !== build.scheme)) return { state: "blocked", code: "INSTALL_SCOPE_REQUIRED" };
-  const result = await installSavedBuild(build, { buildID, project, workspace, scheme, device, status,
+  const result = await installSavedBuild(build, { buildID, project, workspace, scheme, device, status, showDevices,
     readBuild, saveVerification, direct, prompt, foregroundFence, maintain, store });
   return { ...result, ...(build.notification ? { notification: build.notification } : {}) };
 }
 
-async function installSavedBuild(build, { buildID, project, workspace, scheme, device, status,
+async function installSavedBuild(build, { buildID, project, workspace, scheme, device, status, showDevices,
   readBuild, saveVerification, direct, prompt, foregroundFence, maintain, store }) {
   if (status && !device && ["launch-confirmed", "verified"].includes(build.installation?.state)
     && /^[a-f0-9]{64}$/.test(build.installation?.launchFingerprint || "")) return { state: "installed-version-observed", buildID };
@@ -44,11 +44,12 @@ async function installSavedBuild(build, { buildID, project, workspace, scheme, d
   // A different build's live handoff also fences native installation. Terminal
   // tombstones and expired capabilities do not become permanent app-wide locks.
   const fence = await (foregroundFence ? foregroundFence(build) : foregroundInstallFence(build, undefined, undefined,
-    { store, supersede: !status, observe: old => direct(old, { status: true, observe: true }) }));
+    { store, supersede: !status, observe: (old, transferDevice) => direct(old, { status: true, observe: true, transferDevice }) }));
   if (fence) return { state: "unconfirmed", buildID, ...fence };
   const native = await direct(build, { device, status });
   if (["blocked", "superseded"].includes(native?.state))
-    return { state: native.state, buildID, code: native.code, nextAction: native.nextAction, message: native.message };
+    return { state: native.state, buildID, code: native.code, nextAction: native.nextAction,
+      message: native.code === "INSTALL_DEVICE_SELECTION_REQUIRED" ? deviceChoiceMessage(build, native.choices, showDevices) : native.message };
   if (["installed", "installed-version-observed", "already-matching-version", "unconfirmed"].includes(native?.state)) {
     const observed = Number.isFinite(Date.parse(native.observedAt)) ? native.observedAt : undefined;
     if (native.state !== "unconfirmed" && observed && saveVerification) await saveVerification(buildID, {
@@ -73,6 +74,17 @@ async function installSavedBuild(build, { buildID, project, workspace, scheme, d
     message: "Xcode could not reach the selected iPhone. Connect it to this Mac with Xcode and try again." };
   return foreground(await ask({ buildID, project, workspace, scheme }));
 }
+function deviceChoiceMessage(build, choices, showDevices) {
+  const scope = build.workspace ? "--workspace" : "--project";
+  const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
+  const target = showDevices ? quote(build.workspace || build.project) : (build.workspace ? "<workspace>" : "<project>");
+  const retry = `swift-sim deliver-build --build-id ${build.id} ${scope} ${target} --scheme ${showDevices ? quote(build.scheme) : "<scheme>"} --device`;
+  const devices = showDevices && (choices || []).filter(choice => /^[A-Za-z0-9-]{1,100}$/.test(choice?.id || ""));
+  const command = devices?.length ? devices.map(choice =>
+    `${String(choice.name || "iPhone").replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 100)} — ${retry} ${quote(choice.id)}`).join("\n")
+    : `Find the iPhone with xcrun devicectl list devices, then run ${retry} <device-id>.`;
+  return `This build allows more than one device. Choose once to save the verified iPhone for this app.\n${command}`;
+}
 function foreground(result) {
   return result.outcome === "install-request"
     ? { state: result.state, buildID: result.buildID, requiresIOSConfirmation: true, expiresAt: result.expiresAt,
@@ -82,7 +94,7 @@ function foreground(result) {
       ...(result.nextAction ? { nextAction: result.nextAction } : {}),
       ...(result.guidance ? { message: result.guidance } : {}) };
 }
-async function nativeInstall(build, { device, status, observe }) {
+async function nativeInstall(build, { device, status, observe, transferDevice }) {
   const { runCommandWithDeadline } = await import("./deviceInventory.js");
   const args = [fileURLToPath(new URL("../resources/native-install.py", import.meta.url)),
     "--root", join(homedir(), ".swift-sim", "native-build-delivery"), "--build-id", build.id,
@@ -91,6 +103,7 @@ async function nativeInstall(build, { device, status, observe }) {
   if (device) args.push("--device", device);
   if (status) args.push("--status");
   if (observe) args.push("--observe");
+  if (observe && transferDevice) args.push("--transfer-device", transferDevice);
   const result = await runCommandWithDeadline("python3", args, observe ? { timeoutMs: 30_000, forceKillDelayMs: 0 } : { timeoutMs: 240_000 });
   try {
     const value = JSON.parse(result.stdout);

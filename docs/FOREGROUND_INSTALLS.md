@@ -25,9 +25,10 @@ The native developer connection can install a signed build with the target app
 closed, in the background, or running an archive or older SDK. Xcode must be
 able to query the selected paired iPhone, and the build must preserve the app's
 signing identity. If the signed profile allows several devices, run
-`swift-sim deliver-build` with `--device <device-id>` once. A verified native
-install saves the selection for the app and signing team. Only the saved
-iPhone's inventory can resolve an earlier foreground handoff. A signing-team
+`swift-sim deliver-build` with `--device <device-id>` once. An install or an
+exact installed version check saves the selection for the app and signing team.
+A completed download can settle early only with inventory from its identified
+recipient or the single device allowed by its verified signed profile. A signing-team
 conflict stops delivery before Swift Sim offers an install link.
 
 After a Mac restart or engine crash, Swift Sim can restore an engine session
