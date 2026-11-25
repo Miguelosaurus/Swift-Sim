@@ -2,6 +2,18 @@
 
 Notable changes to Swift Sim are recorded here. The project follows [Semantic Versioning](https://semver.org/) for tagged Homebrew releases.
 
+## 0.6.12 - 2026-11-25
+
+- Scope Debug linker interposition to app objects so native dependencies can
+  link safely. When a live build is incompatible, Swift Sim verifies a signed
+  Debug archive before offering it with hot reload off.
+- Install over the existing app through Xcode, including when the app is closed.
+  Multi-device profiles require an explicit or previously verified iPhone,
+  and install receipts and download checks are scoped to the intended device.
+- Restore a stopped live engine only for its saved project and private host.
+  After upgrading from a legacy session, run `swift-sim live-start` once for the
+  project and scheme to record that scope.
+
 ## 0.6.11 - 2026-11-17
 
 - Route `build-device` and `resume-device-build` through the helper entrypoint

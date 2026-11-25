@@ -389,7 +389,7 @@
 				SWIFT_SIM_APNS_ENVIRONMENT = development;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.6.11;
+				MARKETING_VERSION = 0.6.12;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.local.SwiftSimCompanion;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -414,7 +414,7 @@
 				SWIFT_SIM_APNS_ENVIRONMENT = production;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 0.6.11;
+				MARKETING_VERSION = 0.6.12;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.local.SwiftSimCompanion;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
