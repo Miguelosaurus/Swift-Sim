@@ -221,8 +221,9 @@ def release_staging(root, record, team):
     record["cleanupPending"] = False
 
 
-def inventory(device, bundle, command):
-    return command(["device", "info", "apps", "--device", device, "--bundle-id", bundle]).get("apps", [])
+def inventory(device, bundle, command, timeout=12):
+    return command(["device", "info", "apps", "--device", device, "--bundle-id", bundle],
+                   timeout=timeout).get("apps", [])
 
 
 def connected_devices(options, devices):
@@ -241,13 +242,34 @@ def connected_devices(options, devices):
     return candidates
 
 
+def reachable_inventory(candidates, bundle, command):
+    # Leave time for native submission. An unprobed candidate still counts
+    # against uniqueness, so exhausting the budget cannot select a device.
+    deadline = time.monotonic() + 30
+    reachable = []
+    for candidate in candidates:
+        remaining = int(deadline - time.monotonic())
+        if remaining < 1:
+            return []
+        device = candidate["identifier"]
+        try:
+            apps = inventory(device, bundle, command, timeout=min(12, remaining))
+        except Exception:
+            continue
+        reachable.append((device, apps))
+        if len(reachable) == 2:
+            break
+    return reachable
+
+
 def deliver(options, command=run):
     # Read-only foreground reconciliation reuses the native inventory comparator;
     # it neither prepares an IPA nor creates a native install journal.
     if getattr(options, "observe", False):
         devices = connected_devices(options, command(["list", "devices"]).get("devices", []))
         wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
-        if len(devices) == 1 and at_or_after(inventory(devices[0]["identifier"], options.bundle, command), wanted, options.team):
+        reachable = reachable_inventory(devices, options.bundle, command)
+        if len(reachable) == 1 and at_or_after(reachable[0][1], wanted, options.team):
             return {"state": "installed-version-observed", "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
         return {"state": "not-found"}
     root = Path(options.root)
@@ -333,13 +355,12 @@ def deliver(options, command=run):
                 return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
             eligible = [d for d in connected_devices(options, devices)
                         if d.get("hardwareProperties", {}).get("udid") in manifest["devices"]]
-            if len(eligible) != 1:
+            reachable = reachable_inventory(eligible, options.bundle, command)
+            if not eligible or len(reachable) > 1:
                 return {"state": "unavailable", "code": "NO_UNIQUE_REACHABLE_PHONE"}
-            device = eligible[0]["identifier"]
-            try:
-                before = inventory(device, options.bundle, command)
-            except Exception:
+            if not reachable:
                 return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
+            (device, before), = reachable
             # Never replace a different team's existing application identity.
             existing = [a for a in before if a.get("bundleIdentifier") == options.bundle]
             if existing and any(a.get("teamIdentifier") and a.get("teamIdentifier") != options.team for a in existing):

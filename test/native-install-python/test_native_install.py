@@ -21,7 +21,7 @@ class DeliveryTests(unittest.TestCase):
         self.inventory = [{"bundleIdentifier": "example.Test", "version": "1", "bundleVersion": "1", "teamIdentifier": "TEAM"}]
         self.device = {"identifier": "DEVICE", "hardwareProperties": {"platform": "iOS", "reality": "physical", "udid": "UDID"},
                        "deviceProperties": {"pairingState": "paired"}, "connectionProperties": {"tunnelState": "connected"}}
-        self.fail = False
+        self.lose_receipt = False
         self.preparer = patch.object(module, "prepare", side_effect=self.prepare)
         self.extractor = patch.object(module, "extract", return_value=self.root / "Test.app")
         self.preparer.start()
@@ -35,7 +35,7 @@ class DeliveryTests(unittest.TestCase):
     def prepare(self, ipa, out):
         out.mkdir(mode=0o700)
         (out / "manifest.json").write_text(json.dumps({"identity": {"bundle": "example.Test", "version": "1", "build": self.options.build},
-                                                       "team": "TEAM", "sha256": "a" * 64, "devices": ["UDID"]}))
+                                                       "team": "TEAM", "sha256": "a" * 64, "devices": ["UDID", "UDID-2"]}))
         (out / "manifest.json").chmod(0o400)
 
     def command(self, args, timeout=12):
@@ -45,13 +45,13 @@ class DeliveryTests(unittest.TestCase):
             return {"apps": self.inventory}
         if args[:3] == ["device", "install", "app"]:
             self.installs += 1
-            if self.fail:
+            if self.lose_receipt:
                 raise TimeoutError("lost receipt")
             self.inventory = [{"bundleIdentifier": "example.Test", "version": "1", "bundleVersion": self.options.build}]
             return {}
         if args[:3] == ["device", "process", "launch"]:
             return {}
-        self.failTest("unexpected command")
+        self.fail("unexpected command")
 
     def run_delivery(self):
         return module.deliver(self.options, self.command)
@@ -93,7 +93,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 0)
 
     def test_lost_receipt_restart_and_different_build_cannot_resubmit(self):
-        self.fail = True
+        self.lose_receipt = True
         self.assertEqual(self.run_delivery()["state"], "unconfirmed")
         self.assertEqual(self.run_delivery()["state"], "unconfirmed")
         self.options.build_id = "build-2"
@@ -103,7 +103,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(len(list(Path(self.options.root).glob("prepare-*"))), 1)
 
     def test_reconcile_inventory_without_second_install(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         self.inventory[0]["bundleVersion"] = "2"
         self.options.status = True
@@ -112,18 +112,18 @@ class DeliveryTests(unittest.TestCase):
         self.options.status = False
         self.options.build_id = "build-2"
         self.options.build = "3"
-        self.fail = False
+        self.lose_receipt = False
         self.assertEqual(self.run_delivery()["state"], "installed")
         self.assertEqual(self.installs, 2)
         self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
 
     def test_newer_inventory_resolves_old_uncertainty_and_releases_staging(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         self.inventory[0]["bundleVersion"] = "3"
         self.options.build_id = "build-2"
         self.options.build = "4"
-        self.fail = False
+        self.lose_receipt = False
         self.assertEqual(self.run_delivery()["state"], "installed")
         self.assertEqual(self.installs, 2)
         self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
@@ -137,7 +137,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 2)
 
     def test_expiry_does_not_replay_an_unresolved_native_handoff(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         self.options.expires_at = 1
         self.options.build_id = "build-2"
@@ -158,7 +158,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 1)
 
     def test_terminal_pruning_does_not_wait_for_an_unresolved_native_handoff(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         journal = next(Path(self.options.root).glob("*.json"))
         value = json.loads(journal.read_text())
@@ -171,7 +171,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 1)
 
     def test_unproven_staging_path_is_never_removed(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         journal = next(Path(self.options.root).glob("*.json"))
         value = json.loads(journal.read_text())
@@ -202,6 +202,40 @@ class DeliveryTests(unittest.TestCase):
             return {"devices": [self.device, self.device]}
         self.assertEqual(module.deliver(self.options, ambiguous)["state"], "unavailable")
         self.assertEqual(self.installs, 0)
+
+    def test_two_paired_phones_are_resolved_by_inventory_before_selecting_a_target(self):
+        other = {**self.device, "identifier": "DEVICE-2",
+                 "hardwareProperties": {**self.device["hardwareProperties"], "udid": "UDID-2"},
+                 "connectionProperties": {"pairingState": "paired", "tunnelState": "disconnected"}}
+        probes = []
+        submissions = []
+        other_reachable = True
+
+        def two_devices(args, timeout=12):
+            if args == ["list", "devices"]:
+                return {"devices": [self.device, other]}
+            if args[:3] == ["device", "info", "apps"]:
+                probes.append(args[4])
+                if args[4] == "DEVICE-2" and not other_reachable:
+                    raise ValueError("developer_connection_unavailable")
+            if args[:3] == ["device", "install", "app"]:
+                submissions.append(args[4])
+            return self.command(args, timeout)
+
+        self.assertEqual(module.deliver(self.options, two_devices)["code"], "NO_UNIQUE_REACHABLE_PHONE")
+        self.assertCountEqual(probes, ["DEVICE", "DEVICE-2"])
+        self.assertEqual(submissions, [])
+        other_reachable = False
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "installed")
+        self.assertEqual(submissions, ["DEVICE"])
+        other_reachable = True
+        self.options.build_id = "build-2"
+        self.options.build = "3"
+        self.options.device = "UDID-2"
+        probes.clear()
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "installed")
+        self.assertEqual(probes, ["DEVICE-2", "DEVICE-2"])
+        self.assertEqual(submissions, ["DEVICE", "DEVICE-2"])
 
     def test_team_mismatch_and_explicit_device_selection(self):
         self.inventory[0]["teamIdentifier"] = "OTHER"

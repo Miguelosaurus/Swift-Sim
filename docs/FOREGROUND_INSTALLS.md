@@ -24,11 +24,16 @@ requires a responding Mac engine that lacks foreground-install support.
 The native developer connection can install a signed build with the target app
 closed, in the background, or running an archive or older SDK. Xcode must be
 able to query one eligible paired iPhone, and the build must preserve the app's
-signing identity. For the foreground fallback, Swift Sim can restore the
-project's saved engine session on the existing private route after a Mac
-restart or engine crash. The prompt still requires a compatible Debug app and
-an exact binary identity. When neither route is available, use the saved install
-link.
+signing identity. A paired iPhone that does not answer a read-only inventory
+query does not prevent an update to a uniquely reachable phone. A signing-team
+conflict stops delivery before Swift Sim offers an install link.
+
+After a Mac restart or engine crash, Swift Sim can restore an engine session
+bound to the exact project, scheme and private host. An older session needs
+a verified live-session descriptor for the same project. If Swift Sim cannot
+verify the session, run `swift-sim live-start --project <project> --scheme <scheme>`
+on the Mac or use the saved install link. The foreground prompt requires a
+compatible Debug app and an exact binary identity.
 
 ## Agent workflow
 

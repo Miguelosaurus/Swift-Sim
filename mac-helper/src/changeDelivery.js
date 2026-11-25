@@ -161,7 +161,15 @@ async function fallback({ buildDevice, installBuild, build, project, workspace, 
           ...(installed.resolvesAt ? { resolvesAt: installed.resolvesAt } : {}),
           ...(installed.expiresAt ? { expiresAt: installed.expiresAt } : {}) }, timing: { totalMs: elapsed(now, startedAt) } });
     }
-    if (state === "blocked" && typeof installed.message === "string") installGuidance = installed.message;
+    if (state !== "blocked" || !["INSTALL_ENGINE_UNAVAILABLE", "INSTALL_ENGINE_UPDATE_REQUIRED",
+      "INSTALL_SELECTED_DEVICE_UNAVAILABLE", "INSTALL_RUNNING_APP_REQUIRED", "INSTALL_DEBUG_BASELINE_REQUIRED",
+      "INSTALL_SDK_UPDATE_REQUIRED"].includes(installed.code)) {
+      const code = installed?.code || "INSTALL_REQUEST_UNAVAILABLE";
+      const message = installed?.message || "Swift Sim could not continue this installation. Check the saved build’s delivery status.";
+      return deliveryEnvelope({ outcome: "needs-user-action", message, reasonCode: code, error: { code, message },
+        notification: built.notification, timing: { totalMs: elapsed(now, startedAt) } });
+    }
+    if (typeof installed.message === "string") installGuidance = installed.message;
   }
   const link = installDelivery(built);
   if (!link) return deliveryEnvelope({ outcome: "failed", message: "The signed build finished without a usable Swift Sim install link.", reasonCode: "INSTALL_LINK_MISSING", error: { code: "INSTALL_LINK_MISSING", message: "The signed build did not return a universal install link." }, timing: { totalMs: elapsed(now, startedAt) }, ...diagnostics(verbose, diagnostic) });

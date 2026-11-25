@@ -188,7 +188,7 @@ function previouslyLaunchedIdentity(target, builds, timestamp) {
 }
 function failure(code) { return Object.assign(new Error(code), { code }); }
 const RECOVERY_GUIDANCE = {
-  RECOVERY_BUILD_CONTEXT_REQUIRED: "Swift Sim has no saved live session for this project on the Mac. Use the saved build’s install link.",
+  RECOVERY_BUILD_CONTEXT_REQUIRED: "Swift Sim could not verify the saved live session for this project. Run swift-sim live-start with this project and scheme on the Mac, or use the saved build’s install link.",
   RECOVERY_COMPONENT_REQUIRED: "Swift Sim could not verify the installed live engine. Repair Swift Sim on the Mac or use the saved build’s install link.",
   RECOVERY_NETWORK_REQUIRED: "The saved private connection for Swift Sim is unavailable. Connect the Mac to its Tailnet or use the saved build’s install link.",
   RECOVERY_ENGINE_UNCONFIRMED: "Swift Sim tried to restart the Mac live engine and could not confirm it started. Check Swift Sim on the Mac or use the saved build’s install link.",
