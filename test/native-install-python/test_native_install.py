@@ -322,24 +322,55 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.run_delivery()["code"], "INSTALL_RECEIPT_DEVICE_MISMATCH")
         self.assertEqual(self.installs, 2)
 
-    def test_device_less_receipt_needs_a_single_signed_device_and_exact_inventory(self):
+    def test_legacy_coredevice_receipt_needs_a_single_signed_device_and_exact_inventory(self):
         self.assertEqual(self.run_delivery()["state"], "installed")
         journal = next(Path(self.options.root).glob("*.json"))
         envelope = json.loads(journal.read_text())
         envelope.pop("boundDevice")
         legacy = envelope["entries"]["build-1"]
-        legacy.pop("device")
         legacy.pop("deviceUDID")
-        journal.write_text(json.dumps(envelope))
-        self.options.status = True
-        self.profile_devices.append("UDID-2")
-        self.assertNotEqual(self.run_delivery()["state"], "installed")
-        self.profile_devices.pop()
-        self.inventory[0]["bundleVersion"] = "1"
-        self.assertNotEqual(self.run_delivery()["state"], "installed-version-observed")
-        self.inventory[0]["bundleVersion"] = "2"
-        self.assertEqual(self.run_delivery()["state"], "installed-version-observed")
+        self.assertEqual(legacy["device"], "DEVICE")
+        self.device["identifier"] = "NEW-DEVICE"
+        self.device["hardwareProperties"]["udid"] = "NEW-UDID"
+        probes = []
+
+        def inventory(args, timeout=12, **kwargs):
+            probes.append(args)
+            return self.command(args, timeout)
+
+        for status in (False, True):
+            with self.subTest(status=status):
+                journal.write_text(json.dumps(envelope))
+                self.options.status = status
+                self.profile_devices = ["NEW-UDID", "OTHER-UDID"]
+                probes.clear()
+                self.assertEqual(module.deliver(self.options, inventory)["state"], "unconfirmed")
+                self.assertEqual(probes, [])
+                self.profile_devices = ["NEW-UDID"]
+                self.inventory[0]["bundleVersion"] = "1"
+                self.assertEqual(module.deliver(self.options, inventory)["state"], "unconfirmed")
+                self.assertEqual(probes[-1][4], "NEW-UDID")
+                self.inventory[0]["bundleVersion"] = "2"
+                self.assertEqual(module.deliver(self.options, inventory)["state"], "installed-version-observed")
+                self.assertEqual(json.loads(journal.read_text())["entries"]["build-1"]["deviceUDID"], "NEW-UDID")
         self.assertEqual(self.installs, 1)
+
+    def test_slow_archive_validation_does_not_reduce_the_observation_probe_budget(self):
+        self.options.observe = True
+        self.inventory[0]["bundleVersion"] = "2"
+        ticks, deadlines = [0], []
+        def slow_prepare(ipa, out):
+            self.prepare(ipa, out)
+            ticks[0] += 16
+
+        def inventory(args, timeout=12, deadline=None):
+            deadlines.append(deadline)
+            ticks[0] += 15
+            return self.command(args, timeout)
+
+        with patch.object(module, "prepare", side_effect=slow_prepare), patch.object(module.time, "monotonic", side_effect=lambda: ticks[0]):
+            self.assertEqual(module.deliver(self.options, inventory)["state"], "installed-version-observed")
+        self.assertEqual(deadlines, [46])
 
     def test_already_matching_explicit_choice_saves_the_binding(self):
         self.profile_devices.append("UDID-2")

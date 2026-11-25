@@ -276,13 +276,12 @@ def deliver(options, command=run):
     deadline = None
     wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
     if getattr(options, "observe", False):
-        deadline = time.monotonic() + 30
         recipient = getattr(options, "transfer_device", "")
         device = recipient or sole_profile_device(options)
         if not device:
             return {"state": "not-found"}
         try:
-            apps = inventory(device, options.bundle, command, deadline)
+            apps = inventory(device, options.bundle, command, time.monotonic() + 30)
         except Exception:
             return {"state": "unconfirmed"}
         if at_or_after(apps, wanted, options.team):
@@ -359,10 +358,10 @@ def deliver(options, command=run):
                     return {"state": "superseded", "code": "INSTALL_SUPERSEDED", "nextAction": "none",
                             "message": "Inventory confirmed a newer version. This older install request will not be replayed."}
                 selected = options.device or bound_device
-                if not (receipt.get("device") or receipt.get("deviceUDID")):
-                    deadline = deadline or time.monotonic() + 30
+                if not receipt.get("deviceUDID") or not selected:
                     try:
                         only_device = sole_profile_device(options)
+                        deadline = deadline or time.monotonic() + 30
                         if only_device and options.device and options.device != only_device:
                             devices = probe(["list", "devices"], command, deadline).get("devices", [])
                             if any(d["identifier"] == options.device for d in paired_devices(devices, {only_device})):
@@ -377,7 +376,7 @@ def deliver(options, command=run):
                     except Exception:
                         pass
                     return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED", "nextAction": "check-status",
-                            "message": "The earlier receipt identifies no iPhone. Current installation could not be verified."}
+                            "message": "The earlier receipt could not be matched to a current iPhone. Current installation could not be verified."}
                 if selected and selected not in (receipt.get("device"), receipt.get("deviceUDID")):
                     return {"state": "blocked", "code": "INSTALL_RECEIPT_DEVICE_MISMATCH", "nextAction": "check-status",
                             "message": "This saved build has a receipt for a different iPhone. Use a new build for the selected iPhone."}

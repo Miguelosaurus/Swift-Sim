@@ -104,7 +104,7 @@ async function nativeInstall(build, { device, status, observe, transferDevice })
   if (status) args.push("--status");
   if (observe) args.push("--observe");
   if (observe && transferDevice) args.push("--transfer-device", transferDevice);
-  const result = await runCommandWithDeadline("python3", args, observe ? { timeoutMs: 30_000, forceKillDelayMs: 0 } : { timeoutMs: 240_000 });
+  const result = await runCommandWithDeadline("python3", args, observe ? { timeoutMs: transferDevice ? 30_000 : 90_000, forceKillDelayMs: 0 } : { timeoutMs: 240_000 });
   try {
     const value = JSON.parse(result.stdout);
     return result.code === 0 ? value : { state: "unconfirmed" };
