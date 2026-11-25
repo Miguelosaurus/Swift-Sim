@@ -224,7 +224,7 @@ test("managed Debug requires the scoped link and a passing guard before registra
   const core = fileURLToPath(new URL("../mac-helper/src/deviceBuilderCore.js", import.meta.url));
   const live = fileURLToPath(new URL("../mac-helper/src/liveReload.js", import.meta.url));
   try {
-    for (const scenario of ["unsafe-image", "inspection-failed", "scope-missing", "engine-unavailable", "release"]) {
+    for (const scenario of ["unsafe-image", "unsafe-archive", "inspection-failed", "scope-missing", "engine-unavailable", "release"]) {
       const configuration = scenario === "release" ? "Release" : "Debug";
       const root = join(directory, scenario);
       const script = `
@@ -245,7 +245,7 @@ test("managed Debug requires the scoped link and a passing guard before registra
         const build = { id: 'example', project: ${JSON.stringify(project)}, scheme: 'Example', configuration: ${JSON.stringify(configuration)}, buildSettings: ['OTHER_LDFLAGS=$(inherited) -fuse-ld=custom-debug-linker', 'CUSTOM_SETTING=keep'], logs: [], artifacts: {root:${JSON.stringify(root)}}, app: {}, signing: {}, preserveData: true };
         let code;
         try { await runDeviceBuild(build, { nextBuildNumber: () => '2' }); } catch(error) { code = error.code; }
-        console.log(JSON.stringify({ state: build.state, code,
+        console.log(JSON.stringify({ state: build.state, code, liveReload: build.liveReload,
           invocations: build.logs.filter(line => line.startsWith('CAPTURE:')).map(line => JSON.parse(line.slice(8))) }));
       `;
       const result = spawnSync(process.execPath, ["--experimental-test-module-mocks", "--input-type=module", "-e", script], {
@@ -253,18 +253,24 @@ test("managed Debug requires the scoped link and a passing guard before registra
         env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, LINKER_FIXTURE_SCENARIO: scenario },
       });
       assert.equal(result.status, 0, result.stderr);
-      const { invocations, state, code } = JSON.parse(result.stdout.trim());
+      const { invocations, state, code, liveReload } = JSON.parse(result.stdout.trim());
       const actions = invocations.map((args) => args.includes("-exportArchive") ? "export" : args.at(-1));
       const expected = {
-        "unsafe-image": { state: "failed", actions: ["build"], code: "LIVE_LINKER_INCOMPATIBLE" },
+        "unsafe-image": { state: "ready", actions: ["build", "archive", "export"] },
+        "unsafe-archive": { state: "failed", actions: ["build", "archive"], code: "LIVE_LINKER_INCOMPATIBLE" },
         "inspection-failed": { state: "failed", actions: ["build"], code: "LIVE_LINKER_INSPECTION_FAILED" },
-        "scope-missing": { state: "failed", actions: ["build"], code: "LIVE_LINKER_SCOPE_FAILED" },
+        "scope-missing": { state: "ready", actions: ["build", "archive", "export"] },
         "engine-unavailable": { state: "failed", actions: [], code: "LIVE_BUILD_ENGINE_UNAVAILABLE" },
         release: { state: "ready", actions: ["archive", "export"] },
       }[scenario];
       assert.deepEqual({ state, actions, ...(code ? { code } : {}) }, expected, scenario);
       assert.equal(existsSync(join(root, "registered")), false);
       assert.equal(existsSync(join(root, "export", "Example.ipa")), state === "ready");
+      if (["unsafe-image", "scope-missing"].includes(scenario)) {
+        assert.equal(liveReload.eligible, false);
+        assert.equal(liveReload.compilerReady, false);
+        assert.match(liveReload.error, /Hot reload is off/);
+      }
 
       const liveBuild = invocations.find((args) => args.includes("build"));
       if (liveBuild) {
@@ -294,7 +300,7 @@ function fakeXcodeBuild() {
     const args = process.argv.slice(2);
     if(!args.includes('-showBuildSettings')) console.log('CAPTURE:' + JSON.stringify(args));
     const option = key => args[args.indexOf(key)+1];
-    if(args.includes('-showBuildSettings')) console.log('Build settings for action build and target Example:\\n    PRODUCT_TYPE = com.apple.product-type.application\\n    WRAPPER_EXTENSION = app\\n    FULL_PRODUCT_NAME = Example.app\\n    WRAPPER_NAME = Example.app\\n    EXECUTABLE_NAME = Example\\n    PRODUCT_MODULE_NAME = Example\\n    PRODUCT_BUNDLE_IDENTIFIER = com.example.fixture\\n    DEVELOPMENT_TEAM = FIXTURE\\n    CURRENT_PROJECT_VERSION = 1');
+    if(args.includes('-showBuildSettings')) console.log('Build settings for action build and target Example:\\n    PRODUCT_TYPE = com.apple.product-type.application\\n    WRAPPER_EXTENSION = app\\n    FULL_PRODUCT_NAME = Example.app\\n    WRAPPER_NAME = Example.app\\n    EXECUTABLE_NAME = Example\\n    PRODUCT_MODULE_NAME = Example\\n    PRODUCT_BUNDLE_IDENTIFIER = com.example.fixture\\n    DEVELOPMENT_TEAM = FIXTURE\\n    CURRENT_PROJECT_VERSION = 1\\n    MARKETING_VERSION = 1');
     else if(args.includes('build')) {
       const app=join(option('-derivedDataPath'),'Build','Products','Debug-iphoneos','Example.app');
       const image = join(app,'Example.debug.dylib');
@@ -302,6 +308,17 @@ function fakeXcodeBuild() {
       if(process.env.LINKER_FIXTURE_SCENARIO !== 'scope-missing') {
         const linker = args.find(arg => arg.startsWith('LD=')).slice(3);
         writeFileSync(join(dirname(linker),'scoped-output'),realpathSync(image));
+      }
+    } else if(args.includes('archive')) {
+      const app=join(option('-archivePath'),'Products','Applications','Example.app');
+      mkdirSync(app,{recursive:true});
+      writeFileSync(join(app,'Info.plist'), '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.fixture</string><key>CFBundleExecutable</key><string>Example</string><key>CFBundleVersion</key><string>2</string><key>CFBundleShortVersionString</key><string>1</string></dict></plist>');
+      writeFileSync(join(app,'Example'), 'fixture');
+      if (process.env.LINKER_FIXTURE_SCENARIO === 'unsafe-archive') {
+        const extension = join(app, 'PlugIns', 'Widget.appex');
+        mkdirSync(extension, { recursive: true });
+        writeFileSync(join(extension,'Info.plist'), '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Widget</string></dict></plist>');
+        writeFileSync(join(extension,'Widget'), 'fixture');
       }
     } else if(args.includes('-exportArchive')) {
       const path=option('-exportPath');mkdirSync(path,{recursive:true});writeFileSync(join(path,'Example.ipa'),'fixture');
@@ -386,7 +403,8 @@ function fakeLinkerInspection(symbol) {
     const [tool, ...args] = process.argv.slice(2);
     const image = args.at(-1);
     const scenario = process.env.LINKER_FIXTURE_SCENARIO;
-    const unsafe = image.endsWith('.debug.dylib') && scenario === 'unsafe-image';
+    const unsafe = (image.endsWith('.debug.dylib') && ['unsafe-image', 'unsafe-archive'].includes(scenario))
+      || (scenario === 'unsafe-archive' && image.endsWith('/Widget'));
     if (scenario === 'inspection-failed') process.exit(1);
     if (tool === 'dyld_info') {
       console.log('fixture [arm64]:\\n    -imports:');

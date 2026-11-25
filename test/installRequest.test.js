@@ -106,6 +106,44 @@ test("install request restores a stopped prepared Debug engine before a single e
   assert.equal(f.calls.filter(call => call.operation === "enqueue").length, 1);
 });
 
+test("a stopped engine can reconnect before the first tracked Debug launch", async () => {
+  const f = fixture({ listBuilds: async () => [] });
+  const control = f.options.control;
+  let restores = 0;
+  f.options.control = request => request.action === "status" && !restores ? null : control(request);
+  f.options.restoreEngine = async (_scope, guard) => {
+    await guard();
+    restores++;
+    return true;
+  };
+  assert.equal((await requestAppInstall(f.options)).state, "waiting");
+  assert.equal(restores, 1);
+  assert.equal(f.calls.filter(call => call.operation === "enqueue").length, 1);
+});
+
+test("failed engine recovery explains why and leaves the install queue alone", async () => {
+  const f = fixture({
+    control: async () => null,
+    restoreEngine: async () => { throw Object.assign(new Error("private detail"), { code: "RECOVERY_NETWORK_REQUIRED" }); },
+  });
+  const result = await requestAppInstall(f.options);
+  assert.equal(result.code, "INSTALL_ENGINE_UNAVAILABLE");
+  assert.match(result.guidance, /saved private connection.*install link/);
+  assert.doesNotMatch(result.guidance, /private detail/);
+});
+
+test("recent verified archive blocks stale live history when the target is disconnected", async () => {
+  const f = fixture();
+  const archive = { ...fixtureBuild(), configuration: "Debug",
+    installation: { state: "verified", verifiedAt: new Date(3000).toISOString() } };
+  f.options.listBuilds = () => [launchedBuild(), archive];
+  offline(f);
+  const result = await requestAppInstall(f.options);
+  assert.equal(result.code, "INSTALL_DEBUG_BASELINE_REQUIRED");
+  assert.equal(result.nextAction, "open-swift-sim");
+  assert.ok(!f.calls.some(call => call.operation === "enqueue"));
+});
+
 for (const running of [false, true]) test(`latest installed Release app blocks stale Debug evidence with engine ${running ? "running" : "stopped"}`, async () => {
   const f = fixture();
   const previousRelease = { ...fixtureBuild(), configuration: "Release",

@@ -21,6 +21,7 @@ import {
 } from "./liveReload.js";
 
 export class DeviceBuildError extends Error {}
+export const DEBUG_ARCHIVE_FALLBACK_NOTICE = "Hot reload is off for this build because Swift Sim could not produce a compatible live Debug binary.";
 
 // Creating an install payload never needs to wait for a paired phone. The
 // provisioning flag permits signing updates; it does not choose a live device.
@@ -343,7 +344,7 @@ export async function runDeviceBuild(build, {
     saveBuild();
 
     if (liveEligible && target.type === "project") {
-      await withLiveBuildSession({
+      const liveBuilt = await withLiveBuildSession({
         project: join(target.path, "project.pbxproj"),
         scheme: build.scheme,
         buildSettings: build.buildSettings,
@@ -447,8 +448,16 @@ export async function runDeviceBuild(build, {
         build.state = "ready";
         saveBuild();
         log("Build is ready to install and hot reload.");
+        return true;
+      }).catch((error) => {
+        if (!["LIVE_LINKER_INCOMPATIBLE", "LIVE_LINKER_SCOPE_FAILED"].includes(error?.code)) throw error;
+        throwIfBuildCancelled(build);
+        build.liveReload = { eligible: false, engineReady: false, compilerReady: false,
+          archiveFallback: true, error: DEBUG_ARCHIVE_FALLBACK_NOTICE };
+        log(`${DEBUG_ARCHIVE_FALLBACK_NOTICE} Trying a signed Debug archive.`);
+        return false;
       });
-      return build;
+      if (liveBuilt) return build;
     }
 
     build.state = "archiving";
@@ -460,10 +469,25 @@ export async function runDeviceBuild(build, {
       "-configuration", build.configuration || "Release",
       ...buildSettingArgs,
       "-destination", "generic/platform=iOS",
+      ...(build.liveReload?.archiveFallback ? ["-derivedDataPath", join(root, "DerivedData")] : []),
       "-archivePath", archivePath,
       ...(build.allowProvisioningUpdates ? ["-allowProvisioningUpdates"] : []),
       "archive",
     ], log, { build });
+
+    const product = settings.FULL_PRODUCT_NAME || settings.WRAPPER_NAME;
+    const archivedApp = typeof product === "string" && basename(product) === product && product.endsWith(".app")
+      ? join(archivePath, "Products", "Applications", product) : "";
+    if (build.liveReload?.archiveFallback) {
+      const info = archivedApp && readBuiltAppInfo(join(archivedApp, "Info.plist"));
+      if (!info || info.CFBundleIdentifier !== build.app.bundleIdentifier
+        || String(info.CFBundleVersion || "") !== build.app.build
+        || String(info.CFBundleShortVersionString || "") !== build.app.version)
+        throw new DeviceBuildError("The Debug archive does not contain the expected app version.");
+      await verifyLiveBuildLinkerCompatibility(archiveImages(archivedApp), { runCommand: runBuffered,
+        cancelPath: build.control?.cancelPath || "" });
+      log("The signed Debug archive passed the linker compatibility check.");
+    }
 
     build.state = "exporting";
     saveBuild();
@@ -482,8 +506,7 @@ export async function runDeviceBuild(build, {
     if (!ipaPath) throw new DeviceBuildError("Xcode export finished, but no IPA was produced.");
     build.artifacts.ipaPath = ipaPath;
     build.app.name = archivedAppDisplayName(archivePath, settings, build.app.name || displayNameFromIpa(ipaPath) || build.scheme, readBuiltAppInfo);
-    const product = settings.FULL_PRODUCT_NAME || settings.WRAPPER_NAME;
-    if (typeof product === "string" && basename(product) === product) await captureAppIcon(build, join(archivePath, "Products", "Applications", product));
+    if (archivedApp) await captureAppIcon(build, archivedApp);
 
     build.state = "ready";
     saveBuild();
@@ -493,6 +516,25 @@ export async function runDeviceBuild(build, {
     if (error?.code === "SWIFT_SIM_BUILD_CANCELLED") throw error;
     throw recordDeviceBuildFailure(build, error, save);
   }
+}
+
+function archiveImages(bundlePath) {
+  const executable = readBuiltAppInfo(join(bundlePath, "Info.plist"))?.CFBundleExecutable;
+  if (typeof executable !== "string" || !executable || basename(executable) !== executable
+    || executable === "." || executable === "..")
+    throw new DeviceBuildError("The Debug archive is missing an executable identity.");
+  const images = [join(bundlePath, executable)];
+  for (const entry of readdirSync(bundlePath, { withFileTypes: true })) {
+    if (entry.name.endsWith(".dylib") && entry.isFile()) images.push(join(bundlePath, entry.name));
+    if (!entry.isDirectory() || !["PlugIns", "Frameworks", "Watch", "AppClips", "Extensions", "XPCServices"].includes(entry.name))
+      continue;
+    const directory = join(bundlePath, entry.name);
+    for (const child of readdirSync(directory, { withFileTypes: true })) {
+      if (child.isFile() && child.name.endsWith(".dylib")) images.push(join(directory, child.name));
+      if (child.isDirectory() && /\.(appex|app|framework|xpc)$/.test(child.name)) images.push(...archiveImages(join(directory, child.name)));
+    }
+  }
+  return images;
 }
 
 export function buildManifest(build, remoteBaseUrl) {
@@ -551,7 +593,7 @@ export function deviceBuildLinks(build, remoteBaseUrl = "") {
 export function publicDeviceBuild(build) {
   const liveReloadEligible = String(build.configuration || "").toLowerCase() === "debug"
     && Boolean(build.origin === "xcode" ? build.liveReload?.compilerReady === true : (build.liveReload?.eligible
-      || (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"))));
+      ?? (build.buildSettings || []).some((setting) => String(setting).includes("-interposable"))));
   return {
     id: build.id,
     createdAt: build.createdAt,
@@ -568,6 +610,7 @@ export function publicDeviceBuild(build) {
       compilerReady: Boolean(build.liveReload?.compilerReady),
       capturedCompilations: Number(build.liveReload?.capturedCompilations || 0),
       error: build.liveReload?.error || "",
+      ...(build.liveReload?.archiveFallback ? { archiveFallback: true } : {}),
     },
     app: build.app,
     signing: {

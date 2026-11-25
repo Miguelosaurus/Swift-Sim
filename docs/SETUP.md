@@ -72,12 +72,12 @@ When the status reports `ok: true`, ask the agent to open a live Simulator previ
 
 ## Swift Package Manager Version Pin
 
-Swift Sim 0.6.11 pins its matching engine 0.5.10. Apps can use the stable exact package version:
+Swift Sim 0.6.12 pins its matching engine 0.5.10. Apps can use the stable exact package version:
 
 ```swift
 .package(
     url: "https://github.com/Miguelosaurus/Swift-Sim.git",
-    exact: "0.6.11"
+    exact: "0.6.12"
 )
 ```
 

@@ -1,7 +1,10 @@
 import { readStateBytes } from "./fixtures/state-bytes.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { once } from "node:events";
 import { stopLiveEngineProcess } from "../mac-helper/src/liveReload.js";
 
@@ -30,6 +33,58 @@ test("engine ownership refusal propagates rather than allowing installation to a
   let attempts = 0;
   await assert.rejects(stopLiveEngineProcess(123, { kill() { attempts++; throw Object.assign(new Error("unverified owner"), { code: "EPERM" }); } }), { code: "EPERM" });
   assert.equal(attempts, 1);
+});
+
+test("recovery refuses legacy sessions even when a sibling could publish a matching descriptor", t => {
+  const home = mkdtempSync(join(tmpdir(), "swift-sim-install-recovery-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const root = join(home, ".swift-sim");
+  mkdirSync(join(root, "engine"), { recursive: true });
+  const target = join(home, "B.xcodeproj");
+  const sibling = join(home, "A.xcodeproj", "project.pbxproj");
+  mkdirSync(target);
+  const project = join(target, "project.pbxproj");
+  const live = new URL("../mac-helper/src/liveReload.js", import.meta.url).href;
+  const script = `
+    const { writeFileSync } = await import("node:fs");
+    const { restoreStoppedLiveEngine } = await import(${JSON.stringify(live)});
+    const { COMPONENTS } = await import(${JSON.stringify(new URL("../mac-helper/src/componentCompatibility.js", import.meta.url).href)});
+    const { buildLiveSessionDescriptor, publishLiveSessionDescriptor } =
+      await import(${JSON.stringify(new URL("../mac-helper/src/liveSessionDescriptor.js", import.meta.url).href)});
+    const [home, target, project, sibling, sessionFile] = process.argv.slice(1);
+    const liveHost = "100.88.1.2";
+    const legacy = { projectRoot: home, scheme: "Shared", engineVersion: COMPONENTS.engine.version, nonce: "fixture" };
+    const write = session => writeFileSync(sessionFile, JSON.stringify(session), { mode: 0o600 });
+    const recover = async (forInstall = true) => {
+      try { await restoreStoppedLiveEngine({ project: target, scheme: "Shared", forInstall }); }
+      catch (error) { return error.code; }
+      return "started";
+    };
+    const codes = [];
+    for (const session of [legacy, { ...legacy, projectPath: sibling, liveHost },
+      { ...legacy, projectPath: project }, { ...legacy, projectPath: project, liveHost: "100.1.2.3" },
+      { ...legacy, projectPath: project, liveHost }]) {
+      write(session);
+      codes.push(await recover());
+    }
+    write(legacy);
+    publishLiveSessionDescriptor(buildLiveSessionDescriptor({
+      projectPath: target, scheme: "Shared", host: liveHost, engineSession: legacy,
+    }));
+    codes.push(await recover());
+    codes.push(await recover(false));
+    write({ ...legacy, projectPath: sibling, liveHost });
+    codes.push(await recover());
+    console.log(JSON.stringify(codes));
+  `;
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script, home, target, project, sibling,
+    join(root, "engine", "session.json")], { env: { ...process.env, HOME: home }, encoding: "utf8", timeout: 10_000 });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), [
+    "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED",
+    "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_COMPONENT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED",
+    "RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_BUILD_CONTEXT_REQUIRED",
+  ]);
 });
 
 test("unparsed ownership record preserves engine evidence and never permits replacement cleanup", async t => {

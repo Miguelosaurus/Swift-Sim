@@ -146,10 +146,10 @@ def private(path, directory=False):
         raise ValueError("private_state_required")
 
 
-def save(path, record):
+def save(path, record, bound_device=""):
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as f:
         temporary = Path(f.name)
-        f.write(json.dumps({"schema": 1, "entries": record}).encode())
+        f.write(json.dumps({"schema": 1, "entries": record, "boundDevice": bound_device}).encode())
         f.flush()
         os.fsync(f.fileno())
     try:
@@ -163,11 +163,14 @@ def save(path, record):
         temporary.unlink(missing_ok=True)
 
 
-def run(args, timeout=12):
+def run(args, timeout=12, deadline=None):
     with tempfile.TemporaryDirectory(prefix="swift-sim-xcode-") as scratch:
         output = Path(scratch) / "result.json"
+        wall_timeout = timeout + 3
+        if deadline is not None and deadline - time.monotonic() < wall_timeout:
+            raise TimeoutError("insufficient_probe_budget")
         p = subprocess.run(["/usr/bin/xcrun", "devicectl", *args, "--timeout", str(timeout),
-                            "--json-output", str(output)], capture_output=True, timeout=timeout + 3)
+                            "--json-output", str(output)], capture_output=True, timeout=wall_timeout)
         payload = json.loads(output.read_text()) if output.exists() else {}
         if p.returncode or payload.get("info", {}).get("outcome") != "success":
             raise ValueError("developer_connection_unavailable")
@@ -221,32 +224,76 @@ def release_staging(root, record, team):
     record["cleanupPending"] = False
 
 
-def inventory(device, bundle, command):
-    return command(["device", "info", "apps", "--device", device, "--bundle-id", bundle]).get("apps", [])
+def probe(args, command, deadline):
+    if deadline - time.monotonic() < 15:
+        raise TimeoutError("insufficient_probe_budget")
+    result = command(args, deadline=deadline)
+    if time.monotonic() >= deadline:
+        raise TimeoutError("probe_deadline_exceeded")
+    return result
 
 
-def connected_devices(options, devices):
-    return [d for d in devices if d.get("hardwareProperties", {}).get("platform") == "iOS"
-            and d.get("hardwareProperties", {}).get("reality") == "physical"
-            and d.get("deviceProperties", {}).get("pairingState") == "paired"
-            and d.get("connectionProperties", {}).get("tunnelState") == "connected"
-            and (not options.device or options.device in [d.get("identifier"), d.get("hardwareProperties", {}).get("udid")])]
+def inventory(device, bundle, command, deadline=None):
+    args = ["device", "info", "apps", "--device", device, "--bundle-id", bundle]
+    result = command(args) if deadline is None else probe(args, command, deadline)
+    apps = result.get("apps")
+    if not isinstance(apps, list):
+        raise ValueError("invalid_device_inventory")
+    return apps
+
+
+def paired_devices(devices, profile):
+    candidates = []
+    for device in devices:
+        hardware = device.get("hardwareProperties", {})
+        connection = device.get("connectionProperties", {})
+        pairing = connection.get("pairingState", device.get("deviceProperties", {}).get("pairingState"))
+        if (hardware.get("platform") == "iOS" and hardware.get("reality") == "physical"
+                and device.get("identifier") and hardware.get("udid") and pairing == "paired"
+                and hardware["udid"] in profile):
+            candidates.append(device)
+    # A disconnected tunnel is opened by the inventory command if reachable.
+    # Inventory must succeed before the caller can admit an install.
+    return candidates
+
+
+def prepared_build(options, prepared):
+    prepare(Path(options.ipa), prepared)
+    manifest = json.loads((prepared / "manifest.json").read_text())
+    wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
+    if manifest["identity"] != wanted or manifest["team"] != options.team:
+        raise ValueError("build_identity_mismatch")
+    return manifest
+
+
+def sole_profile_device(options):
+    with tempfile.TemporaryDirectory(prefix="swift-sim-profile-") as scratch:
+        devices = set(prepared_build(options, Path(scratch) / "frozen")["devices"])
+        return devices.pop() if len(devices) == 1 else ""
 
 
 def deliver(options, command=run):
-    # Read-only foreground reconciliation reuses the native inventory comparator;
-    # it neither prepares an IPA nor creates a native install journal.
+    deadline = None
+    wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
     if getattr(options, "observe", False):
-        devices = connected_devices(options, command(["list", "devices"]).get("devices", []))
-        wanted = {"bundle": options.bundle, "version": options.version, "build": options.build}
-        if len(devices) == 1 and at_or_after(inventory(devices[0]["identifier"], options.bundle, command), wanted, options.team):
-            return {"state": "installed-version-observed", "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        recipient = getattr(options, "transfer_device", "")
+        device = recipient or sole_profile_device(options)
+        if not device:
+            return {"state": "not-found"}
+        try:
+            apps = inventory(device, options.bundle, command, time.monotonic() + 30)
+        except Exception:
+            return {"state": "unconfirmed"}
+        if at_or_after(apps, wanted, options.team):
+            return {"state": "installed-version-observed", "deviceUDID": device, "soleProfileDevice": not recipient,
+                    "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
         return {"state": "not-found"}
+
     root = Path(options.root)
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    private(root, True)
     key = hashlib.sha256((options.team + ":" + options.bundle).encode()).hexdigest()
     journal = root / (key + ".json")
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    private(root, True)
     lock = os.open(root / (key + ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         try:
@@ -255,23 +302,28 @@ def deliver(options, command=run):
             return {"state": "unconfirmed", "code": "INSTALL_BUSY", "nextAction": "wait",
                     "message": "Another native installer holds this app lock. Wait for it to finish, then check status."}
         records = {}
+        bound_device = ""
         if journal.exists():
             private(journal)
             envelope = json.loads(journal.read_text())
             if not isinstance(envelope, dict) or envelope.get("schema") != 1:
                 raise ValueError("invalid_journal")
             records = envelope.get("entries")
+            bound_device = envelope.get("boundDevice", "")
+            if not isinstance(bound_device, str) or len(bound_device) > 255:
+                raise ValueError("invalid_device_binding")
             if (not isinstance(records, dict) or len(records) > 128
                     or any(not isinstance(v, dict) or v.get("state") not in
                            ["submitting", "installed", "installed-version-observed", "superseded"] for v in records.values())):
                 raise ValueError("invalid_journal")
+        if journal.exists():
             original = json.dumps(records, sort_keys=True)
             # Terminal receipts expire even on status/duplicate reads. Unknown
             # submissions remain fenced until inventory can resolve them.
             records = {k: v for k, v in records.items() if v.get("state") == "submitting" or v.get("cleanupPending")
                        or v.get("expires", v.get("at", 0)) + 86400 > time.time()}
             if json.dumps(records, sort_keys=True) != original:
-                save(journal, records)
+                save(journal, records, bound_device)
                 original = json.dumps(records, sort_keys=True)
             pending = [v for v in records.values() if v.get("state") == "submitting" or v.get("cleanupPending")]
             if len(pending) > 1:
@@ -281,8 +333,9 @@ def deliver(options, command=run):
                 # Holding the per-app flock excludes a still-running installer.
                 # A dated same/newer inventory observation resolves a lost reply;
                 # capability expiry alone cannot cancel an admitted native install.
+                deadline = time.monotonic() + 30
                 try:
-                    apps = inventory(old["device"], old["identity"]["bundle"], command)
+                    apps = inventory(old.get("deviceUDID") or old["device"], old["identity"]["bundle"], command, deadline)
                 except Exception:
                     return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED", "nextAction": "check-status",
                             "message": "Reconnect the original iPhone and check status to resolve its earlier native installation."}
@@ -298,13 +351,37 @@ def deliver(options, command=run):
                 old["state"] = "installed-version-observed" if exact else "superseded"
                 old["observedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
             if json.dumps(records, sort_keys=True) != original:
-                save(journal, records)
+                save(journal, records, bound_device)
             if options.build_id in records:
-                if records[options.build_id]["state"] == "superseded":
+                receipt = records[options.build_id]
+                if receipt["state"] == "superseded":
                     return {"state": "superseded", "code": "INSTALL_SUPERSEDED", "nextAction": "none",
                             "message": "Inventory confirmed a newer version. This older install request will not be replayed."}
-                return {"state": records[options.build_id]["state"], "buildID": options.build_id,
-                        "observedAt": records[options.build_id].get("observedAt")}
+                selected = options.device or bound_device
+                if not receipt.get("deviceUDID") or not selected:
+                    try:
+                        only_device = sole_profile_device(options)
+                        deadline = deadline or time.monotonic() + 30
+                        if only_device and options.device and options.device != only_device:
+                            devices = probe(["list", "devices"], command, deadline).get("devices", [])
+                            if any(d["identifier"] == options.device for d in paired_devices(devices, {only_device})):
+                                selected = only_device
+                        apps = inventory(only_device, options.bundle, command, deadline) if only_device and selected in ("", only_device) else []
+                        if matching([a for a in apps if a.get("teamIdentifier", options.team) == options.team], wanted):
+                            receipt.update(state="installed-version-observed", deviceUDID=only_device,
+                                           observedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
+                            save(journal, records, only_device if options.device else bound_device)
+                            return {"state": "installed-version-observed", "buildID": options.build_id, "deviceUDID": only_device,
+                                    "observedAt": receipt["observedAt"]}
+                    except Exception:
+                        pass
+                    return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED", "nextAction": "check-status",
+                            "message": "The earlier receipt could not be matched to a current iPhone. Current installation could not be verified."}
+                if selected and selected not in (receipt.get("device"), receipt.get("deviceUDID")):
+                    return {"state": "blocked", "code": "INSTALL_RECEIPT_DEVICE_MISMATCH", "nextAction": "check-status",
+                            "message": "This saved build has a receipt for a different iPhone. Use a new build for the selected iPhone."}
+                return {"state": receipt["state"], "buildID": options.build_id, "deviceUDID": receipt.get("deviceUDID"),
+                        "observedAt": receipt.get("observedAt")}
         if options.status:
             return {"state": "not-found"}
         if options.expires_at <= time.time():
@@ -314,38 +391,53 @@ def deliver(options, command=run):
                     "message": "The bounded native journal is full. Check status to reconcile earlier installs; terminal receipts expire after one day."}
         with Preparation(root) as scratch:
             prepared = Path(scratch) / "frozen"
-            prepare(Path(options.ipa), prepared)
-            manifest = json.loads((prepared / "manifest.json").read_text())
-            identity = {"bundle": options.bundle, "version": options.version, "build": options.build}
-            if manifest["identity"] != identity or manifest["team"] != options.team:
-                raise ValueError("build_identity_mismatch")
+            manifest = prepared_build(options, prepared)
+            identity = wanted
+            profile = set(manifest["devices"])
+            selected = options.device or bound_device
+            unavailable = {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
+            if bound_device and not options.device and (len(profile) > 1 or bound_device not in profile):
+                unavailable = {"state": "blocked", "code": "INSTALL_BOUND_DEVICE_UNAVAILABLE", "nextAction": "check-mac",
+                               "message": "Xcode could not verify the saved iPhone. Reconnect it, or use --device to choose another iPhone."}
+            deadline = deadline or time.monotonic() + 30
             try:
-                devices = command(["list", "devices"]).get("devices", [])
+                devices = probe(["list", "devices"], command, deadline).get("devices", [])
             except Exception:
-                return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
-            eligible = [d for d in connected_devices(options, devices)
-                        if d.get("hardwareProperties", {}).get("udid") in manifest["devices"]]
-            if len(eligible) != 1:
-                return {"state": "unavailable", "code": "NO_UNIQUE_REACHABLE_PHONE"}
+                devices = []
+            eligible = paired_devices(devices, profile)
+            if not selected and len(profile) > 1:
+                return {"state": "blocked", "code": "INSTALL_DEVICE_SELECTION_REQUIRED", "nextAction": "check-mac",
+                        "message": "This build allows more than one device. Run swift-sim deliver-build with --device <device-id> to choose an iPhone. A verified choice is saved for this app.",
+                        "choices": [{"id": d["identifier"], "name": d.get("deviceProperties", {}).get("name", "iPhone")}
+                                    for d in eligible]}
+            if selected:
+                eligible = [d for d in eligible if selected == d["hardwareProperties"]["udid"]
+                            or (options.device and selected == d["identifier"])]
+            if len(eligible) != 1 or eligible[0].get("connectionProperties", {}).get("tunnelState") not in ("connected", "disconnected"):
+                return unavailable
             device = eligible[0]["identifier"]
+            udid = eligible[0]["hardwareProperties"]["udid"]
             try:
-                before = inventory(device, options.bundle, command)
+                before = inventory(device, options.bundle, command, deadline)
             except Exception:
-                return {"state": "unavailable", "code": "DEVELOPER_CONNECTION_UNAVAILABLE"}
-            if matching(before, identity):
-                return {"state": "already-matching-version", "buildID": options.build_id,
-                        "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                return unavailable
             # Never replace a different team's existing application identity.
             existing = [a for a in before if a.get("bundleIdentifier") == options.bundle]
             if existing and any(a.get("teamIdentifier") and a.get("teamIdentifier") != options.team for a in existing):
-                return {"state": "unavailable", "code": "EXISTING_APP_TEAM_UNCONFIRMED"}
+                return {"state": "blocked", "code": "EXISTING_APP_TEAM_UNCONFIRMED", "nextAction": "check-mac",
+                        "message": "The existing app reports a different signing team. Check the build's signing before updating it."}
+            if matching(existing, identity):
+                if options.device:
+                    save(journal, records, udid)
+                return {"state": "already-matching-version", "buildID": options.build_id, "deviceUDID": udid,
+                        "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat()}
             app = extract(prepared / "signed.ipa", Path(scratch))
-            record = {"buildID": options.build_id, "identity": identity, "device": device,
+            record = {"buildID": options.build_id, "identity": identity, "device": device, "deviceUDID": udid,
                       "sha256": manifest["sha256"], "state": "submitting", "at": time.time(),
                       "expires": options.expires_at, "staging": str(Path(scratch)), "cleanupPending": True}
             # Once this is durable, ANY failure stays uncertain. No prompt fallback.
             records[options.build_id] = record
-            save(journal, records)
+            save(journal, records, bound_device)
             scratch.keep = True
             try:
                 command(["device", "install", "app", "--device", device, str(app)], timeout=180)
@@ -354,7 +446,7 @@ def deliver(options, command=run):
                 record["state"] = "installed"
                 record["cleanupPending"] = False
                 record["observedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                save(journal, records)
+                save(journal, records, udid if options.device or len(profile) == 1 else bound_device)
                 scratch.keep = False
             except Exception:
                 return {"state": "unconfirmed", "code": "INSTALL_RECONCILE_REQUIRED"}
@@ -365,7 +457,7 @@ def deliver(options, command=run):
                 opened = True
             except Exception:
                 pass
-            return {"state": "installed", "buildID": options.build_id, "launchRequested": opened,
+            return {"state": "installed", "buildID": options.build_id, "deviceUDID": udid, "launchRequested": opened,
                     "observedAt": record["observedAt"]}
     finally:
         os.close(lock)
@@ -379,6 +471,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--observe", action="store_true")
+    parser.add_argument("--transfer-device", default="")
     try:
         result = deliver(parser.parse_args())
     except Exception:

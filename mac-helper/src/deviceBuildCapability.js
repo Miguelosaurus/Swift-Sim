@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { publicDeviceBuild } from "./deviceBuilder.js";
+import { DEBUG_ARCHIVE_FALLBACK_NOTICE, publicDeviceBuild } from "./deviceBuilder.js";
 
 export const ACTIVE_CAPABILITY_LIFETIME_MS = 4 * 60 * 60 * 1000;
 export const FAILED_CAPABILITY_GRACE_MS = 30 * 60 * 1000;
@@ -87,7 +87,8 @@ export function publicCapabilityDeviceBuild(build, capability = build) {
       : "",
     liveReload: {
       ...liveReload,
-      error: liveReload.error ? "Live patch preparation was unavailable." : "",
+      error: liveReload.archiveFallback ? DEBUG_ARCHIVE_FALLBACK_NOTICE
+        : liveReload.error ? "Live patch preparation was unavailable." : "",
     },
     app: {
       ...response.app,

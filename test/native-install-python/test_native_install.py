@@ -21,7 +21,8 @@ class DeliveryTests(unittest.TestCase):
         self.inventory = [{"bundleIdentifier": "example.Test", "version": "1", "bundleVersion": "1", "teamIdentifier": "TEAM"}]
         self.device = {"identifier": "DEVICE", "hardwareProperties": {"platform": "iOS", "reality": "physical", "udid": "UDID"},
                        "deviceProperties": {"pairingState": "paired"}, "connectionProperties": {"tunnelState": "connected"}}
-        self.fail = False
+        self.lose_receipt = False
+        self.profile_devices = ["UDID"]
         self.preparer = patch.object(module, "prepare", side_effect=self.prepare)
         self.extractor = patch.object(module, "extract", return_value=self.root / "Test.app")
         self.preparer.start()
@@ -35,36 +36,53 @@ class DeliveryTests(unittest.TestCase):
     def prepare(self, ipa, out):
         out.mkdir(mode=0o700)
         (out / "manifest.json").write_text(json.dumps({"identity": {"bundle": "example.Test", "version": "1", "build": self.options.build},
-                                                       "team": "TEAM", "sha256": "a" * 64, "devices": ["UDID"]}))
+                                                       "team": "TEAM", "sha256": "a" * 64, "devices": self.profile_devices}))
         (out / "manifest.json").chmod(0o400)
 
-    def command(self, args, timeout=12):
+    def command(self, args, timeout=12, **kwargs):
         if args == ["list", "devices"]:
             return {"devices": [self.device]}
         if args[:3] == ["device", "info", "apps"]:
             return {"apps": self.inventory}
         if args[:3] == ["device", "install", "app"]:
             self.installs += 1
-            if self.fail:
+            if self.lose_receipt:
                 raise TimeoutError("lost receipt")
             self.inventory = [{"bundleIdentifier": "example.Test", "version": "1", "bundleVersion": self.options.build}]
             return {}
         if args[:3] == ["device", "process", "launch"]:
             return {}
-        self.failTest("unexpected command")
+        self.fail("unexpected command")
 
     def run_delivery(self):
         return module.deliver(self.options, self.command)
 
     def test_foreground_observation_is_read_only_and_accepts_same_or_newer_inventory(self):
         self.options.observe = True
+        self.inventory[0]["bundleVersion"] = "2"
+        result = self.run_delivery()
+        self.assertEqual(result["state"], "installed-version-observed")
+        self.assertEqual(result["deviceUDID"], "UDID")
+        self.assertTrue(result["soleProfileDevice"])
+        self.assertFalse(list(Path(self.options.root).glob("*.json")))
+        self.options.observe = False
+        self.inventory[0]["bundleVersion"] = "1"
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        self.options.observe = True
+        journal = next(Path(self.options.root).glob("*.json"))
+        original = journal.read_bytes()
         for build, expected in [("1", "not-found"), ("2", "installed-version-observed"), ("3", "installed-version-observed")]:
             self.inventory[0]["bundleVersion"] = build
-            self.assertEqual(self.run_delivery()["state"], expected)
+            result = self.run_delivery()
+            self.assertEqual(result["state"], expected)
+            self.assertEqual(result.get("deviceUDID"), "UDID" if expected == "installed-version-observed" else None)
         self.inventory[0]["teamIdentifier"] = "different-fixture"
         self.assertEqual(self.run_delivery()["state"], "not-found")
-        self.assertEqual(self.installs, 0)
-        self.assertFalse(Path(self.options.root).exists())
+        self.assertEqual(self.installs, 1)
+        self.assertEqual(journal.read_bytes(), original)
+        self.options.team = "ANOTHER-TEAM"
+        with self.assertRaises(ValueError):
+            self.run_delivery()
 
     def test_complete_inventory_duplicate_and_temp_cleanup(self):
         self.assertEqual(self.run_delivery()["state"], "installed")
@@ -72,8 +90,28 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 1)
         self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
 
+    def test_paired_disconnected_coredevice_can_install_an_archive_without_a_running_app(self):
+        self.device["deviceProperties"] = {"developerModeStatus": "enabled"}
+        self.device["connectionProperties"] = {
+            "pairingState": "paired", "tunnelState": "disconnected", "transportType": "localNetwork"}
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        self.assertEqual(self.installs, 1)
+
+    def test_disconnected_coredevice_that_cannot_answer_inventory_never_installs(self):
+        self.device["deviceProperties"] = {"developerModeStatus": "enabled"}
+        self.device["connectionProperties"] = {
+            "pairingState": "paired", "tunnelState": "disconnected", "transportType": "localNetwork"}
+
+        def unreachable(args, timeout=12, **kwargs):
+            if args[:3] == ["device", "info", "apps"]:
+                raise ValueError("developer_connection_unavailable")
+            return self.command(args, timeout)
+
+        self.assertEqual(module.deliver(self.options, unreachable)["code"], "DEVELOPER_CONNECTION_UNAVAILABLE")
+        self.assertEqual(self.installs, 0)
+
     def test_lost_receipt_restart_and_different_build_cannot_resubmit(self):
-        self.fail = True
+        self.lose_receipt = True
         self.assertEqual(self.run_delivery()["state"], "unconfirmed")
         self.assertEqual(self.run_delivery()["state"], "unconfirmed")
         self.options.build_id = "build-2"
@@ -83,7 +121,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(len(list(Path(self.options.root).glob("prepare-*"))), 1)
 
     def test_reconcile_inventory_without_second_install(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         self.inventory[0]["bundleVersion"] = "2"
         self.options.status = True
@@ -92,18 +130,18 @@ class DeliveryTests(unittest.TestCase):
         self.options.status = False
         self.options.build_id = "build-2"
         self.options.build = "3"
-        self.fail = False
+        self.lose_receipt = False
         self.assertEqual(self.run_delivery()["state"], "installed")
         self.assertEqual(self.installs, 2)
         self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
 
     def test_newer_inventory_resolves_old_uncertainty_and_releases_staging(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         self.inventory[0]["bundleVersion"] = "3"
         self.options.build_id = "build-2"
         self.options.build = "4"
-        self.fail = False
+        self.lose_receipt = False
         self.assertEqual(self.run_delivery()["state"], "installed")
         self.assertEqual(self.installs, 2)
         self.assertFalse(list(Path(self.options.root).glob("prepare-*")))
@@ -117,7 +155,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 2)
 
     def test_expiry_does_not_replay_an_unresolved_native_handoff(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         self.options.expires_at = 1
         self.options.build_id = "build-2"
@@ -135,10 +173,11 @@ class DeliveryTests(unittest.TestCase):
         self.options.status = True
         self.assertEqual(self.run_delivery()["state"], "not-found")
         self.assertEqual(json.loads(journal.read_text())["entries"], {})
+        self.assertEqual(json.loads(journal.read_text())["boundDevice"], "UDID")
         self.assertEqual(self.installs, 1)
 
     def test_terminal_pruning_does_not_wait_for_an_unresolved_native_handoff(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         journal = next(Path(self.options.root).glob("*.json"))
         value = json.loads(journal.read_text())
@@ -151,7 +190,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 1)
 
     def test_unproven_staging_path_is_never_removed(self):
-        self.fail = True
+        self.lose_receipt = True
         self.run_delivery()
         journal = next(Path(self.options.root).glob("*.json"))
         value = json.loads(journal.read_text())
@@ -175,20 +214,191 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(self.installs, 2)
 
     def test_unavailable_and_ambiguous_devices_do_not_submit(self):
-        self.device["connectionProperties"]["tunnelState"] = "disconnected"
+        self.device["connectionProperties"]["tunnelState"] = "unavailable"
         self.assertEqual(self.run_delivery()["state"], "unavailable")
         self.device["connectionProperties"]["tunnelState"] = "connected"
-        def ambiguous(args, timeout=12):
+        def ambiguous(args, timeout=12, **kwargs):
             return {"devices": [self.device, self.device]}
         self.assertEqual(module.deliver(self.options, ambiguous)["state"], "unavailable")
         self.assertEqual(self.installs, 0)
 
+    def test_multiple_profile_eligible_phones_require_and_keep_a_trusted_choice(self):
+        other = {**self.device, "identifier": "DEVICE-2",
+                 "hardwareProperties": {**self.device["hardwareProperties"], "udid": "UDID-2"},
+                 "connectionProperties": {"pairingState": "paired", "tunnelState": "unavailable"}}
+        self.profile_devices.append("UDID-2")
+        probes = []
+        submissions = []
+        other_reachable = False
+
+        def two_devices(args, timeout=12, **kwargs):
+            if args == ["list", "devices"]:
+                return {"devices": [self.device, other]}
+            if args[:3] == ["device", "info", "apps"]:
+                probes.append(args[4])
+                if args[4] in ("DEVICE-2", "UDID-2") and not other_reachable:
+                    raise TimeoutError("target still asleep")
+            if args[:3] == ["device", "install", "app"]:
+                submissions.append(args[4])
+            return self.command(args, timeout)
+
+        for state in ["unavailable", "disconnected", "connected"]:
+            other["connectionProperties"]["tunnelState"] = state
+            result = module.deliver(self.options, two_devices)
+            self.assertEqual(result["code"], "INSTALL_DEVICE_SELECTION_REQUIRED")
+            self.assertIn("--device", result["message"])
+        self.assertEqual(probes, [])
+        self.assertEqual(submissions, [])
+        self.assertEqual(self.run_delivery()["code"], "INSTALL_DEVICE_SELECTION_REQUIRED",
+                         "the signed profile still permits another device omitted from Xcode's list")
+        other_reachable = True
+        self.options.device = "UDID-2"
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "installed")
+        self.assertEqual(probes, ["DEVICE-2", "DEVICE-2"])
+        self.options.device = "DEVICE"
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "blocked")
+        self.assertEqual(probes, ["DEVICE-2", "DEVICE-2"])
+        self.options.device = ""
+        self.options.build_id = "build-2"
+        self.options.build = "3"
+        other_reachable = False
+        probes.clear()
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "blocked")
+        self.assertEqual(probes, ["DEVICE-2"])
+        self.options.observe = True
+        self.options.device = "UDID"
+        probes.clear()
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "not-found")
+        self.assertEqual(probes, [])
+        self.options.transfer_device = "UDID-2"
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "unconfirmed")
+        self.assertEqual(probes, ["UDID-2"])
+        self.options.observe = False
+        self.options.device = ""
+        other_reachable = True
+        probes.clear()
+        self.assertEqual(module.deliver(self.options, two_devices)["state"], "installed")
+        self.assertEqual(probes, ["DEVICE-2", "DEVICE-2"])
+        self.assertEqual(submissions, ["DEVICE-2", "DEVICE-2"])
+
+    def test_shortened_or_late_inventory_never_proves_absence_or_submits(self):
+        for probe_start in [16, 5]:
+            ticks = [0]
+
+            def delayed(args, timeout=12, **kwargs):
+                ticks[0] = probe_start if args == ["list", "devices"] else 31
+                return self.command(args, timeout)
+
+            with patch.object(module.time, "monotonic", side_effect=lambda: ticks[0]):
+                self.assertEqual(module.deliver(self.options, delayed)["state"], "unavailable")
+            self.assertEqual(self.installs, 0)
+
+    def test_subprocess_cannot_extend_a_probe_past_its_deadline(self):
+        with patch.object(module.time, "monotonic", return_value=16), patch.object(module.subprocess, "run") as child:
+            with self.assertRaises(TimeoutError):
+                module.run(["list", "devices"], deadline=30)
+            child.assert_not_called()
+
     def test_team_mismatch_and_explicit_device_selection(self):
         self.inventory[0]["teamIdentifier"] = "OTHER"
-        self.assertEqual(self.run_delivery()["state"], "unavailable")
+        self.inventory[0]["bundleVersion"] = self.options.build
+        self.assertEqual(self.run_delivery()["code"], "EXISTING_APP_TEAM_UNCONFIRMED")
         self.options.device = "NOT-THIS-PHONE"
         self.assertEqual(self.run_delivery()["state"], "unavailable")
         self.assertEqual(self.installs, 0)
+
+    def test_a_receipt_for_the_previous_phone_does_not_confirm_the_new_saved_phone(self):
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        self.options.build_id = "build-2"
+        self.options.build = "3"
+        self.options.device = "UDID-2"
+        self.profile_devices.append("UDID-2")
+        self.device["identifier"] = "DEVICE-2"
+        self.device["hardwareProperties"]["udid"] = "UDID-2"
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        self.options.build_id = "build-1"
+        self.options.build = "2"
+        self.options.device = ""
+        self.assertEqual(self.run_delivery()["code"], "INSTALL_RECEIPT_DEVICE_MISMATCH")
+        self.assertEqual(self.installs, 2)
+
+    def test_legacy_coredevice_receipt_needs_a_single_signed_device_and_exact_inventory(self):
+        self.assertEqual(self.run_delivery()["state"], "installed")
+        journal = next(Path(self.options.root).glob("*.json"))
+        envelope = json.loads(journal.read_text())
+        envelope.pop("boundDevice")
+        legacy = envelope["entries"]["build-1"]
+        legacy.pop("deviceUDID")
+        self.assertEqual(legacy["device"], "DEVICE")
+        self.device["identifier"] = "NEW-DEVICE"
+        self.device["hardwareProperties"]["udid"] = "NEW-UDID"
+        probes = []
+
+        def inventory(args, timeout=12, **kwargs):
+            probes.append(args)
+            return self.command(args, timeout)
+
+        for status in (False, True):
+            with self.subTest(status=status):
+                journal.write_text(json.dumps(envelope))
+                self.options.status = status
+                self.profile_devices = ["NEW-UDID", "OTHER-UDID"]
+                probes.clear()
+                self.assertEqual(module.deliver(self.options, inventory)["state"], "unconfirmed")
+                self.assertEqual(probes, [])
+                self.profile_devices = ["NEW-UDID"]
+                self.inventory[0]["bundleVersion"] = "1"
+                self.assertEqual(module.deliver(self.options, inventory)["state"], "unconfirmed")
+                self.assertEqual(probes[-1][4], "NEW-UDID")
+                self.inventory[0]["bundleVersion"] = "2"
+                self.assertEqual(module.deliver(self.options, inventory)["state"], "installed-version-observed")
+                self.assertEqual(json.loads(journal.read_text())["entries"]["build-1"]["deviceUDID"], "NEW-UDID")
+        self.assertEqual(self.installs, 1)
+
+    def test_slow_archive_validation_does_not_reduce_the_observation_probe_budget(self):
+        self.options.observe = True
+        self.inventory[0]["bundleVersion"] = "2"
+        ticks, deadlines = [0], []
+        def slow_prepare(ipa, out):
+            self.prepare(ipa, out)
+            ticks[0] += 16
+
+        def inventory(args, timeout=12, deadline=None):
+            deadlines.append(deadline)
+            ticks[0] += 15
+            return self.command(args, timeout)
+
+        with patch.object(module, "prepare", side_effect=slow_prepare), patch.object(module.time, "monotonic", side_effect=lambda: ticks[0]):
+            self.assertEqual(module.deliver(self.options, inventory)["state"], "installed-version-observed")
+        self.assertEqual(deadlines, [46])
+
+    def test_already_matching_explicit_choice_saves_the_binding(self):
+        self.profile_devices.append("UDID-2")
+        self.options.device = "UDID"
+        self.inventory[0]["bundleVersion"] = "2"
+        self.assertEqual(self.run_delivery()["state"], "already-matching-version")
+        journal = next(Path(self.options.root).glob("*.json"))
+        self.assertEqual(json.loads(journal.read_text())["boundDevice"], "UDID")
+        self.assertEqual(self.installs, 0)
+
+    def test_pending_receipt_and_new_discovery_share_the_probe_budget(self):
+        self.lose_receipt = True
+        self.assertEqual(self.run_delivery()["state"], "unconfirmed")
+        self.lose_receipt = False
+        self.inventory[0]["bundleVersion"] = "2"
+        self.options.build_id = "build-2"
+        self.options.build = "3"
+        ticks, deadlines = [0], []
+
+        def delayed(args, timeout=12, deadline=None):
+            deadlines.append(deadline)
+            ticks[0] += 12
+            return self.command(args, timeout)
+
+        with patch.object(module.time, "monotonic", side_effect=lambda: ticks[0]):
+            self.assertEqual(module.deliver(self.options, delayed)["state"], "unavailable")
+        self.assertEqual(deadlines, [30, 30])
+        self.assertEqual(self.installs, 1)
 
     def test_failed_durable_fence_never_installs(self):
         with patch.object(module, "save", side_effect=OSError("disk full")):

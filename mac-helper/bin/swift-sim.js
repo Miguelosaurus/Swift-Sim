@@ -110,7 +110,7 @@ async function main() {
   if (command === "build-delivery-status" || command === "deliver-build") {
     const { values } = parseArgs({ args, options: { "build-id": { type: "string" }, project: { type: "string" }, workspace: { type: "string" }, scheme: { type: "string" }, device: { type: "string" } } });
     const { deliverSavedBuild } = await import("../src/buildDelivery.js");
-    console.log(JSON.stringify(await deliverSavedBuild({ buildID: values["build-id"], project: values.project, workspace: values.workspace, scheme: values.scheme, device: values.device, status: command === "build-delivery-status" })));
+    console.log(JSON.stringify(await deliverSavedBuild({ buildID: values["build-id"], project: values.project, workspace: values.workspace, scheme: values.scheme, device: values.device, status: command === "build-delivery-status", showDevices: true })));
     return;
   }
   if (command === "request-install") {

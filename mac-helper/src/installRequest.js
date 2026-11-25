@@ -10,7 +10,7 @@ const STATES = new Set(["waiting", "opening", "prompt-requested", "unconfirmed",
 // startup never imports this module or reads/hashes a signed build for it.
 export async function requestAppInstall({ buildID, operation = "enqueue", project, workspace, scheme,
   cwd = process.cwd(), now = () => Date.now(), readBuild, control, digest = hashArtifact,
-  listBuilds, restoreEngine = async (scope, guard) => (await import("./liveReload.js")).restoreStoppedLiveEngine(scope, guard),
+  listBuilds, restoreEngine = async (scope, guard) => (await import("./liveReload.js")).restoreStoppedLiveEngine({ ...scope, forInstall: true }, guard),
   offline = async (id, operation) => (await import("./buildDelivery.js")).offlineInstallRequest(id, operation),
 } = {}) {
   try {
@@ -43,23 +43,24 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
     const readHistory = async () => history ??= await listBuilds?.() || [];
     let engine = await request({ action: "status" });
     if (engine === null) {
-      const builds = await readHistory();
-      const priorIdentity = recoverableIdentity(build, builds, now());
-      if (priorIdentity && priorIdentity.build_number !== build.app.build) {
-        try {
-          const restored = await restoreEngine({ project: buildPath, scheme: build.scheme }, async () => {
-            const current = await readBuild(id);
-            if (JSON.stringify(binding(current)) !== JSON.stringify(binding(build)) || Date.parse(current.expiresAt) <= now())
-              throw failure("INSTALL_BUILD_CHANGED");
-            history = await listBuilds?.() || [];
-            const freshIdentity = recoverableIdentity(build, history, now());
-            if (JSON.stringify(freshIdentity) !== JSON.stringify(priorIdentity)) throw failure("INSTALL_RUNNING_APP_REQUIRED");
-          });
-          if (restored) engine = await request({ action: "status" });
-        } catch (error) {
-          if (!["RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_COMPONENT_REQUIRED", "RECOVERY_NETWORK_REQUIRED",
-            "RECOVERY_ENGINE_UNCONFIRMED"].includes(error?.code)) throw error;
-        }
+      const priorIdentity = recoverableIdentity(build, await readHistory(), now());
+      try {
+        const restored = await restoreEngine({ project: buildPath, scheme: build.scheme,
+          ...(build.buildSettings?.length ? { buildSettings: build.buildSettings } : {}) }, async () => {
+          const current = await readBuild(id);
+          if (JSON.stringify(binding(current)) !== JSON.stringify(binding(build)) || Date.parse(current.expiresAt) <= now())
+            throw failure("INSTALL_BUILD_CHANGED");
+          history = await listBuilds?.() || [];
+          const freshIdentity = recoverableIdentity(build, history, now());
+          if (JSON.stringify(freshIdentity) !== JSON.stringify(priorIdentity)) throw failure("INSTALL_RUNNING_APP_REQUIRED");
+        });
+        if (restored) engine = await request({ action: "status" });
+      } catch (error) {
+        if (!["RECOVERY_BUILD_CONTEXT_REQUIRED", "RECOVERY_COMPONENT_REQUIRED", "RECOVERY_NETWORK_REQUIRED",
+          "RECOVERY_ENGINE_UNCONFIRMED"].includes(error?.code)) throw error;
+        const guidance = RECOVERY_GUIDANCE[error.code];
+        return { outcome: "needs-user-action", code: "INSTALL_ENGINE_UNAVAILABLE", installed: false,
+          nextAction: "check-mac", guidance };
       }
     }
     if (engine?.success !== true || !engine.data || typeof engine.data !== "object" || Array.isArray(engine.data))
@@ -99,14 +100,15 @@ export async function requestAppInstall({ buildID, operation = "enqueue", projec
       : Object.hasOwn(GUIDANCE, error?.code) ? error.code : "INSTALL_REQUEST_UNAVAILABLE";
     return { outcome: "needs-user-action", code, guidance: GUIDANCE[code], installed: false,
       nextAction: code === "INSTALL_REQUEST_NOT_FOUND" ? "none" : code === "INSTALL_QUEUE_BUSY" ? "wait"
-        : code === "INSTALL_DEBUG_BASELINE_REQUIRED" ? "open-swift-sim" : "check-mac" };
+        : ["INSTALL_DEBUG_BASELINE_REQUIRED", "INSTALL_RUNNING_APP_REQUIRED", "INSTALL_SDK_UPDATE_REQUIRED"].includes(code)
+          ? "open-swift-sim" : "check-mac" };
   }
 }
 
 function binding(build) {
   if (!build) return null;
   return { id: build.id, app: build.app, signing: build.signing, state: build.state, token: build.token,
-    expired: build.tokenExpiredAt, expiresAt: build.expiresAt, base: build.remoteBaseUrl,
+    expired: build.tokenExpiredAt, expiresAt: build.expiresAt, transfer: build.ipaTransfer?.state, base: build.remoteBaseUrl,
     ipa: build.artifacts?.ipaPath, project: build.project, workspace: build.workspace, scheme: build.scheme, preserveData: build.preserveData };
 }
 function projectResult(response, id, operation = "", timestamp = Date.now() / 1000) {
@@ -158,7 +160,8 @@ function previouslyLaunchedIdentity(target, builds, timestamp) {
         || canonicalProjectPath(build.workspace || build.project) !== canonicalProjectPath(target.workspace || target.project)
         || build.scheme !== target.scheme || build.app?.teamID !== target.app.teamID
         || build.app?.bundleIdentifier !== target.app.bundleIdentifier) continue;
-      if (String(build.configuration).toLowerCase() === "release") {
+      const configuration = String(build.configuration).toLowerCase();
+      if (configuration === "release" || (configuration === "debug" && build.liveReload?.eligible !== true)) {
         const installedAt = Date.parse(receipt.lastSeenAt || receipt.verifiedAt || "");
         if (Number.isFinite(installedAt) && installedAt <= timestamp + 5000)
           candidates.push({ identity: null, seen: installedAt });
@@ -167,7 +170,7 @@ function previouslyLaunchedIdentity(target, builds, timestamp) {
       if (!/^[a-f0-9]{64}$/.test(receipt.launchFingerprint || "")
         || receipt.launchFingerprint !== receipt.launchProcessFingerprint
         || !Number.isFinite(seen) || seen > timestamp + 5000
-        || String(build.configuration).toLowerCase() !== "debug"
+        || configuration !== "debug"
         || build.liveReload?.eligible !== true || build.liveReload?.compilerReady !== true
         || !Number.isFinite(build.liveReload?.recovery?.completedAt)
         || build.liveReload.recovery.completedAt > seen
@@ -184,13 +187,19 @@ function previouslyLaunchedIdentity(target, builds, timestamp) {
   return candidates[0].identity;
 }
 function failure(code) { return Object.assign(new Error(code), { code }); }
+const RECOVERY_GUIDANCE = {
+  RECOVERY_BUILD_CONTEXT_REQUIRED: "Swift Sim could not verify the saved live session for this project. Run swift-sim live-start --project <project> --scheme <scheme> on the Mac, or use the saved build’s install link.",
+  RECOVERY_COMPONENT_REQUIRED: "Swift Sim could not verify the installed live engine. Repair Swift Sim on the Mac or use the saved build’s install link.",
+  RECOVERY_NETWORK_REQUIRED: "The saved private connection for Swift Sim is unavailable. Connect the Mac to its Tailnet or use the saved build’s install link.",
+  RECOVERY_ENGINE_UNCONFIRMED: "Swift Sim tried to restart the Mac live engine and could not confirm it started. Check Swift Sim on the Mac or use the saved build’s install link.",
+};
 const GUIDANCE = {
   INSTALL_REQUEST_INVALID: "Select one saved build and one operation: request, status, or cancel.",
   INSTALL_BUILD_UNAVAILABLE: "A ready, signed, unexpired saved build is required. No build or link renewal was started.",
   INSTALL_BUILD_CHANGED: "The saved build changed while preparing the request. Nothing was queued.",
   INSTALL_SCOPE_REQUIRED: "Run from the matching app project or provide its --project/--workspace and --scheme.",
-  INSTALL_DEBUG_BASELINE_REQUIRED: "The latest verified install for this project is a Release app. Use the saved build’s install link. Foreground prompts require an installed Swift Sim Debug app.",
-  INSTALL_RUNNING_APP_REQUIRED: "Open the matching Debug app once to establish its exact installed binary.",
+  INSTALL_DEBUG_BASELINE_REQUIRED: "The latest verified install cannot show a Swift Sim install prompt. Use the saved build’s install link.",
+  INSTALL_RUNNING_APP_REQUIRED: "Swift Sim could not identify an installed Debug app that can show the prompt. Use the saved build’s install link or open the matching Debug app to retry.",
   INSTALL_ALREADY_RUNNING: "The matching connected app already reports this build. No prompt was requested.",
   INSTALL_ENGINE_UNAVAILABLE: "The Mac live engine is not responding. Check Swift Sim on the Mac or use the saved build's install link. No new install request was queued.",
   INSTALL_ENGINE_UPDATE_REQUIRED: "Update the Swift Sim engine before requesting installs through the Debug connection.",

@@ -36,7 +36,7 @@ function fixture(t, sqlite = false) {
   ]), { mode: 0o600 });
   const options = { now: () => clock, identity: () => ({ startToken: "fixture-owner" }) };
   return { root, store, old, target, options, advance: ms => { clock += ms; },
-    admit: () => admitIPA(store, old.id, old.token, options),
+    admit: deviceUDID => admitIPA(store, old.id, old.token, { ...options, deviceUDID }),
     fence: observe => foregroundInstallFence(target, root, clock / 1000, { store, ...options, observe }),
   };
 }
@@ -72,7 +72,8 @@ test("SQLite authority retains stream evidence and supersession across stale sav
   const f = fixture(t, true), lease = f.admit();
   assert.equal((await f.fence()).code, "INSTALL_DOWNLOAD_IN_PROGRESS");
   lease.finish(true);
-  assert.equal(await f.fence(async () => ({ state: "installed-version-observed", observedAt: new Date(f.options.now()).toISOString() })), null);
+  assert.equal(await f.fence(async () => ({ state: "installed-version-observed", deviceUDID: "only-phone", soleProfileDevice: true,
+    observedAt: new Date(f.options.now()).toISOString() })), null);
   f.store.save(f.old); lease.finish(false);
   assert.equal(f.store.get(f.old.id).ipaTransfer.state, "superseded");
   assert.equal(f.admit().status, 410);
@@ -103,14 +104,44 @@ test("completed download fences only for the post-download budget, independently
   assert.equal(f.store.get(f.old.id).ipaTransfer.state, "superseded");
 });
 
-test("fresh inventory proof resolves a completed foreground handoff before its settling budget", async t => {
-  const f = fixture(t); f.admit().finish(true);
+test("only fresh inventory for the actual recipient can resolve a completed handoff", async t => {
+  const f = fixture(t); f.admit("phone-B").finish(true);
+  assert.equal(f.store.get(f.old.id).ipaTransfer.deviceUDID, "phone-B");
   let observed = 0;
-  assert.equal((await f.fence(async () => ({ state: "installed-version-observed", observedAt: new Date(0).toISOString() }))).code, "INSTALL_HANDOFF_PENDING");
+  assert.equal((await f.fence(async () => ({ state: "installed-version-observed", deviceUDID: "phone-A", boundDeviceVerified: true,
+    observedAt: new Date(f.options.now()).toISOString() }))).code, "INSTALL_HANDOFF_PENDING");
+  assert.equal((await f.fence(async () => ({ state: "installed-version-observed", deviceUDID: "phone-B",
+    observedAt: new Date(0).toISOString() }))).code, "INSTALL_HANDOFF_PENDING");
   assert.equal(await f.fence(async old => {
-    observed++; assert.equal(old.id, f.old.id); return { state: "installed-version-observed", observedAt: new Date(f.options.now()).toISOString() };
+    observed++; assert.equal(old.id, f.old.id); return { state: "installed-version-observed", deviceUDID: "phone-B",
+      observedAt: new Date(f.options.now()).toISOString() };
   }), null);
   assert.equal(observed, 1); assert.equal(f.store.get(f.old.id).ipaTransfer.state, "superseded");
+});
+
+test("an anonymous handoff requires sole-device profile proof before it can settle early", async t => {
+  const f = fixture(t); f.admit().finish(true);
+  const observedAt = new Date(f.options.now()).toISOString();
+  const proof = { state: "installed-version-observed", deviceUDID: "phone-A", observedAt };
+  assert.equal((await f.fence(async () => ({ ...proof, boundDeviceVerified: true }))).code, "INSTALL_HANDOFF_PENDING");
+  assert.equal(await f.fence(async () => ({ ...proof, soleProfileDevice: true })), null);
+  assert.equal(f.store.get(f.old.id).ipaTransfer.completedDeviceUDID, "phone-A");
+});
+
+test("a newer failed download retains the preceding completion and its recipient", async t => {
+  const f = fixture(t);
+  f.admit("phone-A").finish(true);
+  f.advance(10);
+  f.admit("phone-B").finish(false);
+  const result = await deliverSavedBuild({ buildID: f.target.id, project: f.target.project, scheme: f.target.scheme,
+    device: "phone-B", store: f.store, readBuild: id => f.store.get(id), maintain: async () => {},
+    prompt: async () => ({ code: "INSTALL_REQUEST_NOT_FOUND" }),
+    direct: async (_, options) => {
+      assert.equal(options.observe, true);
+      assert.equal(options.transferDevice, "phone-A");
+      return { state: "installed-version-observed", deviceUDID: "phone-B", observedAt: new Date().toISOString() };
+    } });
+  assert.equal(result.code, "INSTALL_HANDOFF_PENDING");
 });
 
 test("reused gateway identity cannot leave a dead stream fencing forever", async t => {

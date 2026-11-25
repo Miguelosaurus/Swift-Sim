@@ -27,7 +27,7 @@ import { arch, homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { withLiveEngineLifecycleLock } from "./liveEngineLifecycleLock.js";
 import { abortPendingLiveEngine, readPublishedLiveEngineRecord, kernelProcessIdentity } from "./liveEngineOwnershipPreload.js";
-import { buildLiveSessionDescriptor, publishLiveSessionDescriptor, readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
+import { buildLiveSessionDescriptor, canonicalProjectPath, publishLiveSessionDescriptor, readLiveSessionDescriptor } from "./liveSessionDescriptor.js";
 import { machoUUID, normalizedLiveBinaryIdentity } from "./liveBinaryIdentity.js";
 import { ensureDirectoryModeSync, NodeAtomicFileStore } from "./infrastructure/nodeAtomicFileStore.js";
 import { NodeCommandRunner } from "./infrastructure/nodeCommandRunner.js";
@@ -419,7 +419,8 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
   const matchingEngineSession = liveEngineSessionMatches(engineSession, {
     projectRoot,
     scheme: schemeSelection.scheme,
-  });
+  }) && (!engineSession.projectPath || engineSession.projectPath === projectPath)
+    && (!engineSession.liveHost || engineSession.liveHost === tailscaleHost);
   const watchingProject = Boolean(
     matchingEngineSession
     && engineStatus?.watching_directories?.some((path) => resolve(path) === projectRoot)
@@ -504,7 +505,7 @@ async function inspectLiveReloadUnlocked({ project = "", host = "", scheme = "" 
 }
 
 function publishDescriptorFromStatus(status, engineSession) {
-  if (!engineSession?.nonce || !status?.project?.path || !status?.project?.scheme) return;
+  if (!engineSession?.nonce || engineSession.projectPath !== status.project.path || engineSession.liveHost !== status.host) return;
   try {
     publishLiveSessionDescriptor(buildLiveSessionDescriptor({ projectPath: status.project.path, projectRoot: status.project.root, scheme: status.project.scheme, applicationTarget: status.project.applicationTarget, availableSchemes: status.project.availableSchemes, host: status.host, packageConfigured: status.project.packageConfigured, interposableConfigured: status.project.interposableConfigured, tailnet: status.tailnet, engineSession, engineVersion: status.engine.version }));
   } catch {}
@@ -1216,13 +1217,19 @@ export function assertStoppedLiveEngineForRecovery({ readRecord = readPublishedL
 export async function restoreStoppedLiveEngine(options, guard = () => {}) {
   return withLiveEngineLifecycleLock(async () => {
     await guard();
-    const prepared = readLiveSessionDescriptor({ projectPath: options.project, scheme: options.scheme });
-    if (!prepared.valid)
-      throw registrationError("RECOVERY_BUILD_CONTEXT_REQUIRED", "No matching prepared Debug session.");
+    const projectPath = canonicalProjectPath(options.project);
+    const session = readJSONFile(ENGINE_SESSION);
+    const savedHost = session?.liveHost;
+    // A legacy descriptor could have been written for a sibling project.
+    if (!projectPath || !options.scheme || !session?.nonce || session.projectPath !== projectPath
+      || !liveEngineSessionMatches(session, { projectRoot: projectRootFor(projectPath), scheme: options.scheme })
+      || !savedHost || validTailnetIPv4(savedHost) !== savedHost
+      || (!options.forInstall && !readLiveSessionDescriptor({ projectPath, scheme: options.scheme, host: savedHost }).valid))
+      throw registrationError("RECOVERY_BUILD_CONTEXT_REQUIRED", "Run swift-sim live-start --project <project> --scheme <scheme> on the Mac.");
     if (!engineMatchesContract(inspectInstalledEngineForSetup()))
       throw registrationError("RECOVERY_COMPONENT_REQUIRED", "The installed live engine does not match this release.");
     const status = await inspectLiveReloadUnlocked(options);
-    if (!status.tailnet.detected || !status.tailnet.privateForwardConfigured || status.host !== prepared.descriptor.liveHost)
+    if (!status.tailnet.detected || !status.tailnet.privateForwardConfigured || status.host !== savedHost)
       throw registrationError("RECOVERY_NETWORK_REQUIRED", "The existing private live route is unavailable.");
     assertStoppedLiveEngineForRecovery();
     if (status.engine.running || (!existsSync(ENGINE_PID) && existsSync(ENGINE_SOCKET)))
@@ -1315,6 +1322,8 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
       projectRoot: status.project.root,
       scheme: status.project.scheme,
     })
+    && session.projectPath === status.project.path
+    && session.liveHost === status.host
     && session?.signingIdentity === signingIdentity;
   if (recovery && !alreadyWatching) {
     assertStoppedLiveEngineForRecovery();
@@ -1372,7 +1381,9 @@ async function startLiveReloadUnlocked({ project = "", host = "", scheme = "", f
     try {
       writeFileSync(ENGINE_SESSION, `${JSON.stringify({
         projectRoot: status.project.root,
+        projectPath: status.project.path,
         scheme: status.project.scheme,
+        liveHost: status.host,
         signingIdentity,
         engineVersion: ENGINE_VERSION,
         nonce: sessionNonce,
@@ -2130,7 +2141,7 @@ function validTailnetIPv4(output) {
   if (!candidate) return "";
   const octets = candidate.split(".").map(Number);
   return octets.every((value) => value >= 0 && value <= 255)
-    && octets[0] === 100
+    && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127
     ? candidate
     : "";
 }

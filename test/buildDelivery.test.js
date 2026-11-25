@@ -19,6 +19,18 @@ test("unreachable developer connection queues one foreground request", async () 
   const f = fixture(); assert.equal((await deliverSavedBuild(f.input)).state, "waiting");
   assert.deepEqual(f.calls.map(c => c[0]), ["prompt", "direct", "prompt"]);
 });
+test("local delivery lists available choices with a complete saved-build retry", async () => {
+  const f = fixture();
+  f.build.project = f.input.project = "/tmp/My App.xcodeproj";
+  f.input.direct = async () => ({ state: "blocked", code: "INSTALL_DEVICE_SELECTION_REQUIRED",
+    choices: [{ id: "fixture-phone", name: "Test iPhone" }] });
+  const result = await deliverSavedBuild({ ...f.input, showDevices: true });
+  assert.match(result.message, /Test iPhone/);
+  assert.ok(result.message.includes(`swift-sim deliver-build --build-id ${buildID} --project '/tmp/My App.xcodeproj' --scheme 'App' --device 'fixture-phone'`));
+  const compact = await deliverSavedBuild(f.input);
+  assert.match(compact.message, new RegExp(buildID));
+  assert.doesNotMatch(compact.message, /Test iPhone|fixture-phone|\/tmp\/My App/);
+});
 for (const state of ["installed", "installed-version-observed", "already-matching-version", "unconfirmed"]) test(`${state} never opens an OTA prompt`, async () => {
   const f = fixture(); f.input.direct = async () => ({ state });
   assert.equal((await deliverSavedBuild(f.input)).state, state);
@@ -153,6 +165,15 @@ test("native uncertainty keeps its actionable reason in the delivery result", as
     nextAction: "check-status", message: "Reconnect the original phone and check inventory." });
   const result = await deliverSavedBuild(f.input);
   assert.equal(result.code, "INSTALL_RECONCILE_REQUIRED"); assert.equal(result.nextAction, "check-status");
+});
+
+test("a different native signing team fences the foreground route even without a submission", async () => {
+  const f = fixture();
+  f.input.direct = async () => ({ state: "blocked", code: "EXISTING_APP_TEAM_UNCONFIRMED", nextAction: "check-mac" });
+  const result = await deliverSavedBuild(f.input);
+  assert.equal(result.state, "blocked");
+  assert.equal(result.code, "EXISTING_APP_TEAM_UNCONFIRMED");
+  assert.deepEqual(f.calls, [["prompt", "status"]]);
 });
 
 test("notification failure remains visible without bypassing the installation fence", async () => {
